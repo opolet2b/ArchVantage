@@ -1,0 +1,126 @@
+"""
+LLM Decision Primitive
+
+Uses an LLM for routing decisions and reasoning within the agent workflow.
+"""
+from typing import Any, Dict
+from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
+
+
+class LLMDecisionPrimitive(BasePrimitive):
+    """
+    Primitive for LLM-based decision making.
+    
+    Uses the selectable LLM service for reasoning and routing.
+    """
+    
+    @property
+    def name(self) -> str:
+        return "LLM_DECISION"
+    
+    @property
+    def description(self) -> str:
+        return "Uses an LLM for routing decisions or generating content."
+    
+    @property
+    def param_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "type": "string",
+                    "description": "LLM model to use",
+                    "default": "default"
+                },
+                "instruction": {
+                    "type": "string",
+                    "description": "System instruction for the LLM"
+                },
+                "input_context": {
+                    "type": "string",
+                    "description": "Variable or expression for input context"
+                },
+                "output_variable": {
+                    "type": "string",
+                    "description": "Variable name to store the LLM response",
+                    "default": "llm_output"
+                },
+                "routing": {
+                    "type": "object",
+                    "description": "Optional routing based on LLM response",
+                    "properties": {
+                        "enabled": {"type": "boolean"},
+                        "options": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"}
+                        }
+                    }
+                }
+            },
+            "required": ["instruction", "input_context"]
+        }
+    
+    async def execute(
+        self, 
+        params: Dict[str, Any], 
+        state: Dict[str, Any]
+    ) -> PrimitiveResult:
+        """Execute LLM decision/generation."""
+        try:
+            from app.services.llm_service import llm_service
+            from app.models.chat import Message
+            
+            model = params.get("model", "default")
+            instruction = params.get("instruction", "")
+            input_context_var = params.get("input_context", "")
+            output_var = params.get("output_variable", "llm_output")
+            routing = params.get("routing", {})
+            
+            # Resolve input context from variables
+            variables = state.get("variables", {})
+            
+            # Get input context (could be a variable name or template)
+            if input_context_var.startswith("{{"):
+                input_context = self.resolve_variables(input_context_var, state)
+            else:
+                try:
+                    input_context = self._get_nested_value(variables, input_context_var)
+                    if isinstance(input_context, (dict, list)):
+                        import json
+                        input_context = json.dumps(input_context, indent=2)
+                except (KeyError, TypeError):
+                    input_context = input_context_var
+            
+            # Build messages for LLM
+            messages = [
+                Message(role="system", content=instruction),
+                Message(role="user", content=str(input_context))
+            ]
+            
+            # Call LLM
+            response = await llm_service.chat(messages, model_name=model)
+            
+            # Handle routing if enabled
+            next_node = None
+            if routing.get("enabled") and routing.get("options"):
+                options = routing["options"]
+                response_lower = response.lower().strip()
+                for key, target_node in options.items():
+                    if key.lower() in response_lower:
+                        next_node = target_node
+                        break
+            
+            return PrimitiveResult(
+                success=True,
+                output={
+                    output_var: response,
+                    "_raw": response
+                },
+                next_node=next_node
+            )
+            
+        except Exception as e:
+            return PrimitiveResult(
+                success=False,
+                error=f"LLM decision failed: {str(e)}"
+            )
