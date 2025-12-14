@@ -1,0 +1,3 @@
+- [x] Check requirements.txt for docx2txt <!-- id: 0 -->
+- [x] Install docx2txt and update requirements.txt <!-- id: 1 -->
+- [x] Verify fix <!-- id: 2 -->

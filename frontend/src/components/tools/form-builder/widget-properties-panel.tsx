@@ -68,9 +68,9 @@ export function WidgetPropertiesPanel({
         updateWidget({ options })
     }
 
-    const isInputType = ["text_input", "text_area", "number", "email", "password"].includes(widget.type)
+    const isInputType = ["text_input", "text_area", "number", "email", "password", "date_picker", "time_picker"].includes(widget.type)
     const hasOptions = ["dropdown", "checkbox_group", "radio_group"].includes(widget.type)
-    const isDisplayType = ["section_header", "divider", "instructional_text"].includes(widget.type)
+    const isDisplayType = ["section_header", "divider", "instructional_text", "picture"].includes(widget.type)
 
     return (
         <div className="w-72 border-l bg-slate-50/50 dark:bg-slate-900/50 p-4 overflow-y-auto">
@@ -115,6 +115,30 @@ export function WidgetPropertiesPanel({
                         />
                     )}
                 </div>
+
+                {/* Picture Properties */}
+                {widget.type === "picture" && (
+                    <>
+                        <div className="space-y-2">
+                            <Label htmlFor="field-url">Image URL</Label>
+                            <Input
+                                id="field-url"
+                                value={widget.url || ""}
+                                onChange={(e) => updateWidget({ url: e.target.value })}
+                                placeholder="https://..."
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="field-alt">Alt Text</Label>
+                            <Input
+                                id="field-alt"
+                                value={widget.alt_text || ""}
+                                onChange={(e) => updateWidget({ alt_text: e.target.value })}
+                                placeholder="Description of image"
+                            />
+                        </div>
+                    </>
+                )}
 
                 {/* Placeholder (for input types) */}
                 {isInputType && (
@@ -264,6 +288,43 @@ export function WidgetPropertiesPanel({
                         </div>
                     </div>
                 )}
+
+                {/* Layout Configuration */}
+                <div className="space-y-3 pt-2 border-t">
+                    <h4 className="text-sm font-medium">Layout</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                            <Label className="text-xs">Col Span</Label>
+                            <Input
+                                type="number"
+                                min={1}
+                                value={widget.layout?.colSpan ?? 1}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 1
+                                    updateWidget({
+                                        layout: { ...(widget.layout || { row: 0, col: 0, rowSpan: 1, colSpan: 1 }), colSpan: val }
+                                    })
+                                }}
+                                className="h-8"
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs">Row Span</Label>
+                            <Input
+                                type="number"
+                                min={1}
+                                value={widget.layout?.rowSpan ?? 1}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 1
+                                    updateWidget({
+                                        layout: { ...(widget.layout || { row: 0, col: 0, rowSpan: 1, colSpan: 1 }), rowSpan: val }
+                                    })
+                                }}
+                                className="h-8"
+                            />
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     )

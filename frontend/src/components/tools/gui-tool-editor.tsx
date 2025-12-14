@@ -12,9 +12,7 @@ import { Tool, ToolPermission } from "./tool-list"
 import { ToolPermissionsPanel } from "./tool-permissions-panel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Trash2, ArrowLeft, ChevronDown, ChevronRight } from "lucide-react"
 
 interface GUIToolEditorProps {
@@ -52,7 +50,10 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack }: GUIToolEditorP
             return {
                 title: tool.configuration.gui_schema.title,
                 submit_label: tool.configuration.gui_schema.submit_label,
-                components: tool.configuration.gui_schema.components
+                components: tool.configuration.gui_schema.components,
+                layout: tool.configuration.gui_schema.layout,
+                output_schema: tool.configuration.output_schema,
+                input_schema: tool.configuration.input_schema
             }
         }
         return undefined
@@ -65,6 +66,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack }: GUIToolEditorP
         title: string
         submit_label: string
         components: WidgetConfig[]
+        layout: { rows: number; cols: number }
+        output_schema: any
+        input_schema: any
     }) => {
         const toolData: Partial<Tool> = {
             name: name || formConfig.title,
@@ -72,7 +76,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack }: GUIToolEditorP
             is_public: isPublic,
             tool_type: "gui",
             configuration: {
-                gui_schema: formConfig
+                gui_schema: formConfig,
+                output_schema: formConfig.output_schema,
+                input_schema: formConfig.input_schema
             },
             permissions,  // Include permissions
             // Generate system prompt for GUI tool

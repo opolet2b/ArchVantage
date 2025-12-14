@@ -45,7 +45,7 @@ Thumbs.db
 # Project specific
 .gemini/
 site.db
-Specs/
+
 Archive/
 backend/data/
 backend/chroma_db/

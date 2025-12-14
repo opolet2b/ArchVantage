@@ -19,7 +19,10 @@ import {
     Heading,
     Minus,
     FileText,
-    GripVertical
+    GripVertical,
+    Calendar,
+    Clock,
+    Image as ImageIcon
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -47,6 +50,14 @@ export interface WidgetConfig {
     }
     options?: Array<{ label: string; value: string }>
     default?: string
+    url?: string
+    alt_text?: string
+    layout?: {
+        row: number
+        col: number
+        rowSpan: number
+        colSpan: number
+    }
 }
 
 // Available widget types
@@ -110,6 +121,28 @@ export const WIDGET_TYPES: WidgetType[] = [
             type: "password",
             label: "Password",
             placeholder: "Enter password...",
+            required: false
+        }
+    },
+    {
+        id: "date_picker",
+        name: "Date Picker",
+        icon: <Calendar className="h-4 w-4" />,
+        category: "input",
+        defaultConfig: {
+            type: "date_picker",
+            label: "Select Date",
+            required: false
+        }
+    },
+    {
+        id: "time_picker",
+        name: "Time Picker",
+        icon: <Clock className="h-4 w-4" />,
+        category: "input",
+        defaultConfig: {
+            type: "time_picker",
+            label: "Select Time",
             required: false
         }
     },
@@ -202,6 +235,19 @@ export const WIDGET_TYPES: WidgetType[] = [
         defaultConfig: {
             type: "instructional_text",
             label: "Enter helpful instructions here...",
+            required: false
+        }
+    },
+    {
+        id: "picture",
+        name: "Picture",
+        icon: <ImageIcon className="h-4 w-4" />,
+        category: "display",
+        defaultConfig: {
+            type: "picture",
+            label: "Image",
+            url: "https://placehold.co/600x400",
+            alt_text: "Placeholder Image",
             required: false
         }
     }

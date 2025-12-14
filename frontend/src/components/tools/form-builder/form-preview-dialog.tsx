@@ -28,6 +28,10 @@ interface FormPreviewDialogProps {
     title: string
     submitLabel: string
     widgets: WidgetConfig[]
+    layout: {
+        rows: number
+        cols: number
+    }
 }
 
 export function FormPreviewDialog({
@@ -35,9 +39,19 @@ export function FormPreviewDialog({
     onOpenChange,
     title,
     submitLabel,
-    widgets
+    widgets,
+    layout = { rows: 1, cols: 2 } // default backup
 }: FormPreviewDialogProps) {
     const [formValues, setFormValues] = useState<Record<string, any>>({})
+    const [submittedData, setSubmittedData] = useState<Record<string, any> | null>(null)
+
+    const handleSubmit = () => {
+        setSubmittedData(formValues)
+    }
+
+    const handleBack = () => {
+        setSubmittedData(null)
+    }
 
     const handleValueChange = (id: string, value: any) => {
         setFormValues(prev => ({ ...prev, [id]: value }))
@@ -55,6 +69,24 @@ export function FormPreviewDialog({
                     <Input
                         type={widget.type === "text_input" ? "text" : widget.type}
                         placeholder={widget.placeholder}
+                        required={widget.required}
+                        value={value ?? ""}
+                        onChange={(e) => handleValueChange(widget.id, e.target.value)}
+                    />
+                )
+            case "date_picker":
+                return (
+                    <Input
+                        type="date"
+                        required={widget.required}
+                        value={value ?? ""}
+                        onChange={(e) => handleValueChange(widget.id, e.target.value)}
+                    />
+                )
+            case "time_picker":
+                return (
+                    <Input
+                        type="time"
                         required={widget.required}
                         value={value ?? ""}
                         onChange={(e) => handleValueChange(widget.id, e.target.value)}
@@ -161,6 +193,21 @@ export function FormPreviewDialog({
                         {widget.label}
                     </p>
                 )
+            case "picture":
+                return (
+                    <div className="my-2">
+                        <img
+                            src={widget.url || "https://placehold.co/600x400"}
+                            alt={widget.alt_text || widget.label}
+                            className="max-w-full h-auto rounded-md border"
+                        />
+                        {widget.label && (
+                            <p className="text-xs text-muted-foreground mt-1 text-center">
+                                {widget.label}
+                            </p>
+                        )}
+                    </div>
+                )
             default:
                 return <div className="text-red-500">Unknown widget type: {widget.type}</div>
         }
@@ -174,31 +221,69 @@ export function FormPreviewDialog({
                 </DialogHeader>
 
                 <div className="flex-1 overflow-y-auto p-6">
-                    <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-                        {widgets.map((widget, i) => {
-                            if (widget.type === "section_header" || widget.type === "divider" || widget.type === "instructional_text") {
-                                return <div key={i}>{renderWidget(widget)}</div>
-                            }
-                            return (
-                                <div key={widget.id} className="space-y-2">
-                                    <Label className="text-base font-medium">
-                                        {widget.label}
-                                        {widget.required && <span className="text-red-500 ml-1">*</span>}
-                                    </Label>
-                                    {renderWidget(widget)}
-                                </div>
-                            )
-                        })}
-                    </form>
+                    {submittedData ? (
+                        <div className="space-y-4">
+                            <div className="rounded-md bg-slate-950 p-4">
+                                <pre className="text-sm text-slate-50 overflow-auto">
+                                    {JSON.stringify(submittedData, null, 2)}
+                                </pre>
+                            </div>
+                        </div>
+                    ) : (
+                        <div
+                            className="grid gap-4"
+                            style={{
+                                gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
+                                gridTemplateRows: `repeat(${layout.rows}, minmax(40px, auto))`
+                            }}
+                        >
+                            {widgets.map((widget, i) => {
+                                const gridStyle: React.CSSProperties = widget.layout ? {
+                                    gridColumn: `${widget.layout.col + 1} / span ${widget.layout.colSpan}`,
+                                    gridRow: `${widget.layout.row + 1} / span ${widget.layout.rowSpan}`
+                                } : {
+                                    gridColumn: "1 / -1", // Default to full width if no layout
+                                    gridRow: "auto"
+                                }
+
+                                if (widget.type === "section_header" || widget.type === "divider" || widget.type === "instructional_text") {
+                                    return (
+                                        <div key={i} style={gridStyle}>
+                                            {renderWidget(widget)}
+                                        </div>
+                                    )
+                                }
+
+                                return (
+                                    <div key={widget.id} style={gridStyle} className="space-y-2 min-w-0">
+                                        <Label className="text-base font-medium">
+                                            {widget.label}
+                                            {widget.required && <span className="text-red-500 ml-1">*</span>}
+                                        </Label>
+                                        {renderWidget(widget)}
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className="px-6 py-4 border-t bg-slate-50 dark:bg-slate-900/50">
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        Close
-                    </Button>
-                    <Button onClick={() => alert("This is just a preview. No data is submitted.")}>
-                        {submitLabel || "Submit"}
-                    </Button>
+                    {submittedData ? (
+                        <Button variant="outline" onClick={handleBack}>
+                            Back to Form
+                        </Button>
+                    ) : (
+                        <Button variant="outline" onClick={() => onOpenChange(false)}>
+                            Close
+                        </Button>
+                    )}
+
+                    {!submittedData && (
+                        <Button onClick={handleSubmit}>
+                            {submitLabel || "Submit"}
+                        </Button>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>

@@ -1,0 +1,22 @@
+# Implement Tools Creation Feature
+
+- [x] Backend: Add `mcp` package
+- [x] Backend: Create database models (`tools.py`)
+- [x] Backend: Create Pydantic schemas (`schemas/tools.py`)
+- [x] Backend: Create service logic (`services/tools.py`)
+- [x] Backend: Create API routers (`routers/tools.py`)
+- [x] Backend: Integrate router into `main.py`
+- [x] Frontend: Add "Tools" menu item to sidebar
+- [x] Frontend: Create main Tools page (`app/tools/page.tsx`)
+- [x] Frontend: Create UI components (tool list, tool editor, server list)
+- [x] Verification: Run and debug automated backend tests <!-- id: 0 -->
+- [ ] Verification: Manual UI verification <!-- id: 1 -->
+- [x] Fix: Create missing `switch` component <!-- id: 2 -->
+- [x] Feature: Add System Prompt editor with toggle button <!-- id: 3 -->
+- [x] Feature: Backend - Add system prompt generation schema and service <!-- id: 4 -->
+- [x] Feature: Backend - Add system prompt generation endpoint <!-- id: 5 -->
+- [x] Feature: Frontend - Integrate system prompt generation in ToolEditor <!-- id: 6 -->
+- [ ] Feature: Backend - Update Tool models for RBAC (remove is_public, add permissions) <!-- id: 7 -->
+- [ ] Feature: Backend - Update Tool schemas and endpoints for RBAC <!-- id: 8 -->
+- [ ] Feature: Frontend - Remove "Public Tool" toggle <!-- id: 9 -->
+- [ ] Feature: Frontend - Add Permission Management UI (Users/Groups, Read/Write) <!-- id: 10 -->

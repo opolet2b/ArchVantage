@@ -1,0 +1,21 @@
+# Tasks
+
+- [x] Find launch instructions for backend <!-- id: 0 -->
+- [x] Verify frontend launch instructions <!-- id: 1 -->
+- [x] Verify backend launch instructions <!-- id: 2 -->
+- [x] Create LAUNCH_INSTRUCTIONS.md <!-- id: 3 -->
+- [ ] Plan Configuration Feature <!-- id: 4 -->
+- [x] Create Settings Page UI <!-- id: 5 -->
+- [x] Implement Model Configuration Form <!-- id: 6 -->
+- [x] Backend: Add Configuration Endpoints <!-- id: 7 -->
+- [x] Backend: Add Ollama Model Listing <!-- id: 8 -->
+- [x] Integrate Frontend with Backend <!-- id: 9 -->
+- [x] Implement Configuration Loading UI <!-- id: 10 -->
+- [x] Backend: Implement Active Preset Logic <!-- id: 11 -->
+- [x] Frontend: Add 'Set Active' UI in Settings <!-- id: 12 -->
+- [x] Frontend: Update Chat to use Default Model <!-- id: 13 -->
+- [x] Backend: Create Conversation Service & Router <!-- id: 14 -->
+- [x] Frontend: Create Conversation Context <!-- id: 15 -->
+- [x] Frontend: Implement Conversation List & Sidebar <!-- id: 16 -->
+- [x] Frontend: Integrate Chat with Conversation Logic <!-- id: 17 -->
+- [x] Verification: Test Full Flow <!-- id: 18 -->
