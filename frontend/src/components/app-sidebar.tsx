@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench } from "lucide-react"
+import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench, HelpCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ConversationList } from "@/components/sidebar/conversation-list"
@@ -17,6 +17,7 @@ const navItems = [
     { href: "/rag", icon: Database, label: "RAG" },
     { href: "/search", icon: Search, label: "Research" },
     { href: "/settings", icon: Settings, label: "Settings" },
+    { href: "/help", icon: HelpCircle, label: "Help" },
 ]
 
 
@@ -30,7 +31,7 @@ export function AppSidebar() {
     }
 
     return (
-        <div className="flex flex-col h-screen w-64 border-r bg-slate-50/50 dark:bg-slate-900/50 py-4 gap-4">
+        <div className="flex flex-col h-screen w-64 border-r bg-slate-50/50 dark:bg-slate-900/50 py-4 gap-4 overflow-y-auto">
             <div className="px-4 flex items-center justify-between">
                 <div className="font-bold text-xl">AI Chat</div>
                 <Button variant="ghost" size="icon" onClick={handleNewChat} title="New Chat">

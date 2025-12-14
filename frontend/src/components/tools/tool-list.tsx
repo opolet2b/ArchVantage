@@ -14,6 +14,7 @@ import {
     SelectValue
 } from "@/components/ui/select"
 import { API_URL } from "@/lib/utils"
+import { HelpTooltip } from "@/components/ui/help-tooltip"
 
 // Interface for tool permissions
 export interface ToolPermission {
@@ -143,11 +144,13 @@ export function ToolList({ onSelectTool, onCreateTool, refreshTrigger = 0 }: Too
                 <Button onClick={onCreateTool} size="icon" title="Create Tool">
                     <Plus className="h-4 w-4" />
                 </Button>
+                <HelpTooltip contentPath="tools/create_tool" />
             </div>
 
             {/* Category Filter */}
             <div className="flex items-center gap-2">
                 <Filter className="h-4 w-4 text-muted-foreground" />
+                <HelpTooltip contentPath="tools/category_filter" />
                 <Select
                     value={selectedCategoryId}
                     onValueChange={setSelectedCategoryId}
@@ -189,8 +192,8 @@ export function ToolList({ onSelectTool, onCreateTool, refreshTrigger = 0 }: Too
                                         <Badge
                                             variant="outline"
                                             className={`text-[10px] px-1 h-5 ${tool.tool_type === "gui"
-                                                    ? "border-pink-300 text-pink-600 dark:border-pink-700 dark:text-pink-400"
-                                                    : "border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400"
+                                                ? "border-pink-300 text-pink-600 dark:border-pink-700 dark:text-pink-400"
+                                                : "border-blue-300 text-blue-600 dark:border-blue-700 dark:text-blue-400"
                                                 }`}
                                         >
                                             {tool.tool_type === "gui" ? "GUI" : "MCP"}

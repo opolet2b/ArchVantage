@@ -29,6 +29,8 @@ interface ModelPreset {
     api_url?: string;
 }
 
+import { HelpTooltip } from "@/components/ui/help-tooltip"
+
 export function BuilderHeader() {
     const router = useRouter();
     const [isEditingName, setIsEditingName] = useState(false);
@@ -155,35 +157,39 @@ export function BuilderHeader() {
                         {isDirty && <span className="text-xs text-amber-500">●</span>}
                     </button>
                 )}
+                <HelpTooltip contentPath="agent-builder/agent_name" />
             </div>
 
             {/* Center: LLM Selector */}
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-2">
-                        <Settings className="h-4 w-4" />
-                        {selectedModelName}
-                        <ChevronDown className="h-3 w-3" />
-                    </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="center">
-                    {isLoadingModels ? (
-                        <DropdownMenuItem disabled>Loading models...</DropdownMenuItem>
-                    ) : models.length === 0 ? (
-                        <DropdownMenuItem disabled>No models configured</DropdownMenuItem>
-                    ) : (
-                        models.map((model) => (
-                            <DropdownMenuItem
-                                key={model.name}
-                                onClick={() => setSelectedModel(model.name)}
-                                className={selectedModel === model.name ? "bg-slate-100 dark:bg-slate-800" : ""}
-                            >
-                                {getModelDisplayName(model)}
-                            </DropdownMenuItem>
-                        ))
-                    )}
-                </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex items-center gap-2">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="gap-2">
+                            <Settings className="h-4 w-4" />
+                            {selectedModelName}
+                            <ChevronDown className="h-3 w-3" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="center">
+                        {isLoadingModels ? (
+                            <DropdownMenuItem disabled>Loading models...</DropdownMenuItem>
+                        ) : models.length === 0 ? (
+                            <DropdownMenuItem disabled>No models configured</DropdownMenuItem>
+                        ) : (
+                            models.map((model) => (
+                                <DropdownMenuItem
+                                    key={model.name}
+                                    onClick={() => setSelectedModel(model.name)}
+                                    className={selectedModel === model.name ? "bg-slate-100 dark:bg-slate-800" : ""}
+                                >
+                                    {getModelDisplayName(model)}
+                                </DropdownMenuItem>
+                            ))
+                        )}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+                <HelpTooltip contentPath="agent-builder/model_selector" />
+            </div>
 
             {/* Right: Actions */}
             <div className="flex items-center gap-2">

@@ -179,7 +179,7 @@ export function FormBuilderCanvas({
 
     return (
         <div
-            className="flex-1 p-6 overflow-y-auto bg-slate-100/50 dark:bg-slate-800/30"
+            className="flex-1 p-6 pb-32 overflow-y-auto bg-slate-100/50 dark:bg-slate-800/30"
             onDrop={handleDrop}
             onDragOver={handleDragOver}
         >

@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Save, Eye } from "lucide-react"
 
+import { HelpTooltip } from "@/components/ui/help-tooltip"
+
 interface FormBuilderProps {
     initialConfig?: {
         title?: string
@@ -30,12 +32,15 @@ interface FormBuilderProps {
     }) => void
 }
 
+import { FormPreviewDialog } from "./form-preview-dialog"
+
 export function FormBuilder({ initialConfig, onSave }: FormBuilderProps) {
     const [formTitle, setFormTitle] = useState(initialConfig?.title || "New Form")
     const [submitLabel, setSubmitLabel] = useState(initialConfig?.submit_label || "Submit")
     const [widgets, setWidgets] = useState<WidgetConfig[]>(initialConfig?.components || [])
     const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null)
     const [draggedWidget, setDraggedWidget] = useState<WidgetType | null>(null)
+    const [showPreview, setShowPreview] = useState(false)
 
     // Generate unique ID for new widgets
     const generateId = (baseId: string): string => {
@@ -127,7 +132,8 @@ export function FormBuilder({ initialConfig, onSave }: FormBuilderProps) {
                     </div>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" size="sm">
+                    <HelpTooltip contentPath="tools/gui-builder" className="h-8 w-8 border" displayMode="dialog" />
+                    <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
                         <Eye className="h-4 w-4 mr-2" />
                         Preview
                     </Button>
@@ -161,6 +167,14 @@ export function FormBuilder({ initialConfig, onSave }: FormBuilderProps) {
                     onWidgetChange={handleWidgetChange}
                 />
             </div>
+
+            <FormPreviewDialog
+                open={showPreview}
+                onOpenChange={setShowPreview}
+                title={formTitle}
+                submitLabel={submitLabel}
+                widgets={widgets}
+            />
         </div>
     )
 }

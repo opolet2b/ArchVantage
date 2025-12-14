@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Save, Loader2, RotateCcw } from "lucide-react"
 import { API_URL } from "@/lib/utils"
+import { HelpTooltip } from "@/components/ui/help-tooltip"
 
 interface ModelConfigProps {
     onSave?: () => void
@@ -202,7 +203,10 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 )}
 
                 <div className="space-y-2">
-                    <label className="text-sm font-medium">Configuration Name</label>
+                    <label className="text-sm font-medium flex items-center gap-2">
+                        Configuration Name
+                        <HelpTooltip contentPath="settings/config_name" />
+                    </label>
                     <Input
                         placeholder="e.g., My Local Setup"
                         value={name}
@@ -211,7 +215,10 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 </div>
 
                 <div className="space-y-2">
-                    <label className="text-sm font-medium">Model Type</label>
+                    <label className="text-sm font-medium flex items-center gap-2">
+                        Model Type
+                        <HelpTooltip contentPath="settings/model_type" />
+                    </label>
                     <div className="grid grid-cols-2 gap-4">
                         <Button
                             variant={type === "local" ? "default" : "outline"}
@@ -232,7 +239,10 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
 
                 {type === "local" && (
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Select Model</label>
+                        <label className="text-sm font-medium flex items-center gap-2">
+                            Select Model
+                            <HelpTooltip contentPath="settings/local_model" />
+                        </label>
                         {loading ? (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Loader2 className="h-4 w-4 animate-spin" /> Loading models...
@@ -258,7 +268,10 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 {type === "remote" && (
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">API URL</label>
+                            <label className="text-sm font-medium flex items-center gap-2">
+                                API URL
+                                <HelpTooltip contentPath="settings/remote_api_url" />
+                            </label>
                             <Input
                                 placeholder="https://api.openai.com/v1"
                                 value={remoteUrl}
@@ -266,7 +279,10 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                             />
                         </div>
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Service API Key</label>
+                            <label className="text-sm font-medium flex items-center gap-2">
+                                Service API Key
+                                <HelpTooltip contentPath="settings/service_api_key" />
+                            </label>
                             <Input
                                 type="password"
                                 placeholder="sk-..."

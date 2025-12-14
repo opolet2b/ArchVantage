@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, Pencil, Trash2, Server, X } from "lucide-react"
 import { API_URL } from "@/lib/utils"
+import { HelpTooltip } from "@/components/ui/help-tooltip"
 
 interface MCPServerPermission {
     id?: number
@@ -279,7 +280,10 @@ export function MCPServersTab() {
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="base_url">Server URL *</Label>
+                            <Label htmlFor="base_url" className="flex items-center gap-2">
+                                Server URL *
+                                <HelpTooltip contentPath="settings/mcp_server_url" />
+                            </Label>
                             <Input
                                 id="base_url"
                                 value={formData.base_url}
@@ -299,7 +303,10 @@ export function MCPServersTab() {
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="auth_type">Authentication Type</Label>
+                            <Label htmlFor="auth_type" className="flex items-center gap-2">
+                                Authentication Type
+                                <HelpTooltip contentPath="settings/mcp_auth_type" />
+                            </Label>
                             <Select
                                 value={formData.auth_type}
                                 onValueChange={(val) => setFormData({ ...formData, auth_type: val as any, auth_config: {} })}

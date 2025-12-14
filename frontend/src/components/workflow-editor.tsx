@@ -16,6 +16,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Card } from '@/components/ui/card';
 import AgentNode from './nodes/agent-node';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
 
 const nodeTypes = {
     agent: AgentNode,
@@ -38,7 +39,10 @@ export function WorkflowEditor() {
 
     return (
         <div className="h-[calc(100vh-4rem)] w-full p-4">
-            <Card className="h-full w-full shadow-xl border-slate-200 dark:border-slate-800 overflow-hidden">
+            <Card className="h-full w-full shadow-xl border-slate-200 dark:border-slate-800 overflow-hidden relative">
+                <div className="absolute top-4 right-4 z-10">
+                    <HelpTooltip contentPath="workflow/editor_overview" />
+                </div>
                 <ReactFlow
                     nodes={nodes}
                     edges={edges}

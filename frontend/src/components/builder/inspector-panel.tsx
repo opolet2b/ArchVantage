@@ -32,6 +32,7 @@ import { useBuilderStore } from "@/lib/builder-store";
 import { PRIMITIVE_CONFIGS, PrimitiveType } from "@/lib/builder-types";
 import { cn, API_URL } from "@/lib/utils";
 import { MappingEditor } from "./mapping-editor";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 
 // Node data interface with index signature for React Flow compatibility
 interface BuilderNodeData {
@@ -563,7 +564,10 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                     {/* Description field - editable context for the LLM */}
                     {params.tool_id !== undefined && params.tool_id !== null && (
                         <div className="space-y-2">
-                            <Label>Description</Label>
+                            <Label className="flex items-center gap-2">
+                                Description
+                                <HelpTooltip contentPath="agent-builder/call_tool_description" />
+                            </Label>
                             <Textarea
                                 placeholder="Describe what this tool should do in this context (e.g., 'Get the user's name', 'Fetch the dollar to euro exchange rate')"
                                 value={(params.tool_description as string) || ""}
@@ -691,7 +695,10 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label>Instruction</Label>
+                        <Label className="flex items-center gap-2">
+                            Instruction
+                            <HelpTooltip contentPath="agent-builder/llm_decision_instruction" />
+                        </Label>
                         <Textarea
                             placeholder="Analyze the input and determine the best action..."
                             value={(params.instruction as string) || ""}
@@ -758,7 +765,10 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label className="text-xs">JMESPath Template</Label>
+                                <Label className="text-xs flex items-center gap-2">
+                                    JMESPath Template
+                                    <HelpTooltip contentPath="agent-builder/json_mapping_template" />
+                                </Label>
                                 <Textarea
                                     placeholder="items[*].{id: id, name: name}"
                                     className="font-mono text-xs min-h-[60px]"

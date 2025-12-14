@@ -62,9 +62,10 @@ export default function ToolsPage() {
             })
 
             if (response.ok) {
+                const savedTool = await response.json()
                 setRefreshKey(prev => prev + 1)
                 setIsCreating(false)
-                setSelectedTool(null)
+                setSelectedTool(savedTool)
             } else {
                 console.error("Failed to save tool")
             }

@@ -82,7 +82,7 @@ export function ConversationList() {
         <>
             <div className="flex flex-col gap-2 px-2 py-4 w-full">
                 <div className="text-xs font-semibold text-muted-foreground px-2 mb-2">History</div>
-                <div className="flex flex-col gap-1 overflow-y-auto max-h-[calc(100vh-200px)]">
+                <div className="flex flex-col gap-1">
                     {conversations.map((conv) => (
                         <div
                             key={conv.id}

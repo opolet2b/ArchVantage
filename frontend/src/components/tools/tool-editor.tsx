@@ -25,6 +25,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { HelpTooltip } from "@/components/ui/help-tooltip"
 
 interface ToolEditorProps {
     tool: Tool | null
@@ -84,6 +85,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
     const [showDryRunWizard, setShowDryRunWizard] = useState(false)
     const [isToolVerified, setIsToolVerified] = useState(false)
     const [outputMappings, setOutputMappings] = useState<Record<string, string>>({})  // Output schema mappings from dry-run
+    const [isDirty, setIsDirty] = useState(false)
     const lastGeneratedSchema = useRef<string>("")
 
     useEffect(() => {
@@ -202,6 +204,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
             lastGeneratedSchema.current = ""
             setIsSchemaManuallyEdited(false)
         }
+        setIsDirty(false)
     }, [tool])
 
     // Restore connected servers from saved configuration
@@ -250,15 +253,35 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
             }
         }
 
+
+        // Initial set of servers with cached data
         setConnectedServers(restored)
+
+        // Trigger background discovery for all restored servers to get full tool list
+        restored.forEach(async (server) => {
+            const preservedSelection = server.selectedTools
+            const fallbackTools = server.discoveredTools
+
+            // Re-discover tools
+            const updatedServer = await discoverServerTools(server, preservedSelection, fallbackTools)
+
+            // Update state with discovered data
+            setConnectedServers(prev =>
+                prev.map(s => s.id === server.id ? updatedServer : s)
+            )
+        })
     }
 
     // Discover tools from an MCP server
-    const discoverServerTools = async (server: MCPServer): Promise<ConnectedServer> => {
+    const discoverServerTools = async (
+        server: MCPServer,
+        preservedSelection?: Set<string>,
+        fallbackTools?: DiscoveredTool[]
+    ): Promise<ConnectedServer> => {
         const connectedServer: ConnectedServer = {
             ...server,
-            discoveredTools: [],
-            selectedTools: new Set(),
+            discoveredTools: fallbackTools || [],
+            selectedTools: preservedSelection || new Set(), // Preserve selection or empty
             isLoading: true,
             isExpanded: true
         }
@@ -275,18 +298,26 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                 const data = await response.json()
                 connectedServer.discoveredTools = data.tools || []
                 connectedServer.isLoading = false
-                // Auto-select all tools by default
-                connectedServer.selectedTools = new Set(
-                    connectedServer.discoveredTools.map(t => t.name)
-                )
+
+                if (preservedSelection) {
+                    // Keep preserved selection
+                    connectedServer.selectedTools = preservedSelection
+                } else {
+                    // Auto-select all tools ONLY if no selection was preserved (i.e., new drop)
+                    connectedServer.selectedTools = new Set(
+                        connectedServer.discoveredTools.map(t => t.name)
+                    )
+                }
             } else {
                 const errorData = await response.json()
                 connectedServer.error = errorData.detail || "Failed to discover tools"
                 connectedServer.isLoading = false
+                // On error, keep using fallback methods (already set in init)
             }
         } catch (error) {
             connectedServer.error = error instanceof Error ? error.message : "Connection failed"
             connectedServer.isLoading = false
+            // On error, keep using fallback methods (already set in init)
         }
 
         return connectedServer
@@ -310,6 +341,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
             setConnectedServers(prev =>
                 prev.map(s => s.id === draggedServer.id ? discoveredServer : s)
             )
+            setIsDirty(true)
         }
         setDraggedServer(null)
     }
@@ -412,6 +444,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                 return server
             })
         )
+        setIsDirty(true)
     }
 
     // Toggle server expansion
@@ -429,6 +462,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
     // Remove server from canvas
     const removeServer = (serverId: number) => {
         setConnectedServers(prev => prev.filter(s => s.id !== serverId))
+        setIsDirty(true)
     }
 
     // Get all selected tools for prompt generation (legacy)
@@ -518,9 +552,9 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
 
             if (response.ok) {
                 const data = await response.json()
-                // Store pipeline in state
                 setPipeline(data.pipeline || [])
                 setShowPipeline(true)
+                setIsDirty(true)
 
                 // Only update input schema if there was NO existing schema
                 if (!existingInputSchema && data.input_schema) {
@@ -697,6 +731,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                     const outputSchemaStr = JSON.stringify(data.output_schema, null, 2)
                     setOutputSchema(outputSchemaStr)
                     setShowOutputSchema(true)
+                    setIsDirty(true)
                 }
             } else {
                 console.error("Failed to generate output schema")
@@ -714,6 +749,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
     const handleSchemaChange = (newSchema: string) => {
         setInputSchema(newSchema)
         setIsSchemaManuallyEdited(true)
+        setIsDirty(true)
     }
 
     // Handle confirmation of schema overwrite
@@ -792,35 +828,54 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                 <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-bold">{tool ? "Edit Tool" : "Create New Tool"}</h2>
                     <div className="flex items-center gap-2">
+                        <HelpTooltip contentPath="tools/builder" className="h-9 w-9 border" displayMode="dialog" />
                         {tool && (
                             <Button variant="destructive" size="icon" onClick={() => onDelete(tool.id)}>
                                 <Trash2 className="h-4 w-4" />
                             </Button>
                         )}
-                        <Button onClick={handleSave}>
+                        <Button onClick={handleSave} className={isDirty ? "relative" : ""}>
                             <Save className="h-4 w-4 mr-2" />
                             Save Tool
+                            {isDirty && (
+                                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                                </span>
+                            )}
                         </Button>
                     </div>
                 </div>
 
                 <div className="grid gap-4">
                     <div className="grid gap-2">
-                        <Label htmlFor="name">Name</Label>
+                        <Label htmlFor="name" className="flex items-center gap-2">
+                            Name
+                            <HelpTooltip contentPath="tool-editor/name" />
+                        </Label>
                         <Input
                             id="name"
                             value={formData.name || ""}
-                            onChange={e => setFormData({ ...formData, name: e.target.value })}
+                            onChange={e => {
+                                setFormData({ ...formData, name: e.target.value })
+                                setIsDirty(true)
+                            }}
                             placeholder="e.g., VAT Calculator"
                         />
                     </div>
 
                     <div className="grid gap-2">
-                        <Label htmlFor="description">Description</Label>
+                        <Label htmlFor="description" className="flex items-center gap-2">
+                            Description
+                            <HelpTooltip contentPath="tool-editor/description" />
+                        </Label>
                         <Textarea
                             id="description"
                             value={formData.description || ""}
-                            onChange={e => setFormData({ ...formData, description: e.target.value })}
+                            onChange={e => {
+                                setFormData({ ...formData, description: e.target.value })
+                                setIsDirty(true)
+                            }}
                             placeholder="Describe what this tool does..."
                         />
                     </div>
@@ -830,10 +885,13 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                         <Label htmlFor="category">Category</Label>
                         <Select
                             value={formData.category_id?.toString() || ""}
-                            onValueChange={(val) => setFormData({
-                                ...formData,
-                                category_id: val ? parseInt(val) : undefined
-                            })}
+                            onValueChange={(val) => {
+                                setFormData({
+                                    ...formData,
+                                    category_id: val ? parseInt(val) : undefined
+                                })
+                                setIsDirty(true)
+                            }}
                         >
                             <SelectTrigger>
                                 <SelectValue placeholder="Select a category (optional)" />
@@ -858,6 +916,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                                     onClick={() => {
                                         const newPerm: ToolPermission = { user_id: users[0]?.id, permission_level: "READ" }
                                         setFormData({ ...formData, permissions: [...(formData.permissions || []), newPerm] })
+                                        setIsDirty(true)
                                     }}
                                     disabled={users.length === 0}
                                 >
@@ -870,6 +929,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                                     onClick={() => {
                                         const newPerm: ToolPermission = { ad_group_id: adGroups[0]?.id, permission_level: "READ" }
                                         setFormData({ ...formData, permissions: [...(formData.permissions || []), newPerm] })
+                                        setIsDirty(true)
                                     }}
                                     disabled={adGroups.length === 0}
                                 >
@@ -888,6 +948,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                                                 const newPerms = [...(formData.permissions || [])]
                                                 newPerms[index] = { ...newPerms[index], user_id: parseInt(val), ad_group_id: undefined }
                                                 setFormData({ ...formData, permissions: newPerms })
+                                                setIsDirty(true)
                                             }}
                                         >
                                             <SelectTrigger className="w-[220px]">
@@ -908,6 +969,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                                                 const newPerms = [...(formData.permissions || [])]
                                                 newPerms[index] = { ...newPerms[index], ad_group_id: parseInt(val), user_id: undefined }
                                                 setFormData({ ...formData, permissions: newPerms })
+                                                setIsDirty(true)
                                             }}
                                         >
                                             <SelectTrigger className="w-[220px]">
@@ -929,6 +991,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                                             const newPerms = [...(formData.permissions || [])]
                                             newPerms[index] = { ...newPerms[index], permission_level: val }
                                             setFormData({ ...formData, permissions: newPerms })
+                                            setIsDirty(true)
                                         }}
                                     >
                                         <SelectTrigger className="w-[140px]">
@@ -946,6 +1009,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                                         onClick={() => {
                                             const newPerms = formData.permissions?.filter((_, i) => i !== index)
                                             setFormData({ ...formData, permissions: newPerms })
+                                            setIsDirty(true)
                                         }}
                                     >
                                         <X className="h-4 w-4" />
@@ -1074,7 +1138,10 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <Code2 className="h-4 w-4 text-cyan-500" />
-                                <Label className="font-semibold">Input Schema</Label>
+                                <Label className="font-semibold flex items-center gap-2">
+                                    Input Schema
+                                    <HelpTooltip contentPath="tool-editor/input_schema" />
+                                </Label>
                                 {isSchemaManuallyEdited && (
                                     <span className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 rounded">
                                         Modified
@@ -1162,7 +1229,10 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                             <div className="space-y-2">
                                 <Textarea
                                     value={outputSchema}
-                                    onChange={e => setOutputSchema(e.target.value)}
+                                    onChange={e => {
+                                        setOutputSchema(e.target.value)
+                                        setIsDirty(true)
+                                    }}
                                     placeholder='{"type": "object", "properties": {...}}'
                                     className="min-h-[200px] font-mono text-xs"
                                 />
@@ -1328,34 +1398,32 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
             </div>
 
             {/* Dry-Run Verification Wizard */}
-            {tool?.id && (
-                <DryRunWizard
-                    toolId={tool.id}
-                    pipeline={pipeline}
-                    outputSchema={outputSchema ? JSON.parse(outputSchema) : undefined}
-                    open={showDryRunWizard}
-                    onCancel={() => setShowDryRunWizard(false)}
-                    onComplete={(verifiedPipeline, capturedSchemas, newOutputMappings) => {
-                        // Update pipeline with refined mappings
-                        setPipeline(verifiedPipeline);
-                        setIsToolVerified(true);
-                        setShowDryRunWizard(false);
+            {
+                tool?.id && (
+                    <DryRunWizard
+                        toolId={tool.id}
+                        pipeline={pipeline}
+                        outputSchema={outputSchema ? JSON.parse(outputSchema) : undefined}
+                        open={showDryRunWizard}
+                        onCancel={() => setShowDryRunWizard(false)}
+                        onComplete={(verifiedPipeline, capturedSchemas, newOutputMappings) => {
+                            // Update pipeline with refined mappings
+                            setPipeline(verifiedPipeline);
+                            setIsToolVerified(true);
+                            setShowDryRunWizard(false);
 
-                        // Store output mappings in tool configuration
-                        if (Object.keys(newOutputMappings).length > 0) {
-                            console.log("Output schema mappings:", newOutputMappings);
-                            // Save mappings to state - they will be included in configuration on save
-                            setOutputMappings(newOutputMappings);
-                        }
-                        // Note: Output schema is NOT auto-updated here
-                        // It should only be changed via:
-                        // 1. Manual editing
-                        // 2. Regenerate Output Schema button
-                        // 3. Pipeline regeneration (with user confirmation)
-                    }}
-                />
-            )}
-        </div>
+                            // Store output mappings in tool configuration
+                            if (Object.keys(newOutputMappings).length > 0) {
+                                console.log("Output schema mappings:", newOutputMappings);
+                                // Save mappings to state - they will be included in configuration on save
+                                setOutputMappings(newOutputMappings);
+                            }
+                            setIsDirty(true);
+                        }}
+                    />
+                )
+            }
+        </div >
     )
 }
 
