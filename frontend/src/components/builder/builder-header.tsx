@@ -5,7 +5,7 @@
  *
  * Top bar with agent name, LLM selector, and action buttons.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Save, Rocket, Download, Settings, ChevronDown, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useBuilderStore } from "@/lib/builder-store";
 import { API_URL } from "@/lib/utils";
+import { HelpTooltip } from "@/components/ui/help-tooltip"
+import { DryRunPanel } from "./dry-run-panel";
 
 /**
  * Model preset interface matching backend schema.
@@ -28,8 +30,6 @@ interface ModelPreset {
     model_name?: string;
     api_url?: string;
 }
-
-import { HelpTooltip } from "@/components/ui/help-tooltip"
 
 export function BuilderHeader() {
     const router = useRouter();
@@ -71,13 +71,8 @@ export function BuilderHeader() {
         fetchModels();
     }, [selectedModel, setSelectedModel]);
 
-    const handleSave = async () => {
-        const saved = await saveBlueprint();
-        if (saved && !useBuilderStore.getState().blueprintId) {
-            // Redirect to the new blueprint's edit URL
-            router.push(`/agents/builder/${saved.id}`);
-        }
-    };
+    // Removed duplicate handleSave
+
 
     const handleExport = () => {
         const graph = {
@@ -127,6 +122,49 @@ export function BuilderHeader() {
     const selectedModelName = models.find((m) => m.name === selectedModel)?.name
         || (isLoadingModels ? "Loading..." : "Select Model");
 
+    // Fetch available agents for switching
+    const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
+
+    const fetchAgents = useCallback(async () => {
+        const token = localStorage.getItem("token");
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/agent-blueprints`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setAgents(data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch agents", error);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchAgents();
+    }, [fetchAgents]);
+
+    const handleSave = async () => {
+        const saved = await saveBlueprint();
+        if (saved) {
+            // Refresh list to include new agent or updated name
+            fetchAgents();
+
+            if (!useBuilderStore.getState().blueprintId) {
+                // Redirect to the new blueprint's edit URL
+                router.push(`/agents/builder/${saved.id}`);
+            }
+        }
+    };
+
+    const handleSwitchAgent = (agentId: string) => {
+        if (isDirty) {
+            if (!confirm("You have unsaved changes. Discard them?")) return;
+        }
+        router.push(`/agents/builder/${agentId}`);
+    };
+
     return (
         <header className="flex items-center justify-between h-14 px-4 border-b bg-white dark:bg-slate-950 shrink-0">
             {/* Left: Agent Name */}
@@ -138,6 +176,32 @@ export function BuilderHeader() {
                 >
                     ← Back
                 </Button>
+
+                {/* Switch Agent Dropdown */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="gap-2 px-2">
+                            <span className="sr-only">Switch Agent</span>
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 max-h-96 overflow-y-auto">
+                        <DropdownMenuItem onClick={() => handleSwitchAgent("new")}>
+                            <div className="flex items-center gap-2">
+                                <div className="h-6 w-6 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400">+</span>
+                                </div>
+                                <span className="font-medium">New Agent</span>
+                            </div>
+                        </DropdownMenuItem>
+                        {agents.length > 0 && <div className="h-px bg-border my-1" />}
+                        {agents.map(agent => (
+                            <DropdownMenuItem key={agent.id} onClick={() => handleSwitchAgent(agent.id)}>
+                                <span>{agent.name}</span>
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
 
                 {isEditingName ? (
                     <Input
@@ -193,6 +257,8 @@ export function BuilderHeader() {
 
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
+                <DryRunPanel />
+
                 <Button
                     variant="outline"
                     size="sm"

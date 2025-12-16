@@ -122,6 +122,13 @@ class ConditionPrimitive(BasePrimitive):
         
         elif isinstance(node, ast.Attribute):
             value = self._eval_node(node.value, variables)
+            # Support dot notation for dictionary access
+            if isinstance(value, dict):
+                if node.attr in value:
+                    return value[node.attr]
+                # Try to give a helpful error
+                raise ValueError(f"Attribute '{node.attr}' not found in dictionary object")
+                
             return getattr(value, node.attr)
         
         elif isinstance(node, ast.Subscript):
@@ -132,6 +139,49 @@ class ConditionPrimitive(BasePrimitive):
         else:
             raise ValueError(f"Unsupported expression type: {type(node).__name__}")
     
+    def get_debug_info(self, expression: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract debug information from the expression (operands values)."""
+        try:
+            tree = ast.parse(expression, mode='eval')
+            if isinstance(tree.body, ast.Compare):
+                left_val = self._eval_node(tree.body.left, variables)
+                right_vals = [self._eval_node(c, variables) for c in tree.body.comparators]
+                ops = [type(op).__name__ for op in tree.body.ops]
+                return {
+                    "left_operand": left_val,
+                    "right_operands": right_vals,
+                    "operators": ops,
+                    "expression": expression
+                }
+            return {"expression": expression, "note": "Complex expression not fully debugged"}
+        except Exception as e:
+            return {"expression": expression, "debug_error": str(e)}
+
+    
+    def _recursive_alias_keys(self, data: Any) -> None:
+        """
+        Recursively traverse dictionary and create aliases for keys with dashes.
+        'first-name' -> 'first_name'.
+        Handles dictionaries and lists of dictionaries.
+        """
+        if isinstance(data, dict):
+            # Use list of keys to avoid runtime error during iteration
+            for key in list(data.keys()):
+                value = data[key]
+                
+                # Recurse first
+                self._recursive_alias_keys(value)
+                
+                # Alias if needed
+                if isinstance(key, str) and "-" in key:
+                    new_key = key.replace("-", "_")
+                    if new_key not in data:
+                        data[new_key] = value
+                        
+        elif isinstance(data, list):
+            for item in data:
+                self._recursive_alias_keys(item)
+
     async def execute(
         self, 
         params: Dict[str, Any], 
@@ -144,16 +194,37 @@ class ConditionPrimitive(BasePrimitive):
             false_target = params.get("false_target")
             
             # Get variables from state
-            variables = state.get("variables", {})
+            variables = state.get("variables", {}).copy() # Copy to avoid mutating state
             
+            # Create aliases for variables with dashes in keys (recursive)
+            # Python expressions cannot handle dashes in identifiers (syntax error)
+            # So we map "first-name" -> "first_name" throughout the object tree
+            self._recursive_alias_keys(variables)
+
             # Evaluate the condition
-            result = self.safe_eval(expression, variables)
-            
-            return PrimitiveResult(
-                success=True,
-                output={"condition_result": result},
-                next_node=true_target if result else false_target
-            )
+            try:
+                result = self.safe_eval(expression, variables)
+                debug_info = self.get_debug_info(expression, variables)
+                
+                return PrimitiveResult(
+                    success=True,
+                    output={
+                        "condition_result": result,
+                        "debug_info": debug_info
+                    },
+                    next_node=true_target if result else false_target
+                )
+            except Exception as e:
+                # Capture the error but allow the agent to see the failure in the output
+                return PrimitiveResult(
+                    success=False,
+                    output={
+                        "condition_result": None,
+                        "error": str(e),
+                        "debug_info": self.get_debug_info(expression, variables)
+                    },
+                    error=f"Condition evaluation failed: {str(e)}"
+                )
             
         except Exception as e:
             return PrimitiveResult(

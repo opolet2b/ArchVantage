@@ -6,7 +6,7 @@
  */
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
-import { Node, Edge, OnNodesChange, OnEdgesChange, applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
+import { Node, Edge, OnNodesChange, OnEdgesChange, applyNodeChanges, applyEdgeChanges, Connection, reconnectEdge } from "@xyflow/react";
 import {
     Blueprint,
     BlueprintCreate,
@@ -54,6 +54,15 @@ interface BuilderState {
     executionSteps: ExecutionStep[];
     activeNodeId: string | null;
     testInputs: Record<string, unknown>;
+    lastExecutionState: Record<string, unknown> | null;
+    currentExecutionId: number | null;
+    executionStatus: "pending" | "running" | "paused" | "waiting_for_input" | "completed" | "failed" | null;
+    waitingNodeInfo: {
+        schema: Record<string, unknown>;
+        toolName: string;
+        description: string;
+        waitingNodeId: string;
+    } | null;
 
     // UI state
     isDirty: boolean;
@@ -106,6 +115,7 @@ interface BuilderActions {
     updateNodeParams: (nodeId: string, params: Record<string, unknown>) => void;
     deleteNode: (nodeId: string) => void;
     connectNodes: (sourceId: string, targetId: string, condition?: string) => void;
+    reconnectEdge: (oldEdge: Edge, newConnection: Connection) => void;
 
     // Selection actions
     setSelectedNodeId: (nodeId: string | null) => void;
@@ -122,7 +132,10 @@ interface BuilderActions {
 
     // Execution actions
     executeBlueprint: () => Promise<void>;
-    executeWithStream: () => Promise<void>;
+    executeWithStream: (inputsOverride?: Record<string, unknown>) => Promise<void>;
+    startDryRunStep: (inputsOverride?: Record<string, unknown>) => Promise<void>;
+    nextDryRunStep: () => Promise<void>;
+    submitDryRunInput: (inputs: Record<string, unknown>) => Promise<void>;
     setTestInputs: (inputs: Record<string, unknown>) => void;
     clearExecution: () => void;
 
@@ -141,15 +154,32 @@ interface BuilderActions {
  * Convert React Flow nodes/edges to Blueprint graph format.
  */
 function flowToGraph(nodes: Node[], edges: Edge[]): AgentGraph {
-    const graphNodes: GraphNode[] = nodes.map((node) => ({
-        id: node.id,
-        type: node.data.primitiveType as PrimitiveType,
-        metadata: {
-            label: node.data.label as string,
-            ui_position: { x: node.position.x, y: node.position.y }
-        },
-        params: node.data.params as Record<string, unknown>
-    }));
+    const graphNodes: GraphNode[] = nodes.map((node) => {
+        const params = { ...(node.data.params as Record<string, unknown>) };
+
+        // For CONDITION nodes, automatically determine targets from edges
+        if (node.data.primitiveType === "CONDITION") {
+            const outEdges = edges.filter(e => e.source === node.id);
+            outEdges.forEach(edge => {
+                const condition = edge.data?.condition;
+                if (condition === "true") {
+                    params.true_target = edge.target;
+                } else if (condition === "false") {
+                    params.false_target = edge.target;
+                }
+            });
+        }
+
+        return {
+            id: node.id,
+            type: node.data.primitiveType as PrimitiveType,
+            metadata: {
+                label: node.data.label as string,
+                ui_position: { x: node.position.x, y: node.position.y }
+            },
+            params
+        };
+    });
 
     const graphEdges: GraphEdge[] = edges.map((edge) => ({
         id: edge.id,
@@ -180,6 +210,7 @@ function graphToFlow(graph: AgentGraph): { nodes: Node[]; edges: Edge[] } {
         id: edge.id,
         source: edge.source,
         target: edge.target,
+        sourceHandle: edge.condition || null,
         data: { condition: edge.condition }
     }));
 
@@ -227,6 +258,10 @@ const initialState: BuilderState = {
     executionSteps: [],
     activeNodeId: null,
     testInputs: {},
+    lastExecutionState: null,
+    currentExecutionId: null,
+    executionStatus: null,
+    waitingNodeInfo: null,
     isDirty: false,
     isSaving: false,
     selectedModel: "default",
@@ -407,9 +442,33 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                             id: edgeId,
                             source: sourceId,
                             target: targetId,
+                            sourceHandle: condition || null,
                             data: { condition }
                         }
                     ],
+                    isDirty: true
+                });
+            },
+
+            reconnectEdge: (oldEdge, newConnection) => {
+                const newEdges = reconnectEdge(oldEdge, newConnection, get().edges);
+
+                // Sync condition with sourceHandle
+                const updatedEdges = newEdges.map(edge => {
+                    if (edge.id === oldEdge.id) {
+                        return {
+                            ...edge,
+                            data: {
+                                ...edge.data,
+                                condition: newConnection.sourceHandle || undefined
+                            }
+                        };
+                    }
+                    return edge;
+                });
+
+                set({
+                    edges: updatedEdges,
                     isDirty: true
                 });
             },
@@ -635,7 +694,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                 }
             },
 
-            executeWithStream: async () => {
+            executeWithStream: async (inputsOverride?: Record<string, unknown>) => {
                 const { blueprintId, testInputs } = get();
                 const token = getAuthToken();
                 if (!token || !blueprintId) return;
@@ -655,7 +714,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                                 "Content-Type": "application/json",
                                 Authorization: `Bearer ${token}`
                             },
-                            body: JSON.stringify({ inputs: testInputs })
+                            body: JSON.stringify({ inputs: inputsOverride || testInputs })
                         }
                     );
 
@@ -697,10 +756,20 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                                     if (event.status === "waiting_for_input") {
                                         // Mark that we're waiting for input
                                         waitingForInput = true;
+
+                                        // Check if we already have a log requesting this input (to avoid duplicates)
+                                        // The 'step' event might have already provided the GUI schema
+                                        const logs = get().consoleLogs;
+                                        const alreadyRequested = logs.some(log =>
+                                            log.data &&
+                                            (log.data as any).type === "gui_input_required" &&
+                                            (log.data as any).tool_name === event.tool_name
+                                        );
+
                                         get().addConsoleLog(
                                             "step",
                                             `Waiting for input: ${event.tool_name || "GUI Tool"}`,
-                                            {
+                                            alreadyRequested ? undefined : {
                                                 type: "gui_input_required",
                                                 gui_schema: event.gui_schema,
                                                 tool_name: event.tool_name,
@@ -711,8 +780,13 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                                         get().addConsoleLog(
                                             event.status === "completed" ? "success" : "error",
                                             `Execution ${event.status}`,
-                                            event.outputs
+                                            event // Pass full event to access both outputs and execution_state
                                         );
+
+                                        // Store execution state for Variable Picker
+                                        if (event.execution_state) {
+                                            set({ lastExecutionState: event.execution_state });
+                                        }
                                     }
                                 } else if (event.type === "error") {
                                     get().addConsoleLog("error", event.message || "Unknown error");
@@ -732,10 +806,169 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                 }
             },
 
+            startDryRunStep: async (inputsOverride?: Record<string, unknown>) => {
+                const { blueprintId, testInputs } = get();
+                const token = getAuthToken();
+                if (!token || !blueprintId) return;
+
+                set({
+                    isExecuting: true,
+                    executionSteps: [],
+                    consoleOpen: true,
+                    executionStatus: "running",
+                    currentExecutionId: null,
+                    activeNodeId: null
+                });
+                get().addConsoleLog("info", "Starting interactive execution...");
+
+                try {
+                    const res = await fetch(`${API_URL}/agent-blueprints/${blueprintId}/execute/step`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ inputs: inputsOverride || testInputs })
+                    });
+
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({ detail: "Unknown error" }));
+                        throw new Error(err.detail || "Failed to start dry run");
+                    }
+
+                    const data = await res.json();
+
+                    // Update state based on response
+                    const isBusy = false; // We pause after step, so we are not "executing" (loading) anymore
+
+                    set({
+                        currentExecutionId: data.execution_id,
+                        executionStatus: data.status,
+                        executionSteps: data.steps || [],
+                        lastExecutionState: data.execution_state || null,
+                        activeNodeId: data.waiting_node || (data.steps.length > 0 ? data.steps[data.steps.length - 1].node_id : null),
+                        waitingNodeInfo: data.status === "waiting_for_input" ? {
+                            schema: data.gui_schema,
+                            toolName: data.tool_name,
+                            description: data.description,
+                            waitingNodeId: data.waiting_node
+                        } : null,
+                        isExecuting: isBusy
+                    });
+
+                    get().addConsoleLog(
+                        data.status === "failed" ? "error" : "step",
+                        `Execution ${data.status}`,
+                        data
+                    );
+                } catch (e: any) {
+                    get().addConsoleLog("error", `Error: ${e.message}`);
+                    set({ isExecuting: false, executionStatus: "failed" });
+                }
+            },
+
+            nextDryRunStep: async () => {
+                const { currentExecutionId } = get();
+                const token = getAuthToken();
+                if (!token || !currentExecutionId) return;
+
+                set({ isExecuting: true }); // Show spinner
+                try {
+                    const res = await fetch(`${API_URL}/executions/${currentExecutionId}/next`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`
+                        },
+                        body: JSON.stringify({})
+                    });
+
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({ detail: "Unknown error" }));
+                        throw new Error(err.detail || "Failed to resume dry run");
+                    }
+
+                    const data = await res.json();
+
+                    set({
+                        executionStatus: data.status,
+                        executionSteps: data.steps || [],
+                        lastExecutionState: data.execution_state || null,
+                        activeNodeId: data.waiting_node || (data.steps.length > 0 ? data.steps[data.steps.length - 1].node_id : null),
+                        waitingNodeInfo: data.status === "waiting_for_input" ? {
+                            schema: data.gui_schema,
+                            toolName: data.tool_name,
+                            description: data.description,
+                            waitingNodeId: data.waiting_node
+                        } : null,
+                        isExecuting: false
+                    });
+
+                    get().addConsoleLog(
+                        data.status === "failed" ? "error" : "step",
+                        `Execution ${data.status}`,
+                        data
+                    );
+                } catch (e: any) {
+                    get().addConsoleLog("error", `Error: ${e.message}`);
+                    set({ isExecuting: false, executionStatus: "failed" });
+                }
+            },
+
+            submitDryRunInput: async (inputs: Record<string, unknown>) => {
+                const { currentExecutionId } = get();
+                const token = getAuthToken();
+                if (!token || !currentExecutionId) return;
+
+                set({ isExecuting: true });
+                try {
+                    const res = await fetch(`${API_URL}/executions/${currentExecutionId}/input`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ inputs })
+                    });
+
+                    if (!res.ok) {
+                        const err = await res.json().catch(() => ({ detail: "Unknown error" }));
+                        throw new Error(err.detail || "Failed to submit input");
+                    }
+
+                    const data = await res.json();
+
+                    set({
+                        executionStatus: data.status,
+                        executionSteps: data.steps || [],
+                        lastExecutionState: data.execution_state || null,
+                        activeNodeId: data.waiting_node || (data.steps.length > 0 ? data.steps[data.steps.length - 1].node_id : null),
+                        waitingNodeInfo: null, // Clear waiting info
+                        isExecuting: false
+                    });
+
+                    get().addConsoleLog(
+                        data.status === "failed" ? "error" : "step",
+                        `Execution ${data.status}`,
+                        data
+                    );
+                } catch (e: any) {
+                    get().addConsoleLog("error", `Error: ${e.message}`);
+                    set({ isExecuting: false, executionStatus: "failed" });
+                }
+            },
+
             setTestInputs: (inputs) => set({ testInputs: inputs }),
 
             clearExecution: () =>
-                set({ executionSteps: [], activeNodeId: null }),
+                set({
+                    executionSteps: [],
+                    activeNodeId: null,
+                    currentExecutionId: null,
+                    executionStatus: null,
+                    waitingNodeInfo: null,
+                    lastExecutionState: null
+                }),
 
             // -----------------------------------------------------------------
             // UI Actions

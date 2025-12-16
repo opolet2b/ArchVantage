@@ -31,7 +31,7 @@ Your task is to **wire together components on the canvas** into a coherent workf
 Each component on the canvas is one of these primitive types:
 
 1. **START** - Entry point (every workflow begins here)
-2. **END** - Exit point (every workflow ends here)
+2. **END** - Exit point (params: output_template)
 3. **HTTP_REQUEST** - REST API calls (params: method, url, headers, body)
 4. **CALL_TOOL** - Invokes a tool (params: tool_id, arguments)
 5. **CONDITION** - If/Else branching (params: expression, true_target, false_target)
@@ -46,7 +46,7 @@ Each component on the canvas is one of these primitive types:
 2. **Analyze the user's request** - understand the desired workflow logic
 3. **Wire components together** - create edges connecting components in the right order
 4. **Add START/END nodes** if not present on canvas
-5. **Configure node parameters** to implement the requested logic
+5. **Configure node parameters** including the START `inputs_schema` and END `output_template` to match user intentions
 6. **Position nodes** with y increasing by ~100 for each step
 
 ## Input Schema Definition (IMPORTANT!)
@@ -80,7 +80,7 @@ Output ONLY valid JSON - no markdown, no explanations, no thinking:
     "nodes": [
       {{"id": "start", "type": "START", "metadata": {{"label": "Start", "ui_position": {{"x": 250, "y": 0}}}}, "params": {{}}}},
       {{"id": "node_id", "type": "PRIMITIVE_TYPE", "metadata": {{"label": "Label", "ui_position": {{"x": 250, "y": 100}}}}, "params": {{}}}},
-      {{"id": "end", "type": "END", "metadata": {{"label": "End", "ui_position": {{"x": 250, "y": 500}}}}, "params": {{}}}}
+      {{"id": "end", "type": "END", "metadata": {{"label": "End", "ui_position": {{"x": 250, "y": 500}}}}, "params": {{"output_template": {{"final_output": "{{{{variable}}}}"}}}}}}
     ],
     "edges": [
       {{"id": "edge_1", "source": "start", "target": "next_node"}},

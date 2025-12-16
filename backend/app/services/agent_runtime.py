@@ -19,6 +19,7 @@ except ImportError:
 from app.services.agent_primitives import get_primitive, PRIMITIVE_REGISTRY
 from app.services.agent_primitives.base import PrimitiveResult
 from app.services.agent_secret_manager import secret_manager
+from app.services.dry_run import SchemaDiscoveryService
 
 
 class AgentState(TypedDict):
@@ -64,6 +65,7 @@ class ExecutionStep:
                           if self.completed_at else None,
             "input_data": self.input_data,
             "output_data": self.output_data,
+            "captured_schema": getattr(self, 'captured_schema', None),
             "error": self.error
         }
 
@@ -211,6 +213,14 @@ class AgentRuntime:
         # Execute primitive
         try:
             result = await primitive.execute(params, state)
+            
+            # Capture schema if successful
+            if result.success:
+                try:
+                    step.captured_schema = SchemaDiscoveryService.infer_schema_from_data(result.output)
+                except Exception as e:
+                    print(f"[RUNTIME WARNING] Failed to infer schema for node {node_id}: {e}")
+
             step.complete(result.output, result.error if not result.success else None)
             return result
         except Exception as e:
@@ -218,41 +228,51 @@ class AgentRuntime:
             step.complete({}, error_msg)
             return PrimitiveResult(success=False, error=error_msg)
     
-    async def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    async def execute(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute the agent workflow.
         
         Args:
             inputs: Input values for the workflow
+            initial_state: Optional state to resume from (for step-by-step)
+            steps_limit: Optional limit on number of steps to execute (for step-by-step)
             
         Returns:
             Execution result with status, outputs, and steps
         """
         started_at = datetime.utcnow()
+        print("[RUNTIME DEBUG] EXECUTE METHOD ENTERED")
         
-        # Initialize state
-        state: AgentState = {
-            "inputs": inputs,
-            "variables": dict(inputs),  # Copy inputs to variables
-            "secrets": {},
-            "history": [],
-            "current_node": None,
-            "current_output": None,
-            "error": None,
-            "db": self.db
-        }
-        
-        # Load secrets if blueprint ID available
-        blueprint_id = getattr(self.blueprint, 'id', None) or (
-            self.blueprint.get('id') if isinstance(self.blueprint, dict) else None
-        )
-        if blueprint_id and self.db:
-            state["secrets"] = secret_manager.load_blueprint_secrets(
-                self.db, blueprint_id
-            )
-        
-        # Find starting node
-        current_node = self._get_start_node()
+        # Initialize or Resume state
+        if initial_state:
+            state = initial_state
+            # Restore non-serializable objects
+            state["db"] = self.db
+            if "inputs" not in state: state["inputs"] = inputs
+            
+            # Identify next node to run
+            # If resuming, state["current_node"] *should* point to the next node to run
+            # because when we paused, we saved the next node there.
+            current_node = state.get("current_node")
+            
+            # Using existing steps from history if needed? 
+            # Ideally we'd re-populate self.steps from history but for now let's just track new steps
+            # or we might want to return full history.
+            # Let's clean state["current_node"] to be explicit about what runs next.
+        else:
+            state = {
+                "inputs": inputs,
+                "variables": dict(inputs),  # Copy inputs to variables
+                "secrets": {},
+                "history": [],
+                "current_node": None,
+                "current_output": None,
+                "error": None,
+                "db": self.db
+            }
+            # Find starting node
+            current_node = self._get_start_node()
+
         if not current_node:
             return {
                 "status": "failed",
@@ -260,29 +280,43 @@ class AgentRuntime:
                 "outputs": {},
                 "steps": []
             }
-        
+
+        # Load secrets if blueprint ID available and not already loaded
+        if not initial_state:
+            blueprint_id = getattr(self.blueprint, 'id', None) or (
+                self.blueprint.get('id') if isinstance(self.blueprint, dict) else None
+            )
+            if blueprint_id and self.db:
+                state["secrets"] = secret_manager.load_blueprint_secrets(
+                    self.db, blueprint_id
+                )
+            
         # Execute workflow
         max_iterations = 100  # Safety limit
         iteration = 0
+        steps_run = 0
+
         
         while current_node and iteration < max_iterations:
             iteration += 1
+            steps_run += 1
             state["current_node"] = current_node
             
             # Execute node
             result = await self._execute_node(current_node, state)
             
             # Update state with output
-            if result.success and result.output:
+            if result.success and result.output is not None:
+                # Always store with node ID prefix (for explicit node references)
+                # This ensures templates like {{json_mapping_xxx.field}} or {{call_tool_xxx}} resolve
+                # even if the output is a primitive (string, int)
+                state["variables"][current_node] = result.output
+
                 if isinstance(result.output, dict):
-                    # Merge output into variables at top level (for direct access)
+                    # Merge output into variables at top level (for direct access to fields)
                     for key, value in result.output.items():
                         if not key.startswith('_'):
                             state["variables"][key] = value
-                    
-                    # Also store with node ID prefix (for explicit node references)
-                    # This allows templates like {{json_mapping_xxx.field}} to resolve
-                    state["variables"][current_node] = result.output
                     
                 state["current_output"] = result.output
             
@@ -304,6 +338,11 @@ class AgentRuntime:
                 isinstance(result.output, dict) and
                 result.output.get("type") == "gui_input_required"
             ):
+                # Prepare state for persistence
+                state_to_save = state.copy()
+                if "db" in state_to_save:
+                    del state_to_save["db"]
+                    
                 completed_at = datetime.utcnow()
                 return {
                     "status": "waiting_for_input",
@@ -312,6 +351,8 @@ class AgentRuntime:
                     "tool_name": result.output.get("tool_name", "GUI Tool"),
                     "description": result.output.get("description", ""),
                     "outputs": state["variables"],
+                    "execution_state": state_to_save,
+                    "full_state": state, # Return full state for resumption
                     "steps": [step.to_dict() for step in self.steps],
                     "error": None,
                     "started_at": started_at.isoformat(),
@@ -323,27 +364,177 @@ class AgentRuntime:
             
             # Get next node
             current_node = self._get_next_node(current_node, result)
+            
+            # Check step limit
+            if steps_limit and steps_run >= steps_limit and current_node:
+                # Update state with next node reference for resumption
+                state["current_node"] = current_node
+                
+                # Check serialization safety (remove db)
+                state_to_save = state.copy()
+                if "db" in state_to_save:
+                    del state_to_save["db"]
+                
+                completed_at = datetime.utcnow()
+                return {
+                    "status": "paused",
+                    "execution_state": state_to_save,
+                    "outputs": state["variables"],
+                    "steps": [step.to_dict() for step in self.steps],
+                    "error": None,
+                    "started_at": started_at.isoformat(),
+                    "completed_at": None, # Not completed yet
+                }
         
         completed_at = datetime.utcnow()
         
         # Build response
         final_status = "completed" if not state["error"] else "failed"
+
+        # Prepare filtered outputs (exclude inputs and internal variables)
+        initial_inputs = state["inputs"]
+        all_variables = state["variables"]
+        
+        # Check if the final node was an END node with an output_template
+        last_node_id = state["current_node"]
+        last_node = self.nodes.get(last_node_id) if last_node_id else None
+        
+        output_template = None
+        if last_node:
+            node_type = last_node.type if hasattr(last_node, 'type') else last_node.get('type')
+            if hasattr(node_type, 'value'): node_type = node_type.value
+            
+            if node_type == "END":
+                params = last_node.params if hasattr(last_node, 'params') else last_node.get('params', {})
+                output_template = params.get("output_template")
+                
+                # Ensure output_template is a dict
+                if isinstance(output_template, str):
+                    try:
+                        import json
+                        output_template = json.loads(output_template)
+                    except Exception:
+                        pass # Ignore parsing errors, will fail check below
+
+        filtered_outputs = {}
+        
+        if output_template is not None and isinstance(output_template, dict):
+            # Use the template to construct the output
+            if len(output_template) > 0:
+                print(f"[RUNTIME DEBUG] Constructing output from END node template: {output_template}")
+            else:
+                 print(f"[RUNTIME DEBUG] END node template is empty. Returning empty output.")
+            
+            from app.services.agent_primitives.text_template import TextTemplatePrimitive
+            
+            # Simple Jinja2-like substitution using TextTemplate logic or simple replacement
+            # For now, let's support direct variable mapping: value is a variable name.
+            # AND support "{{ var }}" syntax.
+            
+            for key, template_str in output_template.items():
+                if not isinstance(template_str, str):
+                    filtered_outputs[key] = template_str
+                    continue
+                    
+                # Check for direct variable match first
+                if template_str in all_variables:
+                    filtered_outputs[key] = all_variables[template_str]
+                else:
+                    # Try Jinja2 rendering if it contains {{ }}
+                    if "{{" in template_str:
+                        # We can re-use TextTemplate logic here or standard jinja2
+                        try:
+                            import jinja2
+                            env = jinja2.Environment()
+                            tmpl = env.from_string(template_str)
+                            # Convert all variables to strings/primitives for jinja? 
+                            # Jinja handles objects too.
+                            filtered_outputs[key] = tmpl.render(**all_variables)
+                        except Exception as e:
+                            print(f"[RUNTIME ERROR] Template render failed for {key}: {e}")
+                            filtered_outputs[key] = template_str # Fallback
+                    else:
+                        filtered_outputs[key] = template_str
+
+        else:
+            # Default behavior: Filter inputs and internal keys
+            print(f"[RUNTIME DEBUG] No END template used. Using default filtering.")
+            print(f"[RUNTIME DEBUG] Initial inputs: {list(initial_inputs.keys())}")
+            print(f"[RUNTIME DEBUG] All variables: {list(all_variables.keys())}")
+            
+            for k, v in all_variables.items():
+                is_input = k in initial_inputs
+                is_internal = k.startswith('_')
+                if not is_input and not is_internal:
+                    filtered_outputs[k] = v
+                else:
+                    reason = "input" if is_input else "internal"
+                    print(f"[RUNTIME DEBUG] Filtering out '{k}': {reason}")
+
+        print(f"[RUNTIME DEBUG] Final filtered outputs: {list(filtered_outputs.keys())}")
         
         return {
             "status": final_status,
-            "outputs": state["variables"],
+            "outputs": filtered_outputs,
+            "execution_state": state["variables"],  # Return variables as publicly visible state
+            "full_state": state, # Return internal state for resumption/debugging
             "steps": [step.to_dict() for step in self.steps],
             "error": state["error"],
             "started_at": started_at.isoformat(),
             "completed_at": completed_at.isoformat(),
             "duration_ms": int((completed_at - started_at).total_seconds() * 1000)
         }
+        
+    def resume_with_input(self, state: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update state with provided input and determine next node.
+        Used when resuming from waiting_for_input status.
+        """
+        current_node_id = state.get("current_node")
+        if not current_node_id:
+            raise ValueError("No current node in state")
+            
+        # Get Current Node Definition to find Tool ID
+        current_node = self.nodes.get(current_node_id)
+        if current_node:
+             params = current_node.params if hasattr(current_node, 'params') else current_node.get('params', {})
+             # If CALL_TOOL, we need to inject the marker so it can consume it
+             node_type = current_node.type if hasattr(current_node, 'type') else current_node.get('type')
+             if hasattr(node_type, 'value'): node_type = node_type.value
+             
+             if node_type == "CALL_TOOL":
+                 tool_id = params.get("tool_id")
+                 if tool_id:
+                     if "variables" not in state: state["variables"] = {}
+                     # Set the marker with the input data
+                     marker_key = f"_gui_submitted_for_{tool_id}"
+                     state["variables"][marker_key] = input_data
+                     print(f"[RUNTIME] Injected GUI marker for {marker_key} for resumption.")
+
+        # DO NOT simulate execution. DO NOT advance node.
+        # We want the scheduler to run the SAME node again.
+        # The primitive (CallTool) will now see the marker, consume it (pop), and execute logic naturally.
+        
+        # Add to history (Optional, maybe log "Input Received")
+        state["history"].append({
+            "node": current_node_id,
+            "success": True,
+            "output": {"type": "input_received", "data": input_data},
+            "error": None,
+            "manual_input": True
+        })
+        
+        # Keep current_node as-is.
+        state["current_node"] = current_node_id
+        
+        return state
 
 
 async def execute_blueprint(
     db,
     blueprint_id: str,
-    inputs: Dict[str, Any]
+    inputs: Dict[str, Any],
+    steps_limit: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Execute an agent blueprint.
@@ -352,6 +543,7 @@ async def execute_blueprint(
         db: Database session
         blueprint_id: ID of the blueprint to execute
         inputs: Input values for the workflow
+        steps_limit: Optional limit on steps to execute
         
     Returns:
         Execution result
@@ -384,13 +576,17 @@ async def execute_blueprint(
     try:
         # Run the blueprint
         runtime = AgentRuntime(blueprint, db)
-        result = await runtime.execute(inputs)
+        result = await runtime.execute(inputs, steps_limit=steps_limit)
         
         # Update execution record
         execution.status = result["status"]
         execution.outputs = result.get("outputs", {})
         execution.error_message = result.get("error")
-        execution.completed_at = datetime.utcnow()
+        execution.state = result.get("execution_state")
+        
+        if result["status"] in ["completed", "failed"]:
+            execution.completed_at = datetime.utcnow()
+            
         db.commit()
         
         result["execution_id"] = execution.id

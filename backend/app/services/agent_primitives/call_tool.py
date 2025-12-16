@@ -142,27 +142,37 @@ class CallToolPrimitive(BasePrimitive):
                 should_close = False
             
             try:
+                # Fetch tool first to check type and configuration
+                from app.models.tools import Tool
+                tool = db.query(Tool).filter(Tool.id == tool_id).first()
+                if not tool:
+                    return PrimitiveResult(
+                        success=False,
+                        error=f"Tool with ID {tool_id} not found"
+                    )
+
                 # Check if this is a GUI tool
-                is_gui, gui_schema = self._is_gui_tool(db, tool_id)
-                
-                if is_gui:
+                if hasattr(tool, 'tool_type') and tool.tool_type == 'gui':
+                    config = tool.configuration or {}
+                    gui_schema = config.get("gui_schema", {})
+                    
                     # GUI tools require user interaction
-                    tool_name = params.get("tool_name", "GUI Tool")
-                    tool_desc = params.get("tool_description", "")
+                    tool_name = params.get("tool_name", tool.name or "GUI Tool")
+                    tool_desc = params.get("tool_description", tool.description or "")
                     
                     # Check if GUI input has been explicitly submitted for THIS tool
-                    # The frontend sets a marker like "_gui_submitted_for_<tool_id>" when form is submitted
                     variables = state.get("variables", {})
                     gui_marker = f"_gui_submitted_for_{tool_id}"
                     
                     print(f"[CALL_TOOL] GUI tool {tool_id} - checking for marker: {gui_marker}")
-                    print(f"[CALL_TOOL] Variables keys: {list(variables.keys())}")
                     
                     # Only process as "values provided" if the explicit marker exists
                     if variables.get(gui_marker):
-                        # GUI input was submitted - get the form values
-                        gui_values = variables.get(gui_marker, {})
-                        print(f"[CALL_TOOL] GUI marker found with values: {gui_values}")
+                        # GUI input was submitted - get the form values AND CONSUME THEM
+                        # We must remove the marker so that if this tool is called again (e.g. in a loop),
+                        # it knows to ask for input again instead of reusing the old values.
+                        gui_values = variables.pop(gui_marker, {})
+                        print(f"[CALL_TOOL] GUI marker found and consumed with values: {gui_values}")
                         
                         return PrimitiveResult(
                             success=True,
@@ -175,10 +185,6 @@ class CallToolPrimitive(BasePrimitive):
                         )
                     
                     # No marker found - request user input
-                    # GUI form builder uses 'components', backend might use 'fields'
-                    gui_fields = gui_schema.get("fields") or gui_schema.get("components") or []
-                    print(f"[CALL_TOOL] GUI schema fields/components count: {len(gui_fields)}")
-                    
                     return PrimitiveResult(
                         success=True,
                         output={
@@ -191,29 +197,49 @@ class CallToolPrimitive(BasePrimitive):
                         }
                     )
                 
-                # For MCP tools, get function name if not specified
-                if not function_name:
-                    function_name = self._get_function_name_from_tool(db, tool_id)
+                # Check for Pipeline configuration
+                config = tool.configuration or {}
+                pipeline = config.get("pipeline", [])
+                
+                if pipeline and len(pipeline) > 0:
+                    # Execute as Pipeline
+                    from app.services.tool_runtime import execute_pipeline
+                    print(f"[CALL_TOOL] Executing pipeline for tool {tool_id}")
                     
+                    # For pipeline, resolved_args become the input parameters
+                    result = await execute_pipeline(
+                        db=db,
+                        tool_id=tool_id,
+                        input_params=resolved_args
+                    )
+                else:
+                    # Execute as Single Function (Legacy/Direct)
+                    
+                    # For MCP tools, get function name if not specified
                     if not function_name:
-                        return PrimitiveResult(
-                            success=False,
-                            error=f"No function_name specified and tool {tool_id} has no "
-                                  f"selected_functions configured. Please configure the "
-                                  f"tool with at least one MCP function."
-                        )
+                        selected_functions = config.get("selected_functions", [])
+                        if selected_functions:
+                            function_name = selected_functions[0].get("name", "")
+                        
+                        if not function_name:
+                            return PrimitiveResult(
+                                success=False,
+                                error=f"No function_name specified and tool {tool_id} has no "
+                                      f"selected_functions configured. Please configure the "
+                                      f"tool with at least one MCP function."
+                            )
+                    
+                    # Execute the MCP tool function
+                    result = await execute_tool(
+                        db=db,
+                        tool_id=tool_id,
+                        params={
+                            "name": function_name,
+                            "arguments": resolved_args
+                        }
+                    )
                 
-                # Execute the MCP tool
-                result = await execute_tool(
-                    db=db,
-                    tool_id=tool_id,
-                    params={
-                        "name": function_name,
-                        "arguments": resolved_args
-                    }
-                )
-                
-                # Check for errors in JSON-RPC response
+                # Check for errors in JSON-RPC response (Common for both pipeline and single exec)
                 is_error = result.get("result", {}).get("isError", False)
                 
                 if is_error:

@@ -53,6 +53,8 @@ class GraphNode(BaseModel):
     type: PrimitiveType
     metadata: NodeMetadata
     params: Dict[str, Any] = Field(default_factory=dict)
+    input_schema: Optional[Dict[str, Any]] = Field(default=None, description="Schema for validating inputs")
+    output_schema: Optional[Dict[str, Any]] = Field(default=None, description="Schema of the output produced by this node")
 
 
 class GraphEdge(BaseModel):
@@ -183,6 +185,8 @@ class ExecutionStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    PAUSED = "paused"
+    WAITING_FOR_INPUT = "waiting_for_input"
 
 
 class ExecutionStep(BaseModel):
@@ -192,6 +196,7 @@ class ExecutionStep(BaseModel):
     status: ExecutionStatus
     input_data: Dict[str, Any] = Field(default_factory=dict)
     output_data: Optional[Dict[str, Any]] = None
+    captured_schema: Optional[Dict[str, Any]] = Field(default=None, description="Inferred schema from output data")
     error: Optional[str] = None
     duration_ms: Optional[int] = None
 
@@ -205,6 +210,13 @@ class BlueprintExecuteResponse(BaseModel):
     error_message: Optional[str] = None
     started_at: datetime
     completed_at: Optional[datetime] = None
+    execution_state: Dict[str, Any] = Field(default_factory=dict, description="Full execution state including variables and history")
+    
+    # GUI Tool fields (present when status is waiting_for_input)
+    gui_schema: Optional[Dict[str, Any]] = None
+    tool_name: Optional[str] = None
+    description: Optional[str] = None
+    waiting_node: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -280,3 +292,8 @@ class LLMDecisionParams(BaseModel):
     instruction: str
     input_context: str  # Variable or expression for input
     output_variable: str = "llm_output"
+
+
+class EndNodeParams(BaseModel):
+    """Parameters for END primitive."""
+    output_template: Dict[str, Any] = Field(default_factory=dict, description="Template for final output JSON")

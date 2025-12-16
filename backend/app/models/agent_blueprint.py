@@ -187,8 +187,9 @@ class AgentExecution(Base):
     # Execution data
     inputs = Column(JSON, default={})
     outputs = Column(JSON, default={})
-    status = Column(String, default="pending")  # pending, running, completed, failed
+    status = Column(String, default="pending")  # pending, running, completed, failed, paused
     error_message = Column(Text, nullable=True)
+    state = Column(JSON, nullable=True)  # Persisted AgentState for pause/resume
     
     # Timestamps
     started_at = Column(DateTime(timezone=True), server_default=func.now())

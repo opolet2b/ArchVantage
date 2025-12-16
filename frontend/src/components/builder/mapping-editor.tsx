@@ -3,31 +3,50 @@
 /**
  * Mapping Editor Component
  *
- * Shows dropdown-based field mapping for JSON_MAPPING nodes.
- * Fetches available fields from incoming/outgoing nodes via API.
- * Falls back to local schema discovery when blueprint is not saved.
+ * Provides a powerful inline editor for JSON data transformation.
+ * Features:
+ * - Expression-based mapping (Python-like syntax)
+ * - Variable discovery from upstream nodes
+ * - Structured field builder (Source + Type + Function)
+ * - Direct target field selection
  */
-import { useState, useEffect } from "react";
-import { Plus, Trash2, RefreshCw, AlertCircle, Loader2, Info } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, Trash2, RefreshCw, AlertCircle, Loader2, Wand2, Calculator, Info, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { API_URL } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    SelectGroup,
+    SelectLabel
+} from "@/components/ui/select";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover"
+import { API_URL, cn } from "@/lib/utils";
 import { useBuilderStore } from "@/lib/builder-store";
 import { PrimitiveType } from "@/lib/builder-types";
 
-/**
- * Field definition from schema discovery.
- */
 interface SchemaField {
     name: string;
     type: string;
     label?: string;
 }
 
-/**
- * Schema from a connected node.
- */
 interface NodeSchema {
     node_id: string;
     node_type: string;
@@ -38,11 +57,9 @@ interface NodeSchema {
     note?: string;
 }
 
-/**
- * A single field mapping.
- */
 interface FieldMapping {
-    source: string;
+    source?: string; // Legacy
+    expression?: string; // New
     target: string;
 }
 
@@ -52,6 +69,13 @@ interface MappingEditorProps {
     mappings: FieldMapping[];
     onMappingsChange: (mappings: FieldMapping[]) => void;
 }
+
+// ... [Schema helper functions omitted for brevity, logic remains identical] ...
+// Re-implementing them briefly to ensure the file is complete and self-contained if we are replacing the whole file, 
+// OR we can assume they are available if we are only replacing the component. 
+// However, the tool is replace_file_content, so I must include everything I want in the file if I'm replacing a huge chunk or strict range.
+// The prompt asked for "ReplacementContent". 
+// Since I am replacing the WHOLE file (StartLine 1 to 577), I must provide the FULL content.
 
 /**
  * Get output schema for a node type (client-side version).
@@ -111,8 +135,6 @@ function getNodeOutputSchema(primitiveType: PrimitiveType, params: Record<string
 function getNodeInputSchema(primitiveType: PrimitiveType, _params: Record<string, unknown>): SchemaField[] {
     switch (primitiveType) {
         case "CALL_TOOL":
-            // For CALL_TOOL, the actual inputs depend on the selected tool
-            // Without API access, we show generic fields
             return [
                 { name: "input", type: "any", label: "Tool Input" },
             ];
@@ -152,6 +174,41 @@ function getNodeInputSchema(primitiveType: PrimitiveType, _params: Record<string
     }
 }
 
+const MAPPING_TYPES = [
+    { value: "any", label: "Any (No Cast)", wrap: (v: string) => v },
+    { value: "str", label: "String", wrap: (v: string) => `str(${v})` },
+    { value: "int", label: "Integer", wrap: (v: string) => `int(${v})` },
+    { value: "float", label: "Float", wrap: (v: string) => `float(${v})` },
+    { value: "bool", label: "Boolean", wrap: (v: string) => `bool(${v})` },
+    { value: "list", label: "List", wrap: (v: string) => `list(${v})` },
+    { value: "dict", label: "Object (Dict)", wrap: (v: string) => `dict(${v})` },
+];
+
+const MAPPING_FUNCTIONS = [
+    {
+        label: "Operators", options: [
+            { value: " + ", label: "Plus (+)" },
+            { value: " - ", label: "Minus (-)" },
+            { value: " * ", label: "Multiply (*)" },
+            { value: " / ", label: "Divide (/)" },
+        ]
+    },
+    {
+        label: "String", options: [
+            { value: " + \" \" + ", label: "Concatenate Space" },
+            { value: ".upper()", label: "Popup Case (upper)" },
+            { value: ".lower()", label: "Lower Case (lower)" },
+            { value: "len()", label: "Length (len)" },
+        ]
+    },
+    {
+        label: "Date/Time", options: [
+            { value: "now()", label: "Current Time" },
+            { value: "isoformat()", label: "ISO Format" },
+        ]
+    },
+];
+
 export function MappingEditor({
     blueprintId,
     nodeId,
@@ -162,22 +219,24 @@ export function MappingEditor({
     const [incoming, setIncoming] = useState<NodeSchema[]>([]);
     const [outgoing, setOutgoing] = useState<NodeSchema[]>([]);
     const [errors, setErrors] = useState<string[]>([]);
-    const [newSource, setNewSource] = useState("");
+
+    // Editor state
+    const [newExpression, setNewExpression] = useState("");
     const [newTarget, setNewTarget] = useState("");
 
-    // Get nodes and edges from the store for local schema discovery
+    // Field Builder State
+    const [selectedSourceNode, setSelectedSourceNode] = useState<string>("");
+    const [selectedSourceField, setSelectedSourceField] = useState<string>("");
+    const [selectedType, setSelectedType] = useState<string>("any");
+
+    const inputRef = useRef<HTMLInputElement>(null);
     const nodes = useBuilderStore((state) => state.nodes);
     const edges = useBuilderStore((state) => state.edges);
 
-    /**
-     * Fetch tool configuration and extract schema fields.
-     */
     const fetchToolSchema = async (toolId: number, forOutput: boolean): Promise<SchemaField[]> => {
         try {
             const response = await fetch(`${API_URL}/tools/${toolId}`, {
-                headers: {
-                    "Authorization": `Bearer ${localStorage.getItem("token")}`,
-                },
+                headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` },
             });
             if (!response.ok) return [];
 
@@ -185,34 +244,21 @@ export function MappingEditor({
             const config = tool.configuration || {};
             const fields: SchemaField[] = [];
 
-            // Check for GUI tool schema
             if (tool.tool_type === "gui" || config.gui_schema) {
                 const guiSchema = config.gui_schema || {};
-                // GUI tools store form components as either "fields" or "components"
                 const guiFields = guiSchema.fields || guiSchema.components || [];
                 for (const field of guiFields) {
                     const fieldName = field.id || field.name || "";
-                    if (fieldName) {
-                        fields.push({
-                            name: fieldName,
-                            type: field.type || "string",
-                            label: field.title || field.label || fieldName,
-                        });
-                    }
+                    if (fieldName) fields.push({ name: fieldName, type: field.type || "string", label: field.title || field.label || fieldName });
                 }
                 if (fields.length > 0) return fields;
             }
 
-            // Check for consolidated input_schema
             const inputSchema = config.input_schema || {};
             if (inputSchema.properties) {
                 for (const [name, prop] of Object.entries(inputSchema.properties)) {
                     const propData = prop as { type?: string; description?: string };
-                    fields.push({
-                        name,
-                        type: propData.type || "string",
-                        label: propData.description || name,
-                    });
+                    fields.push({ name, type: propData.type || "string", label: propData.description || name });
                 }
                 if (fields.length > 0) return fields;
             }
@@ -224,21 +270,13 @@ export function MappingEditor({
                     const inputParams = func.inputSchema?.properties || {};
                     for (const [name, prop] of Object.entries(inputParams)) {
                         const propData = prop as { type?: string; description?: string };
-                        fields.push({
-                            name,
-                            type: propData.type || "string",
-                            label: propData.description || name,
-                        });
+                        fields.push({ name, type: propData.type || "string", label: propData.description || name });
                     }
                 }
                 if (fields.length > 0) return fields;
             }
 
-            // For output schema, just return a generic result field
-            if (forOutput) {
-                return [{ name: "result", type: "object", label: `Result from ${tool.name || "tool"}` }];
-            }
-
+            if (forOutput) return [{ name: "result", type: "object", label: `Result from ${tool.name || "tool"}` }];
             return [];
         } catch (error) {
             console.error("Failed to fetch tool schema:", error);
@@ -246,119 +284,77 @@ export function MappingEditor({
         }
     };
 
-    /**
-     * Build local schemas by examining connected nodes.
-     * Async to support fetching tool configurations.
-     */
     const buildLocalSchemas = async (): Promise<{ incoming: NodeSchema[]; outgoing: NodeSchema[] }> => {
         if (!nodeId) return { incoming: [], outgoing: [] };
-
         const localIncoming: NodeSchema[] = [];
         const localOutgoing: NodeSchema[] = [];
 
-        // Find edges targeting this node (incoming) - these provide SOURCE fields
-        const incomingEdges = edges.filter((e) => e.target === nodeId);
-        for (const edge of incomingEdges) {
-            const sourceNode = nodes.find((n) => n.id === edge.source);
-            if (sourceNode) {
-                const nodeData = sourceNode.data as { primitiveType?: PrimitiveType; label?: string; params?: Record<string, unknown> };
-                const primitiveType = nodeData.primitiveType || "START";
-                const params = nodeData.params || {};
+        // Incoming: All OTHER nodes' Output Schema
+        // This allows sourcing data from anywhere in the graph
+        const upstreamNodes = nodes.filter(n => n.id !== nodeId);
 
-                let fields: SchemaField[];
-                if (primitiveType === "CALL_TOOL" && params.tool_id) {
-                    // Fetch actual tool schema for CALL_TOOL nodes
-                    fields = await fetchToolSchema(params.tool_id as number, true);
-                    if (fields.length === 0) {
-                        fields = getNodeOutputSchema(primitiveType, params);
-                    }
-                } else {
-                    fields = getNodeOutputSchema(primitiveType, params);
-                }
+        for (const sourceNode of upstreamNodes) {
+            const nodeData = sourceNode.data as { primitiveType?: PrimitiveType; label?: string; params?: Record<string, unknown> };
+            const primitiveType = nodeData.primitiveType || "START";
+            const params = nodeData.params || {};
+            let fields: SchemaField[];
 
-                localIncoming.push({
-                    node_id: sourceNode.id,
-                    node_type: primitiveType,
-                    label: (nodeData.label as string) || primitiveType,
-                    fields,
-                    source: "local",
-                });
+            if (primitiveType === "CALL_TOOL" && params.tool_id) {
+                fields = await fetchToolSchema(params.tool_id as number, true);
+                if (fields.length === 0) fields = getNodeOutputSchema(primitiveType, params);
+            } else {
+                fields = getNodeOutputSchema(primitiveType, params);
             }
+
+            localIncoming.push({
+                node_id: sourceNode.id,
+                node_type: primitiveType,
+                label: (nodeData.label as string) || primitiveType,
+                fields,
+                source: "local",
+            });
         }
 
-        // Find edges from this node (outgoing) - these need TARGET fields
-        const outgoingEdges = edges.filter((e) => e.source === nodeId);
-        for (const edge of outgoingEdges) {
-            const targetNode = nodes.find((n) => n.id === edge.target);
-            if (targetNode) {
-                const nodeData = targetNode.data as { primitiveType?: PrimitiveType; label?: string; params?: Record<string, unknown> };
-                const primitiveType = nodeData.primitiveType || "END";
-                const params = nodeData.params || {};
+        // Outgoing: All OTHER nodes' Input Schema 
+        // This allows mapping TO any node's input requirements
+        const downstreamNodes = nodes.filter(n => n.id !== nodeId);
 
-                let fields: SchemaField[];
-                if (primitiveType === "CALL_TOOL" && params.tool_id) {
-                    // Fetch actual tool schema for CALL_TOOL nodes
-                    fields = await fetchToolSchema(params.tool_id as number, false);
-                    if (fields.length === 0) {
-                        fields = getNodeInputSchema(primitiveType, params);
-                    }
-                } else {
-                    fields = getNodeInputSchema(primitiveType, params);
-                }
+        for (const targetNode of downstreamNodes) {
+            const nodeData = targetNode.data as { primitiveType?: PrimitiveType; label?: string; params?: Record<string, unknown> };
+            const primitiveType = nodeData.primitiveType || "END";
+            const params = nodeData.params || {};
+            let fields: SchemaField[];
 
-                localOutgoing.push({
-                    node_id: targetNode.id,
-                    node_type: primitiveType,
-                    label: (nodeData.label as string) || primitiveType,
-                    fields,
-                    source: "local",
-                });
+            if (primitiveType === "CALL_TOOL" && params.tool_id) {
+                fields = await fetchToolSchema(params.tool_id as number, false);
+                if (fields.length === 0) fields = getNodeInputSchema(primitiveType, params);
+            } else {
+                fields = getNodeInputSchema(primitiveType, params);
             }
+
+            localOutgoing.push({
+                node_id: targetNode.id,
+                node_type: primitiveType,
+                label: (nodeData.label as string) || primitiveType,
+                fields,
+                source: "local",
+            });
         }
 
         return { incoming: localIncoming, outgoing: localOutgoing };
     };
 
-    // Fetch schemas from API or build locally when component mounts or node changes
     const fetchSchemas = async () => {
         setIsLoading(true);
         setErrors([]);
-
         try {
-            // If blueprint is saved, try API first
-            if (blueprintId && nodeId) {
-                try {
-                    const response = await fetch(
-                        `${API_URL}/agent-blueprints/${blueprintId}/nodes/${nodeId}/schemas`,
-                        {
-                            headers: {
-                                "Authorization": `Bearer ${localStorage.getItem("token")}`,
-                            },
-                        }
-                    );
-
-                    if (response.ok) {
-                        const data = await response.json();
-                        setIncoming(data.incoming || []);
-                        setOutgoing(data.outgoing || []);
-                        if (data.discovery_errors?.length > 0) {
-                            setErrors(data.discovery_errors);
-                        }
-                        setIsLoading(false);
-                        return;
-                    }
-                } catch {
-                    // API failed, fall through to local discovery
-                }
-            }
-
-            // Build local schemas (for unsaved blueprints or API fallback)
+            // Force client-side discovery to ensure we see ALL nodes in the editor state
+            // (Server-side endpoint might only return connected nodes or saved state)
             const localSchemas = await buildLocalSchemas();
             setIncoming(localSchemas.incoming);
             setOutgoing(localSchemas.outgoing);
-
             if (localSchemas.incoming.length === 0 && localSchemas.outgoing.length === 0) {
-                setErrors(["Connect nodes to enable field discovery"]);
+                setErrors(["No other nodes found to map fields from/to."]);
             }
         } catch (error) {
             setErrors([`Error: ${error}`]);
@@ -371,21 +367,6 @@ export function MappingEditor({
         fetchSchemas();
     }, [blueprintId, nodeId, nodes, edges]);
 
-
-
-    // Get all source fields from incoming nodes
-    const sourceFields: { value: string; label: string; nodeLabel: string }[] = [];
-    incoming.forEach((schema) => {
-        schema.fields.forEach((field) => {
-            sourceFields.push({
-                value: field.name,
-                label: field.label || field.name,
-                nodeLabel: schema.label || schema.node_id,
-            });
-        });
-    });
-
-    // Get all target fields from outgoing nodes
     const targetFields: { value: string; label: string; nodeLabel: string }[] = [];
     outgoing.forEach((schema) => {
         schema.fields.forEach((field) => {
@@ -397,14 +378,120 @@ export function MappingEditor({
         });
     });
 
+    // --- Constants ---
+
+    // We define these inside or outside component. Inside is fine for now but outside is cleaner.
+    // Let's refactor to use constant references if possible, but for replace_file_content 
+    // we just replace the body where these arrays were defined before (or add them).
+
+    const MAPPING_TYPES = [
+        { label: "Any (No Cast)", value: "any", wrap: (s: string) => s },
+        { label: "String", value: "str", wrap: (s: string) => `str(${s})` },
+        { label: "Integer", value: "int", wrap: (s: string) => `int(${s})` },
+        { label: "Float", value: "float", wrap: (s: string) => `float(${s})` },
+        { label: "Boolean", value: "bool", wrap: (s: string) => `bool(${s})` },
+        { label: "List", value: "list", wrap: (s: string) => `list(${s})` },
+        { label: "Dict", value: "dict", wrap: (s: string) => `dict(${s})` },
+        { label: "Date", value: "date", wrap: (s: string) => `date(${s})` },
+        { label: "DateTime", value: "datetime", wrap: (s: string) => `datetime(${s})` },
+        { label: "Time", value: "time", wrap: (s: string) => `time(${s})` },
+    ];
+
+    const MAPPING_FUNCTIONS = [
+        {
+            label: "Operators",
+            options: [
+                { label: "Plus (+)", value: " + " },
+                { label: "Minus (-)", value: " - " },
+                { label: "Multiply (*)", value: " * " },
+                { label: "Divide (/)", value: " / " },
+                { label: "Concatenate", value: " + " },
+                { label: "Concatenate Space", value: ' + " " + ' },
+            ]
+        },
+        {
+            label: "Methods",
+            options: [
+                { label: "Upper Case .upper()", value: ".upper()" },
+                { label: "Lower Case .lower()", value: ".lower()" },
+                { label: "Title Case .title()", value: ".title()" },
+                { label: "Capitalize .capitalize()", value: ".capitalize()" },
+            ]
+        },
+        {
+            label: "Functions",
+            options: [
+                { label: "Length len()", value: "len()" },
+                { label: "Format format()", value: "format()" },
+                { label: "Round round()", value: "round()" },
+                { label: "Current Time", value: "datetime.now()" },
+            ]
+        },
+    ];
+
+
+
+    // ... [Previous Helper Functions] ...
+
+    const handleInsertField = () => {
+        if (!selectedSourceNode || !selectedSourceField) return;
+
+        // 1. Sanitize Node ID part if it contains dashes
+        // The value is like "call_tool_123.field" or "node-id.field"
+        // We need to split it
+        let start = inputRef.current?.selectionStart || newExpression.length;
+        let end = inputRef.current?.selectionEnd || newExpression.length;
+
+        // Clean node ID (replace dashes with underscores)
+        const safeNodeId = selectedSourceNode.replace(/-/g, "_");
+
+        // Define expression part
+        let expressionPart = "";
+
+        // Check if field name is a valid Python identifier
+        const isValidIdentifier = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(selectedSourceField);
+
+        if (isValidIdentifier) {
+            expressionPart = `${safeNodeId}.${selectedSourceField}`;
+        } else {
+            expressionPart = `${safeNodeId}['${selectedSourceField}']`;
+        }
+
+        let insertion = expressionPart;
+        // Wrap with type cast if needed
+        const typeDef = MAPPING_TYPES.find(t => t.value === selectedType);
+        if (typeDef && selectedType !== "any") {
+            insertion = typeDef.wrap(expressionPart);
+        }
+
+        const newVal = newExpression.substring(0, start) + insertion + newExpression.substring(end);
+        setNewExpression(newVal);
+
+        // Reset selection
+        setSelectedSourceField("");
+        setSelectedType("any");
+
+        // Focus back after state update
+        setTimeout(() => inputRef.current?.focus(), 0);
+    };
+
+    const handleInsertFunction = (func: string) => {
+        let start = inputRef.current?.selectionStart || newExpression.length;
+        let end = inputRef.current?.selectionEnd || newExpression.length;
+
+        const newVal = newExpression.substring(0, start) + func + newExpression.substring(end);
+        setNewExpression(newVal);
+        setTimeout(() => inputRef.current?.focus(), 0);
+    };
+
     const handleAddMapping = () => {
-        if (newSource || newTarget) {
+        if (newExpression && newTarget) {
             const updated = [
                 ...mappings,
-                { source: newSource, target: newTarget || newSource },
+                { expression: newExpression, target: newTarget },
             ];
             onMappingsChange(updated);
-            setNewSource("");
+            setNewExpression("");
             setNewTarget("");
         }
     };
@@ -414,205 +501,241 @@ export function MappingEditor({
         onMappingsChange(updated);
     };
 
-    const handleUpdateMapping = (
-        index: number,
-        field: "source" | "target",
-        value: string
-    ) => {
+    const handleUpdateMapping = (index: number, field: keyof FieldMapping, value: string) => {
         const updated = [...mappings];
         updated[index] = { ...updated[index], [field]: value };
+        if (field === 'expression') delete updated[index].source;
         onMappingsChange(updated);
+    };
+
+    const insertText = (text: string) => {
+        if (inputRef.current) {
+            const start = inputRef.current.selectionStart || 0;
+            const end = inputRef.current.selectionEnd || 0;
+            const currentVal = newExpression;
+            const newVal = currentVal.substring(0, start) + text + currentVal.substring(end);
+            setNewExpression(newVal);
+            setTimeout(() => {
+                inputRef.current?.focus();
+                inputRef.current?.setSelectionRange(start + text.length, start + text.length);
+            }, 0);
+        } else {
+            setNewExpression(prev => prev + text);
+        }
     };
 
     return (
         <div className="space-y-4">
-            {/* Header with refresh */}
+            {/* Header */}
             <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Field Mappings</Label>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={fetchSchemas}
-                    disabled={isLoading}
-                >
-                    {isLoading ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                        <RefreshCw className="h-3 w-3" />
-                    )}
-                </Button>
+                <div>
+                    <Label className="text-sm font-medium">Data Transformation</Label>
+                    <p className="text-xs text-muted-foreground">Map and transform data using expressions.</p>
+                </div>
+                <div className="flex gap-1">
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-7 text-xs gap-1">
+                                <Info className="h-3 w-3" /> Syntax
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80">
+                            <div className="space-y-2 text-xs">
+                                <h4 className="font-medium">Expression Syntax</h4>
+                                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                                    <li>Variables: <code>node_id.field</code></li>
+                                    <li>Concat: <code>name + " " + suffix</code></li>
+                                    <li>Functions: <code>str(), int(), len()</code></li>
+                                    <li>Slicing: <code>items[0:5]</code></li>
+                                    <li>Methods: <code>str.title()</code></li>
+                                </ul>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={fetchSchemas} disabled={isLoading}>
+                        {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    </Button>
+                </div>
             </div>
 
-            {/* Errors */}
-            {errors.length > 0 && (
-                <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
-                    <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 text-xs mb-1">
-                        <AlertCircle className="h-3 w-3" />
-                        <span className="font-medium">Schema Discovery Issues</span>
-                    </div>
-                    <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-0.5">
-                        {errors.map((err, i) => (
-                            <li key={i}>• {err}</li>
-                        ))}
-                    </ul>
-                </div>
-            )}
-
-            {/* Existing mappings */}
-            {mappings.length > 0 && (
-                <div className="space-y-2">
-                    {mappings.map((mapping, index) => (
-                        <div
-                            key={index}
-                            className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded border"
-                        >
-                            {/* Source dropdown or input */}
-                            <div className="flex-1">
-                                {sourceFields.length > 0 ? (
-                                    <select
-                                        className="w-full h-8 px-2 text-xs rounded border bg-background"
-                                        value={mapping.source}
-                                        onChange={(e) =>
-                                            handleUpdateMapping(index, "source", e.target.value)
-                                        }
-                                    >
-                                        <option value="">-- Source --</option>
-                                        {sourceFields.map((f, i) => (
-                                            <option key={i} value={f.value}>
-                                                {f.value}: {f.label}
-                                            </option>
-                                        ))}
-                                        <option value={mapping.source}>
-                                            Custom: {mapping.source}
-                                        </option>
-                                    </select>
-                                ) : (
-                                    <Input
-                                        className="h-8 text-xs"
-                                        placeholder="Source field"
-                                        value={mapping.source}
-                                        onChange={(e) =>
-                                            handleUpdateMapping(index, "source", e.target.value)
-                                        }
-                                    />
-                                )}
+            {/* Mappings List */}
+            <div className="space-y-2">
+                {mappings.map((mapping, index) => (
+                    <div key={index} className="space-y-1.5 p-3 bg-slate-50 dark:bg-slate-900/40 rounded border group">
+                        <div className="flex items-center gap-2">
+                            <div className="flex-1 font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold">
+                                {mapping.target}
                             </div>
-
-                            <span className="text-muted-foreground text-xs">→</span>
-
-                            {/* Target dropdown or input */}
-                            <div className="flex-1">
-                                {targetFields.length > 0 ? (
-                                    <select
-                                        className="w-full h-8 px-2 text-xs rounded border bg-background"
-                                        value={mapping.target}
-                                        onChange={(e) =>
-                                            handleUpdateMapping(index, "target", e.target.value)
-                                        }
-                                    >
-                                        <option value="">-- Target --</option>
-                                        {targetFields.map((f, i) => (
-                                            <option key={i} value={f.value}>
-                                                {f.value}: {f.label}
-                                            </option>
-                                        ))}
-                                        <option value={mapping.target}>
-                                            Custom: {mapping.target}
-                                        </option>
-                                    </select>
-                                ) : (
-                                    <Input
-                                        className="h-8 text-xs"
-                                        placeholder="Target field"
-                                        value={mapping.target}
-                                        onChange={(e) =>
-                                            handleUpdateMapping(index, "target", e.target.value)
-                                        }
-                                    />
-                                )}
-                            </div>
-
+                            <div className="text-muted-foreground text-xs font-mono">=</div>
                             <Button
+                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 shrink-0"
                                 onClick={() => handleRemoveMapping(index)}
                             >
                                 <Trash2 className="h-3 w-3 text-red-500" />
                             </Button>
                         </div>
-                    ))}
-                </div>
-            )}
-
-            {/* Add new mapping */}
-            <div className="flex items-center gap-2">
-                {sourceFields.length > 0 ? (
-                    <select
-                        className="flex-1 h-8 px-2 text-xs rounded border bg-background"
-                        value={newSource}
-                        onChange={(e) => setNewSource(e.target.value)}
-                    >
-                        <option value="">-- Source --</option>
-                        {sourceFields.map((f, i) => (
-                            <option key={i} value={f.value}>
-                                {f.value}: {f.label}
-                            </option>
-                        ))}
-                    </select>
-                ) : (
-                    <Input
-                        className="flex-1 h-8 text-xs"
-                        placeholder="Source field"
-                        value={newSource}
-                        onChange={(e) => setNewSource(e.target.value)}
-                    />
-                )}
-
-                <span className="text-muted-foreground text-xs">→</span>
-
-                {targetFields.length > 0 ? (
-                    <select
-                        className="flex-1 h-8 px-2 text-xs rounded border bg-background"
-                        value={newTarget}
-                        onChange={(e) => setNewTarget(e.target.value)}
-                    >
-                        <option value="">-- Target --</option>
-                        {targetFields.map((f, i) => (
-                            <option key={i} value={f.value}>
-                                {f.value}: {f.label}
-                            </option>
-                        ))}
-                    </select>
-                ) : (
-                    <Input
-                        className="flex-1 h-8 text-xs"
-                        placeholder="Target field"
-                        value={newTarget}
-                        onChange={(e) => setNewTarget(e.target.value)}
-                    />
-                )}
-
-                <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8 shrink-0"
-                    onClick={handleAddMapping}
-                >
-                    <Plus className="h-4 w-4" />
-                </Button>
+                        <Input
+                            className="h-8 font-mono text-xs bg-white dark:bg-black"
+                            value={mapping.expression || mapping.source || ""}
+                            onChange={(e) => handleUpdateMapping(index, "expression", e.target.value)}
+                            placeholder="Expression..."
+                        />
+                    </div>
+                ))}
             </div>
 
-            {/* Help text */}
-            <p className="text-xs text-muted-foreground">
-                Map fields from incoming nodes to output variables.
-                {sourceFields.length === 0 && targetFields.length === 0 && (
-                    <span className="block mt-1 text-amber-600">
-                        No connected nodes found. Connect nodes to enable auto-discovery.
-                    </span>
-                )}
-            </p>
+            {/* New Mapping Builder */}
+            <div className="border rounded-md p-3 bg-slate-50/50 dark:bg-slate-900/20 space-y-3">
+                <div className="flex items-center gap-2">
+                    <Label className="text-xs font-semibold uppercase text-muted-foreground">New Mapping</Label>
+                </div>
+
+                <div className="grid gap-4">
+
+                    {/* Source Field Selector Row */}
+                    <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Source Field Builder</Label>
+                        <div className="flex gap-2 items-end">
+                            {/* Source Field Dropdown */}
+                            <div className="flex-1 min-w-0">
+                                <Select
+                                    value={selectedSourceNode && selectedSourceField ? `${selectedSourceNode}:${selectedSourceField}` : ""}
+                                    onValueChange={(val) => {
+                                        const [node, field] = val.split(":");
+                                        setSelectedSourceNode(node);
+                                        setSelectedSourceField(field);
+                                    }}
+                                >
+                                    <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue placeholder="Select Source Field..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {incoming.length === 0 && <div className="p-2 text-xs text-muted-foreground">No upstream nodes</div>}
+                                        {incoming.map((node) => (
+                                            <SelectGroup key={node.node_id}>
+                                                <SelectLabel className="text-xs font-bold text-muted-foreground px-2 py-1.5">{node.label} ({node.node_id})</SelectLabel>
+                                                {node.fields.map((field) => (
+                                                    <SelectItem key={`${node.node_id}:${field.name}`} value={`${node.node_id}:${field.name}`} className="text-xs pl-4">
+                                                        <span className="font-mono">{field.name}</span>
+                                                        <span className="ml-2 text-[10px] text-muted-foreground">({field.type})</span>
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectGroup>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Type Dropdown */}
+                            <div className="w-[110px] shrink-0">
+                                <Select value={selectedType} onValueChange={setSelectedType}>
+                                    <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue placeholder="Type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {MAPPING_TYPES.map(t => (
+                                            <SelectItem key={t.value} value={t.value} className="text-xs">{t.label}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            {/* Insert Button */}
+                            <Button
+                                size="sm"
+                                className="h-8 px-3 text-xs"
+                                variant="secondary"
+                                onClick={handleInsertField}
+                                disabled={!selectedSourceField}
+                            >
+                                Insert <ArrowRight className="h-3 w-3 ml-1" />
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Expression Row */}
+                    <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                            <Label className="text-xs font-medium">Expression</Label>
+
+                            {/* Functions Dropdown */}
+                            <Select onValueChange={handleInsertFunction}>
+                                <SelectTrigger className="h-6 text-xs w-[140px] px-2 border-dashed">
+                                    <Wand2 className="h-3 w-3 mr-1" />
+                                    <SelectValue placeholder="Add Function..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {MAPPING_FUNCTIONS.map(group => (
+                                        <SelectGroup key={group.label}>
+                                            <SelectLabel className="text-xs font-bold text-muted-foreground px-2 py-1.5">{group.label}</SelectLabel>
+                                            {group.options.map(opt => (
+                                                <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono">
+                                                    {opt.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectGroup>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        <Input
+                            ref={inputRef}
+                            className="h-8 font-mono text-xs"
+                            placeholder="e.g. node1.field + '_suffix'"
+                            value={newExpression}
+                            onChange={(e) => setNewExpression(e.target.value)}
+                        />
+                    </div>
+
+                    {/* Target Field Row */}
+                    <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Target Field</Label>
+                        <div className="flex gap-2">
+                            <div className="flex-1">
+                                {targetFields.length > 0 ? (
+                                    <Select value={newTarget} onValueChange={setNewTarget}>
+                                        <SelectTrigger className="h-8 text-xs">
+                                            <SelectValue placeholder="Select Target Field..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {targetFields.map((f, i) => (
+                                                <SelectItem key={i} value={f.value} className="text-xs">
+                                                    <span className="font-mono text-blue-600 dark:text-blue-400">{f.value}</span>
+                                                    <span className="ml-2 text-muted-foreground">({f.nodeLabel})</span>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                ) : (
+                                    <Input
+                                        className="h-8 text-xs"
+                                        placeholder="e.g. output_field_name"
+                                        value={newTarget}
+                                        onChange={(e) => setNewTarget(e.target.value)}
+                                    />
+                                )}
+                            </div>
+
+                            <Button size="sm" className="h-8 disabled:opacity-50" onClick={handleAddMapping} disabled={!newExpression || !newTarget}>
+                                <Plus className="h-4 w-4 mr-1" /> Add
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Discovery Errors */}
+            {errors.length > 0 && (
+                <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
+                    <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Schema Warnings:</span>
+                    <ul className="text-xs text-amber-600 dark:text-amber-400 mt-1 list-disc list-inside">
+                        {errors.map((err, i) => <li key={i}>{err}</li>)}
+                    </ul>
+                </div>
+            )}
         </div>
     );
 }

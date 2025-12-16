@@ -66,10 +66,40 @@ class EndPrimitive(BasePrimitive):
             PrimitiveResult with success status and final outputs
         """
         variables = state.get("variables", {})
+        output_template = params.get("output_template")
         output_vars = params.get("output_variables", [])
         
-        # If specific output variables are requested, filter them
-        if output_vars:
+        final_output = {}
+        
+        if output_template and isinstance(output_template, dict) and len(output_template) > 0:
+            # Use the template to construct the output
+            # Logic mirrors AgentRuntime's final output construction
+            print(f"[END] Constructing output using template: {output_template}")
+            
+            for key, template_str in output_template.items():
+                if not isinstance(template_str, str):
+                    final_output[key] = template_str
+                    continue
+                
+                # Check for direct variable match first
+                if template_str in variables:
+                    final_output[key] = variables[template_str]
+                else:
+                    # Try Jinja2 rendering if it contains {{ }}
+                    if "{{" in template_str:
+                        try:
+                            import jinja2
+                            env = jinja2.Environment()
+                            tmpl = env.from_string(template_str)
+                            final_output[key] = tmpl.render(**variables)
+                        except Exception as e:
+                            print(f"[END ERROR] Template render failed for {key}: {e}")
+                            final_output[key] = template_str # Fallback
+                    else:
+                        final_output[key] = template_str
+                        
+        elif output_vars:
+            # If specific output variables are requested (Legacy), filter them
             final_output = {
                 key: variables.get(key) 
                 for key in output_vars 

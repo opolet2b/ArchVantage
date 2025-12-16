@@ -33,6 +33,8 @@ import { PRIMITIVE_CONFIGS, PrimitiveType } from "@/lib/builder-types";
 import { cn, API_URL } from "@/lib/utils";
 import { MappingEditor } from "./mapping-editor";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { VariablePicker } from "./variable-picker";
+import { ExpressionBuilder } from "./expression-builder";
 
 // Node data interface with index signature for React Flow compatibility
 interface BuilderNodeData {
@@ -282,6 +284,68 @@ interface NodeInspectorProps {
     onDelete: () => void;
 }
 
+interface JsonEditorProps {
+    value: unknown;
+    onChange: (value: unknown) => void;
+    placeholder?: string;
+    minHeight?: string;
+}
+
+function JsonEditor({ value, onChange, placeholder, minHeight = "min-h-[60px]" }: JsonEditorProps) {
+    const [text, setText] = useState(() => {
+        if (value === undefined || value === null) return "";
+        return JSON.stringify(value, null, 2);
+    });
+
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (value === undefined || value === null) {
+            if (text !== "") setText("");
+        } else {
+            try {
+                const currentParsed = text ? JSON.parse(text) : undefined;
+                if (JSON.stringify(currentParsed) !== JSON.stringify(value)) {
+                    setText(JSON.stringify(value, null, 2));
+                }
+            } catch {
+                // If invalid, keep local text
+            }
+        }
+    }, [value]);
+
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newText = e.target.value;
+        setText(newText);
+
+        if (newText.trim() === "") {
+            setError(null);
+            onChange({});
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(newText);
+            setError(null);
+            onChange(parsed);
+        } catch (err) {
+            setError("Invalid JSON");
+        }
+    };
+
+    return (
+        <div className="space-y-1">
+            <Textarea
+                placeholder={placeholder}
+                className={cn("font-mono text-xs", minHeight, error ? "border-red-500 focus-visible:ring-red-500" : "")}
+                value={text}
+                onChange={handleChange}
+            />
+            {error && <p className="text-[10px] text-red-500">{error}</p>}
+        </div>
+    );
+}
+
 function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
     const params = node.data.params || {};
     const primitiveType = node.data.primitiveType;
@@ -484,11 +548,14 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                     </div>
                     <div className="space-y-2">
                         <Label>URL</Label>
-                        <Input
-                            placeholder="https://api.example.com/..."
-                            value={(params.url as string) || ""}
-                            onChange={(e) => handleParamChange("url", e.target.value)}
-                        />
+                        <div className="flex gap-1">
+                            <Input
+                                placeholder="https://api.example.com/..."
+                                value={(params.url as string) || ""}
+                                onChange={(e) => handleParamChange("url", e.target.value)}
+                            />
+                            <VariablePicker onSelect={(path) => handleParamChange("url", ((params.url as string) || "") + `{{${path}}}`)} />
+                        </div>
                         <p className="text-xs text-muted-foreground">
                             Use {"{{variable}}"} for dynamic values
                         </p>
@@ -515,13 +582,12 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                 <>
                     <div className="space-y-2">
                         <Label>Expression</Label>
-                        <Input
-                            placeholder="amount > 1000"
+                        <ExpressionBuilder
                             value={(params.expression as string) || ""}
-                            onChange={(e) => handleParamChange("expression", e.target.value)}
+                            onChange={(getValue) => handleParamChange("expression", getValue)}
                         />
                         <p className="text-xs text-muted-foreground">
-                            JavaScript expression that evaluates to true/false
+                            Build a condition to check (If true → Green path, Else → Red path)
                         </p>
                     </div>
                 </>
@@ -577,6 +643,48 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                             <p className="text-xs text-muted-foreground">
                                 This description helps the AI understand the purpose of this tool in your workflow.
                             </p>
+                        </div>
+                    )}
+
+                    {/* Schemas Inspector */}
+                    {selectedToolConfig && (
+                        <div className="space-y-2">
+                            <Label>Tool Schemas</Label>
+                            <div className="rounded-md border bg-slate-50 dark:bg-slate-900 overflow-hidden">
+                                <details className="group border-b last:border-0">
+                                    <summary className="flex items-center justify-between p-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium">
+                                        Input Schema
+                                        <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
+                                    </summary>
+                                    <div className="p-2 border-t bg-white dark:bg-slate-950">
+                                        <ScrollArea className="h-40 w-full rounded border bg-slate-50 dark:bg-slate-900 p-2">
+                                            <pre className="text-[10px] font-mono whitespace-pre-wrap">
+                                                {JSON.stringify(
+                                                    selectedToolConfig.configuration?.input_schema ||
+                                                        (selectedToolConfig as any).tool_type === "gui" ? selectedToolConfig.configuration : "No schema defined",
+                                                    null, 2
+                                                )}
+                                            </pre>
+                                        </ScrollArea>
+                                    </div>
+                                </details>
+                                <details className="group border-b last:border-0">
+                                    <summary className="flex items-center justify-between p-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-medium">
+                                        Output Schema
+                                        <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
+                                    </summary>
+                                    <div className="p-2 border-t bg-white dark:bg-slate-950">
+                                        <ScrollArea className="h-40 w-full rounded border bg-slate-50 dark:bg-slate-900 p-2">
+                                            <pre className="text-[10px] font-mono whitespace-pre-wrap">
+                                                {JSON.stringify(
+                                                    (selectedToolConfig.configuration as any)?.output_schema || "Dynamic / Not Defined",
+                                                    null, 2
+                                                )}
+                                            </pre>
+                                        </ScrollArea>
+                                    </div>
+                                </details>
+                            </div>
                         </div>
                     )}
 
@@ -645,12 +753,17 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                                 </div>
 
                                                 {!isAgentDecide && (
-                                                    <Input
-                                                        placeholder={`Enter ${arg.name}...`}
-                                                        value={(currentArgs[arg.name] as string) || ""}
-                                                        onChange={(e) => handleArgumentChange(arg.name, e.target.value)}
-                                                        className="text-sm"
-                                                    />
+                                                    <div className="flex gap-1">
+                                                        <Input
+                                                            placeholder={`Enter ${arg.name}...`}
+                                                            value={(currentArgs[arg.name] as string) || ""}
+                                                            onChange={(e) => handleArgumentChange(arg.name, e.target.value)}
+                                                            className="text-sm"
+                                                        />
+                                                        <VariablePicker onSelect={(path) =>
+                                                            handleArgumentChange(arg.name, ((currentArgs[arg.name] as string) || "") + `{{${path}}}`)
+                                                        } />
+                                                    </div>
                                                 )}
 
                                                 {isAgentDecide && (
@@ -666,135 +779,170 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                         </div>
                     )}
                 </>
-            )}
+            )
+            }
 
-            {primitiveType === "TEXT_TEMPLATE" && (
-                <>
-                    <div className="space-y-2">
-                        <Label>Template</Label>
-                        <Textarea
-                            placeholder="Hello {{name}}, your order {{order_id}} is ready."
-                            value={(params.template_string as string) || ""}
-                            onChange={(e) => handleParamChange("template_string", e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Jinja2 template syntax
-                        </p>
-                    </div>
-                </>
-            )}
-
-            {primitiveType === "LLM_DECISION" && (
-                <>
-                    <div className="space-y-2">
-                        <Label>Model</Label>
-                        <Input
-                            placeholder="default"
-                            value={(params.model as string) || "default"}
-                            onChange={(e) => handleParamChange("model", e.target.value)}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label className="flex items-center gap-2">
-                            Instruction
-                            <HelpTooltip contentPath="agent-builder/llm_decision_instruction" />
-                        </Label>
-                        <Textarea
-                            placeholder="Analyze the input and determine the best action..."
-                            value={(params.instruction as string) || ""}
-                            onChange={(e) => handleParamChange("instruction", e.target.value)}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Input Context Variable</Label>
-                        <Input
-                            placeholder="{{input_data}}"
-                            value={(params.input_context as string) || ""}
-                            onChange={(e) => handleParamChange("input_context", e.target.value)}
-                        />
-                    </div>
-                </>
-            )}
-
-            {primitiveType === "FOREACH" && (
-                <>
-                    <div className="space-y-2">
-                        <Label>Items Variable</Label>
-                        <Input
-                            placeholder="items"
-                            value={(params.items as string) || ""}
-                            onChange={(e) => handleParamChange("items", e.target.value)}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Iterator Variable</Label>
-                        <Input
-                            placeholder="item"
-                            value={(params.iterator_var as string) || "item"}
-                            onChange={(e) => handleParamChange("iterator_var", e.target.value)}
-                        />
-                    </div>
-                </>
-            )}
-
-            {primitiveType === "JSON_MAPPING" && (
-                <>
-                    {/* Mapping Editor - dropdown-based field mapping */}
-                    <MappingEditor
-                        blueprintId={blueprintId || ""}
-                        nodeId={selectedNode?.id || ""}
-                        mappings={Array.isArray(params.mappings) ? params.mappings as { source: string; target: string }[] : []}
-                        onMappingsChange={(newMappings) => handleParamChange("mappings", newMappings)}
-                    />
-
-                    <Separator className="my-3" />
-
-                    {/* Advanced: Manual Source/Template */}
-                    <details className="text-xs">
-                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                            Advanced: Manual JMESPath
-                        </summary>
-                        <div className="mt-3 space-y-3">
-                            <div className="space-y-2">
-                                <Label className="text-xs">Source Variable</Label>
-                                <Input
-                                    placeholder="response.data"
-                                    className="h-7 text-xs"
-                                    value={(params.source as string) || ""}
-                                    onChange={(e) => handleParamChange("source", e.target.value)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-xs flex items-center gap-2">
-                                    JMESPath Template
-                                    <HelpTooltip contentPath="agent-builder/json_mapping_template" />
-                                </Label>
+            {
+                primitiveType === "TEXT_TEMPLATE" && (
+                    <>
+                        <div className="space-y-2">
+                            <Label>Template</Label>
+                            <div className="flex items-start gap-1">
                                 <Textarea
-                                    placeholder="items[*].{id: id, name: name}"
-                                    className="font-mono text-xs min-h-[60px]"
-                                    value={
-                                        typeof params.template === "object" && params.template !== null
-                                            ? JSON.stringify(params.template, null, 2)
-                                            : (params.template as string) || ""
-                                    }
-                                    onChange={(e) => {
-                                        const value = e.target.value;
-                                        try {
-                                            if (value.trim().startsWith("{") || value.trim().startsWith("[")) {
-                                                handleParamChange("template", JSON.parse(value));
-                                            } else {
+                                    placeholder="Hello {{name}}, your order {{order_id}} is ready."
+                                    value={(params.template_string as string) || ""}
+                                    onChange={(e) => handleParamChange("template_string", e.target.value)}
+                                />
+                                <VariablePicker onSelect={(path) => handleParamChange("template_string", ((params.template_string as string) || "") + `{{${path}}}`)} />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Jinja2 template syntax
+                            </p>
+                        </div>
+                    </>
+                )
+            }
+
+            {
+                primitiveType === "LLM_DECISION" && (
+                    <>
+                        <div className="space-y-2">
+                            <Label>Model</Label>
+                            <Input
+                                placeholder="default"
+                                value={(params.model as string) || "default"}
+                                onChange={(e) => handleParamChange("model", e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="flex items-center gap-2">
+                                Instruction
+                                <HelpTooltip contentPath="agent-builder/llm_decision_instruction" />
+                            </Label>
+                            <Textarea
+                                placeholder="Analyze the input and determine the best action..."
+                                value={(params.instruction as string) || ""}
+                                onChange={(e) => handleParamChange("instruction", e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Input Context Variable</Label>
+                            <Input
+                                placeholder="{{input_data}}"
+                                value={(params.input_context as string) || ""}
+                                onChange={(e) => handleParamChange("input_context", e.target.value)}
+                            />
+                        </div>
+                    </>
+                )
+            }
+
+            {
+                primitiveType === "FOREACH" && (
+                    <>
+                        <div className="space-y-2">
+                            <Label>Items Variable</Label>
+                            <Input
+                                placeholder="items"
+                                value={(params.items as string) || ""}
+                                onChange={(e) => handleParamChange("items", e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Iterator Variable</Label>
+                            <Input
+                                placeholder="item"
+                                value={(params.iterator_var as string) || "item"}
+                                onChange={(e) => handleParamChange("iterator_var", e.target.value)}
+                            />
+                        </div>
+                    </>
+                )
+            }
+
+            {
+                primitiveType === "JSON_MAPPING" && (
+                    <>
+                        {/* Mapping Editor - dropdown-based field mapping */}
+                        <MappingEditor
+                            blueprintId={blueprintId || ""}
+                            nodeId={selectedNode?.id || ""}
+                            mappings={Array.isArray(params.mappings) ? params.mappings as { source: string; target: string }[] : []}
+                            onMappingsChange={(newMappings) => handleParamChange("mappings", newMappings)}
+                        />
+
+                        <Separator className="my-3" />
+
+                        {/* Advanced: Manual Source/Template */}
+                        <details className="text-xs">
+                            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                                Advanced: Manual JMESPath
+                            </summary>
+                            <div className="mt-3 space-y-3">
+                                <div className="space-y-2">
+                                    <Label className="text-xs">Source Variable</Label>
+                                    <Input
+                                        placeholder="response.data"
+                                        className="h-7 text-xs"
+                                        value={(params.source as string) || ""}
+                                        onChange={(e) => handleParamChange("source", e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-xs flex items-center gap-2">
+                                        JMESPath Template
+                                        <HelpTooltip contentPath="agent-builder/json_mapping_template" />
+                                    </Label>
+                                    <Textarea
+                                        placeholder="items[*].{id: id, name: name}"
+                                        className="font-mono text-xs min-h-[60px]"
+                                        value={
+                                            typeof params.template === "object" && params.template !== null
+                                                ? JSON.stringify(params.template, null, 2)
+                                                : (params.template as string) || ""
+                                        }
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            try {
+                                                if (value.trim().startsWith("{") || value.trim().startsWith("[")) {
+                                                    handleParamChange("template", JSON.parse(value));
+                                                } else {
+                                                    handleParamChange("template", value);
+                                                }
+                                            } catch {
                                                 handleParamChange("template", value);
                                             }
-                                        } catch {
-                                            handleParamChange("template", value);
-                                        }
-                                    }}
-                                />
+                                        }}
+                                    />
+                                </div>
                             </div>
+                        </details>
+                    </>
+                )
+            }
+
+            {
+                primitiveType === "END" && (
+                    <>
+                        <div className="space-y-2">
+                            <Label className="flex items-center gap-2">
+                                Output Template (JSON)
+                                <HelpTooltip contentPath="agent-builder/end_node_output_template" />
+                            </Label>
+                            <JsonEditor
+                                value={params.output_template}
+                                onChange={(val) => handleParamChange("output_template", val)}
+                                placeholder='{ "final_result": "{{llm_output}}" }'
+                                minHeight="min-h-[100px]"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Define the final JSON structure. Keys are output names, values can be {"{{variable}}"} references.
+                                Leave empty to return all variables.
+                            </p>
                         </div>
-                    </details>
-                </>
-            )}
+                    </>
+                )
+            }
 
             <Separator />
 
@@ -807,6 +955,6 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
             >
                 Delete Node
             </Button>
-        </div>
+        </div >
     );
 }

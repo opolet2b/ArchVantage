@@ -6,7 +6,7 @@
  * Main component that combines Widget Palette, Canvas, and Properties Panel
  * for building GUI form tools.
  */
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { WidgetPalette, WidgetType, WidgetConfig } from "./widget-palette"
 export type { WidgetConfig }
 import { GridCanvas } from "./grid-canvas"
@@ -39,9 +39,10 @@ interface FormBuilderProps {
         output_schema: any
         input_schema: any
     }) => void
+    onDirtyChange?: (isDirty: boolean) => void
 }
 
-export function FormBuilder({ initialConfig, onSave }: FormBuilderProps) {
+export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilderProps) {
     const [formTitle, setFormTitle] = useState(initialConfig?.title || "New Form")
     const [submitLabel, setSubmitLabel] = useState(initialConfig?.submit_label || "Submit")
     const [widgets, setWidgets] = useState<WidgetConfig[]>(initialConfig?.components || [])
@@ -63,6 +64,11 @@ export function FormBuilder({ initialConfig, onSave }: FormBuilderProps) {
 
     // Modification State
     const [isDirty, setIsDirty] = useState(false)
+
+    // Notify parent of dirty state change
+    useEffect(() => {
+        onDirtyChange?.(isDirty)
+    }, [isDirty, onDirtyChange])
 
     // Generate unique ID for new widgets
     const generateId = (baseId: string): string => {
@@ -110,6 +116,12 @@ export function FormBuilder({ initialConfig, onSave }: FormBuilderProps) {
         setWidgets(prev => prev.map(w =>
             w.id === selectedWidgetId ? updatedWidget : w
         ))
+
+        // If ID changed, update selection to keep panel open
+        if (selectedWidgetId && updatedWidget.id !== selectedWidgetId) {
+            setSelectedWidgetId(updatedWidget.id)
+        }
+
         setIsDirty(true)
     }, [selectedWidgetId])
 

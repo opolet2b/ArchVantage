@@ -167,6 +167,7 @@ export interface BlueprintExecuteResponse {
     error_message?: string;
     started_at: string;
     completed_at?: string;
+    execution_state?: Record<string, unknown>;
 }
 
 /**
@@ -195,6 +196,7 @@ export interface StreamEvent {
     gui_schema?: Record<string, unknown>;
     tool_name?: string;
     description?: string;
+    execution_state?: Record<string, unknown>;
 }
 
 /**
@@ -204,6 +206,17 @@ export interface SecretResponse {
     id: number;
     key_name: string;
     created_at: string;
+}
+
+
+/**
+ * Model preset configuration matching backend schema.
+ */
+export interface ModelPreset {
+    name: string;
+    type: "local" | "remote";
+    model_name?: string;
+    api_url?: string;
 }
 
 // =============================================================================
@@ -306,7 +319,7 @@ export const PRIMITIVE_CONFIGS: PrimitiveConfig[] = [
         description: "Exit point of the workflow",
         icon: "Square",
         category: "logic",
-        defaultParams: {}
+        defaultParams: { output_template: {} }
     },
     {
         type: "HTTP_REQUEST",

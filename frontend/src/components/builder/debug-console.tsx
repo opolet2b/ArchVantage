@@ -42,7 +42,11 @@ interface GUISchema {
     fields?: GUISchemaField[];
     components?: GUISchemaField[]; // GUI form builder uses 'components'
     tool_type?: string;
+    layout?: { rows: number; cols: number };
 }
+
+import { FormRenderer } from "@/components/tools/form-builder/form-renderer";
+import { WidgetConfig } from "@/components/tools/form-builder/widget-palette";
 
 // Component to render GUI input form
 function GUIInputForm({
@@ -58,7 +62,11 @@ function GUIInputForm({
     description?: string;
     onSubmit: (values: Record<string, string>, toolId?: number | string) => void;
 }) {
-    const [values, setValues] = useState<Record<string, string>>({});
+    const [values, setValues] = useState<Record<string, any>>({});
+
+    // Check if we have a full GUI definition with components and layout
+    // The backend might pass 'components' as part of the schema if it's a GUI tool
+    const isRichGUI = !!schema.components && schema.components.length > 0;
 
     // Debug: log schema to console
     console.log("[GUIInputForm] Schema received:", schema);
@@ -66,11 +74,34 @@ function GUIInputForm({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         console.log("[GUIInputForm] Submitting values:", values, "for tool:", toolId);
-        onSubmit(values, toolId);
+        // Convert all values to strings for consistent backend handling if needed, 
+        // or keep as is if backend supports typed JSON (which it does).
+        // But for safety with existing signature:
+        const stringValues: Record<string, string> = {};
+        for (const [k, v] of Object.entries(values)) {
+            if (Array.isArray(v)) {
+                // For checkbox groups, join with comma? Or keep as array?
+                // Backend likely expects array for checkbox. 
+                // But signature says Record<string, string>.
+                // We might need to adjust signature or stringify complex types.
+                // For now, let's cast validation aside or stringify.
+                stringValues[k] = JSON.stringify(v);
+            } else if (typeof v === 'boolean') {
+                stringValues[k] = v.toString();
+            } else {
+                stringValues[k] = String(v ?? "");
+            }
+        }
+
+        // Actually, let's just pass raw values and let the parent handle it if it can.
+        // The parent (DebugConsole) calls setTestInputs which accepts JSON.
+        // So we should update onSubmit signature to accept 'any' if possible.
+        // For now, let's coerce to what the signature says, or update signature?
+        // Let's coerce to string for compatibility with existing 'Input' fields fallback.
+        onSubmit(values as Record<string, string>, toolId);
     };
 
     // Get fields array, handling different possible structures
-    // GUI form builder uses 'components', backend schema uses 'fields'
     const fields = schema.fields || schema.components || [];
 
     return (
@@ -86,45 +117,67 @@ function GUIInputForm({
                     {description}
                 </p>
             )}
-            <form onSubmit={handleSubmit} className="space-y-3">
-                {fields.length > 0 ? (
-                    fields.map((field) => (
-                        <div key={field.id} className="space-y-1">
-                            <Label htmlFor={field.id} className="text-xs">
-                                {field.title || field.label || field.id}
-                                {field.required && <span className="text-red-500 ml-1">*</span>}
+
+            {isRichGUI ? (
+                <div className="mb-3">
+                    <FormRenderer // @ts-ignore
+                        widgets={schema.components as WidgetConfig[]}
+                        // @ts-ignore
+                        layout={schema.layout || { rows: 10, cols: 2 }} // Fallback layout
+                        value={values}
+                        onChange={(id, val) => setValues(prev => ({ ...prev, [id]: val }))}
+                    />
+                    <div className="flex justify-end mt-4">
+                        <Button
+                            onClick={(e) => handleSubmit(e as any)}
+                            size="sm"
+                            className="h-7 bg-amber-600 hover:bg-amber-700"
+                        >
+                            Submit & Continue
+                        </Button>
+                    </div>
+                </div>
+            ) : (
+                <form onSubmit={handleSubmit} className="space-y-3">
+                    {fields.length > 0 ? (
+                        fields.map((field) => (
+                            <div key={field.id} className="space-y-1">
+                                <Label htmlFor={field.id} className="text-xs">
+                                    {field.title || field.label || field.id}
+                                    {field.required && <span className="text-red-500 ml-1">*</span>}
+                                </Label>
+                                <Input
+                                    id={field.id}
+                                    type={field.type === "number" ? "number" : "text"}
+                                    placeholder={field.placeholder}
+                                    value={values[field.id] || ""}
+                                    onChange={(e) => setValues({ ...values, [field.id]: e.target.value })}
+                                    className="h-8 text-xs"
+                                    required={field.required}
+                                />
+                            </div>
+                        ))
+                    ) : (
+                        /* Fallback: single generic input if no fields defined */
+                        <div className="space-y-1">
+                            <Label htmlFor="user_input" className="text-xs">
+                                Your input
                             </Label>
                             <Input
-                                id={field.id}
-                                type={field.type === "number" ? "number" : "text"}
-                                placeholder={field.placeholder}
-                                value={values[field.id] || ""}
-                                onChange={(e) => setValues({ ...values, [field.id]: e.target.value })}
+                                id="user_input"
+                                type="text"
+                                placeholder="Enter your response..."
+                                value={values["user_input"] || ""}
+                                onChange={(e) => setValues({ ...values, "user_input": e.target.value })}
                                 className="h-8 text-xs"
-                                required={field.required}
                             />
                         </div>
-                    ))
-                ) : (
-                    /* Fallback: single generic input if no fields defined */
-                    <div className="space-y-1">
-                        <Label htmlFor="user_input" className="text-xs">
-                            Your input
-                        </Label>
-                        <Input
-                            id="user_input"
-                            type="text"
-                            placeholder="Enter your response..."
-                            value={values["user_input"] || ""}
-                            onChange={(e) => setValues({ ...values, "user_input": e.target.value })}
-                            className="h-8 text-xs"
-                        />
-                    </div>
-                )}
-                <Button type="submit" size="sm" className="h-7 bg-amber-600 hover:bg-amber-700">
-                    Submit & Continue
-                </Button>
-            </form>
+                    )}
+                    <Button type="submit" size="sm" className="h-7 bg-amber-600 hover:bg-amber-700">
+                        Submit & Continue
+                    </Button>
+                </form>
+            )}
         </div>
     );
 }
@@ -173,6 +226,7 @@ export function DebugConsole() {
             const inputs = JSON.parse(inputJson);
             setInputError(null);
             setTestInputs(inputs);
+            clearConsoleLogs(); // Clear previous logs
             executeWithStream();
         } catch {
             setInputError("Invalid JSON");
@@ -189,11 +243,10 @@ export function DebugConsole() {
             ...testInputs,
             [marker]: guiValues  // Backend will look for this marker with values
         };
-        setTestInputs(newInputs);
-        setInputJson(JSON.stringify(newInputs, null, 2));
+        // Do not update store or UI input, just pass internal state to execution
         addConsoleLog("info", `GUI input received for tool ${toolId}, continuing execution...`, guiValues);
         // Auto-resume: backend will now find the marker and continue
-        setTimeout(() => executeWithStream(), 100);
+        setTimeout(() => executeWithStream(newInputs), 100);
     };
 
     const getLogIcon = (type: string) => {
@@ -350,9 +403,41 @@ export function DebugConsole() {
                                                 />
                                             ) : (
                                                 log.data !== undefined && log.data !== null && (
-                                                    <pre className="mt-1 text-xs text-muted-foreground overflow-x-auto max-w-full">
-                                                        {String(JSON.stringify(log.data, null, 2))}
-                                                    </pre>
+                                                    <div className="mt-1">
+                                                        {log.message.startsWith("Execution completed") || log.message.startsWith("Execution success") ? (
+                                                            // Special rendering for completion
+                                                            <div className="space-y-4">
+                                                                <div className="bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-800">
+                                                                    <div className="text-xs font-semibold mb-1 text-slate-700 dark:text-slate-300">
+                                                                        Execution Result (Output)
+                                                                    </div>
+                                                                    <pre className="text-xs text-muted-foreground overflow-x-auto">
+                                                                        {String(JSON.stringify((log.data as any).outputs || log.data, null, 2))}
+                                                                    </pre>
+                                                                </div>
+
+                                                                {(log.data as any).execution_state && (
+                                                                    <div className="bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-800">
+                                                                        <details>
+                                                                            <summary className="text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer select-none">
+                                                                                Debug Context (Full State)
+                                                                            </summary>
+                                                                            <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                                                                                <pre className="text-xs text-muted-foreground overflow-x-auto">
+                                                                                    {String(JSON.stringify((log.data as any).execution_state, null, 2))}
+                                                                                </pre>
+                                                                            </div>
+                                                                        </details>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            // Standard rendering for other logs
+                                                            <pre className="mt-1 text-xs text-muted-foreground overflow-x-auto max-w-full">
+                                                                {String(JSON.stringify(log.data, null, 2))}
+                                                            </pre>
+                                                        )}
+                                                    </div>
                                                 )
                                             )}
                                         </div>

@@ -13,6 +13,7 @@ import {
     Controls,
     MiniMap,
     Connection,
+    Edge,
     addEdge,
     BackgroundVariant,
     NodeTypes,
@@ -52,6 +53,7 @@ export function BuilderCanvas() {
     const onEdgesChange = useBuilderStore((state) => state.onEdgesChange);
     const setSelectedNodeId = useBuilderStore((state) => state.setSelectedNodeId);
     const addNode = useBuilderStore((state) => state.addNode);
+    const reconnectEdge = useBuilderStore((state) => state.reconnectEdge);
     const activeNodeId = useBuilderStore((state) => state.activeNodeId);
 
     // Handle new connections
@@ -60,11 +62,19 @@ export function BuilderCanvas() {
             if (connection.source && connection.target) {
                 useBuilderStore.getState().connectNodes(
                     connection.source,
-                    connection.target
+                    connection.target,
+                    connection.sourceHandle || undefined
                 );
             }
         },
         []
+    );
+
+    const onReconnect = useCallback(
+        (oldEdge: Edge, newConnection: Connection) => {
+            reconnectEdge(oldEdge, newConnection);
+        },
+        [reconnectEdge]
     );
 
     // Handle node selection
@@ -126,6 +136,7 @@ export function BuilderCanvas() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
+                onReconnect={onReconnect}
                 onNodeClick={onNodeClick}
                 onPaneClick={onPaneClick}
                 onDragOver={onDragOver}
@@ -134,6 +145,7 @@ export function BuilderCanvas() {
                 fitView
                 snapToGrid
                 snapGrid={[16, 16]}
+                deleteKeyCode={["Backspace", "Delete"]}
                 defaultEdgeOptions={{
                     type: "smoothstep",
                     animated: true,

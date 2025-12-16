@@ -20,14 +20,19 @@ interface GUIToolEditorProps {
     onSave: (tool: Partial<Tool>) => void
     onDelete: (toolId: number) => void
     onBack?: () => void
+    onDirtyChange?: (isDirty: boolean) => void
 }
 
-export function GUIToolEditor({ tool, onSave, onDelete, onBack }: GUIToolEditorProps) {
+export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }: GUIToolEditorProps) {
     const [name, setName] = useState("")
     const [description, setDescription] = useState("")
     const [isPublic, setIsPublic] = useState(false)
     const [permissions, setPermissions] = useState<ToolPermission[]>([])
     const [showPermissions, setShowPermissions] = useState(false)
+
+    // Dirty state tracking
+    const [formDirty, setFormDirty] = useState(false)
+    const [metaDirty, setMetaDirty] = useState(false)
 
     // Load tool data
     useEffect(() => {
@@ -42,7 +47,19 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack }: GUIToolEditorP
             setIsPublic(false)
             setPermissions([])
         }
+        setMetaDirty(false)
     }, [tool])
+
+    // Notify parent of total dirty state
+    useEffect(() => {
+        const isDirty = formDirty || metaDirty
+        onDirtyChange?.(isDirty)
+    }, [formDirty, metaDirty, onDirtyChange])
+
+    const handleMetaChange = (updater: () => void) => {
+        updater()
+        setMetaDirty(true)
+    }
 
     // Get initial form config from tool
     const getInitialConfig = () => {
@@ -125,7 +142,7 @@ ${formConfig.components
                         <Label className="text-xs text-muted-foreground">Tool Name</Label>
                         <Input
                             value={name}
-                            onChange={(e) => setName(e.target.value)}
+                            onChange={(e) => handleMetaChange(() => setName(e.target.value))}
                             placeholder="My GUI Tool"
                             className="h-8 w-48"
                         />
@@ -135,7 +152,7 @@ ${formConfig.components
                         <Label className="text-xs text-muted-foreground">Description</Label>
                         <Input
                             value={description}
-                            onChange={(e) => setDescription(e.target.value)}
+                            onChange={(e) => handleMetaChange(() => setDescription(e.target.value))}
                             placeholder="What does this form collect?"
                             className="h-8"
                         />
@@ -178,7 +195,7 @@ ${formConfig.components
                 <div className="p-4 border-b bg-slate-50/50 dark:bg-slate-900/50">
                     <ToolPermissionsPanel
                         permissions={permissions}
-                        onChange={setPermissions}
+                        onChange={(perms) => handleMetaChange(() => setPermissions(perms))}
                     />
                 </div>
             )}
@@ -187,6 +204,7 @@ ${formConfig.components
             <FormBuilder
                 initialConfig={getInitialConfig()}
                 onSave={handleFormSave}
+                onDirtyChange={setFormDirty}
             />
         </div>
     )

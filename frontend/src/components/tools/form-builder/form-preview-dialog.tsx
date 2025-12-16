@@ -21,6 +21,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { WidgetConfig } from "./widget-palette"
+import { FormRenderer } from "./form-renderer"
 
 interface FormPreviewDialogProps {
     open: boolean
@@ -46,7 +47,21 @@ export function FormPreviewDialog({
     const [submittedData, setSubmittedData] = useState<Record<string, any> | null>(null)
 
     const handleSubmit = () => {
-        setSubmittedData(formValues)
+        const data: Record<string, any> = {}
+
+        widgets.forEach(widget => {
+            // Skip display-only widgets
+            if (["section_header", "divider", "instructional_text", "picture"].includes(widget.type)) {
+                return
+            }
+
+            // Get value from form state, fall back to default, then null
+            // Note: We deliberately use ?? null to ensure the key exists in JSON
+            const value = formValues[widget.id] ?? widget.default ?? null
+            data[widget.id] = value
+        })
+
+        setSubmittedData(data)
     }
 
     const handleBack = () => {
@@ -57,161 +72,7 @@ export function FormPreviewDialog({
         setFormValues(prev => ({ ...prev, [id]: value }))
     }
 
-    const renderWidget = (widget: WidgetConfig) => {
-        const value = formValues[widget.id] ?? widget.default
-
-        switch (widget.type) {
-            case "text_input":
-            case "email":
-            case "password":
-            case "number":
-                return (
-                    <Input
-                        type={widget.type === "text_input" ? "text" : widget.type}
-                        placeholder={widget.placeholder}
-                        required={widget.required}
-                        value={value ?? ""}
-                        onChange={(e) => handleValueChange(widget.id, e.target.value)}
-                    />
-                )
-            case "date_picker":
-                return (
-                    <Input
-                        type="date"
-                        required={widget.required}
-                        value={value ?? ""}
-                        onChange={(e) => handleValueChange(widget.id, e.target.value)}
-                    />
-                )
-            case "time_picker":
-                return (
-                    <Input
-                        type="time"
-                        required={widget.required}
-                        value={value ?? ""}
-                        onChange={(e) => handleValueChange(widget.id, e.target.value)}
-                    />
-                )
-            case "text_area":
-                return (
-                    <Textarea
-                        placeholder={widget.placeholder}
-                        required={widget.required}
-                        rows={3}
-                        value={value ?? ""}
-                        onChange={(e) => handleValueChange(widget.id, e.target.value)}
-                    />
-                )
-            case "dropdown":
-                return (
-                    <Select value={value} onValueChange={(v) => handleValueChange(widget.id, v)}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select an option" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {widget.options?.map((opt, i) => (
-                                <SelectItem key={i} value={opt.value}>
-                                    {opt.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                )
-            case "toggle":
-                return (
-                    <div className="flex items-center space-x-2">
-                        <Switch
-                            id={widget.id}
-                            checked={!!value}
-                            onCheckedChange={(checked) => handleValueChange(widget.id, checked)}
-                        />
-                        <Label htmlFor={widget.id} className="font-normal text-muted-foreground">
-                            {value ? "On" : "Off"}
-                        </Label>
-                    </div>
-                )
-            case "checkbox_group":
-                return (
-                    <div className="space-y-2">
-                        {widget.options?.map((opt, i) => {
-                            const currentValues = (value as string[]) || []
-                            const checked = currentValues.includes(opt.value)
-                            return (
-                                <div key={i} className="flex items-center space-x-2">
-                                    <input
-                                        type="checkbox"
-                                        id={`${widget.id}-${i}`}
-                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                        checked={checked}
-                                        onChange={(e) => {
-                                            if (e.target.checked) {
-                                                handleValueChange(widget.id, [...currentValues, opt.value])
-                                            } else {
-                                                handleValueChange(widget.id, currentValues.filter(v => v !== opt.value))
-                                            }
-                                        }}
-                                    />
-                                    <Label htmlFor={`${widget.id}-${i}`} className="font-normal">
-                                        {opt.label}
-                                    </Label>
-                                </div>
-                            )
-                        })}
-                    </div>
-                )
-            case "radio_group":
-                return (
-                    <div className="space-y-2">
-                        {widget.options?.map((opt, i) => (
-                            <div key={i} className="flex items-center space-x-2">
-                                <input
-                                    type="radio"
-                                    name={widget.id}
-                                    id={`${widget.id}-${i}`}
-                                    className="h-4 w-4 border-gray-300 text-primary focus:ring-primary"
-                                    checked={value === opt.value}
-                                    onChange={() => handleValueChange(widget.id, opt.value)}
-                                />
-                                <Label htmlFor={`${widget.id}-${i}`} className="font-normal">
-                                    {opt.label}
-                                </Label>
-                            </div>
-                        ))}
-                    </div>
-                )
-            case "section_header":
-                return (
-                    <h3 className="text-lg font-semibold border-b pb-1 mt-4 mb-2">
-                        {widget.label}
-                    </h3>
-                )
-            case "divider":
-                return <hr className="my-4 border-t" />
-            case "instructional_text":
-                return (
-                    <p className="text-sm text-muted-foreground italic my-2">
-                        {widget.label}
-                    </p>
-                )
-            case "picture":
-                return (
-                    <div className="my-2">
-                        <img
-                            src={widget.url || "https://placehold.co/600x400"}
-                            alt={widget.alt_text || widget.label}
-                            className="max-w-full h-auto rounded-md border"
-                        />
-                        {widget.label && (
-                            <p className="text-xs text-muted-foreground mt-1 text-center">
-                                {widget.label}
-                            </p>
-                        )}
-                    </div>
-                )
-            default:
-                return <div className="text-red-500">Unknown widget type: {widget.type}</div>
-        }
-    }
+    // renderWidget moved to FormRenderer
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -230,41 +91,12 @@ export function FormPreviewDialog({
                             </div>
                         </div>
                     ) : (
-                        <div
-                            className="grid gap-4"
-                            style={{
-                                gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
-                                gridTemplateRows: `repeat(${layout.rows}, minmax(40px, auto))`
-                            }}
-                        >
-                            {widgets.map((widget, i) => {
-                                const gridStyle: React.CSSProperties = widget.layout ? {
-                                    gridColumn: `${widget.layout.col + 1} / span ${widget.layout.colSpan}`,
-                                    gridRow: `${widget.layout.row + 1} / span ${widget.layout.rowSpan}`
-                                } : {
-                                    gridColumn: "1 / -1", // Default to full width if no layout
-                                    gridRow: "auto"
-                                }
-
-                                if (widget.type === "section_header" || widget.type === "divider" || widget.type === "instructional_text") {
-                                    return (
-                                        <div key={i} style={gridStyle}>
-                                            {renderWidget(widget)}
-                                        </div>
-                                    )
-                                }
-
-                                return (
-                                    <div key={widget.id} style={gridStyle} className="space-y-2 min-w-0">
-                                        <Label className="text-base font-medium">
-                                            {widget.label}
-                                            {widget.required && <span className="text-red-500 ml-1">*</span>}
-                                        </Label>
-                                        {renderWidget(widget)}
-                                    </div>
-                                )
-                            })}
-                        </div>
+                        <FormRenderer
+                            widgets={widgets}
+                            layout={layout}
+                            value={formValues}
+                            onChange={(id, value) => handleValueChange(id, value)}
+                        />
                     )}
                 </div>
 

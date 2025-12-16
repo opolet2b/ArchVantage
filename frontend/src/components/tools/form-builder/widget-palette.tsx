@@ -283,7 +283,7 @@ export function WidgetPalette({ onDragStart }: WidgetPaletteProps) {
     )
 
     return (
-        <div className="w-64 border-r bg-slate-50/50 dark:bg-slate-900/50 p-4 space-y-6 overflow-y-auto">
+        <div className="w-64 border-r bg-slate-50/50 dark:bg-slate-900/50 p-4 space-y-6 overflow-y-auto h-full">
             <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                     Input Fields
