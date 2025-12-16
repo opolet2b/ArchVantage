@@ -39,7 +39,8 @@ export function DryRunPanel() {
         lastExecutionState,
         executionStatus,
         waitingNodeInfo,
-        activeNodeId
+        activeNodeId,
+        nodes
     } = useBuilderStore();
 
     const [jsonError, setJsonError] = React.useState<string | null>(null);
@@ -87,12 +88,57 @@ export function DryRunPanel() {
         }
     };
 
+    const [previewNode, setPreviewNode] = React.useState<any>(null);
+
     const handleStart = async () => {
         if (jsonError) return;
         await startDryRunStep();
     };
 
     const handleNext = async () => {
+
+
+        // DEBUG LOGS
+        const storeState = useBuilderStore.getState();
+        console.log("[DryRun] handleNext called", {
+            activeNodeId,
+            nodesCount: nodes.length,
+            edgesCount: storeState.edges.length,
+            executionStepsCount: executionSteps.length
+        });
+
+        // Predictive Logic: Determine the next node
+        if (activeNodeId) {
+            const currentNode = nodes.find(n => n.id === activeNodeId);
+            const outgoingEdges = storeState.edges.filter(e => e.source === activeNodeId);
+
+            console.log("[DryRun] Current Node Analysis", { currentNode, outgoingEdges });
+
+            let targetNodeId: string | null = null;
+
+            // Handle Condition Nodes
+            if (currentNode?.data?.primitiveType === "CONDITION") {
+                const lastOutput = executionSteps[executionSteps.length - 1]?.output_data;
+                if (lastOutput && typeof lastOutput === 'object' && 'result' in lastOutput) {
+                    const result = String(lastOutput.result); // "true" or "false"
+                    const matchingEdge = outgoingEdges.find(e => e.data?.condition === result);
+                    if (matchingEdge) targetNodeId = matchingEdge.target;
+                }
+            } else {
+                // Linear flow: take the first edge
+                if (outgoingEdges.length > 0) {
+                    targetNodeId = outgoingEdges[0].target;
+                }
+            }
+        }
+
+        // Standard behavior
+        console.log("[DryRun] Proceeding with standard execution");
+        await nextDryRunStep();
+    };
+
+    const handleConfirmPreview = async () => {
+        setPreviewNode(null);
         await nextDryRunStep();
     };
 
@@ -232,7 +278,105 @@ export function DryRunPanel() {
 
                                 {/* Control Buttons (Next Step) */}
                                 {isPaused && (
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-col gap-2">
+                                        {/* Instruction Preview (for LLM Decision Nodes) */}
+                                        {(() => {
+                                            const currentNode = activeNodeId ? nodes.find(n => n.id === activeNodeId) : null;
+                                            if (currentNode?.data?.primitiveType === "LLM_DECISION") {
+                                                const params = currentNode.data.params as any;
+                                                const instruction = params.instruction || "";
+
+                                                // Helper function to resolve dot/bracket notation: "obj['key']" or "obj.key"
+                                                const resolveValue = (path: string, scope: any): any => {
+                                                    if (!scope) return undefined;
+
+                                                    // 1. Try direct match
+                                                    if (scope[path] !== undefined) return scope[path];
+
+                                                    // 2. Try swapping _ with - (common ID mismatch)
+                                                    if (path.includes('_')) {
+                                                        const dashed = path.replace(/_/g, '-');
+                                                        if (scope[dashed] !== undefined) return scope[dashed];
+                                                    }
+
+                                                    // 3. Complex parsing for prop access
+                                                    const complexMatch = path.match(/^([a-zA-Z0-9_\-]+)(.*)$/);
+                                                    if (!complexMatch) return undefined;
+
+                                                    let [_, rootVar, accessors] = complexMatch;
+                                                    let current = scope[rootVar];
+
+                                                    // Try aliasing for root var
+                                                    if (current === undefined && rootVar.includes('_')) {
+                                                        const dashedRoot = rootVar.replace(/_/g, '-');
+                                                        current = scope[dashedRoot];
+                                                    }
+
+                                                    if (current === undefined) return undefined;
+
+                                                    // Process accessors
+                                                    const accessorRegex = /\[['"]([^'"]+)['"]\]|\.([a-zA-Z0-9_\-]+)/g;
+                                                    let match;
+                                                    while ((match = accessorRegex.exec(accessors)) !== null) {
+                                                        if (current === undefined) break;
+                                                        const prop = match[1] || match[2];
+                                                        current = current[prop];
+                                                    }
+
+                                                    return current;
+                                                };
+
+                                                const resolveTemplate = (text: string, context: any) => {
+                                                    if (!text) return "";
+                                                    return text.replace(/\{\{([^}]+)\}\}/g, (match: string, variable: string) => {
+                                                        const key = variable.trim();
+                                                        const val = resolveValue(key, context);
+                                                        if (val !== undefined && typeof val === 'object') return JSON.stringify(val);
+                                                        return val !== undefined ? String(val) : match;
+                                                    });
+                                                };
+
+                                                // 1. Prepare Global Context
+                                                const globalVars = lastExecutionState?.variables || {};
+
+                                                // 2. Process Input Context
+                                                let localContext = {};
+                                                try {
+                                                    const rawContextTemplate = params.input_context || "{}";
+                                                    // Log raw context
+                                                    console.log("[SidebarPreview] Raw Input Context Template:", rawContextTemplate);
+
+                                                    const resolvedContextStr = resolveTemplate(rawContextTemplate, globalVars);
+                                                    console.log("[SidebarPreview] Resolved Context String:", resolvedContextStr);
+
+                                                    localContext = JSON.parse(resolvedContextStr);
+                                                    console.log("[SidebarPreview] Parsed Local Context:", localContext);
+                                                } catch (e) {
+                                                    console.error("[SidebarPreview] Context Parse Error:", e);
+                                                }
+
+                                                // 3. Merge Contexts
+                                                const combinedContext = { ...globalVars, ...localContext };
+                                                console.log("[SidebarPreview] Combined Context:", combinedContext);
+
+                                                // 4. Resolve Instruction
+                                                const resolvedInstruction = resolveTemplate(instruction, combinedContext);
+
+                                                return (
+                                                    <div className="space-y-2 mb-2">
+                                                        <Label className="text-amber-600">Preview: Instruction to be sent</Label>
+                                                        <div className="bg-amber-50 p-3 rounded-md border border-amber-200 text-xs font-mono whitespace-pre-wrap">
+                                                            {resolvedInstruction}
+                                                        </div>
+                                                        <p className="text-[10px] text-muted-foreground">
+                                                            Values resolved from current execution state.
+                                                        </p>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+
                                         <Button onClick={handleNext} disabled={isExecuting} className="w-full" variant="default">
                                             {isExecuting ? (
                                                 <>
@@ -274,6 +418,147 @@ export function DryRunPanel() {
                     </div>
                 </SheetContent>
             </Sheet>
+
+            {/* LLM Instruction Preview Popup */}
+            {(() => {
+                const currentNode = previewNode;
+
+                return (
+                    <Dialog open={!!previewNode} onOpenChange={(open) => !open && setPreviewNode(null)}>
+                        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                            <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2">
+                                    <AlertCircle className="h-5 w-5 text-blue-500" />
+                                    Confirm Instruction (Preview)
+                                </DialogTitle>
+                                <DialogDescription>
+                                    Review the instruction that will be sent to the LLM. Variables have been resolved with current values.
+                                </DialogDescription>
+                            </DialogHeader>
+
+                            <div className="py-4">
+                                {(() => {
+                                    if (!currentNode) return null;
+                                    const params = currentNode.data.params as any;
+                                    const instruction = params.instruction || "";
+
+                                    // Debug: Log available variables
+                                    console.log("[DryRunPreview] Available Variables:", lastExecutionState?.variables);
+
+                                    // Helper function to resolve dot/bracket notation with FUZZY matching
+                                    const resolveValue = (path: string, scope: any): any => {
+                                        if (!scope) return undefined;
+
+                                        // 1. Direct match first (fast path)
+                                        if (scope[path] !== undefined) return scope[path];
+
+                                        // 2. Parse Root Variable and Accessors
+                                        const complexMatch = path.match(/^([a-zA-Z0-9_\-]+)(.*)$/);
+                                        if (!complexMatch) return undefined;
+
+                                        let [_, rootVar, accessors] = complexMatch;
+
+                                        // 3. Find Root Variable (Fuzzy Match)
+                                        let current = scope[rootVar];
+
+                                        if (current === undefined) {
+                                            // Fuzzy Search: Normalize both and compare
+                                            // This handles call_tool_ID vs call-tool-ID vs call_tool-ID
+                                            const normalizedRoot = rootVar.replace(/[_\-]/g, '').toLowerCase();
+                                            const matchingKey = Object.keys(scope).find(k =>
+                                                k.replace(/[_\-]/g, '').toLowerCase() === normalizedRoot
+                                            );
+                                            if (matchingKey) {
+                                                console.log(`[SidebarPreview] Fuzzy match: '${rootVar}' -> '${matchingKey}'`);
+                                                current = scope[matchingKey];
+                                            }
+                                        }
+
+                                        if (current === undefined) return undefined;
+
+                                        // 4. Process Accessors
+                                        const accessorRegex = /\[['"]([^'"]+)['"]\]|\.([a-zA-Z0-9_\-]+)/g;
+                                        let match;
+                                        while ((match = accessorRegex.exec(accessors)) !== null) {
+                                            if (current === undefined) break;
+                                            const prop = match[1] || match[2];
+                                            current = current[prop];
+                                        }
+
+                                        return current;
+                                    };
+
+
+                                    const resolveTemplate = (text: string, context: any) => {
+                                        if (!text) return "";
+                                        return text.replace(/\{\{([^}]+)\}\}/g, (match: string, variable: string) => {
+                                            const key = variable.trim();
+                                            const val = resolveValue(key, context);
+                                            // Format objects/arrays for display
+                                            if (val !== undefined && typeof val === 'object') return JSON.stringify(val);
+                                            return val !== undefined ? String(val) : match;
+                                        });
+                                    };
+
+                                    // 1. Prepare Global Context
+                                    const globalVars = lastExecutionState?.variables || {};
+
+                                    // 2. Process Input Context (The "Local" Variables)
+                                    let localContext = {};
+                                    try {
+                                        // input_context is usually a JSON string template: '{"var": "{{ val }}"}'
+                                        // We resolve it *as a string* first, then parse
+                                        const rawContextTemplate = params.input_context || "{ }";
+                                        const resolvedContextStr = resolveTemplate(rawContextTemplate, globalVars);
+                                        localContext = JSON.parse(resolvedContextStr);
+                                    } catch (e) {
+                                        console.warn("[Preview] Failed to parse input_context", e);
+                                        // Fallback: Use resolved string validation/debugging?
+                                        // If parsing fails, we can't build local context.
+                                    }
+
+                                    // 3. Merge Contexts (Local overrides Global for instruction)
+                                    // Actually, LLM instruction usually *only* sees localContext if provided, 
+                                    // but let's assume it has access to merged for safety or strictly local.
+                                    // Standard behavior: Instruction sees strict input_context keys.
+                                    const combinedContext = { ...globalVars, ...localContext };
+
+                                    // 4. Resolve Instruction
+                                    const resolvedInstruction = resolveTemplate(instruction, combinedContext);
+
+                                    return (
+                                        <div className="space-y-2">
+                                            <Label>Resolved Instruction</Label>
+                                            <div className="bg-slate-50 p-4 rounded-md border text-sm font-mono whitespace-pre-wrap">
+                                                {resolvedInstruction}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-4 border-t">
+                                <Button variant="outline" onClick={handleRestart}>
+                                    Abort
+                                </Button>
+                                <Button onClick={handleNext} disabled={isExecuting}>
+                                    {isExecuting ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Running...
+                                        </>
+                                    ) : (
+                                        <>
+                                            Continue Execution
+                                            <ArrowRight className="ml-2 h-4 w-4" />
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </DialogContent>
+                    </Dialog>
+                );
+            })()}
 
             {/* Waiting for Input: Popup Dialog */}
             <Dialog open={!!waitingNodeInfo} onOpenChange={() => { }}>
