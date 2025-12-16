@@ -29,12 +29,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useBuilderStore } from "@/lib/builder-store";
-import { PRIMITIVE_CONFIGS, PrimitiveType } from "@/lib/builder-types";
+import { PRIMITIVE_CONFIGS, PrimitiveType, ModelPreset } from "@/lib/builder-types";
 import { cn, API_URL } from "@/lib/utils";
 import { MappingEditor } from "./mapping-editor";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { VariablePicker } from "./variable-picker";
 import { ExpressionBuilder } from "./expression-builder";
+import { InputSchemaBuilder } from "./input-schema-builder";
 
 // Node data interface with index signature for React Flow compatibility
 interface BuilderNodeData {
@@ -360,6 +361,10 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
     const [selectedToolConfig, setSelectedToolConfig] = useState<ToolDefinition | null>(null);
     const [isLoadingConfig, setIsLoadingConfig] = useState(false);
 
+    // State for available LLMs (used by LLM_DECISION)
+    const [llmModels, setLlmModels] = useState<ModelPreset[]>([]);
+    const [isLoadingModels, setIsLoadingModels] = useState(false);
+
     // Fetch tools when CALL_TOOL node is selected
     useEffect(() => {
         if (primitiveType === "CALL_TOOL") {
@@ -382,6 +387,31 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                 }
             };
             fetchTools();
+        }
+    }, [primitiveType]);
+
+    // Fetch LLM models when LLM_DECISION node is selected
+    useEffect(() => {
+        if (primitiveType === "LLM_DECISION") {
+            const fetchModels = async () => {
+                setIsLoadingModels(true);
+                try {
+                    const response = await fetch(`${API_URL}/config/presets`, {
+                        headers: {
+                            "Authorization": `Bearer ${localStorage.getItem("token")}`
+                        }
+                    });
+                    if (response.ok) {
+                        const data = await response.json();
+                        setLlmModels(data.presets || []);
+                    }
+                } catch (error) {
+                    console.error("Failed to fetch models", error);
+                } finally {
+                    setIsLoadingModels(false);
+                }
+            };
+            fetchModels();
         }
     }, [primitiveType]);
 
@@ -808,29 +838,115 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                     <>
                         <div className="space-y-2">
                             <Label>Model</Label>
-                            <Input
-                                placeholder="default"
-                                value={(params.model as string) || "default"}
-                                onChange={(e) => handleParamChange("model", e.target.value)}
-                            />
+                            {isLoadingModels ? (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground p-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Loading models...
+                                </div>
+                            ) : llmModels.length === 0 ? (
+                                <Input
+                                    placeholder="default"
+                                    value={(params.model as string) || "default"}
+                                    onChange={(e) => handleParamChange("model", e.target.value)}
+                                />
+                            ) : (
+                                <select
+                                    className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+                                    value={(params.model as string) || "default"}
+                                    onChange={(e) => handleParamChange("model", e.target.value)}
+                                >
+                                    <option value="default">Default (System Configured)</option>
+                                    {llmModels.map((model) => (
+                                        <option key={model.name} value={model.name}>
+                                            {model.name} {model.model_name ? `(${model.model_name})` : ""}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
                         </div>
                         <div className="space-y-2">
                             <Label className="flex items-center gap-2">
                                 Instruction
                                 <HelpTooltip contentPath="agent-builder/llm_decision_instruction" />
                             </Label>
-                            <Textarea
-                                placeholder="Analyze the input and determine the best action..."
-                                value={(params.instruction as string) || ""}
-                                onChange={(e) => handleParamChange("instruction", e.target.value)}
-                            />
+                            <div className="flex gap-2">
+                                <Textarea
+                                    id="instruction-textarea"
+                                    placeholder="Analyze the input and determine the best action..."
+                                    value={(params.instruction as string) || ""}
+                                    onChange={(e) => handleParamChange("instruction", e.target.value)}
+                                    className="min-h-[80px]"
+                                />
+                            </div>
+
+                            {/* Variable Helper for Instruction */}
+                            {(() => {
+                                let contextKeys: string[] = [];
+                                try {
+                                    if (params.input_context && typeof params.input_context === "string") {
+                                        const parsed = JSON.parse(params.input_context);
+                                        contextKeys = Object.keys(parsed);
+                                    }
+                                } catch { }
+
+                                if (contextKeys.length > 0) {
+                                    return (
+                                        <div className="flex items-center gap-2">
+                                            <select
+                                                className="h-7 w-full text-xs rounded-md border bg-background px-2"
+                                                id="instruction-var-select"
+                                            >
+                                                <option value="">Select Input Variable...</option>
+                                                {contextKeys.map(key => (
+                                                    <option key={key} value={key}>{key}</option>
+                                                ))}
+                                            </select>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-7 px-2 text-xs"
+                                                onClick={() => {
+                                                    const select = document.getElementById("instruction-var-select") as HTMLSelectElement;
+                                                    const textarea = document.getElementById("instruction-textarea") as HTMLTextAreaElement;
+                                                    const valueToInsert = select.value;
+
+                                                    if (valueToInsert && textarea) {
+                                                        const start = textarea.selectionStart;
+                                                        const end = textarea.selectionEnd;
+                                                        const current = (params.instruction as string) || "";
+
+                                                        // Wraps in Jinja2 syntax as requested
+                                                        const textToInsert = `{{${valueToInsert}}}`;
+
+                                                        const newValue = current.substring(0, start) + textToInsert + current.substring(end);
+
+                                                        handleParamChange("instruction", newValue);
+
+                                                        // Restore focus/cursor
+                                                        setTimeout(() => {
+                                                            textarea.focus();
+                                                            textarea.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+                                                        }, 0);
+                                                    }
+                                                }}
+                                            >
+                                                Insert
+                                            </Button>
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
                         </div>
                         <div className="space-y-2">
-                            <Label>Input Context Variable</Label>
-                            <Input
-                                placeholder="{{input_data}}"
+                            <Label className="flex items-center gap-2">
+                                Input Schema
+                                <HelpTooltip contentPath="agent-builder/llm_decision_input_context" />
+                            </Label>
+                            <InputSchemaBuilder
+                                nodeId={selectedNode?.id}
                                 value={(params.input_context as string) || ""}
-                                onChange={(e) => handleParamChange("input_context", e.target.value)}
+                                onChange={(val) => handleParamChange("input_context", val)}
                             />
                         </div>
                     </>

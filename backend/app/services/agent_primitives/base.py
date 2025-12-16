@@ -111,7 +111,8 @@ class BasePrimitive(ABC):
         import re
         
         parts = re.split(r'\.|\[|\]', path)
-        parts = [p for p in parts if p]  # Remove empty strings
+        # Filter empty strings and strip quotes from keys like "key" or 'key'
+        parts = [p.strip("\"'") for p in parts if p]
         
         current = data
         for part in parts:

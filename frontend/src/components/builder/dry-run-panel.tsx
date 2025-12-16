@@ -290,12 +290,27 @@ export function DryRunPanel() {
 
                     {waitingNodeInfo && (
                         <div className="py-4">
-                            <FormRenderer
-                                widgets={(waitingNodeInfo.schema as any).components || (waitingNodeInfo.schema as any).widgets || []}
-                                layout={(waitingNodeInfo.schema as any).layout}
-                                value={formValues}
-                                onChange={(id, val) => setFormValues(prev => ({ ...prev, [id]: val }))}
-                            />
+                            {(() => {
+                                const schema = waitingNodeInfo.schema as any;
+                                // Robustly find GUI config (nested or flat)
+                                const guiConfig = schema?.gui_schema || schema?.configuration?.gui_schema || schema;
+                                const widgets = guiConfig?.components || guiConfig?.widgets;
+                                const layout = guiConfig?.layout;
+
+                                if (widgets && Array.isArray(widgets) && widgets.length > 0) {
+                                    return (
+                                        <FormRenderer
+                                            widgets={widgets}
+                                            layout={layout}
+                                            value={formValues}
+                                            onChange={(id, val) => setFormValues(prev => ({ ...prev, [id]: val }))}
+                                        />
+                                    );
+                                }
+
+                                // Fallback if no specific widgets found
+                                return <div className="text-red-500">No form definition found.</div>;
+                            })()}
                         </div>
                     )}
 

@@ -667,6 +667,21 @@ export function DryRunWizard({
                                     </div>
                                 </div>
 
+                                {/* Debug View for LLM Instruction */}
+                                {(stepOutput as Record<string, any>)?._debug_instruction && (
+                                    <div className="border rounded-lg p-3 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800">
+                                        <h5 className="text-sm font-medium mb-2 flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                                            <Zap className="h-3 w-3" />
+                                            Actual Instruction sent to LLM:
+                                        </h5>
+                                        <div className="overflow-auto max-h-48 max-w-full">
+                                            <pre className="text-xs bg-white dark:bg-slate-900 p-2 rounded whitespace-pre-wrap font-sans text-muted-foreground border">
+                                                {(stepOutput as Record<string, any>)._debug_instruction}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {mappingSuggestions.length > 0 && (
                                     <div className="space-y-3">
                                         <h5 className="text-sm font-medium">Variable Mapping for Next Step:</h5>
