@@ -297,6 +297,33 @@ async def get_execution(
     }
 
 
+@router.get("/executions/{execution_id}/next-node")
+async def get_next_node(
+    execution_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Query which node will execute next without actually executing it.
+    Used for UI highlighting before execution starts.
+    """
+    execution = db.query(AgentExecution).filter(AgentExecution.id == execution_id).first()
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if execution.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check if execution is in a resumable state
+    if execution.status not in ["paused", "running", "waiting_for_input"]:
+        return {"next_node_id": None, "reason": f"Execution in status {execution.status}"}
+    
+    # Get the next node from saved state
+    state = execution.state or {}
+    next_node_id = state.get("current_node")
+    
+    return {"next_node_id": next_node_id}
+
+
 @router.post("/executions/{execution_id}/next", response_model=BlueprintExecuteResponse)
 async def resume_execution_step(
     execution_id: int,

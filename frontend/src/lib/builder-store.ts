@@ -920,6 +920,27 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                 const token = getAuthToken();
                 if (!token || !currentExecutionId) return;
 
+                // Step 1: Query which node will execute next (for UI highlighting)
+                try {
+                    const queryRes = await fetch(`${API_URL}/executions/${currentExecutionId}/next-node`, {
+                        method: "GET",
+                        headers: {
+                            Authorization: `Bearer ${token}`
+                        }
+                    });
+                    if (queryRes.ok) {
+                        const queryData = await queryRes.json();
+                        if (queryData.next_node_id) {
+                            // Set active node BEFORE execution so green ring shows
+                            set({ activeNodeId: queryData.next_node_id });
+                        }
+                    }
+                } catch (e) {
+                    // Ignore query errors - proceed with execution anyway
+                    console.warn("Failed to query next node:", e);
+                }
+
+                // Step 2: Execute the step
                 set({ isExecuting: true }); // Show spinner
                 try {
                     const res = await fetch(`${API_URL}/executions/${currentExecutionId}/next`, {
