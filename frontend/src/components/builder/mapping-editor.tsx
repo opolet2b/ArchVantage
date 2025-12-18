@@ -124,6 +124,13 @@ function getNodeOutputSchema(primitiveType: PrimitiveType, params: Record<string
                 { name: "results", type: "array", label: "Collected Results" },
                 { name: "item", type: "any", label: "Current Item" },
             ];
+        case "DOCUMENT_CONVERTER":
+            const docOutputVar = (params.output_variable as string) || "converted_document";
+            return [
+                { name: docOutputVar, type: "string", label: "Converted Document" },
+                { name: "output_path", type: "string", label: "Output File Path" },
+                { name: "detected_input_format", type: "string", label: "Detected Input Format" },
+            ];
         default:
             return [];
     }
@@ -164,6 +171,14 @@ function getNodeInputSchema(primitiveType: PrimitiveType, _params: Record<string
         case "FOREACH":
             return [
                 { name: "items", type: "array", label: "Items to iterate" },
+            ];
+        case "DOCUMENT_CONVERTER":
+            return [
+                { name: "input_file_path", type: "string", label: "Input File Path" },
+                { name: "input_content", type: "string", label: "Input Content" },
+                { name: "input_format", type: "string", label: "Input Format" },
+                { name: "output_format", type: "string", label: "Output Format" },
+                { name: "output_path", type: "string", label: "Output Path (optional)" },
             ];
         case "END":
             return [

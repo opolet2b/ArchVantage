@@ -13,6 +13,129 @@ def get_tools(db: Session, skip: int = 0, limit: int = 100, category_id: Optiona
         query = query.filter(Tool.category_id == category_id)
     return query.offset(skip).limit(limit).all()
 
+def get_tools_tree_for_user(db: Session, user_id: int, is_admin: bool = False):
+    """
+    Get tools organized by category with authorization filtering.
+    
+    Returns tools that a user has access to, grouped by category.
+    A user has access to a tool if:
+    - Tool is public (is_public = True)
+    - User is the tool owner
+    - User has direct permission (via tool_permissions.user_id)
+    - User's AD group has permission (via tool_permissions.ad_group_id)
+    - User is an admin (sees all tools)
+    
+    Args:
+        db: Database session
+        user_id: ID of the current user
+        is_admin: Whether the user is an admin
+        
+    Returns:
+        List of CategoryTreeNode objects with authorized tools
+    """
+    from app.models.user import User, UserRole, GroupMapping
+    from sqlalchemy import or_
+    
+    # Get user's AD groups via role mappings
+    user_role_ids = db.query(UserRole.role_id).filter(UserRole.user_id == user_id).all()
+    user_role_ids = [role_id for (role_id,) in user_role_ids]
+    
+    # Get AD group IDs from role mappings
+    ad_group_ids = db.query(GroupMapping.ad_group_id).filter(
+        GroupMapping.role_id.in_(user_role_ids)
+    ).all() if user_role_ids else []
+    ad_group_ids = [group_id for (group_id,) in ad_group_ids]
+    
+    # Build the authorization filter
+    if is_admin:
+        # Admins see all tools
+        authorized_tools = db.query(Tool).all()
+    else:
+        # Build complex authorization filter
+        auth_filter = or_(
+            Tool.is_public == True,
+            Tool.owner_id == user_id
+        )
+        
+        # Add permission-based access
+        # Use a subquery to check if user has permission
+        if ad_group_ids:
+            authorized_tools = db.query(Tool).outerjoin(
+                ToolPermission,
+                ToolPermission.tool_id == Tool.id
+            ).filter(
+                or_(
+                    auth_filter,
+                    ToolPermission.user_id == user_id,
+                    ToolPermission.ad_group_id.in_(ad_group_ids)
+                )
+            ).distinct().all()
+        else:
+            authorized_tools = db.query(Tool).outerjoin(
+                ToolPermission,
+                ToolPermission.tool_id == Tool.id
+            ).filter(
+                or_(
+                    auth_filter,
+                    ToolPermission.user_id == user_id
+                )
+            ).distinct().all()
+    
+    # Get all categories
+    categories = db.query(Category).all()
+    
+    # Organize tools by category
+    from app.schemas.tools import CategoryTreeNode, ToolTreeItem
+    
+    result = []
+    
+    # Add categorized tools
+    for category in categories:
+        category_tools = [
+            tool for tool in authorized_tools 
+            if tool.category_id == category.id
+        ]
+        
+        if category_tools:  # Only include categories with tools
+            result.append(CategoryTreeNode(
+                id=category.id,
+                name=category.name,
+                description=category.description,
+                tools=[
+                    ToolTreeItem(
+                        id=tool.id,
+                        name=tool.name,
+                        description=tool.description,
+                        tool_type=tool.tool_type or 'mcp'
+                    )
+                    for tool in category_tools
+                ]
+            ))
+    
+    # Add uncategorized tools
+    uncategorized_tools = [
+        tool for tool in authorized_tools 
+        if tool.category_id is None
+    ]
+    
+    if uncategorized_tools:
+        result.append(CategoryTreeNode(
+            id=None,
+            name="Uncategorized",
+            description="Tools without a category",
+            tools=[
+                ToolTreeItem(
+                    id=tool.id,
+                    name=tool.name,
+                    description=tool.description,
+                    tool_type=tool.tool_type or 'mcp'
+                )
+                for tool in uncategorized_tools
+            ]
+        ))
+    
+    return result
+
 def create_tool(db: Session, tool: ToolCreate, owner_id: int):
     db_tool = Tool(
         name=tool.name,

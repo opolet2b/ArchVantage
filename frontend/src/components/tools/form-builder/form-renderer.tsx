@@ -75,6 +75,20 @@ export function FormRenderer({
                         disabled={readOnly}
                     />
                 )
+            case "file_picker":
+                return (
+                    <Input
+                        type="file"
+                        required={widget.required}
+                        onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) {
+                                handleValueChange(widget.id, file.name)
+                            }
+                        }}
+                        disabled={readOnly}
+                    />
+                )
             case "text_area":
                 return (
                     <Textarea

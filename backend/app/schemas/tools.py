@@ -127,6 +127,28 @@ class Tool(ToolBase):
     class Config:
         from_attributes = True
 
+# =============================================================================
+# Tool Tree View Schemas
+# =============================================================================
+
+class ToolTreeItem(BaseModel):
+    """Simplified tool info for tree view display."""
+    id: int
+    name: str
+    description: Optional[str] = None
+    tool_type: str = 'mcp'
+
+class CategoryTreeNode(BaseModel):
+    """Category node with its tools for tree view."""
+    id: Optional[int] = None  # None for "Uncategorized" category
+    name: str
+    description: Optional[str] = None
+    tools: List[ToolTreeItem] = []
+
+class ToolsTreeResponse(BaseModel):
+    """Hierarchical tree structure of categories and tools."""
+    categories: List[CategoryTreeNode]
+
 class SystemPromptGenerationRequest(BaseModel):
     description: str
     functions: List[str]

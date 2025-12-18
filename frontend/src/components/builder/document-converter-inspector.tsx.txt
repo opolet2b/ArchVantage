@@ -1,0 +1,69 @@
+            {/* Document Converter */}
+            {primitiveType === "DOCUMENT_CONVERTER" && (
+                <>
+                    <div className="space-y-2">
+                        <Label>Input File/Content</Label>
+                        <Textarea
+                            placeholder="File path or content"
+                            value={(params.input_file as string) || ""}
+                            onChange={(e) => handleParamChange("input_file", e.target.value)}
+                            className="min-h-[60px] font-mono text-sm"
+                        />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Input Format</Label>
+                        <select
+                            className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+                            value={(params.input_format as string) || "auto"}
+                            onChange={(e) => handleParamChange("input_format", e.target.value)}
+                        >
+                            <option value="auto">Auto-Detect</option>
+                            <option value="pdf">PDF</option>
+                            <option value="html">HTML</option>
+                            <option value="markdown">Markdown</option>
+                            <option value="rtf">RTF</option>
+                            <option value="txt">Plain Text</option>
+                        </select>
+                        <p className="text-xs text-muted-foreground">
+                            Auto-Detect will identify the format from file extension or content analysis
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Output Format</Label>
+                        <select
+                            className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+                            value={(params.output_format as string) || "pdf"}
+                            onChange={(e) => handleParamChange("output_format", e.target.value)}
+                        >
+                            <option value="pdf">PDF</option>
+                            <option value="html">HTML</option>
+                            <option value="markdown">Markdown</option>
+                            <option value="rtf">RTF</option>
+                            <option value="txt">Plain Text</option>
+                        </select>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Output Path (Optional)</Label>
+                        <Input
+                            placeholder="Leave empty for auto-generated path"
+                            value={(params.output_path as string) || ""}
+                            onChange={(e) => handleParamChange("output_path", e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            If not specified, a temporary file will be created for PDF/RTF outputs
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Output Variable</Label>
+                        <Input
+                            placeholder="converted_document"
+                            value={(params.output_variable as string) || "converted_document"}
+                            onChange={(e) => handleParamChange("output_variable", e.target.value)}
+                        />
+                    </div>
+                </>
+            )}

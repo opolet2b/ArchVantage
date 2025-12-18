@@ -324,6 +324,17 @@ def get_node_output_schema(
             "source": "foreach"
         }
     
+    elif node_type == "DOCUMENT_CONVERTER":
+        output_var = params.get("output_variable", "converted_document")
+        return {
+            "fields": [
+                {"name": output_var, "type": "string", "label": "Converted Document"},
+                {"name": "output_path", "type": "string", "label": "Output File Path"},
+                {"name": "detected_input_format", "type": "string", "label": "Detected Input Format"},
+            ],
+            "source": "document_converter"
+        }
+    
     elif node_type == "END":
         return {
             "fields": [],
@@ -429,6 +440,17 @@ def get_node_input_schema(
                 {"name": "items", "type": "array", "label": "Items to iterate"},
             ],
             "source": "foreach"
+        }
+    
+    elif node_type == "DOCUMENT_CONVERTER":
+        return {
+            "fields": [
+                {"name": "input_file", "type": "string", "label": "Input File/Content"},
+                {"name": "input_format", "type": "string", "label": "Input Format"},
+                {"name": "output_format", "type": "string", "label": "Output Format"},
+                {"name": "output_path", "type": "string", "label": "Output Path (optional)"},
+            ],
+            "source": "document_converter"
         }
     
     elif node_type == "END":

@@ -17,7 +17,8 @@ export type PrimitiveType =
     | "JSON_MAPPING"
     | "TEXT_TEMPLATE"
     | "FOREACH"
-    | "LLM_DECISION";
+    | "LLM_DECISION"
+    | "DOCUMENT_CONVERTER";
 
 /**
  * UI position for a node in the graph editor.
@@ -384,6 +385,19 @@ export const PRIMITIVE_CONFIGS: PrimitiveConfig[] = [
             instruction: "",
             input_context: "",
             output_variable: "llm_output"
+        }
+    },
+    {
+        type: "DOCUMENT_CONVERTER",
+        label: "Document Converter",
+        description: "Convert between PDF, HTML, Markdown...",
+        icon: "FileStack",
+        category: "data",
+        defaultParams: {
+            input_file: "",
+            input_format: "auto",
+            output_format: "pdf",
+            output_variable: "converted_document"
         }
     }
 ];

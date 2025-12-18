@@ -34,6 +34,7 @@ import { LlmDecisionNode } from "./nodes/llm-decision-node";
 import { JsonMappingNode } from "./nodes/json-mapping-node";
 import { StartNode } from "./nodes/start-node";
 import { EndNode } from "./nodes/end-node";
+import { DocumentConverterNode } from "./nodes/document-converter-node";
 
 // Custom node types mapping
 const nodeTypes: NodeTypes = {
@@ -46,6 +47,7 @@ const nodeTypes: NodeTypes = {
     text_template: TextTemplateNode,
     llm_decision: LlmDecisionNode,
     json_mapping: JsonMappingNode,
+    document_converter: DocumentConverterNode,
 };
 
 export function BuilderCanvas() {
@@ -190,6 +192,8 @@ export function BuilderCanvas() {
                                 return "#ec4899"; // Pink
                             case "FOREACH":
                                 return "#10b981"; // Green
+                            case "DOCUMENT_CONVERTER":
+                                return "#14b8a6"; // Teal
                             default:
                                 return "#6b7280"; // Gray
                         }

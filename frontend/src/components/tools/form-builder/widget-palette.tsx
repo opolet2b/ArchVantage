@@ -22,6 +22,7 @@ import {
     GripVertical,
     Calendar,
     Clock,
+    FileUp,
     Image as ImageIcon
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -143,6 +144,17 @@ export const WIDGET_TYPES: WidgetType[] = [
         defaultConfig: {
             type: "time_picker",
             label: "Select Time",
+            required: false
+        }
+    },
+    {
+        id: "file_picker",
+        name: "File Picker",
+        icon: <FileUp className="h-4 w-4" />,
+        category: "input",
+        defaultConfig: {
+            type: "file_picker",
+            label: "Select File",
             required: false
         }
     },

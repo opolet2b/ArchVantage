@@ -19,6 +19,16 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useBuilderStore } from "@/lib/builder-store";
 import { cn } from "@/lib/utils";
 import { FormRenderer } from "@/components/tools/form-builder/form-renderer";
@@ -40,13 +50,16 @@ export function DryRunPanel() {
         executionStatus,
         waitingNodeInfo,
         activeNodeId,
-        nodes
+        nodes,
+        isDirty,
+        saveBlueprint
     } = useBuilderStore();
 
     const [jsonError, setJsonError] = React.useState<string | null>(null);
     const [formValues, setFormValues] = React.useState<Record<string, any>>({});
     const [isOpen, setIsOpen] = React.useState(false);
     const [executionError, setExecutionError] = React.useState<string | null>(null);
+    const [showSaveWarning, setShowSaveWarning] = React.useState(false);
 
     // Initialize test inputs from schema if empty
     React.useEffect(() => {
@@ -93,7 +106,21 @@ export function DryRunPanel() {
 
     const handleStart = async () => {
         if (jsonError) return;
+
+        // Check for unsaved changes
+        if (isDirty) {
+            setShowSaveWarning(true);
+            return;
+        }
+
         setExecutionError(null); // Clear previous errors
+        await startDryRunStep();
+    };
+
+    const handleSaveAndStart = async () => {
+        setShowSaveWarning(false);
+        await saveBlueprint();
+        setExecutionError(null);
         await startDryRunStep();
     };
 
@@ -652,6 +679,25 @@ export function DryRunPanel() {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* Save Warning Dialog */}
+            <AlertDialog open={showSaveWarning} onOpenChange={setShowSaveWarning}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Unsaved Changes Detected</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            You have unsaved changes in your blueprint. The Dry Run will execute the last saved version.
+                            Would you like to save your changes first?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleSaveAndStart}>
+                            Save & Continue
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

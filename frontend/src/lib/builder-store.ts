@@ -286,6 +286,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
             // -----------------------------------------------------------------
 
             setBlueprint: (blueprint) => {
+                console.log("[Load] setBlueprint called with:", blueprint);
                 const { nodes, edges } = graphToFlow(blueprint.graph);
                 set({
                     blueprintId: blueprint.id,
@@ -298,6 +299,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                     edges,
                     isDirty: false
                 });
+                console.log("[Load] Converted to React Flow - nodes:", nodes.length, "edges:", edges.length);
             },
 
             setBlueprintName: (name) => set({ blueprintName: name, isDirty: true }),
@@ -316,6 +318,8 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
 
                 try {
                     const graph = flowToGraph(state.nodes, state.edges);
+                    console.log("[Save] Converted graph:", graph);
+
                     const payload: BlueprintCreate = {
                         name: state.blueprintName,
                         description: state.blueprintDescription,
@@ -324,10 +328,14 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                         secrets_requirements: state.secretsRequirements
                     };
 
+                    console.log("[Save] Payload:", payload);
+
                     const method = state.blueprintId ? "PUT" : "POST";
                     const url = state.blueprintId
                         ? `${API_URL}/agent-blueprints/${state.blueprintId}`
                         : `${API_URL}/agent-blueprints`;
+
+                    console.log("[Save] Request:", method, url);
 
                     const res = await fetch(url, {
                         method,
@@ -338,9 +346,17 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                         body: JSON.stringify(payload)
                     });
 
-                    if (!res.ok) throw new Error("Failed to save blueprint");
+                    console.log("[Save] Response status:", res.status);
+
+                    if (!res.ok) {
+                        const errorText = await res.text();
+                        console.error("[Save] Error response:", errorText);
+                        throw new Error(`Failed to save blueprint: ${errorText}`);
+                    }
 
                     const saved = await res.json();
+                    console.log("[Save] Response data:", saved);
+
                     set({
                         blueprintId: saved.id,
                         isDirty: false,
@@ -350,6 +366,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                     get().addConsoleLog("success", `Blueprint saved: ${saved.id}`);
                     return saved;
                 } catch (error) {
+                    console.error("[Save] Exception:", error);
                     get().addConsoleLog("error", `Save failed: ${error}`);
                     set({ isSaving: false });
                     return null;
@@ -370,6 +387,32 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                     const blueprint = await res.json();
                     get().setBlueprint(blueprint);
                     get().addConsoleLog("info", `Loaded blueprint: ${blueprint.name}`);
+
+                    // React Flow will trigger onNodesChange/onEdgesChange during initial render,
+                    // incorrectly setting isDirty to true. Reset it after a delay ONLY if no
+                    // actual user changes were made (check if still false initially)
+                    setTimeout(() => {
+                        console.log("[isDirty] setTimeout fired - checking if should reset isDirty");
+                        const currentState = get();
+                        // Only reset if isDirty is true AND we haven't made real changes
+                        // We detect real changes by checking if the state matches what we just loaded
+                        if (currentState.isDirty) {
+                            console.log("[isDirty] isDirty is currently true, checking node/edge counts...");
+                            const currentGraph = flowToGraph(currentState.nodes, currentState.edges);
+                            const loadedGraph = blueprint.graph;
+
+                            // Simple comparison: if node/edge count matches, assume no real changes
+                            if (currentGraph.nodes.length === loadedGraph.nodes.length &&
+                                currentGraph.edges.length === loadedGraph.edges.length) {
+                                console.log("[isDirty] Counts match! Resetting isDirty to false");
+                                set({ isDirty: false });
+                            } else {
+                                console.log("[isDirty] Counts don't match - keeping isDirty true");
+                            }
+                        } else {
+                            console.log("[isDirty] isDirty is already false - no action needed");
+                        }
+                    }, 500);
                 } catch (error) {
                     get().addConsoleLog("error", `Load failed: ${error}`);
                 }
@@ -380,6 +423,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
             // -----------------------------------------------------------------
 
             onNodesChange: (changes) => {
+                console.log("[isDirty] onNodesChange triggered, setting isDirty: true", changes);
                 set({
                     nodes: applyNodeChanges(changes, get().nodes),
                     isDirty: true
@@ -387,6 +431,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
             },
 
             onEdgesChange: (changes) => {
+                console.log("[isDirty] onEdgesChange triggered, setting isDirty: true", changes);
                 set({
                     edges: applyEdgeChanges(changes, get().edges),
                     isDirty: true

@@ -21,6 +21,7 @@ class PrimitiveType(str, Enum):
     TEXT_TEMPLATE = "TEXT_TEMPLATE"
     FOREACH = "FOREACH"
     LLM_DECISION = "LLM_DECISION"
+    DOCUMENT_CONVERTER = "DOCUMENT_CONVERTER"
 
 
 # -----------------------------------------------------------------------------

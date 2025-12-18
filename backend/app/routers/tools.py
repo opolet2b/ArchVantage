@@ -6,7 +6,8 @@ from app.schemas.tools import (
     Tool, ToolCreate, ToolUpdate, Category, CategoryCreate, CategoryUpdate,
     SystemPromptGenerationRequest, InputSchemaGenerationRequest,
     PipelineGenerationRequest,
-    MCPServer, MCPServerCreate, MCPServerUpdate
+    MCPServer, MCPServerCreate, MCPServerUpdate,
+    ToolsTreeResponse
 )
 from app.services import tools as tool_service
 from app.routers.auth import get_current_active_user, get_current_admin_user
@@ -24,6 +25,25 @@ def read_tools(
 ):
     tools = tool_service.get_tools(db, skip=skip, limit=limit, category_id=category_id)
     return tools
+
+@router.get("/tools/tree", response_model=ToolsTreeResponse)
+def read_tools_tree(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Get tools organized by category with authorization filtering.
+    Returns only tools the current user has access to.
+    """
+    is_admin = any(role.name == "Admin" for role in current_user.roles)
+    
+    categories = tool_service.get_tools_tree_for_user(
+        db=db,
+        user_id=current_user.id,
+        is_admin=is_admin
+    )
+    
+    return ToolsTreeResponse(categories=categories)
 
 @router.post("/tools", response_model=Tool)
 def create_tool(

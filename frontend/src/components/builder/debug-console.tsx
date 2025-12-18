@@ -24,6 +24,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useBuilderStore } from "@/lib/builder-store";
 import { cn } from "@/lib/utils";
 
@@ -220,13 +230,38 @@ export function DebugConsole() {
     const clearConsoleLogs = useBuilderStore((state) => state.clearConsoleLogs);
     const toggleConsole = useBuilderStore((state) => state.toggleConsole);
     const addConsoleLog = useBuilderStore((state) => state.addConsoleLog);
+    const isDirty = useBuilderStore((state) => state.isDirty);
+    const saveBlueprint = useBuilderStore((state) => state.saveBlueprint);
+
+    const [showSaveWarning, setShowSaveWarning] = useState(false);
 
     const handleRun = () => {
+        // Check for unsaved changes
+        if (isDirty) {
+            setShowSaveWarning(true);
+            return;
+        }
+
         try {
             const inputs = JSON.parse(inputJson);
             setInputError(null);
             setTestInputs(inputs);
             clearConsoleLogs(); // Clear previous logs
+            executeWithStream();
+        } catch {
+            setInputError("Invalid JSON");
+        }
+    };
+
+    const handleSaveAndRun = async () => {
+        setShowSaveWarning(false);
+        await saveBlueprint();
+
+        try {
+            const inputs = JSON.parse(inputJson);
+            setInputError(null);
+            setTestInputs(inputs);
+            clearConsoleLogs();
             executeWithStream();
         } catch {
             setInputError("Invalid JSON");
@@ -448,7 +483,25 @@ export function DebugConsole() {
                     </ScrollArea>
                 </div>
             )}
+
+            {/* Save Warning Dialog */}
+            <AlertDialog open={showSaveWarning} onOpenChange={setShowSaveWarning}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Unsaved Changes Detected</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            You have unsaved changes in your blueprint. The Debug execution will run the last saved version.
+                            Would you like to save your changes first?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleSaveAndRun}>
+                            Save & Run
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }
-

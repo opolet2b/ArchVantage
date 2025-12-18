@@ -68,7 +68,7 @@ export function WidgetPropertiesPanel({
         updateWidget({ options })
     }
 
-    const isInputType = ["text_input", "text_area", "number", "email", "password", "date_picker", "time_picker"].includes(widget.type)
+    const isInputType = ["text_input", "text_area", "number", "email", "password", "date_picker", "time_picker", "file_picker"].includes(widget.type)
     const hasOptions = ["dropdown", "checkbox_group", "radio_group"].includes(widget.type)
     const isDisplayType = ["section_header", "divider", "instructional_text", "picture"].includes(widget.type)
 

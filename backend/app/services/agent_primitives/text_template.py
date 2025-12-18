@@ -10,6 +10,7 @@ Features:
 - Supports image placement and table formatting
 """
 from typing import Any, Dict, Tuple
+import re
 from jinja2 import Environment, BaseLoader, UndefinedError
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
 
@@ -315,6 +316,10 @@ Rules:
             ]
             
             filled_body = await llm_service.chat(messages, model_name=llm_model)
+            
+            # Strip any reasoning/thinking tags from LLM response
+            # Some LLMs include <think>...</think> blocks for reasoning
+            filled_body = re.sub(r'<think>.*?</think>', '', filled_body, flags=re.DOTALL | re.IGNORECASE).strip()
             
             # Step 4: Reassemble - prepend frontmatter if it exists
             if frontmatter:

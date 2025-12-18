@@ -17,6 +17,7 @@ import {
     FileText,
     Brain,
     FileJson,
+    FileStack,
     Search,
     ChevronRight,
     ChevronLeft,
@@ -40,7 +41,7 @@ import { VariablePicker } from "./variable-picker";
 import { TemplateSelector } from "./template-selector";
 import { ExpressionBuilder } from "./expression-builder";
 import { InputSchemaBuilder } from "./input-schema-builder";
-
+import { ToolTreeView } from "./tool-tree-view";
 // Node data interface with index signature for React Flow compatibility
 interface BuilderNodeData {
     label: string;
@@ -57,6 +58,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
     FileText: <FileText className="h-4 w-4" />,
     Brain: <Brain className="h-4 w-4" />,
     FileJson: <FileJson className="h-4 w-4" />,
+    FileStack: <FileStack className="h-4 w-4" />,
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -99,6 +101,26 @@ interface ToolDefinition {
             };
         }>;
     };
+}
+
+/**
+ * Category Tree Node from API
+ */
+interface CategoryTreeNode {
+    id?: number | null;
+    name: string;
+    description?: string;
+    tools: ToolTreeItem[];
+}
+
+/**
+ * Tool Tree Item from API
+ */
+interface ToolTreeItem {
+    id: number;
+    name: string;
+    description?: string;
+    tool_type: string;
 }
 
 /**
@@ -360,7 +382,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
     const selectedNode = node; // Alias for consistency with MappingEditor
 
     // State for available tools (used by CALL_TOOL)
-    const [availableTools, setAvailableTools] = useState<ToolDefinition[]>([]);
+    const [toolsTree, setToolsTree] = useState<CategoryTreeNode[]>([]);
     const [isLoadingTools, setIsLoadingTools] = useState(false);
     const [selectedToolConfig, setSelectedToolConfig] = useState<ToolDefinition | null>(null);
     const [isLoadingConfig, setIsLoadingConfig] = useState(false);
@@ -369,28 +391,28 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
     const [llmModels, setLlmModels] = useState<ModelPreset[]>([]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
 
-    // Fetch tools when CALL_TOOL node is selected
+    // Fetch tools tree when CALL_TOOL node is selected
     useEffect(() => {
         if (primitiveType === "CALL_TOOL") {
-            const fetchTools = async () => {
+            const fetchToolsTree = async () => {
                 setIsLoadingTools(true);
                 try {
-                    const response = await fetch(`${API_URL}/tools`, {
+                    const response = await fetch(`${API_URL}/tools/tree`, {
                         headers: {
                             "Authorization": `Bearer ${localStorage.getItem("token")}`
                         }
                     });
                     if (response.ok) {
                         const data = await response.json();
-                        setAvailableTools(data);
+                        setToolsTree(data.categories || []);
                     }
                 } catch (error) {
-                    console.error("Failed to fetch tools", error);
+                    console.error("Failed to fetch tools tree", error);
                 } finally {
                     setIsLoadingTools(false);
                 }
             };
-            fetchTools();
+            fetchToolsTree();
         }
     }, [primitiveType]);
 
@@ -460,15 +482,13 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
     };
 
     // Handle tool selection - also update tool_name and tool_description for display
-    const handleToolSelect = (toolId: string) => {
-        const id = parseInt(toolId);
-        const selectedTool = availableTools.find(t => t.id === id);
+    const handleToolSelect = (tool: ToolTreeItem) => {
         // Reset arguments when tool changes, set tool description as default
         onUpdate({
             ...params,
-            tool_id: id,
-            tool_name: selectedTool?.name || "Unknown Tool",
-            tool_description: selectedTool?.description || "",
+            tool_id: tool.id,
+            tool_name: tool.name,
+            tool_description: tool.description || "",
             arguments: {},
             agent_decide_args: []
         });
@@ -636,23 +656,16 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                 <Loader2 className="h-4 w-4 animate-spin" />
                                 Loading tools...
                             </div>
-                        ) : availableTools.length === 0 ? (
+                        ) : toolsTree.length === 0 ? (
                             <div className="text-sm text-muted-foreground p-2 border rounded-md bg-amber-50 dark:bg-amber-900/20">
                                 No tools available. Create tools in the Tools section first.
                             </div>
                         ) : (
-                            <select
-                                className="w-full h-9 px-3 rounded-md border bg-background text-sm"
-                                value={(params.tool_id as number) || ""}
-                                onChange={(e) => handleToolSelect(e.target.value)}
-                            >
-                                <option value="">-- Select a tool --</option>
-                                {availableTools.map((tool) => (
-                                    <option key={tool.id} value={tool.id}>
-                                        {tool.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <ToolTreeView
+                                categories={toolsTree}
+                                selectedToolId={params.tool_id as number}
+                                onSelectTool={handleToolSelect}
+                            />
                         )}
                         {params.tool_id !== undefined && params.tool_id !== null && (
                             <p className="text-xs text-muted-foreground">
@@ -842,7 +855,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <Label>Template *</Label>
-                                {params.template_id && (
+                                {params.template_id ? (
                                     <Button
                                         variant="ghost"
                                         size="sm"
@@ -858,7 +871,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                         <Trash2 className="h-3 w-3 mr-1" />
                                         Clear
                                     </Button>
-                                )}
+                                ) : null}
                             </div>
 
                             {/* Selected Template Display */}
@@ -868,10 +881,10 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                         <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 truncate">
-                                                {params.template_name}
+                                                {String(params.template_name || '')}
                                             </p>
                                             <p className="text-xs text-blue-600 dark:text-blue-400 font-mono truncate">
-                                                ID: {params.template_id}
+                                                ID: {String(params.template_id || '')}
                                             </p>
                                         </div>
                                         <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 flex-shrink-0">
@@ -1163,6 +1176,91 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                     </>
                 )
             }
+            {/* Document Converter */}
+            {primitiveType === "DOCUMENT_CONVERTER" && (
+                <>
+                    <div className="space-y-2">
+                        <Label>Input File Path</Label>
+                        <Input
+                            placeholder="e.g., /path/to/document.pdf (leave empty if using content)"
+                            value={(params.input_file_path as string) || ""}
+                            onChange={(e) => handleParamChange("input_file_path", e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Path to a file on the file system
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Input Content</Label>
+                        <Textarea
+                            placeholder="Or paste document content directly here"
+                            value={(params.input_content as string) || ""}
+                            onChange={(e) => handleParamChange("input_content", e.target.value)}
+                            className="min-h-[80px] font-mono text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Direct text content (takes priority over file path)
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Input Format</Label>
+                        <select
+                            className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+                            value={(params.input_format as string) || "auto"}
+                            onChange={(e) => handleParamChange("input_format", e.target.value)}
+                        >
+                            <option value="auto">Auto-Detect</option>
+                            <option value="pdf">PDF</option>
+                            <option value="html">HTML</option>
+                            <option value="markdown">Markdown</option>
+                            <option value="rtf">RTF</option>
+                            <option value="txt">Plain Text</option>
+                        </select>
+                        <p className="text-xs text-muted-foreground">
+                            Auto-Detect will identify the format from file extension or content analysis
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Output Format *</Label>
+                        <select
+                            className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+                            value={(params.output_format as string) || ""}
+                            onChange={(e) => handleParamChange("output_format", e.target.value)}
+                        >
+                            <option value="" disabled>Select output format...</option>
+                            <option value="pdf">PDF</option>
+                            <option value="html">HTML</option>
+                            <option value="markdown">Markdown</option>
+                            <option value="rtf">RTF</option>
+                            <option value="txt">Plain Text</option>
+                        </select>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Output Path (Optional)</Label>
+                        <Input
+                            placeholder="Leave empty for auto-generated path"
+                            value={(params.output_path as string) || ""}
+                            onChange={(e) => handleParamChange("output_path", e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            If not specified, a temporary file will be created for PDF/RTF outputs
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Output Variable</Label>
+                        <Input
+                            placeholder="converted_document"
+                            value={(params.output_variable as string) || "converted_document"}
+                            onChange={(e) => handleParamChange("output_variable", e.target.value)}
+                        />
+                    </div>
+                </>
+            )}
 
             {
                 primitiveType === "END" && (
