@@ -9,6 +9,7 @@
 import { memo } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
 import { FileJson } from "lucide-react";
+import { useBuilderStore } from "@/lib/builder-store";
 
 interface JsonMappingData {
     label: string;
@@ -20,10 +21,12 @@ interface JsonMappingData {
 }
 
 export const JsonMappingNode = memo(function JsonMappingNode({
+    id,
     data,
     selected,
 }: NodeProps) {
     const nodeData = data as unknown as JsonMappingData;
+    const showNodeIds = useBuilderStore((state) => state.showNodeIds);
 
     // Safely convert values to strings (handles objects from LLM)
     const safeString = (val: unknown): string => {
@@ -38,10 +41,18 @@ export const JsonMappingNode = memo(function JsonMappingNode({
     return (
         <div
             className={`
-                min-w-[180px] rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md
+                min-w-[200px] rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md relative
                 ${selected ? "border-orange-500" : "border-slate-200 dark:border-slate-700"}
             `}
         >
+            {/* Node ID Badge */}
+
+            {showNodeIds && (
+
+                <div className="absolute -top-6 left-2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded font-mono whitespace-nowrap shadow-md">
+                    ID: {id}
+                </div>
+            )}
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-2 border-b bg-orange-50 dark:bg-orange-900/20 rounded-t-lg">
                 <FileJson className="h-4 w-4 text-orange-500" />

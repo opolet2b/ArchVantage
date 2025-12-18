@@ -38,7 +38,12 @@ class LLMDecisionPrimitive(BasePrimitive):
                 },
                 "input_context": {
                     "type": "string",
-                    "description": "Variable or expression for input context"
+                    "description": "Variable or expression for input context (used for variable resolution)"
+                },
+                "send_context_to_llm": {
+                    "type": "boolean",
+                    "description": "If true, send input_context as user message to LLM. If false, only use it for variable resolution.",
+                    "default": True
                 },
                 "output_variable": {
                     "type": "string",
@@ -57,7 +62,7 @@ class LLMDecisionPrimitive(BasePrimitive):
                     }
                 }
             },
-            "required": ["instruction", "input_context"]
+            "required": ["instruction"]
         }
     
     async def execute(
@@ -73,6 +78,7 @@ class LLMDecisionPrimitive(BasePrimitive):
             model = params.get("model", "default")
             instruction = params.get("instruction", "")
             input_context_var = params.get("input_context", "")
+            send_context_to_llm = params.get("send_context_to_llm", True)
             output_var = params.get("output_variable", "llm_output")
             routing = params.get("routing", {})
             
@@ -80,22 +86,35 @@ class LLMDecisionPrimitive(BasePrimitive):
             variables = state.get("variables", {})
             
             # Get input context (could be a variable name or template)
-            if input_context_var.startswith("{{"):
-                input_context = self.resolve_variables(input_context_var, state)
-            else:
-                try:
-                    input_context = self._get_nested_value(variables, input_context_var)
-                    if isinstance(input_context, (dict, list)):
-                        import json
-                        input_context = json.dumps(input_context, indent=2)
-                except (KeyError, TypeError):
-                    input_context = input_context_var
+            input_context = ""
+            if input_context_var:
+                if input_context_var.startswith("{{"):
+                    input_context = self.resolve_variables(input_context_var, state)
+                else:
+                    try:
+                        input_context = self._get_nested_value(variables, input_context_var)
+                        if isinstance(input_context, (dict, list)):
+                            import json
+                            input_context = json.dumps(input_context, indent=2)
+                    except (KeyError, TypeError):
+                        input_context = input_context_var
+            
+            # Resolve any variables in the instruction template
+            # This allows using {{variable}} placeholders in the instruction
+            resolved_instruction = self.resolve_variables(instruction, state)
             
             # Build messages for LLM
-            messages = [
-                Message(role="system", content=instruction),
-                Message(role="user", content=str(input_context))
-            ]
+            # If send_context_to_llm is False, only send the instruction (no user context message)
+            if send_context_to_llm and input_context:
+                messages = [
+                    Message(role="system", content=resolved_instruction),
+                    Message(role="user", content=str(input_context))
+                ]
+            else:
+                # Only send instruction as the user message (no separate context)
+                messages = [
+                    Message(role="user", content=resolved_instruction)
+                ]
             
             # Call LLM
             response = await llm_service.chat(messages, model_name=model)

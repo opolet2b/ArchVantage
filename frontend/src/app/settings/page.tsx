@@ -5,10 +5,11 @@ import { ModelConfig } from "@/components/settings/model-config"
 import UsersPage from "@/app/settings/users/page"
 import { MCPServersTab } from "@/components/settings/mcp-servers-tab"
 import { CategoriesTab } from "@/components/settings/categories-tab"
+import { TemplatesSettingsTab } from "@/components/settings/templates-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, Server, FolderOpen } from "lucide-react"
+import { Users, Server, FolderOpen, FileText } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -88,6 +89,16 @@ export default function SettingsPage() {
                                 Tool Categories
                             </Button>
                         )}
+                        {isAdmin && (
+                            <Button
+                                variant={activeTab === "templates" ? "secondary" : "ghost"}
+                                className="justify-start gap-2"
+                                onClick={() => handleTabChange("templates")}
+                            >
+                                <FileText className="h-4 w-4" />
+                                Templates
+                            </Button>
+                        )}
                     </aside>
 
                     <main className="flex-1">
@@ -98,6 +109,7 @@ export default function SettingsPage() {
                             activeTab === "oauth") && isAdmin && <UsersPage />}
                         {activeTab === "mcp-servers" && isAdmin && <MCPServersTab />}
                         {activeTab === "categories" && isAdmin && <CategoriesTab />}
+                        {activeTab === "templates" && isAdmin && <TemplatesSettingsTab />}
                     </main>
                 </div>
             </div>

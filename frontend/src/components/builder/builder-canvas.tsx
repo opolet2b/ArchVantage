@@ -23,6 +23,8 @@ import "@xyflow/react/dist/style.css";
 
 import { useBuilderStore } from "@/lib/builder-store";
 import { PrimitiveType } from "@/lib/builder-types";
+import { Eye, EyeOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { HttpRequestNode } from "./nodes/http-request-node";
 import { ConditionNode } from "./nodes/condition-node";
 import { CallToolNode } from "./nodes/call-tool-node";
@@ -55,6 +57,8 @@ export function BuilderCanvas() {
     const addNode = useBuilderStore((state) => state.addNode);
     const reconnectEdge = useBuilderStore((state) => state.reconnectEdge);
     const activeNodeId = useBuilderStore((state) => state.activeNodeId);
+    const showNodeIds = useBuilderStore((state) => state.showNodeIds);
+    const toggleNodeIds = useBuilderStore((state) => state.toggleNodeIds);
 
     // Handle new connections
     const onConnect = useCallback(
@@ -154,6 +158,21 @@ export function BuilderCanvas() {
             >
                 <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
                 <Controls />
+
+                {/* Node ID Toggle */}
+                <Panel position="top-right" className="m-2">
+                    <Button
+                        onClick={toggleNodeIds}
+                        variant={showNodeIds ? "default" : "outline"}
+                        size="sm"
+                        className="shadow-md gap-1.5"
+                        title={showNodeIds ? "Hide Node IDs" : "Show Node IDs"}
+                    >
+                        {showNodeIds ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                        <span className="text-xs">IDs</span>
+                    </Button>
+                </Panel>
+
                 <MiniMap
                     nodeColor={(node) => {
                         switch (node.data?.primitiveType) {

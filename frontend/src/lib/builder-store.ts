@@ -68,6 +68,7 @@ interface BuilderState {
     isDirty: boolean;
     isSaving: boolean;
     selectedModel: string;
+    showNodeIds: boolean;
 
     // Console state
     consoleOpen: boolean;
@@ -141,6 +142,7 @@ interface BuilderActions {
 
     // UI actions
     setSelectedModel: (model: string) => void;
+    toggleNodeIds: () => void;
     toggleConsole: () => void;
     addConsoleLog: (type: ConsoleLog["type"], message: string, data?: unknown) => void;
     clearConsoleLogs: () => void;
@@ -265,6 +267,7 @@ const initialState: BuilderState = {
     isDirty: false,
     isSaving: false,
     selectedModel: "default",
+    showNodeIds: false,
     consoleOpen: false,
     consoleLogs: []
 };
@@ -904,11 +907,13 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                         isExecuting: false
                     });
 
-                    get().addConsoleLog(
-                        data.status === "failed" ? "error" : "step",
-                        `Execution ${data.status}`,
-                        data
-                    );
+                    // Enhanced error logging with error message
+                    if (data.status === "failed") {
+                        const errorMsg = data.error_message || "Unknown error";
+                        get().addConsoleLog("error", `Execution failed: ${errorMsg}`, data);
+                    } else {
+                        get().addConsoleLog("step", `Execution ${data.status}`, data);
+                    }
                 } catch (e: any) {
                     get().addConsoleLog("error", `Error: ${e.message}`);
                     set({ isExecuting: false, executionStatus: "failed" });
@@ -975,6 +980,8 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
             // -----------------------------------------------------------------
 
             setSelectedModel: (model) => set({ selectedModel: model }),
+
+            toggleNodeIds: () => set({ showNodeIds: !get().showNodeIds }),
 
             toggleConsole: () => set({ consoleOpen: !get().consoleOpen }),
 

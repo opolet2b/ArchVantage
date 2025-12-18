@@ -86,17 +86,30 @@ class BasePrimitive(ABC):
         """
         import re
         
+        # Get the variables dict from state - this is where actual values are stored
+        variables = state.get("variables", {})
+        
+        print(f"[DEBUG resolve_variables] Template: {template[:100]}...")
+        print(f"[DEBUG resolve_variables] Variables keys: {list(variables.keys())[:10]}...")  # First 10 keys
+        
         def replace_var(match):
             var_path = match.group(1).strip()
+            print(f"[DEBUG resolve_variables] Resolving variable: {var_path}")
             # Support nested access like "data.items[0].name"
             try:
-                value = self._get_nested_value(state, var_path)
+                # Search in variables dict, not the root state
+                value = self._get_nested_value(variables, var_path)
+                print(f"[DEBUG resolve_variables] Resolved '{var_path}' -> '{value}'")
                 return str(value) if value is not None else ""
-            except (KeyError, IndexError, TypeError):
+            except (KeyError, IndexError, TypeError) as e:
+                print(f"[DEBUG resolve_variables] Failed to resolve '{var_path}': {e}")
+                print(f"[DEBUG resolve_variables] Available keys in variables: {list(variables.keys())}")
                 return match.group(0)  # Keep original if not found
         
         pattern = r'\{\{([^}]+)\}\}'
-        return re.sub(pattern, replace_var, template)
+        result = re.sub(pattern, replace_var, template)
+        print(f"[DEBUG resolve_variables] Result: {result[:100]}...")
+        return result
     
     def _get_nested_value(self, data: Dict, path: str) -> Any:
         """
@@ -107,20 +120,56 @@ class BasePrimitive(ABC):
         - Nested paths: "user.name"
         - Array access: "items[0]"
         - Secret access: "secrets.API_KEY"
+        - Fuzzy key matching: handles underscore/dash mismatches in node IDs
         """
         import re
         
-        parts = re.split(r'\.|\[|\]', path)
-        # Filter empty strings and strip quotes from keys like "key" or 'key'
-        parts = [p.strip("\"'") for p in parts if p]
+        parts = re.split(r'\.|(?=\[)', path)
+        # Filter empty strings
+        parts = [p for p in parts if p]
         
         current = data
         for part in parts:
-            if isinstance(current, dict):
-                current = current[part]
-            elif isinstance(current, list) and part.isdigit():
-                current = current[int(part)]
+            # Handle bracket notation: ['key'] or [0]
+            bracket_match = re.match(r'\[([^\]]+)\]', part)
+            if bracket_match:
+                key = bracket_match.group(1).strip("\"'")
+                if isinstance(current, dict):
+                    current = self._fuzzy_dict_get(current, key)
+                elif isinstance(current, list) and key.isdigit():
+                    current = current[int(key)]
+                else:
+                    raise KeyError(f"Cannot access '{key}' in {type(current)}")
             else:
-                raise KeyError(f"Cannot access '{part}' in {type(current)}")
+                # Regular dot notation
+                if isinstance(current, dict):
+                    current = self._fuzzy_dict_get(current, part)
+                elif isinstance(current, list) and part.isdigit():
+                    current = current[int(part)]
+                else:
+                    raise KeyError(f"Cannot access '{part}' in {type(current)}")
         
         return current
+    
+    def _fuzzy_dict_get(self, data: Dict, key: str) -> Any:
+        """
+        Get a value from a dictionary with fuzzy key matching.
+        
+        Handles cases where the key uses underscores but the dict key uses
+        dashes (or vice versa), which is common with node IDs.
+        """
+        import re
+        
+        # 1. Direct match first (fast path)
+        if key in data:
+            return data[key]
+        
+        # 2. Fuzzy match: normalize both and compare
+        # This handles call_tool_ID vs call-tool-ID vs call_tool-ID
+        normalized_key = re.sub(r'[_\-]', '', key).lower()
+        for dict_key in data.keys():
+            if re.sub(r'[_\-]', '', dict_key).lower() == normalized_key:
+                return data[dict_key]
+        
+        # 3. No match found
+        raise KeyError(f"Key '{key}' not found in dictionary")

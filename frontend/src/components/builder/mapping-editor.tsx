@@ -315,11 +315,19 @@ export function MappingEditor({
             });
         }
 
-        // Outgoing: All OTHER nodes' Input Schema 
-        // This allows mapping TO any node's input requirements
-        const downstreamNodes = nodes.filter(n => n.id !== nodeId);
+        // Outgoing: ONLY downstream connected nodes' Input Schema 
+        // This shows what fields the actual next nodes in the workflow expect
+        const downstreamNodeIds = new Set<string>();
+        edges.forEach(edge => {
+            if (edge.source === nodeId) {
+                downstreamNodeIds.add(edge.target);
+            }
+        });
 
-        for (const targetNode of downstreamNodes) {
+        for (const targetNode of nodes) {
+            // Only include nodes that are actually connected downstream
+            if (!downstreamNodeIds.has(targetNode.id)) continue;
+
             const nodeData = targetNode.data as { primitiveType?: PrimitiveType; label?: string; params?: Record<string, unknown> };
             const primitiveType = nodeData.primitiveType || "END";
             const params = nodeData.params || {};
@@ -405,7 +413,6 @@ export function MappingEditor({
                 { label: "Minus (-)", value: " - " },
                 { label: "Multiply (*)", value: " * " },
                 { label: "Divide (/)", value: " / " },
-                { label: "Concatenate", value: " + " },
                 { label: "Concatenate Space", value: ' + " " + ' },
             ]
         },
@@ -524,6 +531,30 @@ export function MappingEditor({
         }
     };
 
+
+    // Helper function to extract node references from expression
+    const extractNodeInfo = (expression: string): Array<{ nodeId: string; nodeName: string }> => {
+        const refs: Array<{ nodeId: string; nodeName: string }> = [];
+        // Match patterns like: node_id.field or node_id['field']
+        const nodePattern = /\b([a-zA-Z0-9_-]+)\s*(?:\.|\[)/g;
+        let match;
+
+        while ((match = nodePattern.exec(expression)) !== null) {
+            const nodeId = match[1];
+            // Find the actual node to get its label
+            const node = nodes.find(n => n.id === nodeId || n.id.replace(/-/g, '_') === nodeId);
+            if (node) {
+                const nodeData = node.data as { label?: string; primitiveType?: string };
+                const nodeName = (nodeData.label as string) || (nodeData.primitiveType as string) || nodeId;
+                refs.push({ nodeId: node.id, nodeName });
+            }
+        }
+
+        return refs;
+    };
+
+    // ... continue with rest of code ...
+
     return (
         <div className="space-y-4">
             {/* Header */}
@@ -560,30 +591,75 @@ export function MappingEditor({
 
             {/* Mappings List */}
             <div className="space-y-2">
-                {mappings.map((mapping, index) => (
-                    <div key={index} className="space-y-1.5 p-3 bg-slate-50 dark:bg-slate-900/40 rounded border group">
-                        <div className="flex items-center gap-2">
-                            <div className="flex-1 font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold">
-                                {mapping.target}
+                {mappings.map((mapping, index) => {
+                    const expression = mapping.expression || mapping.source || "";
+                    const nodeRefs = extractNodeInfo(expression);
+
+                    // Find target node info from outgoing schemas
+                    const targetNodeInfo = outgoing.find(schema =>
+                        schema.fields.some(f => f.name === mapping.target)
+                    );
+
+                    return (
+                        <div key={index} className="space-y-1.5 p-3 bg-slate-50 dark:bg-slate-900/40 rounded border group">
+                            <div className="flex items-center gap-2">
+                                <div className="flex-1 space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold">
+                                            {mapping.target}
+                                        </span>
+                                        {targetNodeInfo && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 gap-1 font-mono">
+                                                            <span className="text-muted-foreground">to:</span>
+                                                            <span className="font-semibold">{targetNodeInfo.node_id}</span>
+                                                        </Badge>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="top" className="text-xs font-mono">
+                                                        <div>Type: {targetNodeInfo.node_type}</div>
+                                                        <div>Label: {targetNodeInfo.label}</div>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        )}
+                                        {nodeRefs.length > 0 && nodeRefs.map((ref, i) => (
+                                            <TooltipProvider key={i}>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 gap-1 font-mono">
+                                                            <span className="text-muted-foreground">from:</span>
+                                                            <span className="font-semibold">{ref.nodeId}</span>
+                                                        </Badge>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="top" className="text-xs font-mono">
+                                                        Source: {ref.nodeId}
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="text-muted-foreground text-xs font-mono">=</div>
+                                <Button
+                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleRemoveMapping(index)}
+                                >
+                                    <Trash2 className="h-3 w-3 text-red-500" />
+                                </Button>
                             </div>
-                            <div className="text-muted-foreground text-xs font-mono">=</div>
-                            <Button
-                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleRemoveMapping(index)}
-                            >
-                                <Trash2 className="h-3 w-3 text-red-500" />
-                            </Button>
+                            <Input
+                                className="h-8 font-mono text-xs bg-white dark:bg-black"
+                                value={expression}
+                                onChange={(e) => handleUpdateMapping(index, "expression", e.target.value)}
+                                placeholder="Expression..."
+                            />
                         </div>
-                        <Input
-                            className="h-8 font-mono text-xs bg-white dark:bg-black"
-                            value={mapping.expression || mapping.source || ""}
-                            onChange={(e) => handleUpdateMapping(index, "expression", e.target.value)}
-                            placeholder="Expression..."
-                        />
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* New Mapping Builder */}
@@ -670,8 +746,8 @@ export function MappingEditor({
                                     {MAPPING_FUNCTIONS.map(group => (
                                         <SelectGroup key={group.label}>
                                             <SelectLabel className="text-xs font-bold text-muted-foreground px-2 py-1.5">{group.label}</SelectLabel>
-                                            {group.options.map(opt => (
-                                                <SelectItem key={opt.value} value={opt.value} className="text-xs font-mono">
+                                            {group.options.map((opt, optIndex) => (
+                                                <SelectItem key={`${group.label}-${optIndex}`} value={opt.value} className="text-xs font-mono">
                                                     {opt.label}
                                                 </SelectItem>
                                             ))}

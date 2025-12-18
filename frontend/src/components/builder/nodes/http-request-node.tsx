@@ -9,6 +9,7 @@
 import { memo } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
 import { Globe, AlertCircle, CheckCircle } from "lucide-react";
+import { useBuilderStore } from "@/lib/builder-store";
 
 interface HTTPRequestData {
     label: string;
@@ -21,10 +22,12 @@ interface HTTPRequestData {
 }
 
 export const HttpRequestNode = memo(function HttpRequestNode({
+    id,
     data,
     selected,
 }: NodeProps) {
     const nodeData = data as unknown as HTTPRequestData;
+    const showNodeIds = useBuilderStore((state) => state.showNodeIds);
 
     // Safely convert values to strings (handles objects from LLM)
     const safeString = (val: unknown): string => {
@@ -48,10 +51,18 @@ export const HttpRequestNode = memo(function HttpRequestNode({
     return (
         <div
             className={`
-                min-w-[200px] rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md
+                min-w-[200px] rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md relative
                 ${selected ? "border-blue-500" : "border-slate-200 dark:border-slate-700"}
             `}
         >
+            {/* Node ID Badge */}
+
+            {showNodeIds && (
+
+                <div className="absolute -top-6 left-2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded font-mono whitespace-nowrap shadow-md">
+                    ID: {id}
+                </div>
+            )}
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-2 border-b bg-slate-50 dark:bg-slate-800 rounded-t-lg">
                 <Globe className="h-4 w-4 text-blue-500" />

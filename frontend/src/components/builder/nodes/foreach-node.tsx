@@ -9,6 +9,7 @@
 import { memo } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
 import { Repeat } from "lucide-react";
+import { useBuilderStore } from "@/lib/builder-store";
 
 interface ForEachData {
     label: string;
@@ -20,10 +21,12 @@ interface ForEachData {
 }
 
 export const ForEachNode = memo(function ForEachNode({
+    id,
     data,
     selected,
 }: NodeProps) {
     const nodeData = data as unknown as ForEachData;
+    const showNodeIds = useBuilderStore((state) => state.showNodeIds);
 
     const safeString = (val: unknown): string => {
         if (val === null || val === undefined) return "";
@@ -37,10 +40,18 @@ export const ForEachNode = memo(function ForEachNode({
     return (
         <div
             className={`
-                min-w-[200px] rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md
+                min-w-[200px] rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md relative
                 ${selected ? "border-green-500" : "border-slate-200 dark:border-slate-700"}
             `}
         >
+            {/* Node ID Badge */}
+
+            {showNodeIds && (
+
+                <div className="absolute -top-6 left-2 bg-slate-800 text-white text-[9px] px-2 py-1 rounded font-mono whitespace-nowrap shadow-md">
+                    ID: {id}
+                </div>
+            )}
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-2 border-b bg-green-50 dark:bg-green-900/20 rounded-t-lg">
                 <Repeat className="h-4 w-4 text-green-500" />

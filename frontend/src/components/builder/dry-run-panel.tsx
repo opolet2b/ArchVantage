@@ -46,6 +46,7 @@ export function DryRunPanel() {
     const [jsonError, setJsonError] = React.useState<string | null>(null);
     const [formValues, setFormValues] = React.useState<Record<string, any>>({});
     const [isOpen, setIsOpen] = React.useState(false);
+    const [executionError, setExecutionError] = React.useState<string | null>(null);
 
     // Initialize test inputs from schema if empty
     React.useEffect(() => {
@@ -92,6 +93,7 @@ export function DryRunPanel() {
 
     const handleStart = async () => {
         if (jsonError) return;
+        setExecutionError(null); // Clear previous errors
         await startDryRunStep();
     };
 
@@ -148,6 +150,7 @@ export function DryRunPanel() {
 
     const handleRestart = () => {
         clearExecution();
+        setExecutionError(null);
     };
 
     const lastStep = executionSteps.length > 0 ? executionSteps[executionSteps.length - 1] : null;
@@ -286,54 +289,69 @@ export function DryRunPanel() {
                                                 const params = currentNode.data.params as any;
                                                 const instruction = params.instruction || "";
 
-                                                // Helper function to resolve dot/bracket notation: "obj['key']" or "obj.key"
+                                                // Helper function to resolve dot/bracket notation with FUZZY matching
                                                 const resolveValue = (path: string, scope: any): any => {
                                                     if (!scope) return undefined;
+                                                    console.log(`[SidebarPreview resolveValue] Path: ${path}, Scope keys: ${Object.keys(scope).slice(0, 5).join(', ')}...`);
 
-                                                    // 1. Try direct match
-                                                    if (scope[path] !== undefined) return scope[path];
-
-                                                    // 2. Try swapping _ with - (common ID mismatch)
-                                                    if (path.includes('_')) {
-                                                        const dashed = path.replace(/_/g, '-');
-                                                        if (scope[dashed] !== undefined) return scope[dashed];
+                                                    // 1. Direct match first (fast path)
+                                                    if (scope[path] !== undefined) {
+                                                        console.log(`[SidebarPreview resolveValue] Direct match found for '${path}'`);
+                                                        return scope[path];
                                                     }
 
-                                                    // 3. Complex parsing for prop access
+                                                    // 2. Parse Root Variable and Accessors
                                                     const complexMatch = path.match(/^([a-zA-Z0-9_\-]+)(.*)$/);
                                                     if (!complexMatch) return undefined;
 
                                                     let [_, rootVar, accessors] = complexMatch;
+                                                    console.log(`[SidebarPreview resolveValue] Root: '${rootVar}', Accessors: '${accessors}'`);
+
+                                                    // 3. Find Root Variable (Fuzzy Match)
                                                     let current = scope[rootVar];
 
-                                                    // Try aliasing for root var
-                                                    if (current === undefined && rootVar.includes('_')) {
-                                                        const dashedRoot = rootVar.replace(/_/g, '-');
-                                                        current = scope[dashedRoot];
+                                                    if (current === undefined) {
+                                                        // Fuzzy Search: Normalize both and compare
+                                                        const normalizedRoot = rootVar.replace(/[_\-]/g, '').toLowerCase();
+                                                        const matchingKey = Object.keys(scope).find(k =>
+                                                            k.replace(/[_\-]/g, '').toLowerCase() === normalizedRoot
+                                                        );
+                                                        if (matchingKey) {
+                                                            console.log(`[SidebarPreview resolveValue] Fuzzy match: '${rootVar}' -> '${matchingKey}'`);
+                                                            current = scope[matchingKey];
+                                                        }
                                                     }
 
-                                                    if (current === undefined) return undefined;
+                                                    if (current === undefined) {
+                                                        console.log(`[SidebarPreview resolveValue] Root var '${rootVar}' not found`);
+                                                        return undefined;
+                                                    }
 
-                                                    // Process accessors
+                                                    // 4. Process Accessors
                                                     const accessorRegex = /\[['"]([^'"]+)['"]\]|\.([a-zA-Z0-9_\-]+)/g;
                                                     let match;
                                                     while ((match = accessorRegex.exec(accessors)) !== null) {
                                                         if (current === undefined) break;
                                                         const prop = match[1] || match[2];
+                                                        console.log(`[SidebarPreview resolveValue] Accessing prop '${prop}' on current: ${typeof current}`);
                                                         current = current[prop];
                                                     }
 
+                                                    console.log(`[SidebarPreview resolveValue] Final value: ${current}`);
                                                     return current;
                                                 };
 
                                                 const resolveTemplate = (text: string, context: any) => {
                                                     if (!text) return "";
-                                                    return text.replace(/\{\{([^}]+)\}\}/g, (match: string, variable: string) => {
+                                                    console.log(`[SidebarPreview resolveTemplate] Input: ${text.substring(0, 80)}...`);
+                                                    const result = text.replace(/\{\{([^}]+)\}\}/g, (match: string, variable: string) => {
                                                         const key = variable.trim();
                                                         const val = resolveValue(key, context);
                                                         if (val !== undefined && typeof val === 'object') return JSON.stringify(val);
                                                         return val !== undefined ? String(val) : match;
                                                     });
+                                                    console.log(`[SidebarPreview resolveTemplate] Result: ${result.substring(0, 80)}...`);
+                                                    return result;
                                                 };
 
                                                 // 1. Prepare Global Context
@@ -407,11 +425,29 @@ export function DryRunPanel() {
                                     </div>
                                 )}
 
-                                {isFailed && (
-                                    <Button variant="destructive" onClick={handleRestart} className="w-full">
-                                        <RotateCcw className="mr-2 h-4 w-4" />
-                                        Restart
-                                    </Button>
+                                {/* Error Display */}
+                                {isFailed && lastStep && (
+                                    <div className="space-y-2 pt-4 border-t">
+                                        <Label className="text-red-600">Error Details</Label>
+                                        <div className="bg-red-50 p-4 rounded-md border border-red-200 text-sm">
+                                            <div className="font-semibold text-red-700 mb-2">Node: {lastStep.node_id}</div>
+                                            <div className="font-mono text-xs text-red-600 whitespace-pre-wrap">
+                                                {lastStep.error || executionError || "Unknown error occurred"}
+                                            </div>
+                                            {lastStep.output_data && (
+                                                <details className="mt-3">
+                                                    <summary className="cursor-pointer text-xs text-red-700 underline">Show raw output</summary>
+                                                    <pre className="mt-2 text-xs overflow-auto max-h-[200px] bg-white p-2 rounded">
+                                                        {JSON.stringify(lastStep.output_data, null, 2)}
+                                                    </pre>
+                                                </details>
+                                            )}
+                                        </div>
+                                        <Button variant="destructive" onClick={handleRestart} className="w-full">
+                                            <RotateCcw className="mr-2 h-4 w-4" />
+                                            Restart
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
                         )}

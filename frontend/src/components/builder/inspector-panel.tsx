@@ -21,6 +21,8 @@ import {
     ChevronRight,
     ChevronLeft,
     Loader2,
+    AlertCircle,
+    Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,12 +30,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 import { useBuilderStore } from "@/lib/builder-store";
 import { PRIMITIVE_CONFIGS, PrimitiveType, ModelPreset } from "@/lib/builder-types";
 import { cn, API_URL } from "@/lib/utils";
 import { MappingEditor } from "./mapping-editor";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { VariablePicker } from "./variable-picker";
+import { TemplateSelector } from "./template-selector";
 import { ExpressionBuilder } from "./expression-builder";
 import { InputSchemaBuilder } from "./input-schema-builder";
 
@@ -390,9 +394,9 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
         }
     }, [primitiveType]);
 
-    // Fetch LLM models when LLM_DECISION node is selected
+    // Fetch LLM models when LLM_DECISION or TEXT_TEMPLATE node is selected
     useEffect(() => {
-        if (primitiveType === "LLM_DECISION") {
+        if (primitiveType === "LLM_DECISION" || primitiveType === "TEXT_TEMPLATE") {
             const fetchModels = async () => {
                 setIsLoadingModels(true);
                 try {
@@ -815,18 +819,127 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
             {
                 primitiveType === "TEXT_TEMPLATE" && (
                     <>
+                        {/* Source Text */}
                         <div className="space-y-2">
-                            <Label>Template</Label>
-                            <div className="flex items-start gap-1">
+                            <Label>Source Text</Label>
+                            <div className="flex gap-1">
                                 <Textarea
-                                    placeholder="Hello {{name}}, your order {{order_id}} is ready."
-                                    value={(params.template_string as string) || ""}
-                                    onChange={(e) => handleParamChange("template_string", e.target.value)}
+                                    placeholder="Raw content to restructure, or use {{variable}} reference"
+                                    className="min-h-[100px]"
+                                    value={(params.source_text as string) || ""}
+                                    onChange={(e) => handleParamChange("source_text", e.target.value)}
                                 />
-                                <VariablePicker onSelect={(path) => handleParamChange("template_string", ((params.template_string as string) || "") + `{{${path}}}`)} />
+                                <VariablePicker onSelect={(path) =>
+                                    handleParamChange("source_text", `{{${path}}}`)
+                                } />
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                Jinja2 template syntax
+                                The raw text content to be restructured by the LLM
+                            </p>
+                        </div>
+
+                        {/* Template Selection */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label>Template *</Label>
+                                {params.template_id && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 px-2 text-xs text-red-500 hover:text-red-700"
+                                        onClick={() => {
+                                            onUpdate({
+                                                ...params,
+                                                template_id: "",
+                                                template_name: ""
+                                            });
+                                        }}
+                                    >
+                                        <Trash2 className="h-3 w-3 mr-1" />
+                                        Clear
+                                    </Button>
+                                )}
+                            </div>
+
+                            {/* Selected Template Display */}
+                            {params.template_id && params.template_name ? (
+                                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800 rounded-md">
+                                    <div className="flex items-start gap-2">
+                                        <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 truncate">
+                                                {params.template_name}
+                                            </p>
+                                            <p className="text-xs text-blue-600 dark:text-blue-400 font-mono truncate">
+                                                ID: {params.template_id}
+                                            </p>
+                                        </div>
+                                        <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 flex-shrink-0">
+                                            Selected
+                                        </Badge>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-200 dark:border-amber-800 rounded-md">
+                                    <div className="flex items-start gap-2">
+                                        <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+                                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                                            <strong>Required:</strong> Select a template below to format the output
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Template Tree Selector */}
+                            <TemplateSelector
+                                selectedId={(params.template_id as string) || null}
+                                onSelect={(templateId, templateName) => {
+                                    console.log('[Inspector] Template selected:', { templateId, templateName });
+                                    // Update both template_id and template_name in a single call
+                                    onUpdate({
+                                        ...params,
+                                        template_id: templateId,
+                                        template_name: templateName
+                                    });
+                                    console.log('[Inspector] Updated params:', { template_id: templateId, template_name: templateName });
+                                }}
+                            />
+                        </div>
+
+                        {/* LLM Model Selector */}
+                        <div className="space-y-2">
+                            <Label>LLM Model</Label>
+                            {isLoadingModels ? (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground p-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Loading models...
+                                </div>
+                            ) : (
+                                <select
+                                    className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+                                    value={(params.llm_model as string) || "default"}
+                                    onChange={(e) => handleParamChange("llm_model", e.target.value)}
+                                >
+                                    <option value="default">Default (System Configured)</option>
+                                    {llmModels.map((model) => (
+                                        <option key={model.name} value={model.name}>
+                                            {model.name} {model.model_name ? `(${model.model_name})` : ""}
+                                        </option>
+                                    ))}
+                                </select>
+                            )}
+                        </div>
+
+                        {/* Output Variable */}
+                        <div className="space-y-2">
+                            <Label>Output Variable</Label>
+                            <Input
+                                placeholder="generated_markdown"
+                                value={(params.output_variable as string) || "generated_markdown"}
+                                onChange={(e) => handleParamChange("output_variable", e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Variable name to store the generated markdown
                             </p>
                         </div>
                     </>
@@ -948,6 +1061,20 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                 value={(params.input_context as string) || ""}
                                 onChange={(val) => handleParamChange("input_context", val)}
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={(params.send_context_to_llm as boolean) !== false}
+                                    onChange={(e) => handleParamChange("send_context_to_llm", e.target.checked)}
+                                    className="rounded border-gray-300"
+                                />
+                                Send Input Context to LLM
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                                If checked, the Input Schema JSON is sent as the user message. Uncheck this if you only use it for variable resolution in the instruction.
+                            </p>
                         </div>
                     </>
                 )
