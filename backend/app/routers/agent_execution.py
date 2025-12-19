@@ -122,7 +122,7 @@ async def execute_agent_blueprint_step(
     # Add user ID to inputs for tracking
     inputs = {**request.inputs, "_user_id": current_user.id}
     
-    # Execute with steps_limit=1
+    # Execute with steps_limit=1 (original approach)
     result = await execute_blueprint(db, blueprint_id, inputs, steps_limit=1)
     
     # Convert to response
@@ -332,11 +332,13 @@ async def resume_execution_step(
 ):
     """Resume execution for the next step."""
     execution = db.query(AgentExecution).filter(AgentExecution.id == execution_id).first()
-    if not execution: raise HTTPException(status_code=404, detail="Execution not found")
-    if execution.user_id != current_user.id: raise HTTPException(status_code=403, detail="Access denied")
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if execution.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Check status
-    if execution.status not in ["paused", "running"]: # running allowed if resuming from crash?
+    if execution.status not in ["paused", "running"]:
         raise HTTPException(status_code=400, detail=f"Cannot resume execution in status {execution.status}")
     
     # Load blueprint for runtime
@@ -388,8 +390,10 @@ async def resume_execution_input(
 ):
     """Resume execution with GUI input."""
     execution = db.query(AgentExecution).filter(AgentExecution.id == execution_id).first()
-    if not execution: raise HTTPException(status_code=404, detail="Execution not found")
-    if execution.user_id != current_user.id: raise HTTPException(status_code=403, detail="Access denied")
+    if not execution:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if execution.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     if execution.status != "waiting_for_input":
         print(f"[EXECUTION] 400 ERROR: Execution {execution_id} status is '{execution.status}', expected 'waiting_for_input'")
@@ -403,8 +407,15 @@ async def resume_execution_input(
         execution_state = execution.state or {}
         new_state = runtime.resume_with_input(execution_state, request.inputs)
         
-        # Resume
-        result = await runtime.execute(execution.inputs, initial_state=new_state, steps_limit=1)
+        # Determine steps_limit based on mode
+        # dry_run: pause after each step (steps_limit=1)
+        # production: run to completion or next GUI (steps_limit=None)
+        mode = request.mode if hasattr(request, 'mode') and request.mode else 'dry_run'
+        steps_limit = 1 if mode == 'dry_run' else None
+        print(f"[EXECUTION] resume_execution_input: mode={mode}, steps_limit={steps_limit}")
+        
+        # Resume execution
+        result = await runtime.execute(execution.inputs, initial_state=new_state, steps_limit=steps_limit)
         
         # Update record
         execution.status = result["status"]

@@ -105,6 +105,7 @@ interface BuilderActions {
     setBlueprint: (blueprint: Blueprint) => void;
     setBlueprintName: (name: string) => void;
     setBlueprintDescription: (description: string) => void;
+    setInputsSchema: (schema: Record<string, unknown>) => void;
     resetBlueprint: () => void;
     saveBlueprint: () => Promise<Blueprint | null>;
     loadBlueprint: (id: string) => Promise<void>;
@@ -306,6 +307,9 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
 
             setBlueprintDescription: (description) =>
                 set({ blueprintDescription: description, isDirty: true }),
+
+            setInputsSchema: (schema) =>
+                set({ inputsSchema: schema, isDirty: true }),
 
             resetBlueprint: () => set(initialState),
 

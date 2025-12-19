@@ -585,6 +585,11 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
 
             <Separator />
 
+            {/* START node - Agent Inputs Schema Editor */}
+            {primitiveType === "START" && (
+                <StartNodeInspector />
+            )}
+
             {/* Parameter fields based on primitive type */}
             {primitiveType === "HTTP_REQUEST" && (
                 <>
@@ -1297,5 +1302,204 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                 Delete Node
             </Button>
         </div >
+    );
+}
+
+// =============================================================================
+// START Node Inspector - Agent Inputs Schema Editor
+// =============================================================================
+
+interface InputField {
+    name: string;
+    type: string;
+    required: boolean;
+    description?: string;
+}
+
+function StartNodeInspector() {
+    const inputsSchema = useBuilderStore((state) => state.inputsSchema);
+    const setInputsSchema = useBuilderStore((state) => state.setInputsSchema);
+
+    // Parse current schema into editable fields
+    const [fields, setFields] = useState<InputField[]>(() => {
+        const schema = inputsSchema as any;
+        const properties = schema?.properties || {};
+        const required = schema?.required || [];
+
+        return Object.entries(properties).map(([name, prop]: [string, any]) => ({
+            name,
+            type: prop?.type || "string",
+            required: required.includes(name),
+            description: prop?.description || ""
+        }));
+    });
+
+    const [newFieldName, setNewFieldName] = useState("");
+    const [newFieldType, setNewFieldType] = useState("string");
+    const [newFieldRequired, setNewFieldRequired] = useState(false);
+
+    // Sync fields to inputsSchema
+    const updateSchema = (updatedFields: InputField[]) => {
+        if (updatedFields.length === 0) {
+            setInputsSchema({});
+            return;
+        }
+
+        const properties: Record<string, any> = {};
+        const required: string[] = [];
+
+        updatedFields.forEach(field => {
+            properties[field.name] = {
+                type: field.type,
+                ...(field.description ? { description: field.description } : {})
+            };
+            if (field.required) {
+                required.push(field.name);
+            }
+        });
+
+        setInputsSchema({
+            type: "object",
+            properties,
+            ...(required.length > 0 ? { required } : {})
+        });
+    };
+
+    const handleAddField = () => {
+        if (!newFieldName.trim()) return;
+        if (fields.some(f => f.name === newFieldName.trim())) return;
+
+        const newField: InputField = {
+            name: newFieldName.trim(),
+            type: newFieldType,
+            required: newFieldRequired
+        };
+
+        const updatedFields = [...fields, newField];
+        setFields(updatedFields);
+        updateSchema(updatedFields);
+
+        setNewFieldName("");
+        setNewFieldType("string");
+        setNewFieldRequired(false);
+    };
+
+    const handleRemoveField = (name: string) => {
+        const updatedFields = fields.filter(f => f.name !== name);
+        setFields(updatedFields);
+        updateSchema(updatedFields);
+    };
+
+    const handleToggleRequired = (name: string) => {
+        const updatedFields = fields.map(f =>
+            f.name === name ? { ...f, required: !f.required } : f
+        );
+        setFields(updatedFields);
+        updateSchema(updatedFields);
+    };
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <Label className="text-sm font-medium">Agent Input Parameters</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                    Define the inputs users provide when running this agent.
+                    Leave empty if no inputs are needed (optional).
+                </p>
+            </div>
+
+            {/* Existing Fields */}
+            {fields.length > 0 && (
+                <div className="space-y-2">
+                    {fields.map(field => (
+                        <div
+                            key={field.name}
+                            className="flex items-center gap-2 p-2 rounded border bg-slate-50 dark:bg-slate-800/50"
+                        >
+                            <div className="flex-1 min-w-0">
+                                <div className="font-mono text-sm truncate">{field.name}</div>
+                                <div className="flex gap-2 text-xs text-muted-foreground">
+                                    <span className="bg-slate-200 dark:bg-slate-700 px-1 rounded">
+                                        {field.type}
+                                    </span>
+                                    {field.required && (
+                                        <span className="text-red-500">required</span>
+                                    )}
+                                </div>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                onClick={() => handleToggleRequired(field.name)}
+                                title={field.required ? "Make optional" : "Make required"}
+                            >
+                                {field.required ? "★" : "☆"}
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-red-500 hover:text-red-700"
+                                onClick={() => handleRemoveField(field.name)}
+                            >
+                                <Trash2 className="h-3 w-3" />
+                            </Button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Add New Field */}
+            <div className="border rounded-md p-3 space-y-3 bg-white dark:bg-slate-900">
+                <Label className="text-xs font-medium">Add Input Field</Label>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Field Name</Label>
+                        <Input
+                            className="h-8 text-xs"
+                            placeholder="e.g. email"
+                            value={newFieldName}
+                            onChange={(e) => setNewFieldName(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleAddField()}
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <Label className="text-[10px] text-muted-foreground">Type</Label>
+                        <select
+                            className="w-full h-8 text-xs rounded-md border bg-background px-2"
+                            value={newFieldType}
+                            onChange={(e) => setNewFieldType(e.target.value)}
+                        >
+                            <option value="string">String</option>
+                            <option value="number">Number</option>
+                            <option value="boolean">Boolean</option>
+                            <option value="array">Array</option>
+                            <option value="object">Object</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={newFieldRequired}
+                            onChange={(e) => setNewFieldRequired(e.target.checked)}
+                            className="h-4 w-4 rounded border"
+                        />
+                        Required
+                    </label>
+                    <Button
+                        size="sm"
+                        className="h-7"
+                        onClick={handleAddField}
+                        disabled={!newFieldName.trim()}
+                    >
+                        Add Field
+                    </Button>
+                </div>
+            </div>
+        </div>
     );
 }

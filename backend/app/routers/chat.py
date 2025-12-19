@@ -93,8 +93,15 @@ async def execute_agent_from_chat_endpoint(
     """
     Execute an agent from chat context.
     
-    This endpoint runs an agent with the provided inputs and returns
-    the result formatted for display in the chat conversation.
+    This endpoint uses the SAME code path as dry-run, but with
+    steps_limit=None so it runs until completion or GUI input needed.
+    
+    Dry-run: execute_blueprint(steps_limit=1) -> pause after each step
+    Chatbot: execute_blueprint(steps_limit=None) -> run to completion/GUI
+    
+    If a GUI form is required, returns status="waiting_for_input" with
+    the gui_schema for the frontend to render. The frontend should then
+    call /executions/{id}/input to submit the form and resume execution.
     
     Args:
         request: The execution request with agent ID and inputs.
@@ -102,7 +109,7 @@ async def execute_agent_from_chat_endpoint(
         current_user: The authenticated user.
         
     Returns:
-        Agent execution result with outputs.
+        Agent execution result with outputs, or GUI schema if form needed.
     """
     # Load the agent blueprint
     blueprint = db.query(AgentBlueprint).filter(
@@ -120,24 +127,39 @@ async def execute_agent_from_chat_endpoint(
         # Add user ID to inputs for tracking
         inputs = {**request.inputs, "_user_id": current_user.id}
         
-        # Execute the agent
-        result = await execute_blueprint(db, request.agent_id, inputs)
+        # Execute using the SAME code path as dry-run
+        # Difference: steps_limit=None means run until completion or GUI pause
+        result = await execute_blueprint(
+            db, 
+            request.agent_id, 
+            inputs, 
+            steps_limit=None  # Run until completion or GUI input needed
+        )
+        
+        # Determine success
+        status = result.get("status", "failed")
+        is_success = status == "completed"
         
         return AgentExecuteFromChatResponse(
-            success=result.get("status") == "completed",
+            success=is_success,
+            status=status,
             agent_id=request.agent_id,
             agent_name=blueprint.name,
             outputs=result.get("outputs", {}),
             error=result.get("error"),
-            execution_id=result.get("execution_id")
+            execution_id=result.get("execution_id"),
+            # GUI fields (only present when waiting_for_input)
+            gui_schema=result.get("gui_schema") if status == "waiting_for_input" else None,
+            tool_name=result.get("tool_name") if status == "waiting_for_input" else None,
+            description=result.get("description") if status == "waiting_for_input" else None
         )
         
     except Exception as e:
         return AgentExecuteFromChatResponse(
             success=False,
+            status="failed",
             agent_id=request.agent_id,
             agent_name=blueprint.name,
             outputs={},
             error=str(e)
         )
-

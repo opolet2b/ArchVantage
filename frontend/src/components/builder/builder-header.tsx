@@ -7,7 +7,7 @@
  */
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Save, Rocket, Download, Settings, ChevronDown, Terminal } from "lucide-react";
+import { Save, Rocket, Download, Settings, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -44,8 +44,6 @@ export function BuilderHeader() {
     const saveBlueprint = useBuilderStore((state) => state.saveBlueprint);
     const isSaving = useBuilderStore((state) => state.isSaving);
     const isDirty = useBuilderStore((state) => state.isDirty);
-    const toggleConsole = useBuilderStore((state) => state.toggleConsole);
-    const consoleOpen = useBuilderStore((state) => state.consoleOpen);
     const nodes = useBuilderStore((state) => state.nodes);
     const edges = useBuilderStore((state) => state.edges);
 
@@ -258,16 +256,6 @@ export function BuilderHeader() {
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
                 <DryRunPanel />
-
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={toggleConsole}
-                    className={consoleOpen ? "bg-slate-100 dark:bg-slate-800" : ""}
-                >
-                    <Terminal className="h-4 w-4 mr-2" />
-                    Debug
-                </Button>
 
                 <Button variant="outline" size="sm" onClick={handleExport}>
                     <Download className="h-4 w-4 mr-2" />

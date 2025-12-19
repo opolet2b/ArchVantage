@@ -51,11 +51,21 @@ class AgentExecuteFromChatRequest(BaseModel):
 
 
 class AgentExecuteFromChatResponse(BaseModel):
-    """Response from agent execution in chat."""
+    """
+    Response from agent execution in chat.
+    
+    When status is 'waiting_for_input', the frontend should render
+    the gui_schema as a form and submit via /executions/{id}/input.
+    """
     success: bool
+    status: str = "completed"  # completed, failed, waiting_for_input
     agent_id: str
     agent_name: str
     outputs: Dict[str, Any]
     error: Optional[str] = None
     execution_id: Optional[int] = None
+    # GUI form fields (present when status is 'waiting_for_input')
+    gui_schema: Optional[Dict[str, Any]] = None
+    tool_name: Optional[str] = None
+    description: Optional[str] = None
 

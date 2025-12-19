@@ -1,6 +1,6 @@
 
 import * as React from "react";
-import { Play, RotateCcw, Loader2, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
+import { Play, RotateCcw, Loader2, ArrowRight, CheckCircle2, AlertCircle, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -60,6 +60,7 @@ export function DryRunPanel() {
     const [isOpen, setIsOpen] = React.useState(false);
     const [executionError, setExecutionError] = React.useState<string | null>(null);
     const [showSaveWarning, setShowSaveWarning] = React.useState(false);
+    const [expandedOutput, setExpandedOutput] = React.useState<{ nodeLabel: string; data: unknown } | null>(null);
 
     // Initialize test inputs from schema if empty
     React.useEffect(() => {
@@ -284,6 +285,75 @@ export function DryRunPanel() {
                                         </Button>
                                     )}
                                 </div>
+
+                                {/* Execution History - All Steps with Details */}
+                                {executionSteps.length > 0 && (
+                                    <details className="group" open>
+                                        <summary className="cursor-pointer flex items-center justify-between py-2 px-3 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                                            <span className="font-medium text-sm">Execution History ({executionSteps.length} steps)</span>
+                                            <span className="text-xs text-muted-foreground group-open:hidden">Click to expand</span>
+                                            <span className="text-xs text-muted-foreground hidden group-open:inline">Click to collapse</span>
+                                        </summary>
+                                        <div className="mt-2 space-y-3 max-h-[400px] overflow-y-auto">
+                                            {executionSteps.map((step, idx) => (
+                                                <div key={step.node_id + idx} className="border rounded-lg overflow-hidden">
+                                                    {/* Step Header */}
+                                                    <div className={cn(
+                                                        "flex items-center gap-2 p-2 text-sm",
+                                                        step.status === "completed" ? "bg-green-50 dark:bg-green-900/20" :
+                                                            step.status === "failed" ? "bg-red-50 dark:bg-red-900/20" :
+                                                                "bg-blue-50 dark:bg-blue-900/20"
+                                                    )}>
+                                                        {step.status === "completed" ?
+                                                            <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" /> :
+                                                            step.status === "failed" ?
+                                                                <AlertCircle className="h-4 w-4 text-red-600 shrink-0" /> :
+                                                                <Loader2 className="h-4 w-4 text-blue-600 animate-spin shrink-0" />}
+                                                        <span className="font-medium text-xs flex-1">{step.node_label || step.node_id}</span>
+                                                        <span className="text-xs text-muted-foreground">{step.node_type}</span>
+                                                        {step.duration_ms && (
+                                                            <span className="text-xs text-muted-foreground">{step.duration_ms}ms</span>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Step Output - Always Visible */}
+                                                    <div className="p-2 border-t bg-white dark:bg-slate-900 space-y-2">
+                                                        {step.output_data && Object.keys(step.output_data).length > 0 ? (
+                                                            <div>
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <span className="text-xs font-medium text-slate-500">Output:</span>
+                                                                    <button
+                                                                        onClick={() => setExpandedOutput({
+                                                                            nodeLabel: step.node_label || step.node_id,
+                                                                            data: step.output_data
+                                                                        })}
+                                                                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                                                                        title="Expand output"
+                                                                    >
+                                                                        <Maximize2 className="h-3 w-3 text-slate-500" />
+                                                                    </button>
+                                                                </div>
+                                                                <pre className="text-xs font-mono bg-slate-50 dark:bg-slate-800 p-2 rounded overflow-x-auto max-h-[80px] overflow-y-auto">
+                                                                    {JSON.stringify(step.output_data, null, 2)}
+                                                                </pre>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-xs text-muted-foreground italic">No output data</span>
+                                                        )}
+                                                        {step.error && (
+                                                            <div>
+                                                                <span className="text-xs font-medium text-red-500 block mb-1">Error:</span>
+                                                                <pre className="text-xs font-mono bg-red-50 dark:bg-red-900/20 p-2 rounded text-red-700 dark:text-red-400">
+                                                                    {step.error}
+                                                                </pre>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
+                                )}
 
                                 {/* Step Result / Output */}
                                 {!waitingNodeInfo && lastStep && (
@@ -676,6 +746,23 @@ export function DryRunPanel() {
                                 "Submit & Continue"
                             )}
                         </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Expanded Output Dialog */}
+            <Dialog open={!!expandedOutput} onOpenChange={(open) => !open && setExpandedOutput(null)}>
+                <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+                    <DialogHeader className="shrink-0">
+                        <DialogTitle>Output: {expandedOutput?.nodeLabel}</DialogTitle>
+                        <DialogDescription>
+                            Full output data from this execution step
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex-1 min-h-0 mt-4 overflow-auto border rounded bg-slate-50 dark:bg-slate-800">
+                        <pre className="text-sm font-mono p-4 whitespace-pre-wrap break-words">
+                            {expandedOutput?.data ? JSON.stringify(expandedOutput.data, null, 2) : ""}
+                        </pre>
                     </div>
                 </DialogContent>
             </Dialog>

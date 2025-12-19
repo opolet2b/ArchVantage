@@ -12,12 +12,15 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Switch } from "@/components/ui/switch"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useConversation } from "@/lib/conversation-context"
 import { uploadFile, UploadProgress } from "@/lib/upload-service"
 import { API_URL } from "@/lib/utils"
 import { AgentSelectorDialog } from "@/components/agent-selector-dialog"
 import { AgentInputForm } from "@/components/agent-input-form"
 import { AgentInputModeSelector, AgentInputMode } from "@/components/agent-input-mode-selector"
+import { useAgentExecution } from "@/lib/use-agent-execution"
+import { FormRenderer } from "@/components/tools/form-builder/form-renderer"
 
 /**
  * Chat message type.
@@ -91,6 +94,70 @@ export function ChatInterface() {
     const [pendingAgentInputs, setPendingAgentInputs] = React.useState<Record<string, unknown>>({})
     const [pendingParamKeys, setPendingParamKeys] = React.useState<string[]>([])
     const [currentParamIndex, setCurrentParamIndex] = React.useState(0)
+
+    // GUI form state for mid-workflow forms (using unified execution hook)
+    const execution = useAgentExecution({
+        onStatusChange: (status) => {
+            console.log("[Chat] Agent execution status:", status)
+        },
+        onComplete: async (result) => {
+            // Add agent response message when execution completes
+            if (selectedAgent) {
+                const agentMsg: Message = {
+                    role: "agent",
+                    content: formatAgentOutput(result.outputs),
+                    agentName: selectedAgent.name,
+                    agentId: selectedAgent.id
+                }
+                setMessages(prev => [...prev, agentMsg])
+
+                // Persist to backend
+                if (activeConversationId) {
+                    try {
+                        await fetch(`${API_URL}/conversations/${activeConversationId}/messages`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(agentMsg)
+                        })
+                    } catch (err) {
+                        console.error("Failed to save agent message:", err)
+                    }
+                }
+            }
+            // Reset agent state
+            setSelectedAgent(null)
+            setShowAgentInputForm(false)
+            setIsExecutingAgent(false)
+        },
+        onError: async (error) => {
+            // Add error message
+            if (selectedAgent) {
+                const agentMsg: Message = {
+                    role: "agent",
+                    content: `Agent execution failed: ${error}`,
+                    agentName: selectedAgent.name,
+                    agentId: selectedAgent.id
+                }
+                setMessages(prev => [...prev, agentMsg])
+
+                // Persist to backend
+                if (activeConversationId) {
+                    try {
+                        await fetch(`${API_URL}/conversations/${activeConversationId}/messages`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(agentMsg)
+                        })
+                    } catch (err) {
+                        console.error("Failed to save error message:", err)
+                    }
+                }
+            }
+            setIsExecutingAgent(false)
+        }
+    })
+    const [guiFormValues, setGuiFormValues] = React.useState<Record<string, unknown>>({})
+
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
@@ -489,62 +556,43 @@ export function ChatInterface() {
 
     /**
      * Execute the selected agent with provided inputs.
+     * Uses the unified execution hook which handles GUI forms.
      */
     const executeAgent = async (inputs: Record<string, unknown>) => {
         if (!selectedAgent) return
 
         setIsExecutingAgent(true)
 
-        try {
-            const token = localStorage.getItem("token")
-            if (!token) return
-
-            // Add user message about agent execution
-            const userMsg: Message = {
-                role: "user",
-                content: `Execute agent: ${selectedAgent.name}`
-            }
-            setMessages(prev => [...prev, userMsg])
-
-            const res = await fetch(`${API_URL}/chat/execute-agent`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    agent_id: selectedAgent.id,
-                    inputs,
-                    conversation_id: activeConversationId
-                }),
-            })
-
-            const data = await res.json()
-
-            // Create agent response message
-            const agentMsg: Message = {
-                role: "agent",
-                content: data.success
-                    ? formatAgentOutput(data.outputs)
-                    : `Agent execution failed: ${data.error || "Unknown error"}`,
-                agentName: data.agent_name,
-                agentId: data.agent_id
-            }
-            setMessages(prev => [...prev, agentMsg])
-
-            // Reset agent state
-            setSelectedAgent(null)
-            setShowAgentInputForm(false)
-
-        } catch (error) {
-            console.error("Agent execution error:", error)
-            setMessages(prev => [...prev, {
-                role: "assistant",
-                content: "Failed to execute agent. Please try again."
-            }])
-        } finally {
-            setIsExecutingAgent(false)
+        // Add user message about agent execution
+        const userMsg: Message = {
+            role: "user",
+            content: `Execute agent: ${selectedAgent.name}`
         }
+        setMessages(prev => [...prev, userMsg])
+
+        // Persist user message to backend
+        let currentConversationId = activeConversationId
+        if (!currentConversationId) {
+            currentConversationId = await createNewConversation()
+        }
+        if (currentConversationId) {
+            try {
+                await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(userMsg)
+                })
+            } catch (err) {
+                console.error("Failed to save user message:", err)
+            }
+        }
+
+        // Use the unified execution hook
+        // The hook's callbacks handle success/error/waiting_for_input
+        await execution.execute(selectedAgent.id, inputs)
+
+        // Note: If execution returns waiting_for_input, the GUI form dialog
+        // will be shown. If completed/failed, the callbacks update messages.
     }
 
     /**
@@ -930,6 +978,63 @@ export function ChatInterface() {
                     </div>
                 </div>
             )}
+
+            {/* Mid-Workflow GUI Form Dialog */}
+            {/* Displayed when agent execution hits a GUI tool that requires user input */}
+            <Dialog
+                open={execution.needsInput && !!execution.waitingForInput}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        execution.reset()
+                        setGuiFormValues({})
+                        setIsExecutingAgent(false)
+                    }
+                }}
+            >
+                <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {execution.waitingForInput?.toolName || "Input Required"}
+                        </DialogTitle>
+                        {execution.waitingForInput?.description && (
+                            <DialogDescription>
+                                {execution.waitingForInput.description}
+                            </DialogDescription>
+                        )}
+                    </DialogHeader>
+
+                    <div className="py-4">
+                        <FormRenderer
+                            widgets={(execution.waitingForInput?.schema?.components || []) as any}
+                            layout={(execution.waitingForInput?.schema?.layout) as any}
+                            value={guiFormValues}
+                            onChange={(id, val) => setGuiFormValues(prev => ({ ...prev, [id]: val }))}
+                        />
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                execution.reset()
+                                setGuiFormValues({})
+                                setIsExecutingAgent(false)
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={async () => {
+                                await execution.submitInput(guiFormValues)
+                                setGuiFormValues({})
+                            }}
+                            disabled={execution.isLoading}
+                        >
+                            {execution.isLoading ? "Submitting..." : "Submit"}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </>
     )
 }

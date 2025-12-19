@@ -4,16 +4,15 @@
  * Agent Builder Page
  *
  * IDE-like layout for visual agent construction with React Flow canvas,
- * Architect chat sidebar, Inspector panel, and Debug Console.
+ * Architect chat sidebar, and Inspector panel.
  */
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useParams } from "next/navigation";
 import { ReactFlowProvider } from "@xyflow/react";
 import { BuilderHeader } from "@/components/builder/builder-header";
 import { ArchitectSidebar } from "@/components/builder/architect-sidebar";
 import { BuilderCanvas } from "@/components/builder/builder-canvas";
 import { InspectorPanel } from "@/components/builder/inspector-panel";
-import { DebugConsole } from "@/components/builder/debug-console";
 import { useBuilderStore } from "@/lib/builder-store";
 
 export default function AgentBuilderPage() {
@@ -22,7 +21,6 @@ export default function AgentBuilderPage() {
 
     const loadBlueprint = useBuilderStore((state) => state.loadBlueprint);
     const resetBlueprint = useBuilderStore((state) => state.resetBlueprint);
-    const consoleOpen = useBuilderStore((state) => state.consoleOpen);
 
     // Load blueprint on mount if editing existing
     useEffect(() => {
@@ -65,9 +63,6 @@ export default function AgentBuilderPage() {
                     {/* Right Sidebar: Inspector & Palette */}
                     <InspectorPanel />
                 </div>
-
-                {/* Bottom: Debug Console */}
-                {consoleOpen && <DebugConsole />}
             </div>
         </ReactFlowProvider>
     );

@@ -150,6 +150,7 @@ export type ExecutionStatus = "pending" | "running" | "completed" | "failed" | "
 export interface ExecutionStep {
     node_id: string;
     node_type: PrimitiveType;
+    node_label?: string;  // Human-readable label for display
     status: ExecutionStatus;
     input_data: Record<string, unknown>;
     output_data?: Record<string, unknown>;

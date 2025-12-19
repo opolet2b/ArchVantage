@@ -178,6 +178,10 @@ class BlueprintGenerateResponse(BaseModel):
 class BlueprintExecuteRequest(BaseModel):
     """Request to execute a blueprint."""
     inputs: Dict[str, Any] = Field(default_factory=dict)
+    mode: Optional[str] = Field(
+        default="dry_run",
+        description="Execution mode: 'dry_run' (pause after step) or 'production' (run to completion)"
+    )
 
 
 class ExecutionStatus(str, Enum):
