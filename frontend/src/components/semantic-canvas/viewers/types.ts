@@ -29,6 +29,7 @@ export interface CellFragment extends Fragment {
     sheet?: string;
     range: string;  // "A1:B5" notation
     values?: any[][]; // The actual cell values
+    selectionType?: "cell" | "row" | "column" | "range";
 }
 
 // Region fragment for images

@@ -99,22 +99,195 @@ export function SpreadsheetViewer({
         }
     }, [content]);
 
+    // State for multi-selection tracking
+    const lastSelectedRowRef = React.useRef<number | null>(null);
+    const lastSelectedColRef = React.useRef<number | null>(null);
+    const lastSelectedCellRef = React.useRef<{ r: number; c: number } | null>(null);
+
     // Handle cell click
-    const handleCellClick = (rowIndex: number, colIndex: number) => {
+    const handleCellClick = (rowIndex: number, colIndex: number, e: React.MouseEvent) => {
         if (!selectionEnabled || !onSelect) return;
 
-        const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: colIndex });
-        const cellValue = data[rowIndex]?.[colIndex];
+        let newSelectedCells = [...selectedCells];
+        let fragmentRange = "";
+        let fragmentValues: any[][] = [];
+        let type: "cell" | "range" = "cell";
+        let cellContent = "";
+
+        // Handle Shift+Click (Rectangular Range)
+        if (e.shiftKey && lastSelectedCellRef.current) {
+            const rStart = Math.min(lastSelectedCellRef.current.r, rowIndex);
+            const rEnd = Math.max(lastSelectedCellRef.current.r, rowIndex);
+            const cStart = Math.min(lastSelectedCellRef.current.c, colIndex);
+            const cEnd = Math.max(lastSelectedCellRef.current.c, colIndex);
+
+            newSelectedCells = [];
+            for (let r = rStart; r <= rEnd; r++) {
+                const rowVals = [];
+                for (let c = cStart; c <= cEnd; c++) {
+                    newSelectedCells.push({ row: r, col: c });
+                    rowVals.push(data[r]?.[c]);
+                }
+                fragmentValues.push(rowVals);
+            }
+
+            // Calculations for range string
+            // Data index 0 = Sheet row 1 (since header is row 0)
+            // XLSX.utils uses 0-based indexing.
+            // Previous code used `rowIndex + 1`, implying visual rows start at 2 (Header = 1).
+            // Let's stick to that convention.
+            const startRef = XLSX.utils.encode_cell({ r: rStart + 1, c: cStart });
+            const endRef = XLSX.utils.encode_cell({ r: rEnd + 1, c: cEnd });
+            fragmentRange = `${startRef}:${endRef}`;
+            type = "range";
+            cellContent = `Cells ${fragmentRange}`;
+
+        } else {
+            // Single Cell Select
+            const cellRef = XLSX.utils.encode_cell({ r: rowIndex + 1, c: colIndex });
+            const cellValue = data[rowIndex]?.[colIndex];
+
+            fragmentRange = cellRef;
+            cellContent = String(cellValue ?? "");
+            fragmentValues = [[cellValue]];
+            type = "cell";
+
+            newSelectedCells = [{ row: rowIndex, col: colIndex }];
+            lastSelectedCellRef.current = { r: rowIndex, c: colIndex };
+        }
 
         const fragment: CellFragment = {
             type: "cell",
             sheet: activeSheet,
-            range: cellRef,
-            content: String(cellValue ?? ""),
-            values: [[cellValue]],
+            range: fragmentRange,
+            content: cellContent,
+            values: fragmentValues,
+            selectionType: type,
         };
 
-        setSelectedCells([{ row: rowIndex, col: colIndex }]);
+        setSelectedCells(newSelectedCells);
+        onSelect(fragment);
+    };
+
+    // Handle row click (select entire row)
+    const handleRowClick = (rowIndex: number, e: React.MouseEvent) => {
+        if (!selectionEnabled || !onSelect) return;
+
+        let newSelectedCells = [...selectedCells];
+        let description = "";
+        let fragmentRange = "";
+        let fragmentValues: any[][] = [];
+        let type: "row" | "range" = "row";
+
+        // Handle Shift+Click (Range)
+        if (e.shiftKey && lastSelectedRowRef.current !== null) {
+            const start = Math.min(lastSelectedRowRef.current, rowIndex);
+            const end = Math.max(lastSelectedRowRef.current, rowIndex);
+
+            // Clear previous if simple shift-select logic (or just add?)
+            // For simplicity: Clear all and select range
+            newSelectedCells = [];
+            for (let r = start; r <= end; r++) {
+                headers.forEach((_, c) => newSelectedCells.push({ row: r, col: c }));
+                fragmentValues.push(data[r]);
+            }
+            fragmentRange = `${start + 1}:${end + 1}`;
+            description = `Rows ${start + 1}-${end + 1}`;
+            type = "range";
+        }
+        // Handle Ctrl/Cmd+Click (Toggle/Add - simplified to Add for now)
+        else if (e.metaKey || e.ctrlKey) {
+            // Add this row
+            headers.forEach((_, c) => newSelectedCells.push({ row: rowIndex, col: c }));
+            fragmentValues.push(data[rowIndex]); // Note: this might separate values weirdly for disjoint rows
+
+            // Complex fragment for multi-select? Just show latest or range?
+            // User wants "rows: 1, 3, 5" or "rows: 1-5"
+            // Let's rely on calculating the full range from newSelectedCells later if needed
+            // For now, simplify: just select this row visually, set fragment to this specific addition?
+            // Or better: Re-calculate full bounding box? 
+            // Let's reset purely to this row for fragment, but keep visual selection?
+            // No, standard behavior: Shift defines range, Ctrl adds. 
+            // Let's implement Shift (Range) primarily as requested "multiple rows".
+
+            lastSelectedRowRef.current = rowIndex;
+            const rowNum = rowIndex + 1;
+            fragmentRange = `${rowNum}:${rowNum}`;
+            fragmentValues = [data[rowIndex]];
+            description = rowValues.join(", ");
+        }
+        // Normal Click (Single Row)
+        else {
+            newSelectedCells = headers.map((_, colIndex) => ({ row: rowIndex, col: colIndex }));
+            lastSelectedRowRef.current = rowIndex;
+            const rowNum = rowIndex + 1;
+            fragmentRange = `${rowNum}:${rowNum}`;
+            fragmentValues = [data[rowIndex]];
+            description = fragmentValues[0].join(", ");
+        }
+
+        const fragment: CellFragment = {
+            type: "cell",
+            sheet: activeSheet,
+            range: fragmentRange,
+            content: description,
+            values: fragmentValues,
+            selectionType: type === "range" ? "range" : "row",
+        };
+
+        setSelectedCells(newSelectedCells);
+        onSelect(fragment);
+    };
+
+    // Handle column click (select entire column)
+    const handleColumnClick = (colIndex: number, e: React.MouseEvent) => {
+        if (!selectionEnabled || !onSelect) return;
+
+        let newSelectedCells = [...selectedCells];
+        let fragmentRange = "";
+        let fragmentValues: any[][] = [];
+        let type: "column" | "range" = "column";
+
+        // Handle Shift+Click (Range)
+        if (e.shiftKey && lastSelectedColRef.current !== null) {
+            const start = Math.min(lastSelectedColRef.current, colIndex);
+            const end = Math.max(lastSelectedColRef.current, colIndex);
+
+            newSelectedCells = [];
+            const colValues: any[][] = []; // Vector of columns
+
+            // Collect data for ALL rows in these columns
+            for (let r = 0; r < data.length; r++) {
+                const rowVals = [];
+                for (let c = start; c <= end; c++) {
+                    newSelectedCells.push({ row: r, col: c });
+                    rowVals.push(data[r][c]);
+                }
+                colValues.push(rowVals);
+            }
+
+            fragmentValues = colValues;
+            fragmentRange = `${getColumnLetter(start)}:${getColumnLetter(end)}`;
+            type = "range";
+        }
+        else {
+            newSelectedCells = data.map((_, rowIndex) => ({ row: rowIndex, col: colIndex }));
+            lastSelectedColRef.current = colIndex;
+            const colLetter = getColumnLetter(colIndex);
+            fragmentRange = `${colLetter}:${colLetter}`;
+            fragmentValues = data.map(row => [row[colIndex]]);
+        }
+
+        const fragment: CellFragment = {
+            type: "cell",
+            sheet: activeSheet,
+            range: fragmentRange,
+            content: "Column Selection",
+            values: fragmentValues,
+            selectionType: type === "range" ? "range" : "column",
+        };
+
+        setSelectedCells(newSelectedCells);
         onSelect(fragment);
     };
 
@@ -190,7 +363,12 @@ export function SpreadsheetViewer({
                             {headers.map((header, i) => (
                                 <th
                                     key={i}
-                                    className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-left font-medium bg-slate-100 dark:bg-slate-800"
+                                    onClick={(e) => handleColumnClick(i, e)}
+                                    className={cn(
+                                        "border border-slate-300 dark:border-slate-600 px-2 py-1 text-left font-medium bg-slate-100 dark:bg-slate-800",
+                                        selectionEnabled && "cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    )}
+                                    title="Click to select column (Shift+Click for range)"
                                 >
                                     <span className="text-muted-foreground mr-1">{getColumnLetter(i)}</span>
                                     {header}
@@ -203,7 +381,14 @@ export function SpreadsheetViewer({
                             const rowIndex = page * PAGE_SIZE + index;
                             return (
                                 <tr key={rowIndex} className="hover:bg-slate-50 dark:hover:bg-slate-900">
-                                    <td className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-muted-foreground text-center bg-slate-50 dark:bg-slate-800 sticky left-0 z-10">
+                                    <td
+                                        onClick={(e) => handleRowClick(rowIndex, e)}
+                                        className={cn(
+                                            "border border-slate-300 dark:border-slate-600 px-2 py-1 text-muted-foreground text-center bg-slate-50 dark:bg-slate-800 sticky left-0 z-10",
+                                            selectionEnabled && "cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
+                                        )}
+                                        title="Click to select row (Shift+Click for range)"
+                                    >
                                         {rowIndex + 2}
                                     </td>
                                     {headers.map((_, colIndex) => {
@@ -213,7 +398,7 @@ export function SpreadsheetViewer({
                                         return (
                                             <td
                                                 key={colIndex}
-                                                onClick={() => handleCellClick(rowIndex, colIndex)}
+                                                onClick={(e) => handleCellClick(rowIndex, colIndex, e)}
                                                 className={cn(
                                                     "border border-slate-300 dark:border-slate-600 px-2 py-1",
                                                     selectionEnabled && "cursor-pointer",

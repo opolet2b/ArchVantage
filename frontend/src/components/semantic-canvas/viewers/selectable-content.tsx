@@ -161,11 +161,38 @@ export function SelectableContent({
             ...("pageNumber" in pendingFragment && { page_number: pendingFragment.pageNumber }),
         };
 
+        let label = `Fragment: ${pendingFragment.content?.slice(0, 30)}...`;
+
+        // Custom label for spreadsheet fragments
+        if (pendingFragment.type === "cell" && (pendingFragment as any).selectionType) {
+            const cellFrag = pendingFragment as any;
+            if (cellFrag.selectionType === "row") {
+                const rowNum = cellFrag.range.split(":")[0];
+                label = `Row ${rowNum}`;
+            } else if (cellFrag.selectionType === "column") {
+                const colLetter = cellFrag.range.split(":")[0];
+                label = `Column ${colLetter}`;
+            } else if (cellFrag.selectionType === "range") {
+                // Determine if row or column range
+                if (cellFrag.range.match(/^\d+:\d+$/)) {
+                    const [start, end] = cellFrag.range.split(":");
+                    label = `Rows ${start}-${end}`;
+                } else if (cellFrag.range.match(/^[A-Z]+:[A-Z]+$/)) {
+                    const [start, end] = cellFrag.range.split(":");
+                    label = `Columns ${start}-${end}`;
+                } else {
+                    label = `Cells ${cellFrag.range}`;
+                }
+            } else {
+                label = `Cell ${cellFrag.range}`;
+            }
+        }
+
         await addLink(
             thingId,
             targetId,
             "references",
-            `Fragment: ${pendingFragment.content?.slice(0, 30)}...`,
+            label,
             fragmentData,
             undefined
         );
