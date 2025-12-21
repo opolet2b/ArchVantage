@@ -31,10 +31,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const validateToken = async () => {
             const token = localStorage.getItem("token")
             if (token) {
+                // Create abort controller with 5 second timeout
+                const controller = new AbortController()
+                const timeoutId = setTimeout(() => controller.abort(), 5000)
+
                 try {
                     const res = await fetch(`${API_URL}/auth/me`, {
-                        headers: { Authorization: `Bearer ${token}` }
+                        headers: { Authorization: `Bearer ${token}` },
+                        signal: controller.signal
                     })
+                    clearTimeout(timeoutId)
+
                     if (res.ok) {
                         const userData = await res.json()
                         setUser(userData)
@@ -45,7 +52,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         setUser(null)
                     }
                 } catch (error) {
+                    clearTimeout(timeoutId)
                     console.error("Failed to validate token", error)
+                    // On timeout or network error, clear invalid token
+                    if (error instanceof Error && error.name === 'AbortError') {
+                        console.warn("Auth validation timed out, backend may be unavailable")
+                    }
                 }
             }
             setIsLoading(false)

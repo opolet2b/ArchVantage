@@ -1,0 +1,286 @@
+"""
+Semantic Canvas Models
+
+SQLAlchemy models for the semantic canvas feature that transforms
+the chat interface into a spatial knowledge canvas.
+
+PEP 8 Compliant
+"""
+import uuid
+from datetime import datetime
+from enum import Enum
+from sqlalchemy import (
+    Column, String, Integer, Float, Boolean, DateTime,
+    ForeignKey, JSON, Text, Enum as SQLEnum
+)
+from sqlalchemy.orm import relationship
+
+from app.core.database import Base
+
+
+def generate_uuid():
+    """Generate a UUID string for use as primary key."""
+    return str(uuid.uuid4())
+
+
+class ThingType(str, Enum):
+    """
+    Types of things that can exist on the canvas.
+    """
+    TEXT = "text"
+    CONVERSATION = "conversation"
+    MESSAGE = "message"
+    DOCUMENT = "document"
+    IMAGE = "image"
+    VIDEO = "video"
+    DATABASE = "database"
+    TABLE = "table"
+    AGENT_RESULT = "agent_result"
+    URL = "url"
+
+
+class LinkType(str, Enum):
+    """
+    Types of relationships between things.
+    """
+    RELATED = "related"
+    REFERENCES = "references"
+    DERIVED_FROM = "derived_from"
+    CONTAINS = "contains"
+    PROVES = "proves"
+    REFUTES = "refutes"
+    PREREQUISITE = "prerequisite"
+    INFLUENCES = "influences"
+    TRIGGERS = "triggers"
+    BLOCKS = "blocks"
+    SUPERSEDES = "supersedes"
+
+
+class Canvas(Base):
+    """
+    A semantic canvas - an infinite spatial workspace.
+    
+    Each user can have multiple canvases, each containing
+    things that can be linked and grouped into domains.
+    """
+    __tablename__ = "canvases"
+
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid
+    )
+    owner_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+    name = Column(String(255), nullable=False, default="My Canvas")
+    description = Column(Text, nullable=True)
+    
+    # Viewport state for resuming where user left off
+    # Format: {"x": float, "y": float, "zoom": float}
+    viewport = Column(JSON, default={"x": 0, "y": 0, "zoom": 1.0})
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    things = relationship(
+        "CanvasThing",
+        back_populates="canvas",
+        cascade="all, delete-orphan"
+    )
+    domains = relationship(
+        "Domain",
+        back_populates="canvas",
+        cascade="all, delete-orphan"
+    )
+    links = relationship(
+        "CanvasLink",
+        back_populates="canvas",
+        cascade="all, delete-orphan"
+    )
+
+
+class CanvasThing(Base):
+    """
+    A thing on the canvas - any content type that can be placed,
+    moved, linked, and grouped.
+    
+    The 'content' field stores type-specific data as JSON.
+    The 'summaries' field stores pre-computed AI summaries for
+    different zoom levels.
+    """
+    __tablename__ = "canvas_things"
+
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid
+    )
+    canvas_id = Column(
+        String(36),
+        ForeignKey("canvases.id"),
+        nullable=False
+    )
+    
+    # What type of thing is this?
+    type = Column(SQLEnum(ThingType), nullable=False)
+    
+    # Type-specific content as JSON
+    # Examples:
+    #   text: {"text": "..."}
+    #   conversation: {"conversation_id": "...", "messages": [...]}
+    #   document: {"file_path": "...", "filename": "...", "content": "..."}
+    #   image: {"file_path": "...", "alt_text": "..."}
+    content = Column(JSON, nullable=False, default={})
+    
+    # Position on canvas
+    position_x = Column(Float, nullable=False, default=0.0)
+    position_y = Column(Float, nullable=False, default=0.0)
+    
+    # Size (optional - auto-calculated if not set)
+    width = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
+    
+    # Optional domain grouping
+    domain_id = Column(
+        String(36),
+        ForeignKey("domains.id"),
+        nullable=True
+    )
+    
+    # Pre-computed summaries for different zoom levels
+    # Format: {"0.3": "one-line summary", "0.5": "paragraph preview"}
+    summaries = Column(JSON, default={})
+    
+    # Display settings
+    title = Column(String(255), nullable=True)
+    collapsed = Column(Boolean, default=False)
+
+    # Iconify feature - reduce thing to icon representation
+    # When iconified=True, thing displays as compact icon without content
+    iconified = Column(Boolean, default=False)
+    # Store original size before iconify for restoration
+    # Format: {"width": float, "height": float}
+    pre_iconify_size = Column(JSON, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    canvas = relationship("Canvas", back_populates="things")
+    domain = relationship("Domain", back_populates="things")
+
+
+class CanvasLink(Base):
+    """
+    A link between two things on the canvas.
+    
+    Links are directional (source → target) and typed.
+    """
+    __tablename__ = "canvas_links"
+
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid
+    )
+    canvas_id = Column(
+        String(36),
+        ForeignKey("canvases.id"),
+        nullable=False
+    )
+    
+    source_id = Column(
+        String(36),
+        ForeignKey("canvas_things.id"),
+        nullable=False
+    )
+    target_id = Column(
+        String(36),
+        ForeignKey("canvas_things.id"),
+        nullable=False
+    )
+    
+    type = Column(
+        SQLEnum(LinkType),
+        nullable=False,
+        default=LinkType.RELATED
+    )
+    label = Column(String(255), nullable=True)
+    
+    # Optional fragment references for linking specific content selections
+    # Format matches FragmentData schema:
+    # {"type": "text", "content": "...", "start_offset": 0, "end_offset": 100, ...}
+    source_fragment = Column(JSON, nullable=True)
+    target_fragment = Column(JSON, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    canvas = relationship("Canvas", back_populates="links")
+    source = relationship(
+        "CanvasThing",
+        foreign_keys=[source_id],
+        backref="outgoing_links"
+    )
+    target = relationship(
+        "CanvasThing",
+        foreign_keys=[target_id],
+        backref="incoming_links"
+    )
+
+
+class Domain(Base):
+    """
+    A domain is a container for grouping related things.
+    
+    Domains are like Figma frames - they visually group content
+    and can be nested hierarchically.
+    """
+    __tablename__ = "domains"
+
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid
+    )
+    canvas_id = Column(
+        String(36),
+        ForeignKey("canvases.id"),
+        nullable=False
+    )
+    
+    # Optional parent domain for nesting
+    parent_id = Column(
+        String(36),
+        ForeignKey("domains.id"),
+        nullable=True
+    )
+    
+    name = Column(String(255), nullable=False)
+    color = Column(String(7), default="#6366f1")  # Hex color
+    
+    # Position and size (auto-calculated from children)
+    position_x = Column(Float, default=0.0)
+    position_y = Column(Float, default=0.0)
+    width = Column(Float, default=300.0)
+    height = Column(Float, default=200.0)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    canvas = relationship("Canvas", back_populates="domains")
+    things = relationship("CanvasThing", back_populates="domain")
+    children = relationship(
+        "Domain",
+        backref="parent",
+        remote_side=[id]
+    )

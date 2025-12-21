@@ -3,11 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     chat, workflow, rag, search, research, config, conversation, 
     agents, auth, users, roles, oauth, tools, mcp_servers,
-    agent_blueprints, agent_execution, templates
+    agent_blueprints, agent_execution, templates, canvas
 )
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
 from dotenv import load_dotenv
+
+# Import models to register them with Base before create_all
+from app.models import canvas_models  # noqa: F401
 
 load_dotenv()
 
@@ -59,6 +62,7 @@ app.include_router(mcp_servers.router, prefix="/api/v1", tags=["mcp-servers"])
 app.include_router(agent_blueprints.router, prefix="/api/v1", tags=["agent-blueprints"])
 app.include_router(agent_execution.router, prefix="/api/v1", tags=["agent-execution"])
 app.include_router(templates.router, prefix="/api/v1", tags=["templates"])
+app.include_router(canvas.router, prefix="/api/v1", tags=["canvas"])
 
 @app.get("/")
 def read_root():

@@ -12,6 +12,7 @@ export const metadata: Metadata = {
 
 import { ConversationProvider } from "@/lib/conversation-context"
 import { AuthProvider } from "@/lib/auth-context"
+import { ViewModeProvider } from "@/lib/view-mode-context"
 import { AuthGuard } from "@/components/auth-guard"
 
 export default function RootLayout({
@@ -22,19 +23,22 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ConversationProvider>
-          <AuthProvider>
-            <AuthGuard>
-              <div className="flex h-screen overflow-hidden bg-background">
-                <AppSidebar />
-                <main className="flex-1 overflow-y-auto">
-                  {children}
-                </main>
-              </div>
-            </AuthGuard>
-          </AuthProvider>
-        </ConversationProvider>
+        <ViewModeProvider>
+          <ConversationProvider>
+            <AuthProvider>
+              <AuthGuard>
+                <div className="flex h-screen overflow-hidden bg-background">
+                  <AppSidebar />
+                  <main className="flex-1 overflow-y-auto">
+                    {children}
+                  </main>
+                </div>
+              </AuthGuard>
+            </AuthProvider>
+          </ConversationProvider>
+        </ViewModeProvider>
       </body>
     </html>
   );
 }
+

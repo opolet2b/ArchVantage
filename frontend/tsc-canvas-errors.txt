@@ -1,0 +1,97 @@
+﻿node_modules/@reactflow/background/dist/esm/Background.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/background/dist/esm/Background.d.ts(3,120): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/controls/dist/esm/Controls.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Edges/BaseEdge.d.ts(4,185): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/core/dist/esm/components/Edges/BezierEdge.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Edges/BezierEdge.d.ts(14,292): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/core/dist/esm/components/Edges/EdgeText.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Edges/SimpleBezierEdge.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Edges/SimpleBezierEdge.d.ts(13,279): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/core/dist/esm/components/Edges/SmoothStepEdge.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Edges/SmoothStepEdge.d.ts(17,300): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/core/dist/esm/components/Edges/StepEdge.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Edges/StepEdge.d.ts(3,83): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/core/dist/esm/components/Edges/StraightEdge.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Edges/StraightEdge.d.ts(10,243): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/core/dist/esm/components/Handle/index.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/core/dist/esm/components/Panel/index.d.ts(7,88): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/core/dist/esm/container/ReactFlow/index.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/minimap/dist/esm/MiniMap.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/minimap/dist/esm/MiniMap.d.ts(3,300): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/node-resizer/dist/esm/NodeResizer.d.ts(3,254): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/node-resizer/dist/esm/ResizeControl.d.ts(1,8): error TS1259: Module '"C:/Users/opole/Downloads/ChatBotn/frontend/node_modules/@types/react/index"' can only be default-imported using the 'esModuleInterop' flag
+node_modules/@reactflow/node-resizer/dist/esm/ResizeControl.d.ts(3,231): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/node-resizer/dist/esm/ResizeControl.d.ts(4,75): error TS2503: Cannot find namespace 'JSX'.
+node_modules/@reactflow/node-toolbar/dist/esm/NodeToolbar.d.ts(3,134): error TS2503: Cannot find namespace 'JSX'.
+src/components/semantic-canvas/canvas-store.ts(10,25): error TS2307: Cannot find module '@/lib/utils' or its corresponding type declarations.
+src/components/semantic-canvas/canvas-view.tsx(32,27): error TS6142: Module './nodes/thing-node' was resolved to 'C:/Users/opole/Downloads/ChatBotn/frontend/src/components/semantic-canvas/nodes/thing-node.tsx', but '--jsx' is not set.
+src/components/semantic-canvas/canvas-view.tsx(33,28): error TS6142: Module './nodes/domain-node' was resolved to 'C:/Users/opole/Downloads/ChatBotn/frontend/src/components/semantic-canvas/nodes/domain-node.tsx', but '--jsx' is not set.
+src/components/semantic-canvas/canvas-view.tsx(34,31): error TS6142: Module './canvas-toolbar' was resolved to 'C:/Users/opole/Downloads/ChatBotn/frontend/src/components/semantic-canvas/canvas-toolbar.tsx', but '--jsx' is not set.
+src/components/semantic-canvas/canvas-view.tsx(35,32): error TS6142: Module './link-type-dialog' was resolved to 'C:/Users/opole/Downloads/ChatBotn/frontend/src/components/semantic-canvas/link-type-dialog.tsx', but '--jsx' is not set.
+src/components/semantic-canvas/canvas-view.tsx(36,29): error TS2307: Cannot find module '@/lib/utils' or its corresponding type declarations.
+src/components/semantic-canvas/canvas-view.tsx(522,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(523,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(546,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(547,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(548,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(557,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(560,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(671,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(672,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(673,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(676,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(689,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(690,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(698,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(699,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(700,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(701,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(710,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(711,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(712,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(715,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(716,55): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(716,96): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(725,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/canvas-view.tsx(726,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(27,20): error TS2307: Cannot find module '@/lib/utils' or its corresponding type declarations.
+src/components/semantic-canvas/nodes/thing-node.tsx(29,58): error TS2307: Cannot find module '@/components/ui/card' or its corresponding type declarations.
+src/components/semantic-canvas/nodes/thing-node.tsx(105,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(115,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(116,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(119,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(130,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(131,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(134,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(195,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(206,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(208,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(221,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(230,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(238,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(247,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(259,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(271,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(284,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(288,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(293,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(298,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(303,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(316,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(325,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(326,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(327,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(336,9): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(338,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(345,13): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(361,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(362,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(363,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(369,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(372,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(378,29): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(383,33): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(390,21): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(391,25): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(398,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.
+src/components/semantic-canvas/nodes/thing-node.tsx(403,17): error TS17004: Cannot use JSX unless the '--jsx' flag is provided.

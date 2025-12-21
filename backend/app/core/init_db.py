@@ -43,6 +43,57 @@ def run_migrations(db: Session) -> None:
             print(f"Warning: Could not add tool_type column: {alter_error}")
             db.rollback()
 
+    # Migration for canvas_things iconified columns
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='canvas_things'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+        
+        if table_exists:
+            # Check if iconified column exists
+            try:
+                result = db.execute(
+                    text("SELECT iconified FROM canvas_things LIMIT 1")
+                )
+                result.close()
+                print("Migration check: iconified column already exists.")
+            except Exception:
+                # Add iconified column
+                print("Adding 'iconified' column to canvas_things table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE canvas_things ADD COLUMN iconified BOOLEAN DEFAULT 0")
+                    )
+                    db.commit()
+                    print("Added 'iconified' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add iconified column: {alter_error}")
+                    db.rollback()
+            
+            # Check if pre_iconify_size column exists
+            try:
+                result = db.execute(
+                    text("SELECT pre_iconify_size FROM canvas_things LIMIT 1")
+                )
+                result.close()
+                print("Migration check: pre_iconify_size column already exists.")
+            except Exception:
+                # Add pre_iconify_size column
+                print("Adding 'pre_iconify_size' column to canvas_things table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE canvas_things ADD COLUMN pre_iconify_size JSON")
+                    )
+                    db.commit()
+                    print("Added 'pre_iconify_size' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add pre_iconify_size column: {alter_error}")
+                    db.rollback()
+    except Exception as e:
+        print(f"Canvas_things migration check failed: {e}")
+
 def init_db(db: Session) -> None:
     # 1. Create Default Roles
     roles = ["Admin", "User"]

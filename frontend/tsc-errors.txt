@@ -1,0 +1,1 @@
+﻿src/components/builder/template-selector.tsx(71,65): error TS2503: Cannot find namespace 'JSX'.

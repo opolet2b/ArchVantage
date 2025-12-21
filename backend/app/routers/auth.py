@@ -63,14 +63,17 @@ class PermissionChecker:
 
 @router.post("/auth/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    print(f"Login attempt for: {form_data.username}")
+    print(f"[DEBUG-AUTH] Login attempt for: {form_data.username}")
     user = db.query(User).filter(User.email == form_data.username).first()
     if user:
-        print(f"User found. Hash: {user.password_hash}")
+        print(f"[DEBUG-AUTH] User found. ID: {user.id}")
         is_valid = verify_password(form_data.password, user.password_hash)
-        print(f"Password valid: {is_valid}")
+        print(f"[DEBUG-AUTH] Password valid: {is_valid}")
     else:
-        print("User not found")
+        print(f"[DEBUG-AUTH] User not found for email: {form_data.username}")
+        # Print all users to see what's in the DB
+        all_users = db.query(User).all()
+        print(f"[DEBUG-AUTH] All users in DB: {[u.email for u in all_users]}")
         
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
