@@ -167,6 +167,12 @@ interface CanvasState {
     selectedModel: string | null;
     setSelectedModel: (model: string | null) => void;
 
+    setViewport: (viewport: Viewport) => void;
+
+    // Selection Highlight State
+    highlightedFragment: { thingId: string; fragment: any } | null;
+    setHighlightedFragment: (highlight: { thingId: string; fragment: any } | null) => void;
+
     // Actions
     loadCanvas: (canvasId: string) => Promise<void>;
     createCanvas: (name: string) => Promise<string | null>;

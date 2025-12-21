@@ -607,6 +607,49 @@ function CanvasViewInner() {
         }
     }, []);
 
+    // Handle selection change for traceability highlighting
+    const onSelectionChange = React.useCallback(
+        ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
+            const { setHighlightedFragment, links } = useCanvasStore.getState();
+
+            // Priority 1: Selected Link
+            if (selectedEdges.length === 1) {
+                const edge = selectedEdges[0];
+                const link = links.find(l => l.id === edge.id);
+                // Check if link has source fragment data
+                if (link && link.source_fragment) {
+                    setHighlightedFragment({
+                        thingId: link.source_id,
+                        fragment: link.source_fragment
+                    });
+                    return;
+                }
+            }
+
+            // Priority 2: Selected Node (Trace back to source)
+            if (selectedNodes.length === 1) {
+                const node = selectedNodes[0];
+                // Find incoming links that have fragment data
+                // We prioritize "related" links or just take the first one with data
+                const incomingWithFragment = links.find(
+                    l => l.target_id === node.id && l.source_fragment
+                );
+
+                if (incomingWithFragment) {
+                    setHighlightedFragment({
+                        thingId: incomingWithFragment.source_id,
+                        fragment: incomingWithFragment.source_fragment
+                    });
+                    return;
+                }
+            }
+
+            // If nothing matched, clear highlight
+            setHighlightedFragment(null);
+        },
+        []
+    );
+
     // Handle drag leave
     const handleDragLeave = React.useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -801,6 +844,7 @@ function CanvasViewInner() {
                     // onMoveEnd={onMoveEnd} // Disabled
                     onNodeClick={onNodeClick}
                     onEdgeClick={onEdgeClick}
+                    onSelectionChange={onSelectionChange}
                     onPaneClick={onPaneClick}
                     onDragOver={handleDragOver}
                     onDrop={handleFileDrop}
