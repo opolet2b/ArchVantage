@@ -194,7 +194,7 @@ export function SelectableContent({
     });
 
     return (
-        <>
+        <div className="nodrag w-full h-full relative group">
             {childrenWithProps}
 
             {/* Selection Toolbar */}
@@ -209,6 +209,7 @@ export function SelectableContent({
                     isLoading={isLoading}
                 />
             )}
+
 
             {/* Custom Prompt Dialog */}
             <Dialog open={askDialogOpen} onOpenChange={setAskDialogOpen}>
@@ -333,6 +334,6 @@ export function SelectableContent({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </>
+        </div >
     );
 }
