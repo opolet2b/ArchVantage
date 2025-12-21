@@ -24,6 +24,7 @@ interface DomainNodeData {
     zoomLevel: ZoomLevel;
     onRename?: (domainId: string, newName: string) => void;
     onContextMenu?: (event: React.MouseEvent, domainId: string) => void;
+    onResizeEnd?: (domainId: string, width: number, height: number) => void;
 }
 
 // =============================================================================
@@ -100,6 +101,11 @@ export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
                 minHeight={100}
                 handleStyle={resizeHandleStyle}
                 lineStyle={lineHandleStyle}
+                onResizeEnd={(_e, params) => {
+                    if (data.onResizeEnd) {
+                        data.onResizeEnd(domain.id, params.width, params.height);
+                    }
+                }}
             />
 
             <div

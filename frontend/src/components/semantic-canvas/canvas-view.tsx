@@ -197,6 +197,12 @@ function CanvasViewInner() {
     );
 
     // Convert domains to React Flow nodes (memoized, rendered behind things)
+    // Handle domain resize end
+    const handleDomainResize = React.useCallback((domainId: string, width: number, height: number) => {
+        console.log(`[CanvasView] Domain resized: ${domainId} to ${width}x${height}`);
+        updateDomain(domainId, { width, height });
+    }, [updateDomain]);
+
     const domainNodes: Node[] = React.useMemo(() => domains.map((domain) => ({
         id: domain.id,
         type: "domain",
@@ -206,6 +212,7 @@ function CanvasViewInner() {
             zoomLevel,
             onRename: handleDomainRename,
             onContextMenu: handleDomainContextMenu,
+            onResizeEnd: handleDomainResize,
         },
         draggable: true,
         selectable: true,
@@ -214,7 +221,7 @@ function CanvasViewInner() {
             width: domain.width || 300,
             height: domain.height || 200,
         },
-    })), [domains, zoomLevel, handleDomainRename, handleDomainContextMenu]);
+    })), [domains, zoomLevel, handleDomainRename, handleDomainContextMenu, handleDomainResize]);
 
     // Combine nodes (memoized)
     const allNodes = React.useMemo(() =>
