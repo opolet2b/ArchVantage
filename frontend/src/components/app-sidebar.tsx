@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench, HelpCircle, FileText, Map } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -26,6 +26,7 @@ const navItems = [
 
 export function AppSidebar() {
     const pathname = usePathname()
+    const router = useRouter()
     const { createNewConversation, setActiveConversationId } = useConversation()
     const { viewMode, setViewMode } = useViewMode()
     const { user, logout } = useAuth()
@@ -37,42 +38,54 @@ export function AppSidebar() {
     // Show canvas mode when on home page
     const isHomePage = pathname === "/"
 
+    const handleSwitchToChat = () => {
+        setViewMode("chat")
+        if (!isHomePage) {
+            router.push("/")
+        }
+    }
+
+    const handleSwitchToCanvas = () => {
+        setViewMode("canvas")
+        if (!isHomePage) {
+            router.push("/")
+        }
+    }
+
     return (
         <div className="flex flex-col h-screen w-64 border-r bg-slate-50/50 dark:bg-slate-900/50 py-4 gap-4 overflow-y-auto">
             <div className="px-4 flex items-center justify-between">
                 <div className="font-bold text-xl">AI Chat</div>
-                {isHomePage && viewMode === "chat" && (
+                {viewMode === "chat" && (
                     <Button variant="ghost" size="icon" onClick={handleNewChat} title="New Chat">
                         <Plus className="h-5 w-5" />
                     </Button>
                 )}
             </div>
 
-            {/* View Mode Toggle - only show on home page */}
-            {isHomePage && (
-                <div className="px-2">
-                    <div className="flex gap-1 bg-slate-200 dark:bg-slate-800 rounded-lg p-1">
-                        <Button
-                            variant={viewMode === "chat" ? "default" : "ghost"}
-                            size="sm"
-                            className="flex-1 gap-2"
-                            onClick={() => setViewMode("chat")}
-                        >
-                            <MessageSquare className="h-4 w-4" />
-                            Chat
-                        </Button>
-                        <Button
-                            variant={viewMode === "canvas" ? "default" : "ghost"}
-                            size="sm"
-                            className="flex-1 gap-2"
-                            onClick={() => setViewMode("canvas")}
-                        >
-                            <Map className="h-4 w-4" />
-                            Canvas
-                        </Button>
-                    </div>
+            {/* View Mode Toggle - Always Visible */}
+            <div className="px-2">
+                <div className="flex gap-1 bg-slate-200 dark:bg-slate-800 rounded-lg p-1">
+                    <Button
+                        variant={viewMode === "chat" ? "default" : "ghost"}
+                        size="sm"
+                        className="flex-1 gap-2"
+                        onClick={handleSwitchToChat}
+                    >
+                        <MessageSquare className="h-4 w-4" />
+                        Chat
+                    </Button>
+                    <Button
+                        variant={viewMode === "canvas" ? "default" : "ghost"}
+                        size="sm"
+                        className="flex-1 gap-2"
+                        onClick={handleSwitchToCanvas}
+                    >
+                        <Map className="h-4 w-4" />
+                        Canvas
+                    </Button>
                 </div>
-            )}
+            </div>
 
             {/* Current Mode Button */}
             {isHomePage && viewMode === "chat" && (
@@ -91,11 +104,7 @@ export function AppSidebar() {
             )}
 
             {/* Conversation or Canvas List */}
-            {isHomePage ? (
-                viewMode === "chat" ? <ConversationList /> : <CanvasList />
-            ) : (
-                <ConversationList />
-            )}
+            {viewMode === "chat" ? <ConversationList /> : <CanvasList />}
 
             <div className="mt-auto px-2 flex flex-col gap-1">
                 {navItems.map((item) => (
