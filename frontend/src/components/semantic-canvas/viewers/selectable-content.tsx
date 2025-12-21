@@ -9,6 +9,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { SelectionToolbar, LLMAction } from "./selection-toolbar";
 import { useAnalyze } from "./use-analyze";
 import type { Fragment } from "./types";
@@ -86,6 +87,70 @@ export function SelectableContent({
         window.getSelection()?.removeAllRanges();
     }, []);
 
+    // Helper: Create fragment data for API
+    const getFragmentData = (fragment: Fragment) => ({
+        type: fragment.type,
+        content: fragment.content,
+        ...("startOffset" in fragment && { start_offset: fragment.startOffset }),
+        ...("endOffset" in fragment && { end_offset: fragment.endOffset }),
+        ...("pageNumber" in fragment && { page_number: fragment.pageNumber }),
+    });
+
+    // Helper: Generate label for fragment
+    const getFragmentLabel = (fragment: Fragment) => {
+        let label = `Fragment: ${fragment.content?.slice(0, 30)}...`;
+
+        if (fragment.type === "cell" && (fragment as any).selectionType) {
+            const cellFrag = fragment as any;
+            if (cellFrag.selectionType === "row") {
+                const rowNum = cellFrag.range.split(":")[0];
+                label = `Row ${rowNum}`;
+            } else if (cellFrag.selectionType === "column") {
+                const colLetter = cellFrag.range.split(":")[0];
+                label = `Column ${colLetter}`;
+            } else if (cellFrag.selectionType === "range") {
+                if (cellFrag.range.match(/^\d+:\d+$/)) {
+                    const [start, end] = cellFrag.range.split(":");
+                    label = `Rows ${start}-${end}`;
+                } else if (cellFrag.range.match(/^[A-Z]+:[A-Z]+$/)) {
+                    const [start, end] = cellFrag.range.split(":");
+                    label = `Columns ${start}-${end}`;
+                } else {
+                    label = `Cells ${cellFrag.range}`;
+                }
+            } else {
+                label = `Cell ${cellFrag.range}`;
+            }
+        }
+        return label;
+    };
+
+    // Helper: Create new node from result and link it
+    const createNodeAndLink = React.useCallback(async (text: string, sourceFragment: Fragment) => {
+        const store = useCanvasStore.getState();
+        const currentThing = store.things.find(t => t.id === thingId);
+
+        // Calculate position: right of the current node
+        const position = currentThing
+            ? { x: currentThing.position_x + 500, y: currentThing.position_y }
+            : { x: 100, y: 100 };
+
+        // Create new text thing
+        const newThing = await addThing("text", { text }, position);
+
+        if (newThing) {
+            // Create link
+            await addLink(
+                thingId,
+                newThing.id,
+                "related", // User requested "related" type (and fixes 'generated' type error)
+                getFragmentLabel(sourceFragment), // Use smart label
+                getFragmentData(sourceFragment),
+                undefined
+            );
+        }
+    }, [thingId, addThing, addLink]);
+
     // Handle LLM action
     const handleAction = React.useCallback(
         async (action: LLMAction, fragment: Fragment) => {
@@ -104,14 +169,14 @@ export function SelectableContent({
                 action,
             });
 
-            if (result) {
-                setAnalysisResult(result.result);
-                setResultDialogOpen(true);
+            if (result && result.result) {
+                // Automatically create node and link
+                await createNodeAndLink(result.result, fragment);
             }
 
             clearSelection();
         },
-        [canvasId, thingId, analyze, clearSelection]
+        [canvasId, thingId, analyze, clearSelection, createNodeAndLink]
     );
 
     // Handle ask with custom prompt
@@ -126,15 +191,14 @@ export function SelectableContent({
             customPrompt: customPrompt.trim(),
         });
 
-        if (result) {
-            setAnalysisResult(result.result);
-            setResultDialogOpen(true);
+        if (result && result.result) {
+            await createNodeAndLink(result.result, selection.fragment);
         }
 
         setAskDialogOpen(false);
         setCustomPrompt("");
         clearSelection();
-    }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection]);
+    }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection, createNodeAndLink]);
 
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {
@@ -225,17 +289,21 @@ export function SelectableContent({
             {childrenWithProps}
 
             {/* Selection Toolbar */}
-            {selection && (
-                <SelectionToolbar
-                    fragment={selection.fragment}
-                    thingId={thingId}
-                    position={selection.position}
-                    onAction={handleAction}
-                    onLink={handleLink}
-                    onClose={clearSelection}
-                    isLoading={isLoading}
-                />
-            )}
+            {/* Selection Toolbar (Portaled to body to avoid transform issues) */}
+            {selection && typeof document !== "undefined" &&
+                createPortal(
+                    <SelectionToolbar
+                        fragment={selection.fragment}
+                        thingId={thingId}
+                        position={selection.position}
+                        onAction={handleAction}
+                        onLink={handleLink}
+                        onClose={clearSelection}
+                        isLoading={isLoading}
+                    />,
+                    document.body
+                )
+            }
 
 
             {/* Custom Prompt Dialog */}

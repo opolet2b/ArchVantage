@@ -242,7 +242,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     <SelectableContent thingId={thing.id}>
                         <TextViewer
                             content={content.text as string || ""}
-                            className="max-h-[200px] overflow-y-auto"
+                            className="h-full overflow-y-auto"
                         />
                     </SelectableContent>
                 );
@@ -321,8 +321,8 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                 return (
                     <SelectableContent thingId={thing.id}>
                         <TextViewer
-                            content={textContent?.slice(0, 500) || `File: ${filename || "Unknown"}`}
-                            className="max-h-[200px] overflow-y-auto"
+                            content={textContent || `File: ${filename || "Unknown"}`}
+                            className="h-full overflow-y-auto"
                         />
                     </SelectableContent>
                 );

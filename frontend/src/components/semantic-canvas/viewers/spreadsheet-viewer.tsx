@@ -166,7 +166,7 @@ export function SpreadsheetViewer({
         };
 
         setSelectedCells(newSelectedCells);
-        onSelect(fragment);
+        onSelect(fragment, { x: e.clientX, y: e.clientY });
     };
 
     // Handle row click (select entire row)

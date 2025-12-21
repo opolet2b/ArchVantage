@@ -39,37 +39,50 @@ export function TextViewer({
 }: TextViewerProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
 
-    // Handle text selection
-    const handleMouseUp = React.useCallback(() => {
-        if (!selectionEnabled || !onSelect) return;
+    // Handle text selection with global listener to catch selections ending outside the container
+    React.useEffect(() => {
+        const handleMouseUp = () => {
+            if (!selectionEnabled || !onSelect) return;
 
-        const selection = window.getSelection();
-        if (!selection || selection.isCollapsed) return;
+            const selection = window.getSelection();
+            if (!selection || selection.isCollapsed) return;
 
-        const selectedText = selection.toString().trim();
-        if (!selectedText) return;
+            const selectedText = selection.toString().trim();
+            if (!selectedText) return;
 
-        // Get selection range info
-        const range = selection.getRangeAt(0);
-        const container = containerRef.current;
-        if (!container || !container.contains(range.commonAncestorContainer)) return;
+            // Get selection range info
+            const range = selection.getRangeAt(0);
+            const container = containerRef.current;
 
-        // Get selection bounding rect for toolbar position
-        const rect = range.getBoundingClientRect();
-        const position = {
-            x: rect.left + rect.width / 2,
-            y: rect.top,
+            // Critical check: Is the selection actually inside this viewer?
+            if (!container || !container.contains(range.commonAncestorContainer)) return;
+
+            // Get selection bounding rect for toolbar position
+            const rect = range.getBoundingClientRect();
+            const position = {
+                x: rect.left + rect.width / 2,
+                y: rect.top,
+            };
+
+            // Create text fragment
+            const fragment: TextFragment = {
+                type: "text",
+                content: selectedText,
+                startOffset: range.startOffset,
+                endOffset: range.endOffset,
+            };
+
+            onSelect(fragment, position);
         };
 
-        // Create text fragment
-        const fragment: TextFragment = {
-            type: "text",
-            content: selectedText,
-            startOffset: range.startOffset,
-            endOffset: range.endOffset,
-        };
+        document.addEventListener("mouseup", handleMouseUp);
+        // Also listen for keyup (Shift+Arrow keys)
+        document.addEventListener("keyup", handleMouseUp);
 
-        onSelect(fragment, position);
+        return () => {
+            document.removeEventListener("mouseup", handleMouseUp);
+            document.removeEventListener("keyup", handleMouseUp);
+        };
     }, [onSelect, selectionEnabled]);
 
     return (
@@ -81,7 +94,6 @@ export function TextViewer({
                 selectionEnabled && "select-text cursor-text",
                 className
             )}
-            onMouseUp={handleMouseUp}
         >
             {content}
         </div>
