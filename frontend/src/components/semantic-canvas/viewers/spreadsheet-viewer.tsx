@@ -49,6 +49,13 @@ export function SpreadsheetViewer({
     const [isLoaded, setIsLoaded] = React.useState(false);
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    const [page, setPage] = React.useState(0);
+    const PAGE_SIZE = 100;
+
+    // Reset page when loading new content
+    React.useEffect(() => {
+        setPage(0);
+    }, [content]);
 
     // Manual load handler
     const handleLoad = React.useCallback(async () => {
@@ -147,17 +154,20 @@ export function SpreadsheetViewer({
         );
     }
 
+    const totalPages = Math.ceil(data.length / PAGE_SIZE);
+    const paginatedData = data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
     return (
         <div className={cn("flex flex-col h-full", className)}>
             {/* Sheet tabs */}
             {sheets.length > 1 && (
-                <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 border-b">
+                <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800 border-b shrink-0 overflow-x-auto">
                     {sheets.map((sheet) => (
                         <button
                             key={sheet}
                             onClick={() => setActiveSheet(sheet)}
                             className={cn(
-                                "px-2 py-1 text-xs rounded",
+                                "px-2 py-1 text-xs rounded whitespace-nowrap",
                                 activeSheet === sheet
                                     ? "bg-white dark:bg-slate-700 shadow"
                                     : "hover:bg-slate-200 dark:hover:bg-slate-700"
@@ -169,18 +179,18 @@ export function SpreadsheetViewer({
                 </div>
             )}
 
-            {/* Table - Virtualization/Pagination Hack (First 500 rows) */}
-            <div className="flex-1 overflow-auto">
-                <table className="w-full border-collapse text-xs">
-                    <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800">
+            {/* Table */}
+            <div className="flex-1 overflow-auto max-w-full relative">
+                <table className="min-w-max border-collapse text-xs">
+                    <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 z-10 shadow-sm">
                         <tr>
-                            <th className="border border-slate-300 dark:border-slate-600 px-2 py-1 w-8">
+                            <th className="border border-slate-300 dark:border-slate-600 px-2 py-1 w-8 bg-slate-100 dark:bg-slate-800">
                                 #
                             </th>
                             {headers.map((header, i) => (
                                 <th
                                     key={i}
-                                    className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-left font-medium"
+                                    className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-left font-medium bg-slate-100 dark:bg-slate-800"
                                 >
                                     <span className="text-muted-foreground mr-1">{getColumnLetter(i)}</span>
                                     {header}
@@ -189,41 +199,62 @@ export function SpreadsheetViewer({
                         </tr>
                     </thead>
                     <tbody>
-                        {data.slice(0, 100).map((row, rowIndex) => (
-                            <tr key={rowIndex} className="hover:bg-slate-50 dark:hover:bg-slate-900">
-                                <td className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-muted-foreground text-center bg-slate-50 dark:bg-slate-800">
-                                    {rowIndex + 2}
-                                </td>
-                                {headers.map((_, colIndex) => {
-                                    const isSelected = selectedCells.some(
-                                        (c) => c.row === rowIndex && c.col === colIndex
-                                    );
-                                    return (
-                                        <td
-                                            key={colIndex}
-                                            onClick={() => handleCellClick(rowIndex, colIndex)}
-                                            className={cn(
-                                                "border border-slate-300 dark:border-slate-600 px-2 py-1",
-                                                selectionEnabled && "cursor-pointer",
-                                                isSelected && "bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500"
-                                            )}
-                                        >
-                                            {row[colIndex] ?? ""}
-                                        </td>
-                                    );
-                                })}
-                            </tr>
-                        ))}
-                        {data.length > 100 && (
-                            <tr>
-                                <td colSpan={headers.length + 1} className="p-4 text-center text-muted-foreground bg-slate-50">
-                                    Showing first 100 rows of {data.length} (Rendering limit applied)
-                                </td>
-                            </tr>
-                        )}
+                        {paginatedData.map((row, index) => {
+                            const rowIndex = page * PAGE_SIZE + index;
+                            return (
+                                <tr key={rowIndex} className="hover:bg-slate-50 dark:hover:bg-slate-900">
+                                    <td className="border border-slate-300 dark:border-slate-600 px-2 py-1 text-muted-foreground text-center bg-slate-50 dark:bg-slate-800 sticky left-0 z-10">
+                                        {rowIndex + 2}
+                                    </td>
+                                    {headers.map((_, colIndex) => {
+                                        const isSelected = selectedCells.some(
+                                            (c) => c.row === rowIndex && c.col === colIndex
+                                        );
+                                        return (
+                                            <td
+                                                key={colIndex}
+                                                onClick={() => handleCellClick(rowIndex, colIndex)}
+                                                className={cn(
+                                                    "border border-slate-300 dark:border-slate-600 px-2 py-1",
+                                                    selectionEnabled && "cursor-pointer",
+                                                    isSelected && "bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500"
+                                                )}
+                                            >
+                                                {row[colIndex] ?? ""}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800 border-t shrink-0">
+                    <div className="text-xs text-muted-foreground">
+                        Page {page + 1} of {totalPages} ({data.length} rows)
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setPage((p) => Math.max(0, p - 1))}
+                            disabled={page === 0}
+                            className="px-2 py-1 rounded bg-white dark:bg-slate-700 border shadow-sm text-xs disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-600"
+                        >
+                            Previous
+                        </button>
+                        <button
+                            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                            disabled={page >= totalPages - 1}
+                            className="px-2 py-1 rounded bg-white dark:bg-slate-700 border shadow-sm text-xs disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-600"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

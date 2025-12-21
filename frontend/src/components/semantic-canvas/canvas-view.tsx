@@ -171,10 +171,10 @@ function CanvasViewInner() {
             onDelete: deleteThing,
         },
         draggable: true,
-        // Include width/height if thing has been resized (skip for iconified)
-        style: (!thing.iconified && thing.width && thing.height) ? {
-            width: thing.width,
-            height: thing.height,
+        // Include width/height if thing has been resized or use default for heavy types (skip for iconified)
+        style: (!thing.iconified) ? {
+            width: thing.width ?? 400, // Default width if not set to prevent auto-resize to content
+            height: thing.height ?? undefined, // Allow height to be auto if not set, or set default?
         } : undefined,
     })), [things, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing]);
 
