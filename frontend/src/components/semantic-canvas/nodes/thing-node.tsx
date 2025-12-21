@@ -26,7 +26,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CanvasThing, ZoomLevel } from "../canvas-store";
+import { CanvasThing, ZoomLevel, useCanvasStore } from "../canvas-store";
 import {
     MarkdownViewer,
     SpreadsheetViewer,
@@ -181,52 +181,47 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     const { thing, zoomLevel, isSelected, onOpenConversation, onToggleIconify, onDelete } = data;
     const Icon = thingIcons[thing.type] || FileText;
 
+    // Get highlighted fragment for traceability
+    const highlightedFragment = useCanvasStore(state => state.highlightedFragment);
+    const highlight = (highlightedFragment && highlightedFragment.thingId === thing.id)
+        ? highlightedFragment.fragment
+        : undefined;
+
     // Get type-specific color theme
     const colorTheme = thingColors[thing.type] || defaultColorTheme;
 
-    // Handle double-click on conversation things to open in chat
-    const handleDoubleClick = () => {
-        if (thing.type === "conversation" && thing.content.conversation_id && onOpenConversation) {
-            onOpenConversation(thing.content.conversation_id as string);
+    // Handle double click
+    const handleDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent canvas zoom
+        if (thing.type === "conversation" && onOpenConversation) {
+            onOpenConversation(thing.id);
+        } else if (thing.iconified && onToggleIconify) {
+            onToggleIconify(thing.id);
         }
     };
 
-    // Handle iconify toggle
+    // Handle toggle iconify
     const handleToggleIconify = (e: React.MouseEvent) => {
-        e.stopPropagation();  // Prevent triggering node selection
+        e.stopPropagation();
         if (onToggleIconify) {
             onToggleIconify(thing.id);
         }
     };
 
-    // Get default summary from content
-    const getDefaultSummary = (): string => {
-        const content = thing.content;
-        if (thing.type === "text") {
-            return (content.text as string)?.slice(0, 50) || "Text note";
-        }
-        if (thing.type === "conversation") {
-            return `${(content.messages as unknown[])?.length || 0} messages`;
-        }
-        if (thing.type === "document") {
-            return (content.filename as string) || "Document";
-        }
+    // Helper to get default summary from content
+    const getDefaultSummary = () => {
+        const c = thing.content;
+        if (typeof c.summary === "string") return c.summary;
+        if (typeof c.text === "string") return c.text.slice(0, 50) + "...";
+        if (typeof c.content === "string") return c.content.slice(0, 50) + "...";
         return thing.type;
     };
 
-    // Get content preview
-    const getContentPreview = (): string => {
-        const content = thing.content;
-        if (thing.type === "text") {
-            return (content.text as string)?.slice(0, 200) || "";
-        }
-        if (thing.type === "conversation") {
-            const messages = content.messages as Array<{ content?: string }>;
-            return messages?.[0]?.content?.slice(0, 200) || "";
-        }
-        if (thing.type === "document") {
-            return (content.content as string)?.slice(0, 200) || "";
-        }
+    // Helper to get content preview
+    const getContentPreview = () => {
+        const c = thing.content;
+        if (typeof c.text === "string") return c.text.slice(0, 150) + "...";
+        if (typeof c.content === "string") return c.content.slice(0, 150) + "...";
         return "";
     };
 
@@ -243,6 +238,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                         <TextViewer
                             content={content.text as string || ""}
                             className="h-full overflow-y-auto"
+                            highlight={highlight}
                         />
                     </SelectableContent>
                 );
@@ -312,6 +308,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                                 content={filePath || textContent || ""}
                                 filename={filename}
                                 className="h-[200px]"
+                                highlight={highlight}
                             />
                         </SelectableContent>
                     );
@@ -323,6 +320,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                         <TextViewer
                             content={textContent || `File: ${filename || "Unknown"}`}
                             className="h-full overflow-y-auto"
+                            highlight={highlight}
                         />
                     </SelectableContent>
                 );

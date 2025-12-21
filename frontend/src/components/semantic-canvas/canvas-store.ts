@@ -263,6 +263,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedModel: null,
     setSelectedModel: (model) => set({ selectedModel: model }),
 
+    setViewport: (viewport) => set({ viewport }),
+
+    // Selection Highlight
+    highlightedFragment: null,
+    setHighlightedFragment: (highlight) => set({ highlightedFragment: highlight }),
+
     // Load canvas from backend
     loadCanvas: async (canvasId: string) => {
         const token = getAuthToken();

@@ -175,6 +175,20 @@ class CanvasThing(Base):
     canvas = relationship("Canvas", back_populates="things")
     domain = relationship("Domain", back_populates="things")
 
+    # Links - Explicit relationship to handle cascade delete
+    outgoing_links = relationship(
+        "CanvasLink",
+        foreign_keys="CanvasLink.source_id",
+        back_populates="source",
+        cascade="all, delete-orphan"
+    )
+    incoming_links = relationship(
+        "CanvasLink",
+        foreign_keys="CanvasLink.target_id",
+        back_populates="target",
+        cascade="all, delete-orphan"
+    )
+
 
 class CanvasLink(Base):
     """
@@ -227,12 +241,12 @@ class CanvasLink(Base):
     source = relationship(
         "CanvasThing",
         foreign_keys=[source_id],
-        backref="outgoing_links"
+        back_populates="outgoing_links"
     )
     target = relationship(
         "CanvasThing",
         foreign_keys=[target_id],
-        backref="incoming_links"
+        back_populates="incoming_links"
     )
 
 

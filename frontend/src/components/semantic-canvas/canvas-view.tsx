@@ -685,7 +685,7 @@ function CanvasViewInner() {
         };
     }, []);
 
-    // Handle file drop on canvas
+    // Handle file drop - Upload to Asset Service
     const handleFileDrop = React.useCallback(
         async (e: React.DragEvent) => {
             e.preventDefault();
@@ -695,83 +695,112 @@ function CanvasViewInner() {
             const files = Array.from(e.dataTransfer.files);
             if (files.length === 0) return;
 
-            // Calculate drop position in canvas coordinates
-            const position = {
+            // Calculate drop position relative to canvas
+            // We use the first file's position for the start, then cascade
+            let position = {
                 x: e.clientX - viewport.x,
                 y: e.clientY - viewport.y,
             };
 
+            const token = localStorage.getItem("token");
+            if (!token) {
+                console.error("No auth token found, cannot upload files");
+                return;
+            }
+
             for (const file of files) {
                 console.log(`[FileDrop] Processing file: ${file.name}, type: ${file.type}, size: ${file.size}`);
 
-                if (file.type.startsWith("image/")) {
-                    console.log(`[FileDrop] Adding as image: ${file.name}`);
-                    await addThing(
-                        "image",
-                        {
-                            filename: file.name,
-                            file_path: URL.createObjectURL(file),
+                try {
+                    // 1. Upload the file to Managed Object Storage
+                    const formData = new FormData();
+                    formData.append("file", file);
+
+                    console.log("[FileDrop] Uploading to Asset Service...");
+                    const uploadRes = await fetch(`${API_URL}/assets/upload`, {
+                        method: "POST",
+                        headers: {
+                            "Authorization": `Bearer ${token}`,
+                            // Content-Type is set automatically by browser with boundary for FormData
                         },
-                        position,
-                        file.name
-                    );
-                    console.log(`[FileDrop] Image added successfully: ${file.name}`);
-                } else {
-                    // Determine if file is text-based or binary
-                    const textExtensions = ['.txt', '.md', '.json', '.csv', '.xml', '.html', '.htm', '.yaml', '.yml', '.log'];
-                    const isTextFile = textExtensions.some(ext => file.name.toLowerCase().endsWith(ext)) ||
-                        file.type.startsWith('text/') ||
-                        file.type === 'application/json';
+                        body: formData,
+                    });
 
-                    console.log(`[FileDrop] isTextFile: ${isTextFile}`);
-
-                    if (isTextFile) {
-                        // Read text content for text-based documents
-                        try {
-                            console.log(`[FileDrop] Reading as text file`);
-                            const text = await file.text();
-                            console.log(`[FileDrop] Text content length: ${text.length}`);
-                            await addThing(
-                                "document",
-                                {
-                                    filename: file.name,
-                                    content: text,
-                                },
-                                position,
-                                file.name
-                            );
-                            console.log(`[FileDrop] Added text document`);
-                        } catch (err) {
-                            console.error("[FileDrop] Failed to read file as text:", file.name, err);
-                        }
-                    } else {
-                        // For binary files (PDF, Excel, Word), store as blob URL
-                        console.log(`[FileDrop] Adding as binary document`);
-                        try {
-                            const blobUrl = URL.createObjectURL(file);
-                            console.log(`[FileDrop] Blob URL created: ${blobUrl}`);
-                            const result = await addThing(
-                                "document",
-                                {
-                                    filename: file.name,
-                                    file_path: blobUrl,
-                                    file_type: file.type,
-                                    file_size: file.size,
-                                },
-                                position,
-                                file.name
-                            );
-                            console.log(`[FileDrop] addThing result:`, result);
-                            if (!result) {
-                                console.error(`[FileDrop] addThing returned null - check canvasId and auth token`);
-                            }
-                        } catch (err) {
-                            console.error(`[FileDrop] Error adding binary document:`, err);
-                        }
-                        console.log(`[FileDrop] Added binary document`);
+                    if (!uploadRes.ok) {
+                        const err = await uploadRes.text();
+                        console.error(`[FileDrop] Upload failed: ${uploadRes.status} ${err}`);
+                        continue;
                     }
+
+                    const assetData = await uploadRes.json();
+                    const assetUrl = assetData.url; // e.g. /api/v1/assets/uuid
+                    const assetId = assetData.id;
+                    console.log(`[FileDrop] Upload success. Asset ID: ${assetId}`);
+
+                    // 2. Create the Canvas Thing
+                    const isImage = file.type.startsWith("image/");
+                    const isText = !isImage && (
+                        file.name.endsWith(".txt") ||
+                        file.name.endsWith(".md") ||
+                        file.name.endsWith(".json") ||
+                        file.type.startsWith("text/")
+                    );
+
+                    if (isImage) {
+                        await addThing(
+                            "image",
+                            {
+                                filename: file.name,
+                                file_path: assetUrl,
+                                asset_id: assetId,
+                                file_size: file.size,
+                                mime_type: file.type
+                            },
+                            position,
+                            file.name
+                        );
+                    } else if (isText) {
+                        // For text, we might strictly want to store content in DB, 
+                        // BUT for the "Managed Asset" approach, we treat the file as the source of truth.
+                        // However, the current TextViewer expects `content`.
+                        // For consistency with current UX, we can read the content for display 
+                        // but ALSO link to the asset.
+                        const textContent = await file.text();
+                        await addThing(
+                            "document",
+                            {
+                                filename: file.name,
+                                content: textContent,
+                                asset_id: assetId,
+                                file_path: assetUrl, // Backup link
+                                mime_type: file.type
+                            },
+                            position,
+                            file.name
+                        );
+                    } else {
+                        // Binary/Other (PDF, Excel, etc)
+                        await addThing(
+                            "document",
+                            {
+                                filename: file.name,
+                                file_path: assetUrl,
+                                asset_id: assetId,
+                                file_size: file.size,
+                                file_type: file.type,
+                                mime_type: file.type
+                            },
+                            position,
+                            file.name
+                        );
+                    }
+                    console.log(`[FileDrop] Node created for ${file.name}`);
+
+                } catch (err) {
+                    console.error(`[FileDrop] Error processing ${file.name}:`, err);
                 }
-                // Offset subsequent files so they don't stack
+
+                // Offset subsequent files
                 position.x += 50;
                 position.y += 30;
             }

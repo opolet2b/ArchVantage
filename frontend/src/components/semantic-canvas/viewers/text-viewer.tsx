@@ -25,6 +25,8 @@ interface TextViewerProps {
     className?: string;
     /** Whether selection is enabled */
     selectionEnabled?: boolean;
+    /** Optional highlight fragment */
+    highlight?: { startOffset?: number; endOffset?: number; content?: string } | null;
 }
 
 // =============================================================================
@@ -36,6 +38,7 @@ export function TextViewer({
     onSelect,
     className,
     selectionEnabled = true,
+    highlight,
 }: TextViewerProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -85,6 +88,34 @@ export function TextViewer({
         };
     }, [onSelect, selectionEnabled]);
 
+    // Render content with potential highlight
+    const renderContent = () => {
+        if (!highlight || typeof highlight.startOffset !== 'number' || typeof highlight.endOffset !== 'number') {
+            return content;
+        }
+
+        const { startOffset, endOffset } = highlight;
+
+        // Safety check
+        if (startOffset < 0 || endOffset > content.length || startOffset >= endOffset) {
+            return content;
+        }
+
+        const pre = content.slice(0, startOffset);
+        const marked = content.slice(startOffset, endOffset);
+        const post = content.slice(endOffset);
+
+        return (
+            <>
+                {pre}
+                <mark className="bg-yellow-200 dark:bg-yellow-900/50 text-slate-900 dark:text-slate-100 rounded px-0.5">
+                    {marked}
+                </mark>
+                {post}
+            </>
+        );
+    };
+
     return (
         <div
             ref={containerRef}
@@ -95,7 +126,7 @@ export function TextViewer({
                 className
             )}
         >
-            {content}
+            {renderContent()}
         </div>
     );
 }

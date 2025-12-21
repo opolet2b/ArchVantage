@@ -9,7 +9,7 @@
 "use client";
 
 import * as React from "react";
-import { cn } from "@/lib/utils";
+import { cn, API_URL } from "@/lib/utils";
 import type { RegionFragment } from "./types";
 
 // =============================================================================
@@ -128,6 +128,102 @@ export function ImageViewer({
         };
     };
 
+    // State for blob URL
+    const [imageSrc, setImageSrc] = React.useState<string>(src);
+    const [error, setError] = React.useState<boolean>(false);
+    const objectUrlRef = React.useRef<string | null>(null); // To keep track of created object URLs for cleanup
+
+    // Effect: Load image with Auth if it's a backend asset
+    React.useEffect(() => {
+        // Cleanup previous object URL if it exists
+        if (objectUrlRef.current) {
+            URL.revokeObjectURL(objectUrlRef.current);
+            objectUrlRef.current = null;
+        }
+
+        // If it's a Blob URL (already loaded locally) or external URL, no need to fetch
+        if (src.startsWith("blob:") || src.startsWith("http")) {
+            setImageSrc(src);
+            return;
+        }
+
+        // If it's a relative API path, we need to fetch with token
+        if (src.startsWith("/api/")) {
+            const token = localStorage.getItem("token");
+
+            const fetchImage = async () => {
+                try {
+                    // Prepend backend URL if needed
+                    let urlToFetch = src;
+
+                    // If src is relative /api/... and doesn't contain protocol, prepend API_URL (minus the /api/v1 suffix if duplicates)
+                    // API_URL is usually http://localhost:8000/api/v1
+                    // src is /api/v1/assets/...
+
+                    // To be safe: use fully qualified URL if we know API_URL
+                    if (API_URL && !src.startsWith("http")) {
+                        // API_URL might be http://localhost:8000/api/v1
+                        // We want http://localhost:8000 + src (if src includes /api/v1)
+                        // Or if src is /assets/..., we append to API_URL
+
+                        // Parse API_URL to get origin
+                        try {
+                            const apiUrlObj = new URL(API_URL);
+                            urlToFetch = `${apiUrlObj.origin}${src}`;
+                        } catch (e) {
+                            // If API_URL is relative or invalid, just use it as prefix logic?
+                            // Fallback:
+                            urlToFetch = src; // Browser will handle relative to current origin (3000)
+                            // This is where it fails if no proxy.
+
+                            // Hardcode check: replace /api/ with http://localhost:8000/api/ for dev
+                            if (process.env.NODE_ENV === 'development') {
+                                urlToFetch = `http://localhost:8000${src}`;
+                            }
+                        }
+                    }
+
+                    const headers: HeadersInit = {};
+                    if (token) {
+                        headers["Authorization"] = `Bearer ${token}`;
+                    }
+
+                    console.log(`[ImageViewer] Fetching secure image: ${urlToFetch}`);
+                    const res = await fetch(urlToFetch, {
+                        headers
+                    });
+
+                    if (!res.ok) throw new Error(`Failed to load image: ${res.status}`);
+
+                    const blob = await res.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    objectUrlRef.current = objectUrl; // Store for cleanup
+                    setImageSrc(objectUrl);
+                } catch (err) {
+                    console.error("Failed to load secure image:", err);
+                    setError(true);
+                }
+            };
+            fetchImage();
+
+            return () => {
+                // Cleanup function for this specific effect run
+                if (objectUrlRef.current) {
+                    URL.revokeObjectURL(objectUrlRef.current);
+                    objectUrlRef.current = null;
+                }
+            };
+        }
+    }, [src]);
+
+    if (error) {
+        return (
+            <div className={cn("flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-500", className)} style={{ minHeight: 200 }}>
+                Broken Image
+            </div>
+        );
+    }
+
     return (
         <div
             ref={containerRef}
@@ -143,7 +239,7 @@ export function ImageViewer({
         >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-                src={src}
+                src={imageSrc}
                 alt={alt}
                 className="max-w-full h-auto pointer-events-none select-none"
                 draggable={false}

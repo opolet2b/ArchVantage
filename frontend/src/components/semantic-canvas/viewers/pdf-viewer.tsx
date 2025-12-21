@@ -11,7 +11,7 @@
 import * as React from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, API_URL } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { TextFragment } from "./types";
 
@@ -59,10 +59,86 @@ export function PDFViewer({
 
     const [isLoaded, setIsLoaded] = React.useState(false);
 
+    // State for secure file source
+    const [fileSrc, setFileSrc] = React.useState<string | null>(null);
+    const objectUrlRef = React.useRef<string | null>(null);
+
+    // Effect: Load PDF with Auth if it's a backend asset
+    React.useEffect(() => {
+        // Cleanup previous object URL
+        if (objectUrlRef.current) {
+            URL.revokeObjectURL(objectUrlRef.current);
+            objectUrlRef.current = null;
+        }
+
+        // Reset state
+        setError(null);
+        setIsLoading(true);
+
+        const loadFile = async () => {
+            // Local blob or external http
+            if (src.startsWith("blob:") || src.startsWith("http")) {
+                setFileSrc(src);
+                return;
+            }
+
+            // Backend Asset API
+            if (src.startsWith("/api/")) {
+                const token = localStorage.getItem("token");
+                try {
+                    let urlToFetch = src;
+                    // Prepend API_URL logic
+                    if (API_URL && !src.startsWith("http")) {
+                        try {
+                            const apiUrlObj = new URL(API_URL);
+                            urlToFetch = `${apiUrlObj.origin}${src}`;
+                        } catch (e) {
+                            if (process.env.NODE_ENV === 'development') {
+                                urlToFetch = `http://localhost:8000${src}`;
+                            }
+                        }
+                    }
+
+                    console.log(`[PDFViewer] Fetching secure PDF: ${urlToFetch}`);
+                    const headers: HeadersInit = {};
+                    if (token) {
+                        headers["Authorization"] = `Bearer ${token}`;
+                    }
+
+                    const res = await fetch(urlToFetch, { headers });
+                    if (!res.ok) throw new Error(`Failed to load PDF: ${res.status}`);
+
+                    const blob = await res.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    objectUrlRef.current = objectUrl;
+                    setFileSrc(objectUrl);
+                } catch (err) {
+                    console.error("Failed to load secure PDF:", err);
+                    setError("Failed to load secure PDF");
+                    setIsLoading(false);
+                }
+            } else {
+                // Fallback for relative paths?
+                setFileSrc(src);
+            }
+        };
+
+        loadFile();
+
+        return () => {
+            if (objectUrlRef.current) {
+                URL.revokeObjectURL(objectUrlRef.current);
+                objectUrlRef.current = null;
+            }
+        };
+    }, [src]);
+
+
     // Handle document load success
     const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
         setNumPages(numPages);
         setIsLoading(false);
+        setIsLoaded(true); // Ensure loaded state is true
     };
 
     // Handle document load error
@@ -124,15 +200,11 @@ export function PDFViewer({
         );
     }
 
-    if (!isLoaded) {
+    if (!isLoaded && !fileSrc) {
         return (
             <div className={cn("flex items-center justify-center p-4 bg-slate-50 dark:bg-slate-800", className)}>
-                <button
-                    onClick={handleLoad}
-                    className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-md text-sm font-medium transition-colors"
-                >
-                    Load PDF Document
-                </button>
+                {/* Initial loading state waiting for fetch */}
+                <span className="text-sm text-muted-foreground">Preparing document...</span>
             </div>
         );
     }
@@ -183,7 +255,7 @@ export function PDFViewer({
                 onMouseUp={handleMouseUp}
             >
                 <Document
-                    file={src}
+                    file={fileSrc}
                     onLoadSuccess={onDocumentLoadSuccess}
                     onLoadError={onDocumentLoadError}
                     loading={

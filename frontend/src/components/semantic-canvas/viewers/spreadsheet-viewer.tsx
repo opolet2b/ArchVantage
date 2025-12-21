@@ -28,6 +28,8 @@ interface SpreadsheetViewerProps {
     className?: string;
     /** Whether selection is enabled */
     selectionEnabled?: boolean;
+    /** Optional highlight fragment */
+    highlight?: { range?: string } | null;
 }
 
 // =============================================================================
@@ -40,6 +42,7 @@ export function SpreadsheetViewer({
     onSelect,
     className,
     selectionEnabled = true,
+    highlight,
 }: SpreadsheetViewerProps) {
     const [data, setData] = React.useState<any[][]>([]);
     const [headers, setHeaders] = React.useState<string[]>([]);
@@ -104,6 +107,48 @@ export function SpreadsheetViewer({
     const lastSelectedColRef = React.useRef<number | null>(null);
     const lastSelectedCellRef = React.useRef<{ r: number; c: number } | null>(null);
 
+    // Calculate highlighted range
+    const highlightedRange = React.useMemo(() => {
+        if (!highlight?.range) return null;
+        try {
+            return XLSX.utils.decode_range(highlight.range);
+        } catch (e) {
+            console.error("Failed to decode range:", highlight.range);
+            return null;
+        }
+    }, [highlight]);
+
+    // Check if cell is highlighted
+    const isCellHighlighted = (r: number, c: number) => {
+        if (!highlightedRange) return false;
+        // Adjust for header row (r+1) if range assumes 1-based index (XLSX usually does)
+        // Wait, decode_range returns 0-based indices. 
+        // My fragment generation used: r + 1 for cell ref.
+        // So decode_range("A2") -> r=1, c=0.
+        // My data array: row 0 is visually "2" (header is row 1/visual 1).
+        // So if I render `data[0]`, that is visually row 2. (r=1).
+        // So `data[0]` should match `highlightedRange.r == 1`?
+        // Wait, let's re-verify my selection logic.
+        // selection: `rowIndex + 1` -> "A2". 
+        // So visual row 1 is header. visual row 2 is data[0].
+        // "A2" means row index 1.
+        // So data[0] corresponds to row index 1.
+        // So `r` used for checking should be `rowIndex + 1`. EXPERIMENTAL: Let's assume standard excel logic.
+        // data[0] is strictly the first row of DATA.
+        // if header exists, real excel row is 2.
+        // decode_range returns 0-indexed relative to SHEET.
+        // if headers were parsed out, data starts at sheet row 1 (0-indexed).
+        // YES: `jsonData.slice(1)` in handleLoad removes header.
+        // So `data[0]` was originally at sheet row `1` (0-indexed 1, i.e. Row 2).
+        // So for `data[rowIndex]`, the sheet row index is `rowIndex + 1`.
+        return (
+            (r + 1) >= highlightedRange.s.r &&
+            (r + 1) <= highlightedRange.e.r &&
+            c >= highlightedRange.s.c &&
+            c <= highlightedRange.e.c
+        );
+    };
+
     // Handle cell click
     const handleCellClick = (rowIndex: number, colIndex: number, e: React.MouseEvent) => {
         if (!selectionEnabled || !onSelect) return;
@@ -166,7 +211,7 @@ export function SpreadsheetViewer({
         };
 
         setSelectedCells(newSelectedCells);
-        onSelect(fragment, { x: e.clientX, y: e.clientY });
+        onSelect(fragment);
     };
 
     // Handle row click (select entire row)
@@ -214,7 +259,7 @@ export function SpreadsheetViewer({
             const rowNum = rowIndex + 1;
             fragmentRange = `${rowNum}:${rowNum}`;
             fragmentValues = [data[rowIndex]];
-            description = rowValues.join(", ");
+            description = fragmentValues[0].join(", ");
         }
         // Normal Click (Single Row)
         else {
@@ -395,6 +440,12 @@ export function SpreadsheetViewer({
                                         const isSelected = selectedCells.some(
                                             (c) => c.row === rowIndex && c.col === colIndex
                                         );
+                                        const isHighlighted = highlightedRange &&
+                                            (rowIndex + 1) >= highlightedRange.s.r &&
+                                            (rowIndex + 1) <= highlightedRange.e.r &&
+                                            colIndex >= highlightedRange.s.c &&
+                                            colIndex <= highlightedRange.e.c;
+
                                         return (
                                             <td
                                                 key={colIndex}
@@ -402,7 +453,8 @@ export function SpreadsheetViewer({
                                                 className={cn(
                                                     "border border-slate-300 dark:border-slate-600 px-2 py-1",
                                                     selectionEnabled && "cursor-pointer",
-                                                    isSelected && "bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500"
+                                                    isSelected && "bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500",
+                                                    isHighlighted && !isSelected && "bg-yellow-100 dark:bg-yellow-900/50 ring-2 ring-yellow-400"
                                                 )}
                                             >
                                                 {row[colIndex] ?? ""}
