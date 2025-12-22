@@ -35,7 +35,23 @@ import {
     ConversationViewer,
     TextViewer,
     SelectableContent,
+    SelectionToolbar,
+    useAnalyze,
+    LLMAction,
+    Fragment,
 } from "../viewers";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { createPortal } from "react-dom";
 
 // =============================================================================
 // Icon Mapping
@@ -180,6 +196,177 @@ interface ThingNodeData {
 export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     const { thing, zoomLevel, isSelected, onOpenConversation, onToggleIconify, onDelete } = data;
     const Icon = thingIcons[thing.type] || FileText;
+
+    // Canvas store helpers
+    const addThing = useCanvasStore((state) => state.addThing);
+    const addLink = useCanvasStore((state) => state.addLink);
+    const { analyze, isLoading } = useAnalyze();
+    const canvasId = useCanvasStore((state) => state.canvasId);
+
+    // Ref for positioning toolbar
+    const nodeRef = React.useRef<HTMLDivElement>(null);
+    const [toolbarPosition, setToolbarPosition] = React.useState<{ x: number, y: number } | null>(null);
+
+    // Ask dialog state
+    const [askDialogOpen, setAskDialogOpen] = React.useState(false);
+    const [customPrompt, setCustomPrompt] = React.useState("");
+
+    // Result dialog state
+    const [resultDialogOpen, setResultDialogOpen] = React.useState(false);
+    const [analysisResult, setAnalysisResult] = React.useState<string>("");
+
+    // Link dialog state
+    const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
+    const [pendingFragment, setPendingFragment] = React.useState<Fragment | null>(null);
+    const [availableTargets, setAvailableTargets] = React.useState<any[]>([]);
+
+    // Update toolbar position when selected
+    React.useEffect(() => {
+        if (selected && nodeRef.current) {
+            const updatePosition = () => {
+                const rect = nodeRef.current?.getBoundingClientRect();
+                if (rect) {
+                    setToolbarPosition({
+                        x: rect.left + rect.width / 2 - 110, // Center (assuming 220px width)
+                        y: rect.top - 45, // Above node
+                    });
+                }
+            };
+
+            updatePosition();
+            // Update on scroll/resize
+            window.addEventListener("scroll", updatePosition);
+            window.addEventListener("resize", updatePosition);
+            return () => {
+                window.removeEventListener("scroll", updatePosition);
+                window.removeEventListener("resize", updatePosition);
+            };
+        } else {
+            setToolbarPosition(null);
+        }
+    }, [selected]);
+
+    // Construct fragment for full content
+    const fullThingFragment = React.useMemo<Fragment>(() => {
+        let contentStr = "";
+        const c = thing.content;
+
+        if (typeof c.text === "string") contentStr = c.text;
+        else if (typeof c.content === "string") contentStr = c.content;
+        else if (c.messages) contentStr = JSON.stringify(c.messages);
+        else contentStr = JSON.stringify(c);
+
+        return {
+            type: "text", // Treat whole thing as text for analysis
+            content: contentStr,
+        };
+    }, [thing]);
+
+    // Helpers copied from SelectableContent
+    const getFragmentData = (fragment: Fragment) => ({
+        type: fragment.type,
+        content: fragment.content,
+    }); // simplified for full thing
+
+    // Helper: Create new node from result and link it
+    const createNodeAndLink = React.useCallback(async (text: string, sourceFragment: Fragment) => {
+        // Calculate position: right of the current node
+        const position = { x: thing.position_x + (thing.width || 200) + 50, y: thing.position_y };
+
+        // Create new text thing
+        const newThing = await addThing("text", { text }, position);
+
+        if (newThing) {
+            // Create link
+            await addLink(
+                thing.id,
+                newThing.id,
+                "derived_from",
+                "Analysis",
+                getFragmentData(sourceFragment), // Use smart label
+                undefined
+            );
+        }
+    }, [thing, addThing, addLink]);
+
+    // Handle LLM action
+    const handleAction = React.useCallback(
+        async (action: LLMAction, fragment: Fragment) => {
+            if (action === "ask") {
+                setAskDialogOpen(true);
+                return;
+            }
+
+            if (!canvasId) return;
+
+            const result = await analyze({
+                canvasId,
+                thingId: thing.id,
+                fragment,
+                action,
+            });
+
+            if (result && result.result) {
+                await createNodeAndLink(result.result, fragment);
+            }
+        },
+        [canvasId, thing.id, analyze, createNodeAndLink]
+    );
+
+    // Handle ask with custom prompt
+    const handleAskSubmit = React.useCallback(async () => {
+        if (!canvasId || !customPrompt.trim()) return;
+
+        const result = await analyze({
+            canvasId,
+            thingId: thing.id,
+            fragment: fullThingFragment,
+            action: "ask",
+            customPrompt: customPrompt.trim(),
+        });
+
+        if (result && result.result) {
+            await createNodeAndLink(result.result, fullThingFragment);
+        }
+
+        setAskDialogOpen(false);
+        setCustomPrompt("");
+    }, [canvasId, thing.id, fullThingFragment, customPrompt, analyze, createNodeAndLink]);
+
+    // Handle link action - open target selection dialog
+    const handleLink = React.useCallback((fragment: Fragment) => {
+        setPendingFragment(fragment);
+        // Lazy load things
+        const allThings = useCanvasStore.getState().things;
+        setAvailableTargets(allThings.filter(t => t.id !== thing.id));
+        setLinkDialogOpen(true);
+    }, [thing.id]);
+
+    // Handle selecting a target for the link
+    const handleLinkToTarget = React.useCallback(async (targetId: string) => {
+        if (!pendingFragment) return;
+
+        await addLink(
+            thing.id,
+            targetId,
+            "related",
+            "Related",
+            getFragmentData(pendingFragment),
+            undefined
+        );
+
+        setLinkDialogOpen(false);
+        setPendingFragment(null);
+    }, [thing.id, pendingFragment, addLink]);
+
+    // Handle creating result as new thing (from result dialog if we used that)
+    const handleCreateThing = React.useCallback(async () => {
+        if (!analysisResult) return;
+        await addThing("text", { text: analysisResult }, { x: thing.position_x + 50, y: thing.position_y + 50 });
+        setResultDialogOpen(false);
+        setAnalysisResult("");
+    }, [analysisResult, addThing, thing]);
+
 
     // Get highlighted fragment for traceability
     const highlightedFragment = useCanvasStore(state => state.highlightedFragment);
@@ -513,6 +700,23 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     flexDirection: "column",
                 }}
             >
+                {/* Selection Toolbar (for whole thing) */}
+                {selected && toolbarPosition && typeof document !== "undefined" &&
+                    createPortal(
+                        <SelectionToolbar
+                            fragment={fullThingFragment}
+                            thingId={thing.id}
+                            position={toolbarPosition}
+                            onAction={handleAction}
+                            onLink={handleLink}
+                            onClose={() => setToolbarPosition(null)} // Or custom clear
+                            isLoading={isLoading}
+                        />,
+                        document.body
+                    )
+                }
+
+                <div ref={nodeRef} className="absolute inset-0 pointer-events-none" />
                 {/* Gradient header - Agent Builder style */}
                 <div className={cn(
                     "flex items-center gap-2 px-3 py-2 border-b rounded-t-lg",
@@ -571,6 +775,83 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     className={cn("!w-3 !h-3", colorTheme.handleColor)}
                 />
             </div>
+
+            {/* Custom Prompt Dialog */}
+            <Dialog open={askDialogOpen} onOpenChange={setAskDialogOpen}>
+                <DialogContent className="sm:max-w-md nodrag cursor-default">
+                    <DialogHeader>
+                        <DialogTitle>Ask about this content</DialogTitle>
+                        <DialogDescription>
+                            Enter a question or prompt about the selected thing.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="prompt">Your question</Label>
+                            <Input
+                                id="prompt"
+                                value={customPrompt}
+                                onChange={(e) => setCustomPrompt(e.target.value)}
+                                placeholder="e.g., What are the implications of this?"
+                                onKeyDown={(e) => e.key === "Enter" && handleAskSubmit()}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setAskDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleAskSubmit} disabled={!customPrompt.trim()}>
+                            Ask
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Link Target Selection Dialog */}
+            <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+                <DialogContent className="sm:max-w-md nodrag cursor-default">
+                    <DialogHeader>
+                        <DialogTitle>Link to another node</DialogTitle>
+                        <DialogDescription>
+                            Select a node to link this thing to.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Label>Select target node</Label>
+                        <div className="mt-2 space-y-2 max-h-[200px] overflow-auto">
+                            {availableTargets.length === 0 ? (
+                                <div className="text-sm text-muted-foreground text-center py-4">
+                                    No other nodes on canvas to link to
+                                </div>
+                            ) : (
+                                availableTargets.map((target) => (
+                                    <Button
+                                        key={target.id}
+                                        variant="outline"
+                                        className="w-full justify-start text-left h-auto py-2"
+                                        onClick={() => handleLinkToTarget(target.id)}
+                                    >
+                                        <div className="truncate">
+                                            <span className="font-medium">
+                                                {target.title || target.type}
+                                            </span>
+                                        </div>
+                                    </Button>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => {
+                            setLinkDialogOpen(false);
+                            setPendingFragment(null);
+                        }}>
+                            Cancel
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
