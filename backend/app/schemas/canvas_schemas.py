@@ -288,6 +288,7 @@ class AnalyzeRequest(BaseModel):
     action: AnalyzeAction
     model: Optional[str] = None
     custom_prompt: Optional[str] = None  # For "ask" action
+    image_data: Optional[str] = None  # Base64 image data for vision analysis
 
 
 class AnalyzeResponse(BaseModel):

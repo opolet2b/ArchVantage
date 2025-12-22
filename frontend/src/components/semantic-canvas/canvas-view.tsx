@@ -41,7 +41,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Brain, Loader2 } from "lucide-react";
+import { Brain, Loader2, Eye } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
 
 // =============================================================================
@@ -94,6 +94,8 @@ function CanvasViewInner() {
     // Model state from store
     const selectedModel = useCanvasStore((state) => state.selectedModel);
     const setSelectedModel = useCanvasStore((state) => state.setSelectedModel);
+    const visionModel = useCanvasStore((state) => state.visionModel);
+    const setVisionModel = useCanvasStore((state) => state.setVisionModel);
 
     // Model presets state for dropdown
     interface ModelPreset {
@@ -120,6 +122,9 @@ function CanvasViewInner() {
                     const currentModel = useCanvasStore.getState().selectedModel;
                     if (!currentModel && presetList.length > 0) {
                         setSelectedModel(presetList[0].name);
+                    }
+                    if (!useCanvasStore.getState().visionModel && presetList.length > 0) {
+                        setVisionModel(presetList[0].name);
                     }
                 }
             } catch (error) {
@@ -824,6 +829,36 @@ function CanvasViewInner() {
                         >
                             <SelectTrigger className="w-[200px] h-8 text-sm">
                                 <SelectValue placeholder="Select model..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {models.map((model) => (
+                                    <SelectItem key={model.name} value={model.name}>
+                                        <div className="flex items-center gap-2">
+                                            <span>{model.name}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                                ({model.type})
+                                            </span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    )}
+                </div>
+
+                {/* Vision Model Selector */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 ml-4">
+                    <Eye className="h-4 w-4" />
+                    <span>Vision:</span>
+                    {isLoadingModels ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Select
+                            value={visionModel || ""}
+                            onValueChange={setVisionModel}
+                        >
+                            <SelectTrigger className="w-[200px] h-8 text-sm">
+                                <SelectValue placeholder="Select vision model..." />
                             </SelectTrigger>
                             <SelectContent>
                                 {models.map((model) => (

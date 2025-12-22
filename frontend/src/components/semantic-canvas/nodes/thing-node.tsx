@@ -39,6 +39,7 @@ import {
     useAnalyze,
     LLMAction,
     Fragment,
+    RegionFragment,
 } from "../viewers";
 import {
     Dialog,
@@ -200,6 +201,9 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     // Canvas store helpers
     const addThing = useCanvasStore((state) => state.addThing);
     const addLink = useCanvasStore((state) => state.addLink);
+    const selectedModel = useCanvasStore((state) => state.selectedModel);
+    const visionModel = useCanvasStore((state) => state.visionModel);
+    const links = useCanvasStore((state) => state.links);
     const { analyze, isLoading } = useAnalyze();
     const canvasId = useCanvasStore((state) => state.canvasId);
 
@@ -262,6 +266,21 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         };
     }, [thing]);
 
+    // Calculate image overlays from links
+    const imageOverlays = React.useMemo(() => {
+        if (thing.type !== "image") return [];
+        return links
+            .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
+            .map(l => ({
+                id: l.id,
+                label: l.label || undefined,
+                x: (l.source_fragment as unknown as RegionFragment).x,
+                y: (l.source_fragment as unknown as RegionFragment).y,
+                width: (l.source_fragment as unknown as RegionFragment).width,
+                height: (l.source_fragment as unknown as RegionFragment).height,
+            }));
+    }, [links, thing.id, thing.type]);
+
     // Helpers copied from SelectableContent
     const getFragmentData = (fragment: Fragment) => ({
         type: fragment.type,
@@ -289,6 +308,26 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         }
     }, [thing, addThing, addLink]);
 
+    // Helper to fetch image as base64
+    const fetchImageAsBase64 = React.useCallback(async (url: string): Promise<string | null> => {
+        try {
+            const token = localStorage.getItem("token");
+            const res = await fetch(url, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+            });
+        } catch (e) {
+            console.error("Failed to fetch image", e);
+            return null;
+        }
+    }, []);
+
     // Handle LLM action
     const handleAction = React.useCallback(
         async (action: LLMAction, fragment: Fragment) => {
@@ -299,30 +338,78 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
 
             if (!canvasId) return;
 
+            let finalFragment = fragment;
+            let modelToUse = selectedModel;
+
+            // Handle image analysis (whole thing or region)
+            if (thing.type === "image") {
+                modelToUse = visionModel || selectedModel;
+
+                // If "whole thing" (text fragment with file path), fetch image data
+                if (fragment.type === "text" && thing.content.file_path) {
+                    const base64 = await fetchImageAsBase64(thing.content.file_path as string);
+                    if (base64) {
+                        finalFragment = {
+                            ...fragment,
+                            content: base64, // Inject base64 image data
+                            // We might want to change type to "image" or "region" but backend logic
+                            // primarily looks for image_data in AnalyzeRequest.
+                            // However, analyze_selection endpoint checks:
+                            // image_data = request.image_data or request.fragment.content
+                            // So just putting it in content works.
+                        };
+                    }
+                }
+                // If it is already a region, it has content.
+            }
+
+            // If it's a region fragment (from ImageViewer), use vision model
+            if (fragment.type === "region") {
+                modelToUse = visionModel || selectedModel;
+            }
+
             const result = await analyze({
                 canvasId,
                 thingId: thing.id,
-                fragment,
+                fragment: finalFragment,
                 action,
+                model: modelToUse || undefined,
             });
 
             if (result && result.result) {
                 await createNodeAndLink(result.result, fragment);
             }
         },
-        [canvasId, thing.id, analyze, createNodeAndLink]
+        [canvasId, thing, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64]
     );
 
     // Handle ask with custom prompt
     const handleAskSubmit = React.useCallback(async () => {
         if (!canvasId || !customPrompt.trim()) return;
 
+        let finalFragment = fullThingFragment;
+        let modelToUse = selectedModel;
+
+        if (thing.type === "image") {
+            modelToUse = visionModel || selectedModel;
+            if (thing.content.file_path) {
+                const base64 = await fetchImageAsBase64(thing.content.file_path as string);
+                if (base64) {
+                    finalFragment = {
+                        ...fullThingFragment,
+                        content: base64,
+                    };
+                }
+            }
+        }
+
         const result = await analyze({
             canvasId,
             thingId: thing.id,
-            fragment: fullThingFragment,
+            fragment: finalFragment,
             action: "ask",
             customPrompt: customPrompt.trim(),
+            model: modelToUse || undefined,
         });
 
         if (result && result.result) {
@@ -331,7 +418,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
 
         setAskDialogOpen(false);
         setCustomPrompt("");
-    }, [canvasId, thing.id, fullThingFragment, customPrompt, analyze, createNodeAndLink]);
+    }, [canvasId, thing, fullThingFragment, customPrompt, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64]);
 
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {
@@ -519,6 +606,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             src={content.file_path as string}
                             alt={content.alt_text as string || "Image"}
                             className="max-h-[200px]"
+                            overlays={imageOverlays}
                         />
                     </SelectableContent>
                 );

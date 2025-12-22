@@ -27,6 +27,8 @@ interface ImageViewerProps {
     className?: string;
     /** Whether selection is enabled */
     selectionEnabled?: boolean;
+    /** Existing overlays/regions to display */
+    overlays?: { id: string; label?: string; x: number; y: number; width: number; height: number }[];
 }
 
 // =============================================================================
@@ -39,8 +41,10 @@ export function ImageViewer({
     onSelect,
     className,
     selectionEnabled = true,
+    overlays = [],
 }: ImageViewerProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
+    const imageRef = React.useRef<HTMLImageElement>(null);
     const [isSelecting, setIsSelecting] = React.useState(false);
     const [selectionStart, setSelectionStart] = React.useState<{ x: number; y: number } | null>(null);
     const [selectionEnd, setSelectionEnd] = React.useState<{ x: number; y: number } | null>(null);
@@ -88,20 +92,58 @@ export function ImageViewer({
             return;
         }
 
-        // Calculate selection rectangle
+        // Calculate selection rectangle in screen pixels
         const x = Math.min(selectionStart.x, selectionEnd.x);
         const y = Math.min(selectionStart.y, selectionEnd.y);
         const width = Math.abs(selectionEnd.x - selectionStart.x);
         const height = Math.abs(selectionEnd.y - selectionStart.y);
 
         // Only create fragment if selection is meaningful (> 10px)
-        if (width > 10 && height > 10) {
+        if (width > 10 && height > 10 && imageRef.current) {
+            const img = imageRef.current;
+
+            // Calculate scale factors
+            const scaleX = img.naturalWidth / img.width;
+            const scaleY = img.naturalHeight / img.height;
+
+            // Calculate natural coordinates for cropping
+            const naturalX = x * scaleX;
+            const naturalY = y * scaleY;
+            const naturalWidth = width * scaleX;
+            const naturalHeight = height * scaleY;
+
+            // Generate Base64 crop
+            let base64Content = "";
+            try {
+                const canvas = document.createElement("canvas");
+                canvas.width = naturalWidth;
+                canvas.height = naturalHeight;
+                const ctx = canvas.getContext("2d");
+                if (ctx) {
+                    ctx.drawImage(
+                        img,
+                        naturalX, naturalY, naturalWidth, naturalHeight,
+                        0, 0, naturalWidth, naturalHeight
+                    );
+                    base64Content = canvas.toDataURL("image/jpeg");
+                }
+            } catch (e) {
+                console.error("Failed to crop image:", e);
+            }
+
+            // Calculate percentages (0-100) for robust storage
+            const pctX = (x / img.width) * 100;
+            const pctY = (y / img.height) * 100;
+            const pctW = (width / img.width) * 100;
+            const pctH = (height / img.height) * 100;
+
             const fragment: RegionFragment = {
                 type: "region",
-                x: Math.round(x),
-                y: Math.round(y),
-                width: Math.round(width),
-                height: Math.round(height),
+                x: pctX,
+                y: pctY,
+                width: pctW,
+                height: pctH,
+                content: base64Content // Store cropped image data here!
             };
 
             setCurrentSelection(fragment);
@@ -239,6 +281,7 @@ export function ImageViewer({
         >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
+                ref={imageRef}
                 src={imageSrc}
                 alt={alt}
                 className="max-w-full h-auto pointer-events-none select-none"
@@ -258,17 +301,39 @@ export function ImageViewer({
                 <div
                     className="absolute border-2 border-green-500 bg-green-500/20 pointer-events-none"
                     style={{
-                        left: currentSelection.x,
-                        top: currentSelection.y,
-                        width: currentSelection.width,
-                        height: currentSelection.height,
+                        left: `${currentSelection.x}%`,
+                        top: `${currentSelection.y}%`,
+                        width: `${currentSelection.width}%`,
+                        height: `${currentSelection.height}%`,
                     }}
                 >
                     <span className="absolute -top-5 left-0 text-xs bg-green-500 text-white px-1 rounded">
-                        {currentSelection.width}×{currentSelection.height}
+                        Selection
                     </span>
                 </div>
             )}
+
+            {/* Existing Overlays */}
+            {overlays.map((overlay) => (
+                <div
+                    key={overlay.id}
+                    className="absolute border-2 border-yellow-500 bg-yellow-500/10 pointer-events-auto cursor-pointer hover:bg-yellow-500/30 transition-colors group"
+                    style={{
+                        left: `${overlay.x}%`,
+                        top: `${overlay.y}%`,
+                        width: `${overlay.width}%`,
+                        height: `${overlay.height}%`,
+                    }}
+                    title={overlay.label || "Linked Region"}
+                >
+                    {overlay.label && (
+                        <span className="absolute -top-6 left-0 text-xs bg-yellow-500 text-black px-1 rounded shadow opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            {overlay.label}
+                        </span>
+                    )}
+                </div>
+            ))}
         </div>
     );
 }
+

@@ -48,6 +48,8 @@ export function SelectableContent({
     const canvasId = useCanvasStore((state) => state.canvasId);
     const addThing = useCanvasStore((state) => state.addThing);
     const addLink = useCanvasStore((state) => state.addLink);
+    const selectedModel = useCanvasStore((state) => state.selectedModel);
+    const visionModel = useCanvasStore((state) => state.visionModel);
     // Remove direct subscription to prevent infinite render loops
     // const things = useCanvasStore((state) => state.things);
     const { analyze, isLoading } = useAnalyze();
@@ -162,11 +164,15 @@ export function SelectableContent({
 
             if (!canvasId) return;
 
+            const isRegion = fragment.type === "region";
+            const modelToUse = isRegion ? (visionModel || selectedModel) : selectedModel;
+
             const result = await analyze({
                 canvasId,
                 thingId,
                 fragment,
                 action,
+                model: modelToUse || undefined,
             });
 
             if (result && result.result) {
@@ -189,6 +195,7 @@ export function SelectableContent({
             fragment: selection.fragment,
             action: "ask",
             customPrompt: customPrompt.trim(),
+            model: (selection.fragment.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
         });
 
         if (result && result.result) {

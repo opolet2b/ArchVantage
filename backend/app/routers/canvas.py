@@ -604,6 +604,7 @@ async def analyze_selection(
     """
     Analyze selected content using LLM.
     Supports summarize, explain, extract_points, and ask actions.
+    Supports text and image content.
     """
     # Verify canvas ownership
     canvas = db.query(Canvas).filter(
@@ -662,21 +663,60 @@ async def analyze_selection(
             detail=f"Unknown action: {request.action}"
         )
     
-    # Call LLM service
+    # Call LLM service or Vision Service
     from app.services.llm_service import llm_service
     from app.models.chat import Message
-    
-    messages = [
-        Message(role="system", content=system_prompt),
-        Message(role="user", content=user_prompt)
-    ]
-    
+    from app.services.vision_service import vision_service
+
     model_name = request.model or "default"
-    
+
     try:
-        result = await llm_service.chat(messages, model_name)
+        # Check for image data
+        image_payload = request.image_data
+        # If fragment is region and has content (base64), use that
+        if not image_payload and request.fragment.type == "region" and request.fragment.content:
+            image_payload = request.fragment.content
+
+        if image_payload:
+            # Vision capabilities
+            print(f"[Analyze] Processing image analysis with model {model_name}")
+            
+            # Special prompt engineering for diagrams if "Explain" is requested
+            final_system_prompt = system_prompt
+            final_user_prompt = user_prompt
+            
+            if request.action == AnalyzeAction.EXPLAIN:
+                final_system_prompt = (
+                    "You are an expert technical analyst. "
+                    "Analyze the structural relationships, components, and data flow in this diagram. "
+                    "Be precise and structured."
+                )
+                final_user_prompt = (
+                    f"Please explain the diagram structure and components based on this selection.\n\n"
+                    f"{user_prompt}" 
+                )
+            elif request.action == AnalyzeAction.ASK and request.custom_prompt:
+                final_user_prompt = request.custom_prompt
+
+            if request.action == AnalyzeAction.SUMMARIZE:
+                 final_user_prompt = "Summarize the visual content of this image."
+
+            result = await vision_service.analyze(
+                image_data=image_payload,
+                prompt=final_user_prompt,
+                system_prompt=final_system_prompt,
+                model_name=model_name
+            )
+        else:
+            # Standard Text LLM
+            messages = [
+                Message(role="system", content=system_prompt),
+                Message(role="user", content=user_prompt)
+            ]
+            result = await llm_service.chat(messages, model_name)
+            
     except Exception as e:
-        print(f"[Analyze] LLM error: {e}")
+        print(f"[Analyze] LLM/Vision error: {e}")
         result = f"Error analyzing content: {str(e)}"
     
     return AnalyzeResponse(

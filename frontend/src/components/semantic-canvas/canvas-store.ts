@@ -167,6 +167,10 @@ interface CanvasState {
     selectedModel: string | null;
     setSelectedModel: (model: string | null) => void;
 
+    // Selected model for vision operations
+    visionModel: string | null;
+    setVisionModel: (model: string | null) => void;
+
     setViewport: (viewport: Viewport) => void;
 
     // Selection Highlight State
@@ -262,6 +266,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Selected model for canvas operations
     selectedModel: null,
     setSelectedModel: (model) => set({ selectedModel: model }),
+
+    // Selected model for vision operations
+    visionModel: null,
+    setVisionModel: (model) => set({ visionModel: model }),
 
     setViewport: (viewport) => set({ viewport }),
 
