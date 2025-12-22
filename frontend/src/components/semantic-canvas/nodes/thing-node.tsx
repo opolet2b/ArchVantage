@@ -25,7 +25,7 @@ import {
     Maximize2,
     Trash2,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, API_URL } from "@/lib/utils";
 import { CanvasThing, ZoomLevel, useCanvasStore } from "../canvas-store";
 import {
     MarkdownViewer,
@@ -312,7 +312,21 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     const fetchImageAsBase64 = React.useCallback(async (url: string): Promise<string | null> => {
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch(url, {
+            let fetchUrl = url;
+
+            // Handle relative API URLs
+            if (url.startsWith("/api/") && API_URL) {
+                // If API_URL is absolute, check if we need to construct the full URL
+                if (API_URL.startsWith("http")) {
+                    const apiUrlObj = new URL(API_URL);
+                    fetchUrl = `${apiUrlObj.origin}${url}`;
+                } else {
+                    // Fallback development assumption or relative base
+                    fetchUrl = `${window.location.protocol}//${window.location.hostname}:8000${url}`;
+                }
+            }
+
+            const res = await fetch(fetchUrl, {
                 headers: token ? { Authorization: `Bearer ${token}` } : {},
             });
             if (!res.ok) return null;

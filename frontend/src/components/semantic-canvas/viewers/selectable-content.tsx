@@ -182,7 +182,7 @@ export function SelectableContent({
 
             clearSelection();
         },
-        [canvasId, thingId, analyze, clearSelection, createNodeAndLink]
+        [canvasId, thingId, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel]
     );
 
     // Handle ask with custom prompt
@@ -205,7 +205,7 @@ export function SelectableContent({
         setAskDialogOpen(false);
         setCustomPrompt("");
         clearSelection();
-    }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection, createNodeAndLink]);
+    }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel]);
 
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {

@@ -102,6 +102,7 @@ function CanvasViewInner() {
         name: string;
         type: "local" | "remote";
         model_name?: string;
+        is_vision?: boolean;
     }
     const [models, setModels] = React.useState<ModelPreset[]>([]);
     const [isLoadingModels, setIsLoadingModels] = React.useState(true);
@@ -861,7 +862,7 @@ function CanvasViewInner() {
                                 <SelectValue placeholder="Select vision model..." />
                             </SelectTrigger>
                             <SelectContent>
-                                {models.map((model) => (
+                                {models.filter(m => m.is_vision).map((model) => (
                                     <SelectItem key={model.name} value={model.name}>
                                         <div className="flex items-center gap-2">
                                             <span>{model.name}</span>
@@ -871,6 +872,11 @@ function CanvasViewInner() {
                                         </div>
                                     </SelectItem>
                                 ))}
+                                {models.filter(m => m.is_vision).length === 0 && (
+                                    <div className="p-2 text-xs text-muted-foreground">
+                                        No vision models configured
+                                    </div>
+                                )}
                             </SelectContent>
                         </Select>
                     )}

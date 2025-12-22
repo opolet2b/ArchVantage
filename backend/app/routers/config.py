@@ -12,6 +12,7 @@ class ConfigRequest(BaseModel):
     api_url: Optional[str] = None
     service_api_key: Optional[str] = None
     model_api_key: Optional[str] = None
+    is_vision: Optional[bool] = False
 
 @router.get("/config/models")
 async def get_models():

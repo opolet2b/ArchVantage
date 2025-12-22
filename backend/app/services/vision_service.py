@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Any, Dict
 import base64
 import os
+import httpx
+import json
 
 from langchain_core.messages import HumanMessage, SystemMessage, BaseMessage
 from langchain_openai import ChatOpenAI
@@ -107,46 +109,60 @@ class OllamaVisionProvider(VisionProvider):
         system_prompt: Optional[str] = None,
         model_name: Optional[str] = "llama3.2-vision"
     ) -> str:
-        # Initialize model
-        chat = ChatOllama(
-            model=model_name,
-            base_url=self.base_url,
-            temperature=0
-        )
+
         
-        messages: List[BaseMessage] = []
-        
-        # Add system prompt if present
-        if system_prompt:
-            messages.append(SystemMessage(content=system_prompt))
-            
-        # Construct multimodal message for Ollama
-        # LangChain's ChatOllama handles the standard image_url format
-        
-        # Ensure base64 prefix if missing
-        img_url = image_data
-        if not image_data.startswith("data:image"):
-            img_url = f"data:image/jpeg;base64,{image_data}"
-            
-        user_content = [
-            {"type": "text", "text": prompt},
-            {
-                "type": "image_url", 
-                "image_url": {
-                    "url": img_url
+        # Strip header if present to get raw base64
+        img_b64 = image_data
+        if "base64," in image_data:
+            img_b64 = image_data.split("base64,")[1]
+
+        # Validation: Check if image_data looks like JSON/Text metadata
+        if len(img_b64) < 1000 and ("{" in img_b64 or "File:" in img_b64):
+             print(f"[OllamaVisionProvider] ERROR: Image data appears to be text metadata, not base64! Content: {img_b64}")
+             return "Error: Internal image fetch failed. The system received file metadata instead of image content."
+
+        print(f"[OllamaVisionProvider] Analyzing with {model_name} via Direct API...")
+        print(f"[OllamaVisionProvider] Image Size: {len(img_b64)} chars")
+
+        # Construct raw payload for Ollama /api/chat
+        # Ollama expects 'images' as a list of base64 strings (no data URI prefix)
+        payload = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [img_b64] 
                 }
-            }
-        ]
-        
-        messages.append(HumanMessage(content=user_content))
+            ],
+            "stream": False
+        }
+
+        if system_prompt:
+             # Prepend system message
+             payload["messages"].insert(0, {"role": "system", "content": system_prompt})
         
         try:
-            print(f"[OllamaVisionProvider] Analyzing with {model_name}...")
-            response = await chat.ainvoke(messages)
-            return response.content
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/api/chat", 
+                    json=payload,
+                    timeout=60.0 # Vision models can be slow
+                )
+                
+                if response.status_code != 200:
+                    error_text = response.text
+                    print(f"[OllamaVisionProvider] API Error: {response.status_code} - {error_text}")
+                    return f"Error from Ollama: {response.status_code} - {error_text}"
+                
+                result = response.json()
+                # Extract content from response
+                # Response format: { "model": "...", "created_at": "...", "message": { "role": "assistant", "content": "..." }, ... }
+                return result.get("message", {}).get("content", "")
+
         except Exception as e:
-            print(f"[OllamaVisionProvider] Error: {e}")
-            return f"Error analyzing image with Ollama: {str(e)}"
+            print(f"[OllamaVisionProvider] Exception: {e}")
+            return f"Error analyzing image with Ollama (Direct API): {str(e)}"
 
 class VisionService:
     """Service to manage vision capabilities and model selection."""

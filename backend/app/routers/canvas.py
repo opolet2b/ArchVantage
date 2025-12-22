@@ -35,7 +35,7 @@ router = APIRouter()
 # =============================================================================
 
 @router.post("/canvases", response_model=CanvasResponse)
-async def create_canvas(
+def create_canvas(
     request: CanvasCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -53,7 +53,7 @@ async def create_canvas(
 
 
 @router.get("/canvases", response_model=List[CanvasResponse])
-async def list_canvases(
+def list_canvases(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -65,7 +65,7 @@ async def list_canvases(
 
 
 @router.get("/canvases/{canvas_id}", response_model=CanvasWithContents)
-async def get_canvas(
+def get_canvas(
     canvas_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -86,7 +86,7 @@ async def get_canvas(
 
 
 @router.patch("/canvases/{canvas_id}", response_model=CanvasResponse)
-async def update_canvas(
+def update_canvas(
     canvas_id: str,
     request: CanvasUpdate,
     db: Session = Depends(get_db),
@@ -118,7 +118,7 @@ async def update_canvas(
 
 
 @router.delete("/canvases/{canvas_id}")
-async def delete_canvas(
+def delete_canvas(
     canvas_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -145,7 +145,7 @@ async def delete_canvas(
 # =============================================================================
 
 @router.post("/canvases/{canvas_id}/things", response_model=ThingResponse)
-async def create_thing(
+def create_thing(
     canvas_id: str,
     request: ThingCreate,
     db: Session = Depends(get_db),
@@ -197,7 +197,7 @@ async def create_thing(
     "/canvases/{canvas_id}/things",
     response_model=List[ThingResponse]
 )
-async def list_things(
+def list_things(
     canvas_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -222,7 +222,7 @@ async def list_things(
     "/canvases/{canvas_id}/things/{thing_id}",
     response_model=ThingResponse
 )
-async def update_thing(
+def update_thing(
     canvas_id: str,
     thing_id: str,
     request: ThingUpdate,
@@ -269,7 +269,7 @@ async def update_thing(
 
 
 @router.delete("/canvases/{canvas_id}/things/{thing_id}")
-async def delete_thing(
+def delete_thing(
     canvas_id: str,
     thing_id: str,
     db: Session = Depends(get_db),
@@ -298,7 +298,7 @@ async def delete_thing(
 # =============================================================================
 
 @router.post("/canvases/{canvas_id}/links", response_model=LinkResponse)
-async def create_link(
+def create_link(
     canvas_id: str,
     request: LinkCreate,
     db: Session = Depends(get_db),
@@ -352,7 +352,7 @@ async def create_link(
     "/canvases/{canvas_id}/links/{link_id}",
     response_model=LinkResponse
 )
-async def update_link(
+def update_link(
     canvas_id: str,
     link_id: str,
     request: LinkUpdate,
@@ -392,7 +392,7 @@ async def update_link(
 
 
 @router.delete("/canvases/{canvas_id}/links/{link_id}")
-async def delete_link(
+def delete_link(
     canvas_id: str,
     link_id: str,
     db: Session = Depends(get_db),
@@ -421,7 +421,7 @@ async def delete_link(
 # =============================================================================
 
 @router.post("/canvases/{canvas_id}/domains", response_model=DomainResponse)
-async def create_domain(
+def create_domain(
     canvas_id: str,
     request: DomainCreate,
     db: Session = Depends(get_db),
@@ -458,7 +458,7 @@ async def create_domain(
     "/canvases/{canvas_id}/domains/{domain_id}",
     response_model=DomainResponse
 )
-async def update_domain(
+def update_domain(
     canvas_id: str,
     domain_id: str,
     request: DomainUpdate,
@@ -498,7 +498,7 @@ async def update_domain(
 
 
 @router.delete("/canvases/{canvas_id}/domains/{domain_id}")
-async def delete_domain(
+def delete_domain(
     canvas_id: str,
     domain_id: str,
     db: Session = Depends(get_db),
@@ -535,7 +535,7 @@ async def delete_domain(
     "/canvases/{canvas_id}/things/{thing_id}/summarize",
     response_model=SummarizeResponse
 )
-async def summarize_thing(
+def summarize_thing(
     canvas_id: str,
     thing_id: str,
     db: Session = Depends(get_db),
@@ -632,6 +632,8 @@ async def analyze_selection(
     
     # Get the selected content
     selected_content = request.fragment.content or ""
+    # print(f"[AnalyzeEndpoint] Selected content type: {type(selected_content)}")
+    # print(f"[AnalyzeEndpoint] Selected content preview: {str(selected_content)[:200]}")
     
     if not selected_content:
         raise HTTPException(
@@ -640,15 +642,20 @@ async def analyze_selection(
         )
     
     # Build prompt based on action
+    # If content looks like base64 or is very long, don't put it all in the text prompt
+    content_for_prompt = selected_content
+    if len(selected_content) > 1000 or "base64" in str(selected_content).lower():
+         content_for_prompt = "[Image Content]"
+
     if request.action == AnalyzeAction.SUMMARIZE:
         system_prompt = "You are a helpful assistant. Provide concise, clear summaries."
-        user_prompt = f"Please provide a concise summary of the following content:\n\n{selected_content}"
+        user_prompt = f"Please provide a concise summary of the following content:\n\n{content_for_prompt}"
     elif request.action == AnalyzeAction.EXPLAIN:
         system_prompt = "You are a helpful assistant. Explain concepts clearly and simply."
-        user_prompt = f"Please explain the following content in simple, clear terms:\n\n{selected_content}"
+        user_prompt = f"Please explain the following content in simple, clear terms:\n\n{content_for_prompt}"
     elif request.action == AnalyzeAction.EXTRACT_POINTS:
         system_prompt = "You are a helpful assistant. Extract key information as bullet points."
-        user_prompt = f"Please extract the key points from the following content as a bullet list:\n\n{selected_content}"
+        user_prompt = f"Please extract the key points from the following content as a bullet list:\n\n{content_for_prompt}"
     elif request.action == AnalyzeAction.ASK:
         if not request.custom_prompt:
             raise HTTPException(
@@ -656,7 +663,7 @@ async def analyze_selection(
                 detail="Custom prompt required for 'ask' action"
             )
         system_prompt = "You are a helpful assistant. Answer questions based on the provided context."
-        user_prompt = f"{request.custom_prompt}\n\nContext:\n{selected_content}"
+        user_prompt = f"{request.custom_prompt}\n\nContext:\n{content_for_prompt}"
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

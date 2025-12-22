@@ -19,6 +19,7 @@ interface Preset {
     api_url?: string
     service_api_key?: string
     model_api_key?: string
+    is_vision?: boolean
 }
 
 export function ModelConfig({ onSave }: ModelConfigProps) {
@@ -28,6 +29,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [remoteUrl, setRemoteUrl] = useState("")
     const [serviceKey, setServiceKey] = useState("")
     const [modelKey, setModelKey] = useState("")
+    const [isVision, setIsVision] = useState(false)
 
     const [availableModels, setAvailableModels] = useState<string[]>([])
     const [presets, setPresets] = useState<Preset[]>([])
@@ -90,9 +92,9 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 setLocalModel(preset.model_name || "")
             } else {
                 setRemoteUrl(preset.api_url || "")
-                setServiceKey(preset.service_api_key || "")
                 setModelKey(preset.model_api_key || "")
             }
+            setIsVision(!!preset.is_vision)
         }
     }
 
@@ -111,6 +113,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 api_url: type === "remote" ? remoteUrl : undefined,
                 service_api_key: type === "remote" ? serviceKey : undefined,
                 model_api_key: type === "remote" ? modelKey : undefined,
+                is_vision: isVision,
             }
 
             const res = await fetch(`${API_URL}/config/presets`, {
@@ -171,6 +174,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                     setServiceKey(preset.service_api_key || "")
                     setModelKey(preset.model_api_key || "")
                 }
+                setIsVision(!!preset.is_vision)
             }
         } catch (error) {
             console.error("Failed to fetch active preset", error)
@@ -212,6 +216,25 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                     />
+                </div>
+
+                <div className="flex items-center space-x-2 border p-4 rounded-md">
+                    <input
+                        type="checkbox"
+                        id="isVision"
+                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                        checked={isVision}
+                        onChange={(e) => setIsVision(e.target.checked)}
+                    />
+                    <label
+                        htmlFor="isVision"
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                        Vision Model
+                    </label>
+                    <span className="text-xs text-muted-foreground ml-2">
+                        (Check this if the model supports image analysis)
+                    </span>
                 </div>
 
                 <div className="space-y-2">
