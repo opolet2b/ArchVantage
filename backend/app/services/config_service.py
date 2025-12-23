@@ -45,17 +45,56 @@ class ConfigService:
             print(f"Error fetching Ollama models: {e}")
             return []
 
-    def get_active_preset(self) -> Optional[Dict[str, Any]]:
+    def get_default_llm_preset(self) -> Optional[Dict[str, Any]]:
         config = self.get_config()
-        active_name = config.get("active_preset_name")
-        if not active_name:
+        
+        # New key
+        preset_name = config.get("default_llm_preset_name")
+        
+        # Migration/Fallback: Use old 'active_preset_name' if new one not set
+        if not preset_name:
+            preset_name = config.get("active_preset_name")
+            
+        if not preset_name:
             return None
+            
         presets = config.get("presets", [])
-        return next((p for p in presets if p["name"] == active_name), None)
+        return next((p for p in presets if p["name"] == preset_name), None)
+
+    def set_default_llm_preset(self, preset_name: str):
+        config = self.get_config()
+        config["default_llm_preset_name"] = preset_name
+        self.save_config(config)
+
+    def get_default_vision_preset(self) -> Optional[Dict[str, Any]]:
+        config = self.get_config()
+        
+        # New key
+        preset_name = config.get("default_vision_preset_name")
+        
+        # No fallback to 'active_preset_name' for vision specifically, 
+        # unless we want to assume the old active was also vision? 
+        # Safer to just return None or let user configure it.
+        # However, for smooth migration, if 'active_preset_name' points to a vision-capable model, 
+        # we COULD use it, but let's stick to explicit setting or None.
+        if not preset_name:
+             # Logic: If no specific vision default, maybe use LLM default if it supports vision?
+             # For now, strict separation.
+             return None
+
+        presets = config.get("presets", [])
+        return next((p for p in presets if p["name"] == preset_name), None)
+
+    def set_default_vision_preset(self, preset_name: str):
+        config = self.get_config()
+        config["default_vision_preset_name"] = preset_name
+        self.save_config(config)
+
+    # Deprecated but kept for compatibility during refactor
+    def get_active_preset(self) -> Optional[Dict[str, Any]]:
+        return self.get_default_llm_preset()
 
     def set_active_preset(self, preset_name: str):
-        config = self.get_config()
-        config["active_preset_name"] = preset_name
-        self.save_config(config)
+         self.set_default_llm_preset(preset_name)
 
 config_service = ConfigService()

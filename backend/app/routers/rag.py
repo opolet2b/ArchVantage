@@ -9,6 +9,8 @@ router = APIRouter()
 
 class IngestRequest(BaseModel):
     folder_path: str
+    chunk_size: Optional[int] = 1000
+    chunk_overlap: Optional[int] = 200
 
 class QueryRequest(BaseModel):
     query: str
@@ -17,7 +19,11 @@ class QueryRequest(BaseModel):
 @router.post("/rag/ingest")
 async def ingest_documents(request: IngestRequest):
     try:
-        result = rag_service.ingest_folder(request.folder_path)
+        result = rag_service.ingest_folder(
+            request.folder_path, 
+            chunk_size=request.chunk_size, 
+            chunk_overlap=request.chunk_overlap
+        )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

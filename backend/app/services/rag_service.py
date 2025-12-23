@@ -75,14 +75,22 @@ class RAGService:
             print(f"Error ingesting file {file_path}: {e}")
             raise e
 
-    def ingest_folder(self, folder_path: str):
+    def ingest_folder(self, folder_path: str, chunk_size: int = 1000, chunk_overlap: int = 200):
         # Not strictly needed for the current flow but good to keep
         try:
+            # Configure splitting dynamically
+            Settings.text_splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            
             documents = SimpleDirectoryReader(input_dir=folder_path, recursive=True).load_data()
             if documents:
                 for doc in documents:
                     # We might not have conversation_id here easily unless passed
                     pass 
+                
+                # Delete existing documents from index to avoid duplicates if re-ingesting?
+                # For now, just insert (LlamaIndex might handle dupes or we accept them)
+                # Actually, clearing legacy "data" ingestion might be good, but risky if we mix with uploads.
+                # Let's keep append behavior for now.
                 
                 for doc in documents:
                     self.index.insert(doc)

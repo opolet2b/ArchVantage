@@ -42,15 +42,31 @@ def save_preset(preset: ConfigRequest):
     config_service.save_config(config)
     return {"status": "success", "preset": preset_dict}
 
-class ActivePresetRequest(BaseModel):
-    name: str
+class DefaultsRequest(BaseModel):
+    default_llm: Optional[str] = None
+    default_vision: Optional[str] = None
 
+@router.get("/config/defaults")
+def get_defaults():
+    llm_preset = config_service.get_default_llm_preset()
+    vision_preset = config_service.get_default_vision_preset()
+    return {
+        "default_llm": llm_preset["name"] if llm_preset else None,
+        "default_vision": vision_preset["name"] if vision_preset else None
+    }
+
+@router.post("/config/defaults")
+def set_defaults(request: DefaultsRequest):
+    if request.default_llm:
+        config_service.set_default_llm_preset(request.default_llm)
+    if request.default_vision:
+        config_service.set_default_vision_preset(request.default_vision)
+    return {"status": "success"}
+
+# Keep old endpoint for temporary frontend compatibility if needed, 
+# but we will update frontend immediately.
 @router.get("/config/active")
 def get_active_preset():
-    preset = config_service.get_active_preset()
+    # Return the LLM default as the "active" one for legacy calls
+    preset = config_service.get_default_llm_preset()
     return {"active_preset": preset}
-
-@router.post("/config/active")
-def set_active_preset(request: ActivePresetRequest):
-    config_service.set_active_preset(request.name)
-    return {"status": "success", "active_preset": request.name}

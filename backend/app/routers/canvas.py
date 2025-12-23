@@ -681,8 +681,14 @@ async def analyze_selection(
         # Check for image data
         image_payload = request.image_data
         # If fragment is region and has content (base64), use that
-        if not image_payload and request.fragment.type == "region" and request.fragment.content:
-            image_payload = request.fragment.content
+        if not image_payload and request.fragment.content:
+            # Check if content is base64
+            content_str = str(request.fragment.content)
+            if "base64," in content_str[:100] or (len(content_str) > 5000 and not " " in content_str[:100]):
+                 # Assume it's an image if it has base64 header or is a long string without spaces (raw base64)
+                 # Note: raw base64 usually doesn't have spaces.
+                 image_payload = request.fragment.content
+                 print(f"[Analyze] Detected base64 content in fragment type '{request.fragment.type}'")
 
         if image_payload:
             # Vision capabilities

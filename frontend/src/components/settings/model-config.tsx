@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Save, Loader2, RotateCcw } from "lucide-react"
+import { Save, Loader2, RotateCcw, Sparkles } from "lucide-react"
 import { API_URL } from "@/lib/utils"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
 
@@ -31,6 +31,9 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [modelKey, setModelKey] = useState("")
     const [isVision, setIsVision] = useState(false)
 
+    const [defaultLLM, setDefaultLLM] = useState("")
+    const [defaultVision, setDefaultVision] = useState("")
+
     const [availableModels, setAvailableModels] = useState<string[]>([])
     const [presets, setPresets] = useState<Preset[]>([])
     const [selectedPreset, setSelectedPreset] = useState("")
@@ -40,7 +43,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
 
     useEffect(() => {
         fetchPresets()
-        fetchActivePreset()
+        fetchDefaults()
     }, [])
 
     useEffect(() => {
@@ -80,7 +83,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
         setSelectedPreset(presetName)
 
         if (!presetName) {
-            // Reset form or keep current? Let's keep current but clear name if it matches
             return
         }
 
@@ -137,47 +139,42 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
         }
     }
 
-    const handleSetActive = async () => {
-        if (!name) {
-            alert("Please select or save a configuration first")
-            return
-        }
+    const fetchDefaults = async () => {
         try {
-            const res = await fetch(`${API_URL}/config/active`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name }),
-            })
-            if (res.ok) {
-                alert(`Configuration '${name}' set as active!`)
-            } else {
-                alert("Failed to set active configuration")
-            }
+            const res = await fetch(`${API_URL}/config/defaults`)
+            const data = await res.json()
+            setDefaultLLM(data.default_llm || "")
+            setDefaultVision(data.default_vision || "")
         } catch (error) {
-            console.error("Failed to set active", error)
+            console.error("Failed to fetch defaults", error)
         }
     }
 
-    const fetchActivePreset = async () => {
+    const handleSetDefault = async (type: "llm" | "vision", value: string) => {
         try {
-            const res = await fetch(`${API_URL}/config/active`)
-            const data = await res.json()
-            if (data.active_preset) {
-                const preset = data.active_preset
-                setName(preset.name)
-                setType(preset.type)
-                setSelectedPreset(preset.name)
-                if (preset.type === "local") {
-                    setLocalModel(preset.model_name || "")
-                } else {
-                    setRemoteUrl(preset.api_url || "")
-                    setServiceKey(preset.service_api_key || "")
-                    setModelKey(preset.model_api_key || "")
-                }
-                setIsVision(!!preset.is_vision)
+            // Optimistic update
+            if (type === "llm") setDefaultLLM(value)
+            else setDefaultVision(value)
+
+            const payload = {
+                default_llm: type === "llm" ? value : defaultLLM,
+                default_vision: type === "vision" ? value : defaultVision
+            }
+
+            const res = await fetch(`${API_URL}/config/defaults`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            })
+
+            if (!res.ok) {
+                // Revert on failure? For now just alert
+                alert("Failed to update default setting")
+                fetchDefaults()
             }
         } catch (error) {
-            console.error("Failed to fetch active preset", error)
+            console.error("Failed to set default", error)
+            fetchDefaults()
         }
     }
 
@@ -185,20 +182,70 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
         <Card className="w-full max-w-2xl">
             <CardHeader>
                 <CardTitle>Model Configuration</CardTitle>
-                <CardDescription>Configure your LLM settings for local or remote inference.</CardDescription>
+                <CardDescription>Configure your default models and presets.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+
+                {/* Global Defaults Section */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border space-y-4">
+                    <h3 className="font-semibold text-sm flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-purple-500" />
+                        Global Defaults
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Default LLM (Chat)</label>
+                            <select
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={defaultLLM}
+                                onChange={(e) => handleSetDefault("llm", e.target.value)}
+                            >
+                                <option value="">Select a default...</option>
+                                {presets.map((p) => (
+                                    <option key={p.name} value={p.name}>{p.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Default Vision Model</label>
+                            <select
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={defaultVision}
+                                onChange={(e) => handleSetDefault("vision", e.target.value)}
+                            >
+                                <option value="">Select a default...</option>
+                                {/* Filter only vision capable models? Or allow all? 
+                                    Plan says "Vision dropdown only shows presets with is_vision=true" 
+                                    Let's stick to that for better UX.
+                                */}
+                                {presets.filter(p => p.is_vision).map((p) => (
+                                    <option key={p.name} value={p.name}>{p.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                        <span className="bg-background px-2 text-muted-foreground">Preset Editor</span>
+                    </div>
+                </div>
+
                 {presets.length > 0 && (
-                    <div className="space-y-2 p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border">
+                    <div className="space-y-2">
                         <label className="text-sm font-medium flex items-center gap-2">
-                            <RotateCcw className="h-4 w-4" /> Load Saved Configuration
+                            <RotateCcw className="h-4 w-4" /> Load Preset to Edit
                         </label>
                         <select
                             className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                             value={selectedPreset}
                             onChange={handlePresetChange}
                         >
-                            <option value="">Select a preset...</option>
+                            <option value="">Create new preset...</option>
                             {presets.map((p) => (
                                 <option key={p.name} value={p.name}>{p.name} ({p.type})</option>
                             ))}
@@ -329,9 +376,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                     <Button onClick={handleSave} disabled={saving} className="flex-1">
                         {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         Save Configuration
-                    </Button>
-                    <Button onClick={handleSetActive} variant="secondary" className="flex-1">
-                        Set as Active
                     </Button>
                 </div>
             </CardContent>

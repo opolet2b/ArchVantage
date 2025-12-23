@@ -17,7 +17,7 @@ class LLMService:
         
         preset = None
         if model_name == "default":
-            preset = config_service.get_active_preset()
+            preset = config_service.get_default_llm_preset()
         else:
             # Check if model_name matches a saved preset
             config = config_service.get_config()

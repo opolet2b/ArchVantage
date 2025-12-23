@@ -107,29 +107,58 @@ function CanvasViewInner() {
     const [models, setModels] = React.useState<ModelPreset[]>([]);
     const [isLoadingModels, setIsLoadingModels] = React.useState(true);
 
-    // Fetch available models on mount (only once)
+    // Fetch available models and defaults on mount (only once)
     React.useEffect(() => {
         const fetchModels = async () => {
             try {
                 const token = localStorage.getItem("token");
-                const res = await fetch(`${API_URL}/config/presets`, {
-                    headers: token ? { Authorization: `Bearer ${token}` } : {},
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    const presetList = data.presets || [];
+                const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+                // Fetch presets and defaults in parallel
+                const [presetsRes, defaultsRes] = await Promise.all([
+                    fetch(`${API_URL}/config/presets`, { headers }),
+                    fetch(`${API_URL}/config/defaults`, { headers })
+                ]);
+
+                if (presetsRes.ok) {
+                    const data = await presetsRes.json();
+                    const presetList: ModelPreset[] = data.presets || [];
                     setModels(presetList);
-                    // Auto-select first model if none selected in store
-                    const currentModel = useCanvasStore.getState().selectedModel;
-                    if (!currentModel && presetList.length > 0) {
-                        setSelectedModel(presetList[0].name);
+
+                    let defaultLlmName: string | null = null;
+                    let defaultVisionName: string | null = null;
+
+                    if (defaultsRes.ok) {
+                        const defaults = await defaultsRes.json();
+                        defaultLlmName = defaults.default_llm;
+                        defaultVisionName = defaults.default_vision;
                     }
-                    if (!useCanvasStore.getState().visionModel && presetList.length > 0) {
-                        setVisionModel(presetList[0].name);
+
+                    // Set LLM Model: Current store > Default > First available
+                    const currentModel = useCanvasStore.getState().selectedModel;
+                    if (!currentModel) {
+                        if (defaultLlmName && presetList.some(p => p.name === defaultLlmName)) {
+                            setSelectedModel(defaultLlmName);
+                        } else if (presetList.length > 0) {
+                            setSelectedModel(presetList[0].name);
+                        }
+                    }
+
+                    // Set Vision Model: Current store > Default > First vision available
+                    const currentVisionModel = useCanvasStore.getState().visionModel;
+                    if (!currentVisionModel) {
+                        if (defaultVisionName && presetList.some(p => p.name === defaultVisionName)) {
+                            setVisionModel(defaultVisionName);
+                        } else {
+                            const firstVision = presetList.find(p => p.is_vision);
+                            if (firstVision) {
+                                setVisionModel(firstVision.name);
+                            }
+                        }
                     }
                 }
             } catch (error) {
-                console.error("Failed to fetch model presets:", error);
+                console.error("Failed to fetch model presets or defaults:", error);
             } finally {
                 setIsLoadingModels(false);
             }

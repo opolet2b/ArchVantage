@@ -178,12 +178,34 @@ class VisionService:
         """
         Resolve the correct provider based on model name or config.
         """
-        # 1. Check if model matches an active local preset in config
-        active_preset = config_service.get_active_preset()
-        if active_preset and active_preset.get("model_name") == model_name:
-             if active_preset.get("type") == "local":
+        # 0. Handle "default" model request
+        if model_name == "default":
+            default_vision = config_service.get_default_vision_preset()
+            if default_vision:
+                 if default_vision.get("type") == "local":
+                     return self._providers["ollama"]
+                 # Fall through for remote default (check below or assume OpenAI logic)
+                 # Actually if it is remote, we need to know WHICH provider. 
+                 # For now, if it's not local, we assume OpenAI provider handles the remote URL/Key logic 
+                 # (Implementation detail: OpenAIVisionProvider might need update to read from preset if passed?)
+                 # For now let's assume if type!=local it means we use OpenAI provider but update it 
+                 # to potentially use the preset Config? 
+                 # "OpenAIVisionProvider" currently reads env var.
+                 # Let's return OpenAI provider but we might need to injecting config.
+                 return self._providers["openai"]
+        
+        # 1. Check if model matches the default vision preset (e.g. user passed "llava" explicitly and it is the default)
+        default_vision = config_service.get_default_vision_preset()
+        if default_vision and default_vision.get("model_name") == model_name:
+             if default_vision.get("type") == "local":
                  return self._providers["ollama"]
-             # If remote, fall through to provider check or default to OpenAI
+
+        # 1b. Check against default LLM preset (legacy support or if using multi-model)
+        # Some users might set a multimodal model as their LLM default
+        default_llm = config_service.get_default_llm_preset()
+        if default_llm and default_llm.get("model_name") == model_name:
+             if default_llm.get("type") == "local":
+                  return self._providers["ollama"]
         
         # 2. Heuristic check based on model name
         if model_name.startswith("gpt") or model_name.startswith("o1"):
@@ -210,24 +232,53 @@ class VisionService:
         """
         Facade method to analyze an image using the appropriate provider.
         """
-        print(f"\n[VisionService] Request received for model: '{model_name}'")
-        provider = self._get_provider(model_name)
+        config = config_service.get_config()
+        presets = config.get("presets", [])
+        
+        # 1. Resolve 'model_name' to a Preset
+        target_preset = None
+        
+        if model_name == "default":
+            target_preset = config_service.get_default_vision_preset()
+            if not target_preset:
+                target_preset = config_service.get_default_llm_preset()
+        else:
+            # Check if input matches a Preset Name
+            target_preset = next((p for p in presets if p["name"] == model_name), None)
+            
+        # 2. Determine Provider & Actual Model Tag
+        provider = None
+        actual_model_tag = model_name # Fallback: assume input was a raw tag
+        
+        if target_preset:
+            print(f"[VisionService] Resolved '{model_name}' to preset '{target_preset['name']}'")
+            if target_preset.get("type") == "local":
+                provider = self._providers["ollama"]
+                actual_model_tag = target_preset.get("model_name", "llama3.2-vision")
+            else:
+                provider = self._providers["openai"]
+                # For remote, if the preset has a specific model_name, use it, else default
+                # ModelConfig currently might not save 'model_name' for remote types, 
+                # but if we want to support it we can check.
+                actual_model_tag = target_preset.get("model_name") or "gpt-4o"
+        else:
+            # No preset found. Use heuristic or legacy logic.
+            print(f"[VisionService] No preset found for '{model_name}'. Treating as raw tag.")
+            provider = self._get_provider(model_name)
+            actual_model_tag = model_name
+
         provider_name = "Ollama" if isinstance(provider, OllamaVisionProvider) else "OpenAI"
-        print(f"[VisionService] Routing to provider: {provider_name}")
+        print(f"[VisionService] Routing to provider: {provider_name} with tag: '{actual_model_tag}'")
         
         # Log approximate image size to verify cropping
         img_len = len(image_data)
-        print(f"[VisionService] Image Payload Size: {img_len} chars (approx {img_len * 3 / 4 / 1024:.1f} KB)")
-        if img_len > 1000000:
-             print("[VisionService] Payload > 1MB. Likely full image or large crop.")
-        else:
-             print("[VisionService] Payload < 1MB. Likely a cropped region.")
+        # print(f"[VisionService] Image Payload Size: {img_len} chars (approx {img_len * 3 / 4 / 1024:.1f} KB)")
 
         return await provider.analyze_image(
             image_data=image_data, 
             prompt=prompt, 
             system_prompt=system_prompt, 
-            model_name=model_name
+            model_name=actual_model_tag
         )
 
 # Singleton instance

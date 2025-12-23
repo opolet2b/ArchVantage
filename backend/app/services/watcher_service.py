@@ -48,7 +48,8 @@ class WatcherService:
     def start(self):
         print(f"Starting RAG Watcher on {self.folder_path}")
         # Re-enabled after fixing frontend hang
-        self.thread.start()
+        # self.thread.start()
+        print("RAG Watcher is disabled (manual ingestion only).")
 
 # Singleton instance
 watcher_service = WatcherService()

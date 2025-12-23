@@ -6,10 +6,11 @@ import UsersPage from "@/app/settings/users/page"
 import { MCPServersTab } from "@/components/settings/mcp-servers-tab"
 import { CategoriesTab } from "@/components/settings/categories-tab"
 import { TemplatesSettingsTab } from "@/components/settings/templates-settings-tab"
+import { RagSettingsTab } from "@/components/settings/rag-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, Server, FolderOpen, FileText } from "lucide-react"
+import { Users, Server, FolderOpen, FileText, Database } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -55,6 +56,14 @@ export default function SettingsPage() {
                             onClick={() => handleTabChange("model")}
                         >
                             Model Configuration
+                        </Button>
+                        <Button
+                            variant={activeTab === "rag" ? "secondary" : "ghost"}
+                            className="justify-start"
+                            onClick={() => handleTabChange("rag")}
+                        >
+                            <Database className="mr-2 h-4 w-4" />
+                            RAG / Knowledge
                         </Button>
                         {isAdmin && (
                             <Button
@@ -103,6 +112,7 @@ export default function SettingsPage() {
 
                     <main className="flex-1">
                         {activeTab === "model" && <ModelConfig />}
+                        {activeTab === "rag" && <RagSettingsTab />}
                         {(activeTab === "users" ||
                             activeTab === "roles" ||
                             activeTab === "group-mappings" ||
