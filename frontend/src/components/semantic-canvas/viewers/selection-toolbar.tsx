@@ -124,6 +124,8 @@ export function SelectionToolbar({
                 className={cn(
                     "fixed z-50 flex items-center gap-1 p-1",
                     "bg-white dark:bg-slate-800 rounded-lg shadow-lg border",
+                    // Visual feedback for region selection
+                    fragment.type === "region" ? "border-2 border-green-500 shadow-green-500/20" : "border-slate-200 dark:border-slate-700",
                     "animate-in fade-in-0 zoom-in-95 duration-150"
                 )}
                 style={{

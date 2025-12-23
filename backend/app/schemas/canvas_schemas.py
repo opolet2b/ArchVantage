@@ -264,6 +264,7 @@ class AnalyzeAction(str, Enum):
 class FragmentData(BaseModel):
     """Fragment representing a selection within content."""
     type: str  # text, cell, region, message
+    id: Optional[str] = None
     content: Optional[str] = None
     # Text fragments
     start_offset: Optional[int] = None

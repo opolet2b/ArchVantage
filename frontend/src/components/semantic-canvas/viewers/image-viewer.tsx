@@ -22,7 +22,7 @@ interface ImageViewerProps {
     /** Alt text for the image */
     alt?: string;
     /** Callback when a region is selected */
-    onSelect?: (fragment: RegionFragment) => void;
+    onSelect?: (fragment: RegionFragment, position?: { x: number; y: number }) => void;
     /** Optional className for styling */
     className?: string;
     /** Whether selection is enabled */
@@ -110,7 +110,7 @@ export function ImageViewer({
     };
 
     // Handle mouse up - complete selection
-    const handleMouseUp = () => {
+    const handleMouseUp = (e?: React.MouseEvent) => {
         console.log("[ImageViewer] MouseUp", { isSelecting, selectionStart, selectionEnd });
         if (!isSelecting || !selectionStart || !selectionEnd || !onSelect) {
             setIsSelecting(false);
@@ -164,7 +164,11 @@ export function ImageViewer({
             const pctW = (width / img.width) * 100;
             const pctH = (height / img.height) * 100;
 
+            // Generate ID immediately so parent components can reference it (e.g. for linking)
+            const regionId = Date.now().toString();
+
             const fragment: RegionFragment = {
+                id: regionId,
                 type: "region",
                 x: pctX,
                 y: pctY,
@@ -175,7 +179,17 @@ export function ImageViewer({
 
             setCurrentSelection(fragment);
             console.log("[ImageViewer] Calling onSelect with fragment", fragment);
-            onSelect(fragment);
+
+            // Calculate screen position for toolbar (center bottom of selection)
+            const rect = containerRef.current?.getBoundingClientRect();
+            const screenPos = rect ? {
+                x: rect.left + x + width / 2,
+                y: rect.top + y + height
+            } : { x: 0, y: 0 };
+
+            // Pass position as second arg if supported
+            // @ts-ignore - SelectableContent expects 2 args
+            onSelect(fragment, screenPos);
         } else {
             console.log("[ImageViewer] Selection too small or no image ref");
         }
@@ -346,9 +360,40 @@ export function ImageViewer({
                         isActive={activeOverlayId === overlay.id}
                         onResizeProp={onOverlayResize}
                         onDeleteProp={onOverlayDelete}
-                        onClick={() => {
+                        onClick={(e) => { // Accept event from OverlayItem
+                            e.stopPropagation(); // Prevent triggering background click/creation
                             setActiveOverlayId(overlay.id);
-                            if (onOverlayClick) onOverlayClick(overlay);
+
+                            // Call onSelect to open the analysis toolbar for this region
+                            if (onSelect && containerRef.current) {
+                                // Reconstruct fragment from overlay
+                                const fragment: RegionFragment = {
+                                    id: overlay.id, // Include ID for reference
+                                    type: "region",
+                                    x: overlay.x,
+                                    y: overlay.y,
+                                    width: overlay.width,
+                                    height: overlay.height,
+                                    content: (overlay as any).content || "" // Use stored content if available
+                                };
+
+                                // Calculate screen position for toolbar
+                                const rect = containerRef.current.getBoundingClientRect();
+                                const xPx = (overlay.x / 100) * rect.width;
+                                const yPx = (overlay.y / 100) * rect.height;
+                                const hPx = (overlay.height / 100) * rect.height;
+                                const wPx = (overlay.width / 100) * rect.width;
+
+                                const screenPos = {
+                                    x: rect.left + xPx + wPx / 2,
+                                    y: rect.top + yPx + hPx
+                                };
+
+                                // @ts-ignore - SelectableContent expects 2 args
+                                onSelect(fragment, screenPos);
+                            }
+
+                            if (onOverlayClick) onOverlayClick(overlay, e); // Pass to parent
                         }}
                     />
                 ))}
@@ -370,9 +415,8 @@ function OverlayItem({
 }: {
     overlay: { id: string; label?: string; x: number; y: number; width: number; height: number };
     isActive: boolean;
-    onResizeProp?: (id: string, x: number, y: number, width: number, height: number) => void;
     onDeleteProp?: (id: string) => void;
-    onClick?: () => void;
+    onClick?: (e: React.MouseEvent) => void;
 }) {
     // Local state for smooth resizing without updating backend on every pixel
     const [localOverlay, setLocalOverlay] = React.useState(overlay);
@@ -507,7 +551,7 @@ function OverlayItem({
             }}
             onMouseDown={(e) => {
                 e.stopPropagation(); // Stop click from clearing global selection
-                onClick?.();
+                onClick?.(e);
             }}
         >
             {/* React Flow Handles for connection visualization */}

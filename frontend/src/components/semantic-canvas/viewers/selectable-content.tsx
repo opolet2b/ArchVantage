@@ -35,6 +35,8 @@ interface SelectableContentProps {
     thingId: string;
     /** Children to render (the actual viewer) */
     children: React.ReactNode;
+    /** Callback when selection state changes */
+    onSelectionChange?: (hasSelection: boolean) => void;
 }
 
 // =============================================================================
@@ -44,6 +46,7 @@ interface SelectableContentProps {
 export function SelectableContent({
     thingId,
     children,
+    onSelectionChange,
 }: SelectableContentProps) {
     const canvasId = useCanvasStore((state) => state.canvasId);
     const addThing = useCanvasStore((state) => state.addThing);
@@ -53,6 +56,104 @@ export function SelectableContent({
     // Remove direct subscription to prevent infinite render loops
     // const things = useCanvasStore((state) => state.things);
     const { analyze, isLoading } = useAnalyze();
+
+    // Helper to fetch image as base64
+    const fetchImageAsBase64 = React.useCallback(async (url: string): Promise<string | null> => {
+        try {
+            const token = localStorage.getItem("token");
+            let fetchUrl = url;
+            if (url.startsWith("/api/")) {
+                const protocol = window.location.protocol;
+                const hostname = window.location.hostname;
+                // Assuming standard dev port 8000 for backend if on localhost, otherwise relative
+                const port = hostname === "localhost" ? ":8000" : "";
+                fetchUrl = `${protocol}//${hostname}${port}${url}`;
+                console.log("[SelectableContent] Fetching full image from:", fetchUrl);
+            }
+
+            const res = await fetch(fetchUrl, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+            });
+        } catch (e) {
+            console.error("Failed to fetch image", e);
+            return null;
+        }
+    }, []);
+
+    // Helper to prepare fragment (handling image cropping)
+    const prepareFragmentForAnalysis = React.useCallback(async (fragment: Fragment): Promise<Fragment> => {
+        let finalFragment = fragment;
+        console.log("[SelectableContent] Preparing fragment. Type:", fragment.type);
+
+        if (fragment.type === "region") {
+            const store = useCanvasStore.getState();
+            const thing = store.things.find(t => t.id === thingId);
+            const regionFrag = fragment as any;
+
+            console.log("[SelectableContent] Debugging thing:", {
+                found: !!thing,
+                id: thing?.id,
+                type: thing?.type,
+                contentType: typeof thing?.content,
+                filePath: thing?.content?.file_path,
+                isImage: thing?.type === "image"
+            });
+
+            if (thing && thing.type === "image" && thing.content.file_path) {
+                console.log("[SelectableContent] Fetching full image for cropping...");
+                const base64Full = await fetchImageAsBase64(thing.content.file_path as string);
+
+                if (base64Full) {
+                    try {
+                        const croppedBase64 = await new Promise<string>((resolve, reject) => {
+                            const img = document.createElement("img");
+                            img.onload = () => {
+                                const canvas = document.createElement('canvas');
+                                const x = (regionFrag.x / 100) * img.naturalWidth;
+                                const y = (regionFrag.y / 100) * img.naturalHeight;
+                                const w = (regionFrag.width / 100) * img.naturalWidth;
+                                const h = (regionFrag.height / 100) * img.naturalHeight;
+
+                                console.log(`[SelectableContent] Cropping to: x=${x}, y=${y}, w=${w}, h=${h}`);
+
+                                if (w <= 0 || h <= 0) {
+                                    console.warn("[SelectableContent] Invalid crop dimensions. Using original fragment content.");
+                                    resolve(fragment.content || "");
+                                    return;
+                                }
+
+                                canvas.width = w;
+                                canvas.height = h;
+                                const ctx = canvas.getContext('2d');
+                                if (ctx) {
+                                    ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+                                    resolve(canvas.toDataURL('image/png'));
+                                } else {
+                                    console.warn("[SelectableContent] Failed to get canvas context. Using original fragment content.");
+                                    resolve(fragment.content || "");
+                                }
+                            };
+                            img.onerror = reject;
+                            img.src = base64Full;
+                        });
+
+                        finalFragment = { ...fragment, content: croppedBase64 };
+                        console.log("[SelectableContent] Image cropped. Content length:", finalFragment.content?.length);
+                    } catch (e) {
+                        console.error("[SelectableContent] Cropping failed", e);
+                    }
+                }
+            }
+        }
+        return finalFragment;
+    }, [thingId, fetchImageAsBase64]);
 
     // Selection state
     const [selection, setSelection] = React.useState<{
@@ -67,6 +168,7 @@ export function SelectableContent({
     // Result dialog state
     const [resultDialogOpen, setResultDialogOpen] = React.useState(false);
     const [analysisResult, setAnalysisResult] = React.useState<string>("");
+    const [analysisSourceFragment, setAnalysisSourceFragment] = React.useState<Fragment | null>(null);
 
     // Link dialog state
     const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
@@ -78,21 +180,24 @@ export function SelectableContent({
     const handleSelection = React.useCallback(
         (fragment: Fragment, position: { x: number; y: number }) => {
             setSelection({ fragment, position });
+            onSelectionChange?.(true);
         },
-        []
+        [onSelectionChange]
     );
 
     // Clear selection
     const clearSelection = React.useCallback(() => {
         setSelection(null);
+        onSelectionChange?.(false);
         // Clear browser selection
         window.getSelection()?.removeAllRanges();
-    }, []);
+    }, [onSelectionChange]);
 
     // Helper: Create fragment data for API
     const getFragmentData = (fragment: Fragment) => ({
         type: fragment.type,
         content: fragment.content,
+        ...("id" in fragment && { id: fragment.id }),
         ...("startOffset" in fragment && { start_offset: fragment.startOffset }),
         ...("endOffset" in fragment && { end_offset: fragment.endOffset }),
         ...("pageNumber" in fragment && { page_number: fragment.pageNumber }),
@@ -138,7 +243,9 @@ export function SelectableContent({
             : { x: 100, y: 100 };
 
         // Create new text thing
-        const newThing = await addThing("text", { text }, position);
+        const title = sourceFragment.id || "Analysis Result";
+        console.log("[SelectableContent] Creating new thing. ID:", sourceFragment.id, "Title:", title, "Fragment:", sourceFragment);
+        const newThing = await addThing("text", { text }, position, title);
 
         if (newThing) {
             // Create link
@@ -157,45 +264,50 @@ export function SelectableContent({
     const handleAction = React.useCallback(
         async (action: LLMAction, fragment: Fragment) => {
             if (action === "ask") {
-                // Open custom prompt dialog
                 setAskDialogOpen(true);
                 return;
             }
 
             if (!canvasId) return;
 
-            const isRegion = fragment.type === "region";
+            // Prepare fragment (crop if needed)
+            const fragmentToAnalyze = await prepareFragmentForAnalysis(fragment);
+
+            const isRegion = fragmentToAnalyze.type === "region";
             const modelToUse = isRegion ? (visionModel || selectedModel) : selectedModel;
 
             const result = await analyze({
                 canvasId,
                 thingId,
-                fragment,
+                fragment: fragmentToAnalyze,
                 action,
                 model: modelToUse || undefined,
             });
 
             if (result && result.result) {
-                // Automatically create node and link
-                await createNodeAndLink(result.result, fragment);
+                await createNodeAndLink(result.result, fragmentToAnalyze);
             }
 
             clearSelection();
         },
-        [canvasId, thingId, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel]
+        [canvasId, thingId, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis]
     );
 
     // Handle ask with custom prompt
     const handleAskSubmit = React.useCallback(async () => {
         if (!selection || !canvasId || !customPrompt.trim()) return;
 
+        // Prepare fragment (crop if needed)
+        const fragmentToAnalyze = await prepareFragmentForAnalysis(selection.fragment);
+        setAnalysisSourceFragment(selection.fragment); // Keep original or analyzed? Analyzed has content. But original has ID? both have ID. analyzed has base64 content. use original for lightweight ID reference? No, use original selection fragment is safer if ID is there.
+
         const result = await analyze({
             canvasId,
             thingId,
-            fragment: selection.fragment,
+            fragment: fragmentToAnalyze,
             action: "ask",
             customPrompt: customPrompt.trim(),
-            model: (selection.fragment.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
+            model: (fragmentToAnalyze.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
         });
 
         if (result && result.result) {
@@ -205,7 +317,7 @@ export function SelectableContent({
         setAskDialogOpen(false);
         setCustomPrompt("");
         clearSelection();
-    }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel]);
+    }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis]);
 
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {
@@ -276,10 +388,26 @@ export function SelectableContent({
     const handleCreateThing = React.useCallback(async () => {
         if (!analysisResult) return;
 
-        await addThing("text", { text: analysisResult }, { x: 100, y: 100 });
+        // Use stored source fragment ID for title if available
+        const title = analysisSourceFragment?.id || "Analysis Result";
+        await addThing("text", { text: analysisResult }, { x: 100, y: 100 }, title);
+
+        if (analysisSourceFragment) {
+            // Link back to source? createNodeAndLink does this.
+            // But handleCreateThing duplicates logic?
+            // Ideally handleCreateThing should call createNodeAndLink?
+            // createNodeAndLink expects 'sourceFragment'.
+            // Let's refactor handleCreateThing to use createNodeAndLink!
+            await createNodeAndLink(analysisResult, analysisSourceFragment);
+        } else {
+            // Fallback if no source (shouldn't happen in this flow)
+            await addThing("text", { text: analysisResult }, { x: 100, y: 100 }, title);
+        }
+
         setResultDialogOpen(false);
         setAnalysisResult("");
-    }, [analysisResult, addThing]);
+        setAnalysisSourceFragment(null);
+    }, [analysisResult, addThing, analysisSourceFragment, createNodeAndLink]);
 
     // Clone children and inject onSelect handler
     const childrenWithProps = React.Children.map(children, (child) => {

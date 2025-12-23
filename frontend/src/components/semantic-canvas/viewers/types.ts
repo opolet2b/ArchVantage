@@ -11,6 +11,7 @@
 export interface Fragment {
     type: "text" | "range" | "cell" | "region" | "message" | "slide";
     content?: string;  // The selected content (text, etc.)
+    id?: string;       // Optional ID of the source (e.g. region overlay ID)
 }
 
 // Text fragment for PDF, Markdown, plain text
