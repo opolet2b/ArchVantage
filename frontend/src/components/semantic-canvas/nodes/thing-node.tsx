@@ -40,6 +40,7 @@ import {
     LLMAction,
     Fragment,
     RegionFragment,
+    useSelection,
 } from "../viewers";
 import {
     Dialog,
@@ -188,6 +189,7 @@ interface ThingNodeData {
     onOpenConversation?: (conversationId: string) => void;
     onToggleIconify?: (thingId: string) => void;
     onDelete?: (thingId: string) => void;
+    onResizeEnd?: (thingId: string, width: number, height: number) => void;
 }
 
 // =============================================================================
@@ -195,17 +197,29 @@ interface ThingNodeData {
 // =============================================================================
 
 export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
-    const { thing, zoomLevel, isSelected, onOpenConversation, onToggleIconify, onDelete } = data;
+    const { thing, zoomLevel, isSelected, onOpenConversation, onToggleIconify, onDelete, onResizeEnd } = data;
     const Icon = thingIcons[thing.type] || FileText;
 
     // Canvas store helpers
     const addThing = useCanvasStore((state) => state.addThing);
+    const updateThing = useCanvasStore((state) => state.updateThing);
     const addLink = useCanvasStore((state) => state.addLink);
+    const updateLink = useCanvasStore((state) => state.updateLink);
+    const deleteLink = useCanvasStore((state) => state.deleteLink);
     const selectedModel = useCanvasStore((state) => state.selectedModel);
     const visionModel = useCanvasStore((state) => state.visionModel);
     const links = useCanvasStore((state) => state.links);
     const { analyze, isLoading } = useAnalyze();
     const canvasId = useCanvasStore((state) => state.canvasId);
+    const { setSelection } = useSelection();
+
+    // Debug re-render
+    React.useEffect(() => {
+        if (thing.type === "image") {
+            const regionCount = (thing.content as any).regions?.length || 0;
+            console.log(`[ThingNode] RENDER ${thing.id}. Regions: ${regionCount}`);
+        }
+    });
 
     // Ref for positioning toolbar
     const nodeRef = React.useRef<HTMLDivElement>(null);
@@ -266,10 +280,12 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         };
     }, [thing]);
 
-    // Calculate image overlays from links
+    // Calculate image overlays from links AND content.regions
     const imageOverlays = React.useMemo(() => {
         if (thing.type !== "image") return [];
-        return links
+
+        // 1. Overlays from Links
+        const linkOverlays = links
             .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
             .map(l => ({
                 id: l.id,
@@ -278,13 +294,103 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                 y: (l.source_fragment as unknown as RegionFragment).y,
                 width: (l.source_fragment as unknown as RegionFragment).width,
                 height: (l.source_fragment as unknown as RegionFragment).height,
+                type: "link" as const
             }));
-    }, [links, thing.id, thing.type]);
+
+        // 2. Overlays from Content Regions (Persistent Frames)
+        const currentRegions = (thing.content.regions as any[]) || [];
+        const regionOverlays = currentRegions.map((r: any, idx: number) => ({
+            id: r.id || `region-${idx}`, // Ensure ID
+            label: r.label,
+            x: r.x,
+            y: r.y,
+            width: r.width,
+            height: r.height,
+            type: "region" as const,
+            content: r.content // Keep content for reference
+        }));
+
+        return [...linkOverlays, ...regionOverlays];
+    }, [links, thing.id, thing.type, thing.content]);
+
+    // Handle create new region (persist to content)
+    const handleRegionCreate = React.useCallback(async (fragment: RegionFragment) => {
+        if (thing.type !== "image") return;
+
+        const newRegion = {
+            id: `region-${Date.now()}`,
+            type: "region",
+            x: fragment.x,
+            y: fragment.y,
+            width: fragment.width,
+            height: fragment.height,
+            content: undefined, // Do not store heavy base64 in database
+            label: "Selection"
+        };
+
+        const currentRegions = (thing.content.regions as any[]) || [];
+        const updatedRegions = [...currentRegions, newRegion];
+
+        // Update thing content
+        console.log(`[ThingNode] Creating region:`, newRegion);
+        await updateThing(thing.id, {
+            content: { ...thing.content, regions: updatedRegions }
+        });
+        console.log(`[ThingNode] Region creation update sent.`);
+    }, [thing, updateThing]);
+
+    // Handle delete region or link overlay
+    const handleOverlayDelete = React.useCallback(async (id: string) => {
+        // Check if it's a link
+        const link = links.find(l => l.id === id);
+        if (link) {
+            // It's a link overlay -> Delete the link
+            await deleteLink(id);
+            // Links deletion cascades to orphan nodes handled in CanvasView
+        } else {
+            // It's a content region -> Remove from content
+            const currentRegions = (thing.content.regions as any[]) || [];
+            if (currentRegions.some(r => r.id === id)) {
+                const updatedRegions = currentRegions.filter(r => r.id !== id);
+                await updateThing(thing.id, {
+                    content: { ...thing.content, regions: updatedRegions }
+                });
+            }
+        }
+    }, [links, thing, deleteLink, updateThing]);
+
+    // Handle overlay resize (persist to link OR content)
+    const handleOverlayResize = React.useCallback(async (overlayId: string, x: number, y: number, width: number, height: number) => {
+        // Check if link
+        const link = links.find(l => l.id === overlayId);
+        if (link && link.source_fragment) {
+            const updatedFragment = {
+                ...link.source_fragment,
+                x, y, width, height
+            };
+            await updateLink(overlayId, { source_fragment: updatedFragment });
+            return;
+        }
+
+        // Check if content region
+        const currentRegions = (thing.content.regions as any[]) || [];
+        const regionIndex = currentRegions.findIndex(r => r.id === overlayId);
+        if (regionIndex !== -1) {
+            const updatedRegions = [...currentRegions];
+            updatedRegions[regionIndex] = {
+                ...updatedRegions[regionIndex],
+                x, y, width, height
+            };
+            await updateThing(thing.id, {
+                content: { ...thing.content, regions: updatedRegions }
+            });
+        }
+    }, [links, thing, updateLink, updateThing]);
 
     // Helpers copied from SelectableContent
+    // Helpers copied from SelectableContent
     const getFragmentData = (fragment: Fragment) => ({
-        type: fragment.type,
-        content: fragment.content,
+        ...fragment, // Preserve all properties (x, y, width, height for regions)
     }); // simplified for full thing
 
     // Helper: Create new node from result and link it
@@ -471,6 +577,8 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
 
     // Get highlighted fragment for traceability
     const highlightedFragment = useCanvasStore(state => state.highlightedFragment);
+
+
     const highlight = (highlightedFragment && highlightedFragment.thingId === thing.id)
         ? highlightedFragment.fragment
         : undefined;
@@ -621,6 +729,26 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             alt={content.alt_text as string || "Image"}
                             className="max-h-[200px]"
                             overlays={imageOverlays}
+                            onOverlayResize={handleOverlayResize}
+                            onSelect={handleRegionCreate} // Drawing creates a region
+                            onOverlayDelete={handleOverlayDelete}
+                            onOverlayClick={(overlay) => {
+                                // When a region/overlay is clicked, we might want to open the toolbox
+                                // The ImageViewer manages visual selection ("active" state)
+                                // We need to tell the global SelectionContext about it
+                                // Construct a fragment from the overlay
+                                const fragment: RegionFragment = {
+                                    type: "region",
+                                    x: overlay.x,
+                                    y: overlay.y,
+                                    width: overlay.width,
+                                    height: overlay.height,
+                                    // If we stored content in the region, use it, otherwise might need to fetch/crop again?
+                                    // For now, assume it's attached or we don't strictly need base64 for just showing toolbox options unless action taken.
+                                    content: (overlay as any).content || ""
+                                };
+                                setSelection(thing.id, fragment);
+                            }}
                         />
                     </SelectableContent>
                 );
@@ -781,6 +909,11 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                 minWidth={minWidth}
                 minHeight={60}
                 handleStyle={resizeHandleStyle}
+                onResizeEnd={(_e, params) => {
+                    if (onResizeEnd) {
+                        onResizeEnd(thing.id, params.width, params.height);
+                    }
+                }}
             />
             {/* Agent Builder-style container */}
             <div
@@ -957,4 +1090,5 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         </>
     );
 }
+
 

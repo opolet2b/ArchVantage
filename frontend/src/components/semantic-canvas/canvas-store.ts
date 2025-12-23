@@ -206,6 +206,10 @@ interface CanvasState {
         sourceFragment?: Record<string, unknown>,
         targetFragment?: Record<string, unknown>
     ) => Promise<CanvasLink | null>;
+    updateLink: (
+        linkId: string,
+        updates: Partial<CanvasLink>
+    ) => Promise<void>;
     deleteLink: (linkId: string) => Promise<void>;
 
     // Domain actions
@@ -426,6 +430,29 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         const token = getAuthToken();
         if (!token || !canvasId) return;
 
+        // Optimistic update
+        const currentThings = get().things;
+        const optimisticThings = currentThings.map((t) => {
+            if (t.id === thingId) {
+                return {
+                    ...t,
+                    ...updates,
+                    // Preserve existing values if not updated
+                    content: updates.content || t.content,
+                    position_x: updates.position_x ?? t.position_x,
+                    position_y: updates.position_y ?? t.position_y,
+                    width: updates.width ?? t.width,
+                    height: updates.height ?? t.height,
+                    title: updates.title ?? t.title,
+                    collapsed: updates.collapsed ?? t.collapsed,
+                    iconified: updates.iconified ?? t.iconified,
+                    pre_iconify_size: updates.pre_iconify_size ?? t.pre_iconify_size,
+                };
+            }
+            return t;
+        });
+        set({ things: optimisticThings });
+
         try {
             const res = await fetch(
                 `${API_URL}/canvases/${canvasId}/things/${thingId}`,
@@ -445,34 +472,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                             : undefined,
                         title: updates.title,
                         collapsed: updates.collapsed,
+                        iconified: updates.iconified,
+                        pre_iconify_size: updates.pre_iconify_size,
                     }),
                 }
             );
 
-            if (!res.ok) throw new Error("Failed to update thing");
+            if (!res.ok) {
+                // Revert on failure
+                set({ things: currentThings });
+                throw new Error("Failed to update thing");
+            }
 
             const serverUpdated: CanvasThing = await res.json();
+            console.log("[CanvasStore] Server updated:", serverUpdated);
+            console.log("[CanvasStore] Content regions from server:", (serverUpdated.content as any).regions);
 
-            // Merge server response with current local state to preserve
-            // concurrent local changes (e.g., domain_id set by removeThingFromDomain)
-            const currentThings = get().things;
+            // confirm update with server response (handles side effects)
             set({
-                things: currentThings.map((t) => {
-                    if (t.id === thingId) {
-                        // Keep local domain_id if it differs from server
-                        // (handles race condition with removeThingFromDomain)
-                        return {
-                            ...serverUpdated,
-                            domain_id: t.domain_id,
-                            iconified: t.iconified,
-                            pre_iconify_size: t.pre_iconify_size,
-                        };
-                    }
-                    return t;
-                }),
+                things: get().things.map((t) =>
+                    t.id === thingId ? { ...t, ...serverUpdated } : t
+                ),
             });
         } catch (err) {
             console.error("Failed to update thing:", err);
+            // Revert on error
+            set({ things: currentThings });
         }
     },
 
@@ -566,6 +591,38 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             set({ links: links.filter((l) => l.id !== linkId) });
         } catch (err) {
             console.error("Failed to delete link:", err);
+        }
+    },
+
+    // Update link
+    updateLink: async (linkId, updates) => {
+        const { canvasId, links } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return;
+
+        try {
+            const res = await fetch(`${API_URL}/canvases/${canvasId}/links/${linkId}`, {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    type: updates.type,
+                    label: updates.label,
+                    source_fragment: updates.source_fragment,
+                    target_fragment: updates.target_fragment
+                }),
+            });
+
+            if (!res.ok) throw new Error("Failed to update link");
+            const updatedLink: CanvasLink = await res.json();
+
+            set({
+                links: links.map((l) => (l.id === linkId ? updatedLink : l)),
+            });
+        } catch (err) {
+            console.error("Failed to update link:", err);
         }
     },
 

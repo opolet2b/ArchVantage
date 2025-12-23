@@ -9,6 +9,7 @@ PEP 8 Compliant
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
 from app.routers.auth import get_current_active_user
@@ -242,9 +243,14 @@ def update_thing(
             detail="Thing not found"
         )
     
+    from sqlalchemy.orm.attributes import flag_modified
+    
     # Update fields
     if request.content is not None:
+        print(f"[CanvasRouter] Updating thing {thing_id} content. Regions: {request.content.get('regions')}")
         thing.content = request.content
+        flag_modified(thing, "content") # Explicitly flag JSON as modified
+        print(f"[CanvasRouter] Content updated and flagged modified.")
     if request.position is not None:
         thing.position_x = request.position.x
         thing.position_y = request.position.y

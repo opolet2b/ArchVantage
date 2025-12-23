@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Brain, Loader2, Eye } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
+import { SelectionProvider } from "./viewers/selection-context";
 
 // =============================================================================
 // Node Types
@@ -97,6 +98,10 @@ function CanvasViewInner() {
     const visionModel = useCanvasStore((state) => state.visionModel);
     const setVisionModel = useCanvasStore((state) => state.setVisionModel);
 
+    // Debug render
+    console.log(`[CanvasView] RENDER STATE: Rendering CanvasViewInner for canvas: ${canvasId}`);
+
+
     // Model presets state for dropdown
     interface ModelPreset {
         name: string;
@@ -112,7 +117,7 @@ function CanvasViewInner() {
         const fetchModels = async () => {
             try {
                 const token = localStorage.getItem("token");
-                const headers = token ? { Authorization: `Bearer ${token}` } : {};
+                const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
 
                 // Fetch presets and defaults in parallel
                 const [presetsRes, defaultsRes] = await Promise.all([
@@ -192,6 +197,12 @@ function CanvasViewInner() {
     // nodeTypes moved to top-level
     const nodeTypes = nodeTypesMemo;
 
+    // Handle thing resize end
+    const handleThingResize = React.useCallback((thingId: string, width: number, height: number) => {
+        console.log(`[CanvasView] Thing resized: ${thingId} to ${width}x${height}`);
+        updateThing(thingId, { width, height });
+    }, [updateThing]);
+
     // Convert things to React Flow nodes (memoized)
     const thingNodes: Node[] = React.useMemo(() => things.map((thing) => ({
         id: thing.id,
@@ -204,6 +215,7 @@ function CanvasViewInner() {
             onOpenConversation: handleOpenConversation,
             onToggleIconify: toggleIconify,
             onDelete: deleteThing,
+            onResizeEnd: handleThingResize,
         },
         draggable: true,
         // Include width/height if thing has been resized or use default for heavy types (skip for iconified)
@@ -211,7 +223,7 @@ function CanvasViewInner() {
             width: thing.width ?? 400, // Default width if not set to prevent auto-resize to content
             height: thing.height ?? undefined, // Allow height to be auto if not set, or set default?
         } : undefined,
-    })), [things, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing]);
+    })), [things, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing, handleThingResize]);
 
     // Handle domain rename
     const handleDomainRename = React.useCallback((domainId: string, newName: string) => {
@@ -287,6 +299,7 @@ function CanvasViewInner() {
         id: link.id,
         source: link.source_id,
         target: link.target_id,
+        sourceHandle: (link.source_fragment?.type === "region") ? `fragment-handle-${link.id}` : undefined,
         label: link.label || undefined,
         type: "smoothstep",
         animated: link.type === "derived_from",
@@ -363,7 +376,17 @@ function CanvasViewInner() {
         }
 
         const domainsKey = JSON.stringify(domains.map(d => ({ id: d.id, x: d.position_x, y: d.position_y, w: d.width, h: d.height })));
-        const thingsKey = JSON.stringify(things.map(t => ({ id: t.id, x: t.position_x, y: t.position_y, w: t.width, h: t.height, iconified: t.iconified })));
+        // Include content.regions length or similar hash to trigger updates on region changes
+        const thingsKey = JSON.stringify(things.map(t => ({
+            id: t.id,
+            x: t.position_x,
+            y: t.position_y,
+            w: t.width,
+            h: t.height,
+            iconified: t.iconified,
+            // Track content changes (simplistic hash for regions)
+            regions: t.type === 'image' ? (t.content as any).regions?.length : undefined
+        })));
 
         // Only update if something actually changed
         if (domainsKey !== prevDomainsRef.current || thingsKey !== prevThingsRef.current) {
@@ -586,6 +609,29 @@ function CanvasViewInner() {
             setLinkDialogOpen(false);
         }
     }, [editingLink, deleteLink]);
+
+    // Handle edge deletion from UI (cascade delete)
+    const handleEdgesDelete = React.useCallback(async (edges: Edge[]) => {
+        for (const edge of edges) {
+            const link = links.find(l => l.id === edge.id);
+            if (!link) continue;
+
+            // Delete the link
+            await deleteLink(link.id);
+
+            // Check for cascade delete of target "derived" thing
+            // If target has only this incoming link and is a "text" (result) type
+            const incomingLinks = links.filter(l => l.target_id === link.target_id);
+            if (incomingLinks.length <= 1) {
+                const targetThing = things.find(t => t.id === link.target_id);
+                // Only cascade if it's a text/result node and relation is derived_from/related
+                if (targetThing && (targetThing.type === "text" || targetThing.type === "agent_result")) {
+                    console.log(`[CanvasView] Cascade deleting orphan result: ${targetThing.id}`);
+                    await deleteThing(targetThing.id);
+                }
+            }
+        }
+    }, [links, things, deleteLink, deleteThing]);
 
     // Handle viewport changes
     const onMoveEnd = React.useCallback(() => {
@@ -937,6 +983,7 @@ function CanvasViewInner() {
                     edges={edges}
                     onNodesChange={handleNodesChange}
                     onEdgesChange={onEdgesChange}
+                    onEdgesDelete={handleEdgesDelete}
                     onConnect={onConnect}
                     onNodeDragStart={onNodeDragStart}
                     onNodeDragStop={onNodeDragStop}
@@ -1168,9 +1215,11 @@ export function CanvasView({ canvasId: propCanvasId }: CanvasViewProps) {
 
     console.log("[CanvasView] RENDER STATE: Rendering CanvasViewInner for canvas:", storeCanvasId);
     return (
-        <ReactFlowProvider>
-            <CanvasViewInner />
-        </ReactFlowProvider>
+        <SelectionProvider>
+            <ReactFlowProvider>
+                <CanvasViewInner />
+            </ReactFlowProvider>
+        </SelectionProvider>
     );
 }
 
