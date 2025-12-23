@@ -860,7 +860,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                         <ImageViewer
                             src={content.file_path as string}
                             alt={content.alt_text as string || "Image"}
-                            className="max-h-[200px]"
+                            className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                             overlays={imageOverlays}
                             onOverlayResize={handleOverlayResize}
                             onSelect={handleRegionCreate} // Drawing creates a region
@@ -948,12 +948,13 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
             case "full":
             default:
                 // Full content
+                // Full content
                 return (
-                    <div className="space-y-2">
-                        <div className="font-medium text-sm">
+                    <div className="flex flex-col h-full gap-2">
+                        <div className="font-medium text-sm flex-none">
                             {thing.title || getDefaultTitle()}
                         </div>
-                        <div className="text-sm">
+                        <div className="text-sm flex-1 min-h-0">
                             {renderFullContent()}
                         </div>
                     </div>
