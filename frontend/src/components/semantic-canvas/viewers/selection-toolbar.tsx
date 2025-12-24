@@ -49,6 +49,8 @@ interface SelectionToolbarProps {
     onClose: () => void;
     /** Whether an action is in progress */
     isLoading?: boolean;
+    /** Disable visual highlighting (green frame) regardless of type */
+    disableHighlight?: boolean;
 }
 
 // =============================================================================
@@ -63,6 +65,7 @@ export function SelectionToolbar({
     onLink,
     onClose,
     isLoading = false,
+    disableHighlight = false,
 }: SelectionToolbarProps) {
     const toolbarRef = React.useRef<HTMLDivElement>(null);
 
@@ -124,8 +127,11 @@ export function SelectionToolbar({
                 className={cn(
                     "fixed z-50 flex items-center gap-1 p-1",
                     "bg-white dark:bg-slate-800 rounded-lg shadow-lg border",
-                    // Visual feedback for region selection
-                    fragment.type === "region" ? "border-2 border-green-500 shadow-green-500/20" : "border-slate-200 dark:border-slate-700",
+                    "bg-white dark:bg-slate-800 rounded-lg shadow-lg border",
+                    // Visual feedback for region selection or text selection (unless disabled)
+                    (!disableHighlight && (fragment.type === "region" || fragment.type === "text"))
+                        ? "border-2 border-green-500 shadow-green-500/20"
+                        : "border-slate-200 dark:border-slate-700",
                     "animate-in fade-in-0 zoom-in-95 duration-150"
                 )}
                 style={{

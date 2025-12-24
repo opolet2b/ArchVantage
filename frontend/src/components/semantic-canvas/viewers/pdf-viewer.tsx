@@ -290,8 +290,8 @@ export function PDFViewer({
                     <Page
                         pageNumber={pageNumber}
                         scale={typeof scale === "number" ? scale : undefined}
-                        width={scale === "page-width" ? containerWidth - 32 : undefined} // Subtract padding
-                        className="shadow-lg"
+                        width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
+                        className="shadow-lg mx-auto"
                         renderTextLayer={selectionEnabled}
                         renderAnnotationLayer={false}
                     />

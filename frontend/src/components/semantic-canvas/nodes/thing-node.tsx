@@ -1087,6 +1087,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             onLink={handleLink}
                             onClose={() => setToolbarPosition(null)} // Or custom clear
                             isLoading={isLoading}
+                            disableHighlight={true}
                         />,
                         document.body
                     )
