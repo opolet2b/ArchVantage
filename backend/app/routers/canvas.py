@@ -11,9 +11,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
+from sqlalchemy import or_
 from app.core.database import get_db
 from app.routers.auth import get_current_active_user
-from app.models.user import User
+from app.models.user import User, Role
 from app.models.canvas_models import (
     Canvas, CanvasThing, CanvasLink, Domain,
     ThingType as ModelThingType, LinkType as ModelLinkType
@@ -47,6 +48,16 @@ def create_canvas(
         name=request.name,
         description=request.description
     )
+    
+    # Set permissions
+    if request.allowed_user_ids:
+        users = db.query(User).filter(User.id.in_(request.allowed_user_ids)).all()
+        canvas.allowed_users = users
+        
+    if request.allowed_role_ids:
+        roles = db.query(Role).filter(Role.id.in_(request.allowed_role_ids)).all()
+        canvas.allowed_roles = roles
+        
     db.add(canvas)
     db.commit()
     db.refresh(canvas)
@@ -58,9 +69,16 @@ def list_canvases(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """List all canvases owned by the current user."""
+    """List all canvases owned by or shared with the current user."""
+    # Get user's role IDs
+    user_role_ids = [role.id for role in current_user.roles]
+    
     canvases = db.query(Canvas).filter(
-        Canvas.owner_id == current_user.id
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
     ).all()
     return canvases
 
@@ -72,9 +90,16 @@ def get_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get a canvas with all its contents (things, links, domains)."""
+    # Get user's role IDs
+    user_role_ids = [role.id for role in current_user.roles]
+
     canvas = db.query(Canvas).filter(
         Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
     ).first()
     
     if not canvas:
@@ -94,9 +119,19 @@ def update_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update canvas properties."""
+    # Only owner or explicit write access (treated same as read for now) can update
+    # Ideally, we should check for "Write" permission if we had granular permissions.
+    # For now, we allow update if user has access.
+    
+    user_role_ids = [role.id for role in current_user.roles]
+    
     canvas = db.query(Canvas).filter(
         Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
     ).first()
     
     if not canvas:
@@ -112,6 +147,22 @@ def update_canvas(
         canvas.description = request.description
     if request.viewport is not None:
         canvas.viewport = request.viewport.model_dump()
+        
+    # Update Permissions (Only Owner can change permissions?)
+    # Let's say yes, only owner can manage permissions.
+    if (request.allowed_user_ids is not None or request.allowed_role_ids is not None) and canvas.owner_id != current_user.id:
+        raise HTTPException(
+             status_code=status.HTTP_403_FORBIDDEN,
+             detail="Only the owner can manage permissions"
+        )
+
+    if request.allowed_user_ids is not None:
+        users = db.query(User).filter(User.id.in_(request.allowed_user_ids)).all()
+        canvas.allowed_users = users
+        
+    if request.allowed_role_ids is not None:
+        roles = db.query(Role).filter(Role.id.in_(request.allowed_role_ids)).all()
+        canvas.allowed_roles = roles
     
     db.commit()
     db.refresh(canvas)

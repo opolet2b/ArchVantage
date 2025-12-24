@@ -9,9 +9,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Map, MoreVertical, Trash2, Edit2, Plus } from "lucide-react";
+import { Map, MoreVertical, Trash2, Edit2, Plus, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CanvasPermissionsDialog } from "../semantic-canvas/canvas-permissions-dialog";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -40,6 +41,9 @@ interface CanvasSummary {
     name: string;
     created_at: string;
     updated_at: string | null;
+    owner_id: number;
+    allowed_user_ids: number[];
+    allowed_role_ids: number[];
 }
 
 // =============================================================================
@@ -55,10 +59,19 @@ export function CanvasList() {
     const [isLoading, setIsLoading] = useState(true);
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // Permissions dialog state
+    const [permissionsOpen, setPermissionsOpen] = useState(false);
+    const [permissionTarget, setPermissionTarget] = useState<CanvasSummary | null>(null);
+
     // Get auth token
     const getToken = () => {
         if (typeof window !== "undefined") {
-            return localStorage.getItem("token");
+            const token = localStorage.getItem("token");
+            try {
+                // simple hack to get current user id from token payload if we needed it to check ownership
+                // but relying on backend to enforce ownership for delete/permissions is better
+                return token;
+            } catch (e) { return null; }
         }
         return null;
     };
@@ -202,6 +215,47 @@ export function CanvasList() {
         }
     };
 
+    // Open permissions dialog
+    const handlePermissions = (canvas: CanvasSummary) => {
+        setPermissionTarget(canvas);
+        setPermissionsOpen(true);
+    };
+
+    // Save permissions
+    const savePermissions = async (allowedUserIds: number[], allowedRoleIds: number[]) => {
+        if (!permissionTarget) return;
+
+        const token = getToken();
+        if (!token) return;
+
+        try {
+            const res = await fetch(`${API_URL}/canvases/${permissionTarget.id}`, {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    allowed_user_ids: allowedUserIds,
+                    allowed_role_ids: allowedRoleIds
+                }),
+            });
+
+            if (res.ok) {
+                // Update local state
+                setCanvases((prev) =>
+                    prev.map((c) =>
+                        c.id === permissionTarget.id
+                            ? { ...c, allowed_user_ids: allowedUserIds, allowed_role_ids: allowedRoleIds }
+                            : c
+                    )
+                );
+            }
+        } catch (err) {
+            console.error("Failed to update permissions:", err);
+        }
+    };
+
     // Select a canvas
     const handleSelectCanvas = (id: string) => {
         setActiveCanvasId(id);
@@ -308,6 +362,15 @@ export function CanvasList() {
                                             Rename
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handlePermissions(canvas);
+                                            }}
+                                        >
+                                            <Lock className="mr-2 h-3 w-3" />{" "}
+                                            Permissions
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
                                             className="text-red-600 focus:text-red-600"
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -348,6 +411,18 @@ export function CanvasList() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+            {permissionTarget && (
+                <CanvasPermissionsDialog
+                    open={permissionsOpen}
+                    onOpenChange={setPermissionsOpen}
+                    canvasId={permissionTarget.id}
+                    canvasName={permissionTarget.name}
+                    initialAllowedUserIds={permissionTarget.allowed_user_ids || []}
+                    initialAllowedRoleIds={permissionTarget.allowed_role_ids || []}
+                    onSave={savePermissions}
+                />
+            )}
         </>
     );
 }

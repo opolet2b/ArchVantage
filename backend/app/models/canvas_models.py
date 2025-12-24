@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from sqlalchemy import (
     Column, String, Integer, Float, Boolean, DateTime,
-    ForeignKey, JSON, Text, Enum as SQLEnum
+    ForeignKey, JSON, Text, Enum as SQLEnum, Table
 )
 from sqlalchemy.orm import relationship
 
@@ -21,6 +21,24 @@ from app.core.database import Base
 def generate_uuid():
     """Generate a UUID string for use as primary key."""
     return str(uuid.uuid4())
+
+
+# Association table for Canvas-User (allowed users)
+canvas_users = Table(
+    "canvas_users_association",
+    Base.metadata,
+    Column("canvas_id", String(36), ForeignKey("canvases.id"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True)
+)
+
+# Association table for Canvas-Role (allowed roles)
+canvas_roles = Table(
+    "canvas_roles_association",
+    Base.metadata,
+    Column("canvas_id", String(36), ForeignKey("canvases.id"), primary_key=True),
+    Column("role_id", Integer, ForeignKey("roles.id"), primary_key=True)
+)
+
 
 
 class ThingType(str, Enum):
@@ -102,6 +120,29 @@ class Canvas(Base):
         back_populates="canvas",
         cascade="all, delete-orphan"
     )
+
+
+    # Permissions
+    allowed_users = relationship(
+        "User",
+        secondary=canvas_users,
+        backref="canvases"
+    )
+    allowed_roles = relationship(
+        "Role",
+        secondary=canvas_roles,
+        backref="canvases"
+    )
+
+    @property
+    def allowed_user_ids(self):
+        return [u.id for u in self.allowed_users]
+
+    @property
+    def allowed_role_ids(self):
+        return [r.id for r in self.allowed_roles]
+
+
 
 
 class CanvasThing(Base):

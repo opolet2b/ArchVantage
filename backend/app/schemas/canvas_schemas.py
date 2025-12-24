@@ -59,6 +59,9 @@ class CanvasCreate(BaseModel):
     """Request to create a new canvas."""
     name: str = "My Canvas"
     description: Optional[str] = None
+    allowed_user_ids: List[int] = []
+    allowed_role_ids: List[int] = []
+
 
 
 class CanvasUpdate(BaseModel):
@@ -66,6 +69,9 @@ class CanvasUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     viewport: Optional[ViewportState] = None
+    allowed_user_ids: Optional[List[int]] = None
+    allowed_role_ids: Optional[List[int]] = None
+
 
 
 class CanvasResponse(BaseModel):
@@ -75,6 +81,8 @@ class CanvasResponse(BaseModel):
     name: str
     description: Optional[str]
     viewport: ViewportState
+    allowed_user_ids: List[int] = [] # Computed field, needs resolver
+    allowed_role_ids: List[int] = [] # Computed field, needs resolver
     created_at: datetime
     updated_at: Optional[datetime]
 
