@@ -197,7 +197,18 @@ interface ThingNodeData {
 // =============================================================================
 
 export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
-    const { thing, zoomLevel, isSelected, onOpenConversation, onToggleIconify, onDelete, onResizeEnd } = data;
+    // Get latest thing state from store to ensure reactivity (bypass potential ReactFlow prop lag)
+    const freshThing = useCanvasStore(state => state.things.find(t => t.id === data.thing.id));
+    const thing = freshThing || data.thing;
+
+    const {
+        zoomLevel,
+        isSelected,
+        onOpenConversation,
+        onToggleIconify,
+        onDelete,
+        onResizeEnd
+    } = data;
     const Icon = thingIcons[thing.type] || FileText;
 
     // Canvas store helpers
@@ -289,7 +300,9 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
 
     // Calculate image overlays from links AND content.regions
     const imageOverlays = React.useMemo(() => {
-        if (thing.type !== "image") return [];
+        // Allow for both image and document (PDF) types
+        if (thing.type !== "image" && thing.type !== "document") return [];
+        // For documents, only if PDF? Logic seems safe to apply if regions exist
 
         // 1. Overlays from Links
         const linkOverlays = links
@@ -321,13 +334,19 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     }, [links, thing.id, thing.type, thing.content]);
 
     // Handle create new region (persist to content)
-    const handleRegionCreate = React.useCallback(async (fragment: RegionFragment) => {
-        if (thing.type !== "image") return;
+    const handleRegionCreate = React.useCallback(async (fragment: Fragment, _position?: { x: number; y: number }) => {
+        // Allow for both image and document (PDF) types
+        if (thing.type !== "image" && thing.type !== "document") return;
+        // If generic fragment, check type.
+        if (fragment.type !== "region") return;
+        const regionFragment = fragment as RegionFragment;
 
-        const currentRegions = (thing.content.regions as any[]) || [];
+        // Fetch fresh thing to ensure we don't overwrite with stale state
+        const freshThing = useCanvasStore.getState().things.find(t => t.id === thing.id) || thing;
+        const currentRegions = (freshThing.content.regions as any[]) || [];
 
         // Use provided ID or generate new one
-        const regionId = fragment.id || Date.now().toString();
+        const regionId = regionFragment.id || Date.now().toString();
 
         // Prevent duplication: If ID exists in current regions, it's an existing region selection
         if (currentRegions.some(r => String(r.id) === String(regionId))) {
@@ -338,21 +357,20 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         const newRegion = {
             id: regionId,
             type: "region",
-            x: fragment.x,
-            y: fragment.y,
-            width: fragment.width,
-            height: fragment.height,
+            x: regionFragment.x,
+            y: regionFragment.y,
+            width: regionFragment.width,
+            height: regionFragment.height,
             content: undefined, // Do not store heavy base64 in database
             label: regionId
         };
-
 
         const updatedRegions = [...currentRegions, newRegion];
 
         // Update thing content
         console.log(`[ThingNode] Creating region:`, newRegion);
         await updateThing(thing.id, {
-            content: { ...thing.content, regions: updatedRegions }
+            content: { ...freshThing.content, regions: updatedRegions }
         });
         console.log(`[ThingNode] Region creation update sent.`);
     }, [thing, updateThing]);
@@ -398,14 +416,20 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         }
 
         // 5. Delete the region itself
-        const currentRegions = (thing.content.regions as any[]) || [];
+        // refetch thing to ensure we have latest content (avoid race with deleteLink updates if any)
+        const freshThing = useCanvasStore.getState().things.find(t => t.id === thing.id) || thing;
+        const currentRegions = (freshThing.content.regions as any[]) || [];
+
         console.log("[ThingNode] Current regions before delete:", currentRegions);
-        const updatedRegions = currentRegions.filter(r => String(r.id) !== String(regionToDelete)); // Ensure string comparison
+        const updatedRegions = currentRegions.filter((r, idx) => {
+            const rId = r.id || `region-${idx}`;
+            return String(rId) !== String(regionToDelete);
+        });
 
         console.log("[ThingNode] Updated regions count:", updatedRegions.length);
 
         await updateThing(thing.id, {
-            content: { ...thing.content, regions: updatedRegions }
+            content: { ...freshThing.content, regions: updatedRegions }
         });
 
         // Close dialog
@@ -805,6 +829,10 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                                 <PDFViewer
                                     src={filePath}
                                     className="h-full"
+                                    overlays={imageOverlays}
+                                    onOverlayResize={handleOverlayResize}
+                                    onSelect={handleRegionCreate}
+                                    onOverlayDelete={handleOverlayDelete}
                                 />
                             </SelectableContent>
                         );
@@ -865,7 +893,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             onOverlayResize={handleOverlayResize}
                             onSelect={handleRegionCreate} // Drawing creates a region
                             onOverlayDelete={handleOverlayDelete}
-                            onOverlayClick={(overlay, e) => {
+                            onOverlayClick={(overlay, e?: React.MouseEvent) => {
                                 // When a region/overlay is clicked, we might want to open the toolbox
                                 // The ImageViewer manages visual selection ("active" state)
                                 // We need to tell the global SelectionContext about it
@@ -1238,9 +1266,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             Delete Region and Content?
                         </DialogTitle>
                         <DialogDescription>
-                            This will permanently delete the selected region <strong>and all generated text and links</strong> derived from it.
-                            <br /><br />
-                            This action cannot be undone.
+                            This will permanently delete the selected region and all generated text and links derived from it.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>

@@ -485,15 +485,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             }
 
             const serverUpdated: CanvasThing = await res.json();
-            console.log("[CanvasStore] Server updated:", serverUpdated);
-            console.log("[CanvasStore] Content regions from server:", (serverUpdated.content as any).regions);
 
             // confirm update with server response (handles side effects)
-            set({
-                things: get().things.map((t) =>
-                    t.id === thingId ? { ...t, ...serverUpdated } : t
-                ),
+            const oldThings = get().things;
+            const newThings = oldThings.map((t) => {
+                if (t.id === thingId) {
+                    return { ...t, ...serverUpdated };
+                }
+                return t;
             });
+            set({ things: newThings });
         } catch (err) {
             console.error("Failed to update thing:", err);
             // Revert on error
