@@ -50,7 +50,7 @@ class RAGService:
             self.storage_context = None
             self.index = None
 
-    def ingest_file(self, file_path: str, conversation_id: str):
+    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None):
         try:
             # LlamaIndex SimpleDirectoryReader handles various file types automatically
             documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
@@ -58,24 +58,38 @@ class RAGService:
             if documents:
                 # Add metadata
                 for doc in documents:
-                    doc.metadata["conversation_id"] = conversation_id
+                    if conversation_id:
+                        doc.metadata["conversation_id"] = conversation_id
+                    
                     doc.metadata["source"] = file_path
+                    
+                    # Add custom metadata (e.g. canvas_id)
+                    if metadata:
+                        for key, value in metadata.items():
+                            doc.metadata[key] = value
+
                     # Excluded metadata keys to avoid errors with some vector stores if needed
                     doc.excluded_llm_metadata_keys = ["conversation_id", "source"]
+                    if metadata:
+                        doc.excluded_llm_metadata_keys.extend(metadata.keys())
+
                     doc.excluded_embed_metadata_keys = ["conversation_id", "source"]
+                    if metadata:
+                         doc.excluded_embed_metadata_keys.extend(metadata.keys())
 
                 # Insert into index
                 # This handles chunking and embedding automatically
                 for doc in documents:
                     self.index.insert(doc)
                 
+                print(f"[RAGService] Vectorization complete. Ingested {len(documents)} fragments.")
                 return {"status": "success", "count": len(documents)}
             return {"status": "no_documents_found"}
         except Exception as e:
             print(f"Error ingesting file {file_path}: {e}")
             raise e
 
-    def ingest_folder(self, folder_path: str, chunk_size: int = 1000, chunk_overlap: int = 200):
+    def ingest_folder(self, folder_path: str, chunk_size: int = 1000, chunk_overlap: int = 200, metadata: Optional[dict] = None):
         # Not strictly needed for the current flow but good to keep
         try:
             # Configure splitting dynamically
@@ -84,7 +98,10 @@ class RAGService:
             documents = SimpleDirectoryReader(input_dir=folder_path, recursive=True).load_data()
             if documents:
                 for doc in documents:
-                    # We might not have conversation_id here easily unless passed
+                    # Apply metadata if provided
+                    if metadata:
+                        for key, value in metadata.items():
+                            doc.metadata[key] = value
                     pass 
                 
                 # Delete existing documents from index to avoid duplicates if re-ingesting?
@@ -100,17 +117,27 @@ class RAGService:
             print(f"Error ingesting folder {folder_path}: {e}")
             return {"status": "error", "detail": str(e)}
 
-    def query(self, query_text: str, k: int = 4, conversation_id: Optional[str] = None):
+    def query(self, query_text: str, k: int = 4, conversation_id: Optional[str] = None, filters: Optional[dict] = None):
         from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
         
-        filters = None
+        # Build filters
+        metadata_filters = None
+        filter_list = []
+        
+        # Legacy support for conversation_id arg
         if conversation_id:
-            filters = MetadataFilters(
-                filters=[ExactMatchFilter(key="conversation_id", value=conversation_id)]
-            )
+            filter_list.append(ExactMatchFilter(key="conversation_id", value=conversation_id))
+            
+        # Generic filters
+        if filters:
+            for key, value in filters.items():
+                filter_list.append(ExactMatchFilter(key=key, value=value))
+                
+        if filter_list:
+            metadata_filters = MetadataFilters(filters=filter_list)
 
         # Create retriever
-        retriever = self.index.as_retriever(similarity_top_k=k, filters=filters)
+        retriever = self.index.as_retriever(similarity_top_k=k, filters=metadata_filters)
         nodes = retriever.retrieve(query_text)
         
         return [node.get_content() for node in nodes]
@@ -119,6 +146,7 @@ class RAGService:
         self,
         query: str,
         conversation_id: Optional[str] = None,
+        filters: Optional[dict] = None,
         k: int = 10
     ) -> List[dict]:
         """
@@ -130,6 +158,7 @@ class RAGService:
         Args:
             query: The search query text.
             conversation_id: Optional filter by conversation/collection ID.
+            filters: Optional dictionary of metadata filters (e.g. {"canvas_id": "123"})
             k: Number of results to return.
             
         Returns:
@@ -141,14 +170,24 @@ class RAGService:
             
             from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
             
-            filters = None
+             # Build filters
+            metadata_filters = None
+            filter_list = []
+            
+            # Legacy support for conversation_id arg
             if conversation_id:
-                filters = MetadataFilters(
-                    filters=[ExactMatchFilter(key="conversation_id", value=conversation_id)]
-                )
+                filter_list.append(ExactMatchFilter(key="conversation_id", value=conversation_id))
+                
+            # Generic filters
+            if filters:
+                for key, value in filters.items():
+                    filter_list.append(ExactMatchFilter(key=key, value=value))
+                    
+            if filter_list:
+                metadata_filters = MetadataFilters(filters=filter_list)
             
             # Create retriever
-            retriever = self.index.as_retriever(similarity_top_k=k, filters=filters)
+            retriever = self.index.as_retriever(similarity_top_k=k, filters=metadata_filters)
             nodes = retriever.retrieve(query)
             
             results = []

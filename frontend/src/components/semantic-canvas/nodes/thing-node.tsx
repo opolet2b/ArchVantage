@@ -804,7 +804,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             <SelectableContent thingId={thing.id}>
                                 <PDFViewer
                                     src={filePath}
-                                    className="h-[300px]"
+                                    className="h-full"
                                 />
                             </SelectableContent>
                         );
@@ -1132,8 +1132,8 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
 
                 {/* Body content */}
                 {getDisplayContent() && (
-                    <div className="px-3 py-3 flex-1 overflow-auto min-h-0">
-                        <div className="h-full overflow-auto">
+                    <div className="px-3 py-3 flex-1 overflow-auto min-h-0 flex flex-col">
+                        <div className="h-full relative">
                             {getDisplayContent()}
                         </div>
                     </div>

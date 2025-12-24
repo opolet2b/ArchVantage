@@ -7,7 +7,7 @@ Handles CRUD operations for canvases, things, links, and domains.
 PEP 8 Compliant
 """
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -27,6 +27,8 @@ from app.schemas.canvas_schemas import (
     SummarizeRequest, SummarizeResponse,
     AnalyzeRequest, AnalyzeResponse, AnalyzeAction
 )
+from app.services.rag_service import rag_service
+from pydantic import BaseModel
 
 
 router = APIRouter()
@@ -197,9 +199,10 @@ def delete_canvas(
 # =============================================================================
 
 @router.post("/canvases/{canvas_id}/things", response_model=ThingResponse)
-def create_thing(
+async def create_thing(
     canvas_id: str,
     request: ThingCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -235,6 +238,49 @@ def create_thing(
         db.commit()
         db.refresh(thing)
         print(f"[CanvasRouter] Thing created successfully: {thing.id}")
+
+        # Trigger RAG Ingestion for Documents
+        if thing.type == ModelThingType.DOCUMENT:
+            try:
+                # Logic to find the file execution.
+                asset_id = thing.content.get("asset_id")
+                
+                real_path = None
+                
+                if asset_id:
+                     # Query the Asset table to get the real file path
+                     from app.models.asset_models import Asset
+                     from app.services.asset_service import STORAGE_ROOT
+                     
+                     asset_record = db.query(Asset).filter(Asset.id == asset_id).first()
+                     if asset_record:
+                         # Construct full path: STORAGE_ROOT / asset_record.file_path
+                         # Note: file_path in DB is relative (e.g. 2024/12/21/uuid_file.pdf)
+                         full_path = STORAGE_ROOT / asset_record.file_path
+                         if full_path.exists():
+                             real_path = str(full_path)
+                             print(f"[CanvasRouter] Resolved asset path: {real_path}")
+                         else:
+                             print(f"[CanvasRouter] Asset file missing on disk: {full_path}")
+                     else:
+                         print(f"[CanvasRouter] Asset record not found for ID: {asset_id}")
+                
+                if real_path:
+                    print(f"[CanvasRouter] Triggering Async Vectorization for {real_path}")
+                    # Offload blocking ingestion to background task
+                    background_tasks.add_task(
+                        rag_service.ingest_file, 
+                        real_path, 
+                        metadata={"canvas_id": canvas_id}
+                    )
+                else:
+                    print(f"[CanvasRouter] Could not determine local file path for asset {asset_id}")
+
+            except Exception as e:
+                print(f"[CanvasRouter] RAG Ingestion Setup Error: {e}")
+
+        return thing
+
         return thing
     except Exception as e:
         print(f"[CanvasRouter] Error creating thing: {e}")
@@ -600,7 +646,6 @@ def summarize_thing(
 ):
     """
     Generate AI summaries for a thing at different zoom levels.
-    Summaries are stored and returned for semantic zoom rendering.
     """
     thing = db.query(CanvasThing).join(Canvas).filter(
         CanvasThing.id == thing_id,
@@ -642,6 +687,65 @@ def summarize_thing(
         thing_id=str(thing_id),
         summaries=summaries
     )
+
+
+# =============================================================================
+# Secure Query Endpoint
+# =============================================================================
+
+class QueryRequest(BaseModel):
+    query: str
+    k: int = 4
+
+@router.post("/canvases/{canvas_id}/query")
+def query_canvas(
+    canvas_id: str,
+    request: QueryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Securely query the vector store for documents related to this canvas.
+    Inherits permissions from the canvas.
+    """
+    # 1. Check Permissions (read access is sufficient)
+    # We reuse the logic from get_canvas
+    user_role_ids = [role.id for role in current_user.roles]
+
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
+    ).first()
+    
+    if not canvas:
+        # Check for Admin override if user is not found in implicit permissions
+        # implicit Admin check is done via `rag_service`? No, here.
+        # Check if user is admin
+        is_admin = any(role.name == "Admin" for role in current_user.roles)
+        if not is_admin:
+             raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this canvas"
+            )
+        # If admin, we continue even if db query above failed (wait, query failed means canvas doesn't exist OR no permission)
+        # We need to verify canvas exists largely.
+        canvas_exists = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+        if not canvas_exists:
+             raise HTTPException(status_code=404, detail="Canvas not found")
+        # Proceed if Admin
+    
+    # 2. Execute Query
+    results = rag_service.search(
+        query=request.query,
+        filters={"canvas_id": canvas_id},
+        k=request.k
+    )
+    
+    return results
 
 
 # =============================================================================

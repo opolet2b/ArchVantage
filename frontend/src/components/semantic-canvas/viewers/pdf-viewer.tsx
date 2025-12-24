@@ -20,7 +20,9 @@ import "react-pdf/dist/Page/TextLayer.css";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 
 // Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// Configure PDF.js worker
+// Configure PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
 
 // =============================================================================
 // Props
@@ -49,7 +51,8 @@ export function PDFViewer({
 }: PDFViewerProps) {
     const [numPages, setNumPages] = React.useState<number>(0);
     const [pageNumber, setPageNumber] = React.useState<number>(1);
-    const [scale, setScale] = React.useState<number>(0.75);  // Start smaller for performance
+    const [scale, setScale] = React.useState<number | "page-width">("page-width"); // Default to auto-width
+    const [containerWidth, setContainerWidth] = React.useState<number | null>(null);
     const [isLoading, setIsLoading] = React.useState(true);
     const [error, setError] = React.useState<string | null>(null);
     const containerRef = React.useRef<HTMLDivElement>(null);
@@ -97,21 +100,27 @@ export function PDFViewer({
                     }
 
                     console.log(`[PDFViewer] Fetching secure PDF: ${urlToFetch}`);
+                    console.log(`[PDFViewer] Fetching secure PDF: ${urlToFetch}`);
                     const headers: HeadersInit = {};
                     if (token) {
                         headers["Authorization"] = `Bearer ${token}`;
                     }
 
+                    console.log("[PDFViewer] Sending fetch request...");
                     const res = await fetch(urlToFetch, { headers });
+                    console.log(`[PDFViewer] Fetch response: ${res.status} ${res.statusText}`);
+
                     if (!res.ok) throw new Error(`Failed to load PDF: ${res.status}`);
 
                     const blob = await res.blob();
+                    console.log(`[PDFViewer] Blob received: ${blob.size} bytes, type: ${blob.type}`);
                     const objectUrl = URL.createObjectURL(blob);
                     objectUrlRef.current = objectUrl;
                     setFileSrc(objectUrl);
-                } catch (err) {
+                    console.log("[PDFViewer] fileSrc set.");
+                } catch (err: any) {
                     console.error("Failed to load secure PDF:", err);
-                    setError("Failed to load secure PDF");
+                    setError(err.message || "Failed to load secure PDF");
                     setIsLoading(false);
                 }
             } else {
@@ -141,7 +150,7 @@ export function PDFViewer({
     // Handle document load error
     const onDocumentLoadError = (err: Error) => {
         console.error("PDF load error:", err);
-        setError("Failed to load PDF");
+        setError(err.message || "Failed to load PDF");
         setIsLoading(false);
         setIsLoaded(false);
     };
@@ -151,8 +160,23 @@ export function PDFViewer({
     const goToNextPage = () => setPageNumber((p) => Math.min(numPages, p + 1));
 
     // Zoom controls
-    const zoomIn = () => setScale((s) => Math.min(2.0, s + 0.25));
-    const zoomOut = () => setScale((s) => Math.max(0.5, s - 0.25));
+    const zoomIn = () => setScale((s) => typeof s === "number" ? Math.min(2.0, s + 0.25) : 1.25);
+    const zoomOut = () => setScale((s) => typeof s === "number" ? Math.max(0.5, s - 0.25) : 0.75);
+
+    // Auto-resize observer
+    React.useEffect(() => {
+        if (!containerRef.current) return;
+
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (entry) {
+                setContainerWidth(entry.contentRect.width);
+            }
+        });
+
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, []);
 
     // Handle text selection
     const handleMouseUp = React.useCallback(() => {
@@ -238,7 +262,9 @@ export function PDFViewer({
                     <Button variant="ghost" size="sm" onClick={zoomOut}>
                         <ZoomOut className="h-4 w-4" />
                     </Button>
-                    <span className="text-sm">{Math.round(scale * 100)}%</span>
+                    <span className="text-sm">
+                        {scale === "page-width" ? "Auto" : `${Math.round(scale * 100)}%`}
+                    </span>
                     <Button variant="ghost" size="sm" onClick={zoomIn}>
                         <ZoomIn className="h-4 w-4" />
                     </Button>
@@ -248,7 +274,7 @@ export function PDFViewer({
             {/* PDF content */}
             <div
                 ref={containerRef}
-                className="flex-1 overflow-auto flex justify-center bg-slate-200 dark:bg-slate-900"
+                className="flex-1 overflow-auto flex justify-center bg-slate-200 dark:bg-slate-900 select-text"
                 onMouseUp={handleMouseUp}
             >
                 <Document
@@ -263,13 +289,14 @@ export function PDFViewer({
                 >
                     <Page
                         pageNumber={pageNumber}
-                        scale={scale}
+                        scale={typeof scale === "number" ? scale : undefined}
+                        width={scale === "page-width" ? containerWidth - 32 : undefined} // Subtract padding
                         className="shadow-lg"
                         renderTextLayer={selectionEnabled}
                         renderAnnotationLayer={false}
                     />
                 </Document>
             </div>
-        </div>
+        </div >
     );
 }
