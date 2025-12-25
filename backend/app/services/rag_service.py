@@ -17,12 +17,15 @@ class RAGService:
             # Using HuggingFace local embeddings - no API key required
             # Using a small, fast model that runs locally
             Settings.embed_model = HuggingFaceEmbedding(
-                model_name="sentence-transformers/all-MiniLM-L6-v2"
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                device="cpu"
             )
             Settings.text_splitter = SentenceSplitter(chunk_size=1000, chunk_overlap=200)
             
             # Initialize Chroma Client
-            self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
+            # DEBUG: Use EphemeralClient to bypass potential SQLite/File locks
+            print("[RAGService] DEBUG: Using EphemeralClient (In-Memory) for vector store.")
+            self.chroma_client = chromadb.EphemeralClient()
             self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag")
             
             # Set up Vector Store and Storage Context
@@ -51,12 +54,21 @@ class RAGService:
             self.index = None
 
     def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None):
+        print(f"[RAGService] Starting ingestion for: {file_path}")
         try:
             # LlamaIndex SimpleDirectoryReader handles various file types automatically
             documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+            print(f"[RAGService] Loaded {len(documents)} document fragments from file.")
             
             if documents:
                 # Add metadata
+                for doc in documents:
+                    if conversation_id:
+                        doc.metadata["conversation_id"] = conversation_id
+                    
+                    doc.metadata["source"] = file_path
+                    
+                    # Add metadata
                 for doc in documents:
                     if conversation_id:
                         doc.metadata["conversation_id"] = conversation_id
@@ -77,16 +89,63 @@ class RAGService:
                     if metadata:
                          doc.excluded_embed_metadata_keys.extend(metadata.keys())
 
-                # Insert into index
-                # This handles chunking and embedding automatically
-                for doc in documents:
-                    self.index.insert(doc)
+                # Optimization: Split into nodes first
+                print(f"[RAGService] Splitting {len(documents)} documents into nodes...")
+                nodes = Settings.text_splitter.get_nodes_from_documents(documents)
+                print(f"[RAGService] Created {len(nodes)} nodes.")
                 
-                print(f"[RAGService] Vectorization complete. Ingested {len(documents)} fragments.")
-                return {"status": "success", "count": len(documents)}
+                # Debug: Test embedding generation explicitly
+                if nodes:
+                    print("[RAGService] DEBUG: Generating embedding for first node to verify model...")
+                    import time
+                    t0 = time.time()
+                    # We can manually get embedding to show it works
+                    _ = Settings.embed_model.get_text_embedding(nodes[0].get_content())
+                    print(f"[RAGService] DEBUG: Embedding generation successful. Took {time.time()-t0:.2f}s")
+
+                print(f"[RAGService] Inserting {len(nodes)} nodes one-by-one to trace progress...")
+                for i, node in enumerate(nodes):
+                     print(f"[RAGService] Inserting node {i+1}/{len(nodes)}...")
+                     self.index.insert_nodes([node])
+                     print(f"[RAGService] Node {i+1} inserted.")
+                
+                # Calculate total text length for heuristic checks
+                total_text_len = sum(len(node.get_content()) for node in nodes)
+                
+                print(f"[RAGService] Vectorization complete. Ingested {len(nodes)} fragments. Total Chars: {total_text_len}")
+                return {
+                    "status": "success", 
+                    "count": len(nodes), 
+                    "text_length": total_text_len,
+                    "doc_count": len(documents)
+                }
+            
+            print(f"[RAGService] WARNING: No content extracted from file: {file_path}")
             return {"status": "no_documents_found"}
         except Exception as e:
             print(f"Error ingesting file {file_path}: {e}")
+            raise e
+
+    def ingest_text(self, text: str, metadata: Optional[dict] = None):
+        """
+        Ingest raw text directly into the index.
+        Useful for image descriptions or other generated content.
+        """
+        try:
+            # Create a Document object
+            doc = Document(text=text, metadata=metadata or {})
+            
+            # Split into nodes
+            nodes = Settings.text_splitter.get_nodes_from_documents([doc])
+            
+            if nodes:
+               print(f"[RAGService] Ingesting {len(nodes)} nodes from text content.")
+               self.index.insert_nodes(nodes)
+               return {"status": "success", "count": len(nodes)}
+            
+            return {"status": "no_content"}
+        except Exception as e:
+            print(f"[RAGService] Error ingesting text: {e}")
             raise e
 
     def ingest_folder(self, folder_path: str, chunk_size: int = 1000, chunk_overlap: int = 200, metadata: Optional[dict] = None):

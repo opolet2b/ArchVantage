@@ -384,8 +384,11 @@ function CanvasViewInner() {
             w: t.width,
             h: t.height,
             iconified: t.iconified,
-            // Track content changes (simplistic hash for regions)
-            regions: t.type === 'image' ? (t.content as any).regions?.length : undefined
+            rag_status: t.rag_status,
+            // Track content changes (simplistic hash for regions and VLM desc)
+            regions: t.type === 'image' ? (t.content as any).regions?.length : undefined,
+            has_desc: (t.content as any).description ? true : false,
+            has_gen_desc: (t.content as any).generated_description ? true : false,
         })));
 
         // Only update if something actually changed
@@ -835,7 +838,8 @@ function CanvasViewInner() {
                                 file_path: assetUrl,
                                 asset_id: assetId,
                                 file_size: file.size,
-                                mime_type: file.type
+                                mime_type: file.type,
+                                vision_model: visionModel // Pass selected VLM preference
                             },
                             position,
                             file.name

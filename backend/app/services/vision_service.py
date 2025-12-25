@@ -94,7 +94,7 @@ class OpenAIVisionProvider(VisionProvider):
             return response.content
         except Exception as e:
             print(f"[OpenAIVisionProvider] Error: {e}")
-            return f"Error analyzing image: {str(e)}"
+            raise e
 
 class OllamaVisionProvider(VisionProvider):
     """Provider for Ollama-hosted vision models (Llama 3.2 Vision, LLaVA, etc)."""
@@ -147,7 +147,7 @@ class OllamaVisionProvider(VisionProvider):
                 response = await client.post(
                     f"{self.base_url}/api/chat", 
                     json=payload,
-                    timeout=60.0 # Vision models can be slow
+                    timeout=300.0 # Vision models can be slow (increased to 5m)
                 )
                 
                 if response.status_code != 200:
@@ -161,8 +161,11 @@ class OllamaVisionProvider(VisionProvider):
                 return result.get("message", {}).get("content", "")
 
         except Exception as e:
-            print(f"[OllamaVisionProvider] Exception: {e}")
-            return f"Error analyzing image with Ollama (Direct API): {str(e)}"
+            import traceback
+            print(f"[OllamaVisionProvider] Exception Type: {type(e)}")
+            print(f"[OllamaVisionProvider] Exception Repr: {repr(e)}")
+            print(f"[OllamaVisionProvider] Traceback: {traceback.format_exc()}")
+            raise e # Raise exception to be caught by worker
 
 class VisionService:
     """Service to manage vision capabilities and model selection."""

@@ -45,6 +45,11 @@ export type LinkType =
     | "supersedes";
 
 /**
+ * Status of RAG vectorization.
+ */
+export type RAGStatus = "none" | "pending" | "processing" | "completed" | "failed";
+
+/**
  * Viewport state for pan/zoom.
  */
 export interface Viewport {
@@ -69,6 +74,7 @@ export interface CanvasThing {
     summaries: Record<string, string>;
     title: string | null;
     collapsed: boolean;
+    rag_status: RAGStatus;
     // Iconify feature fields
     iconified: boolean;
     pre_iconify_size: { width: number; height: number } | null;
@@ -194,6 +200,7 @@ interface CanvasState {
         thingId: string,
         updates: Partial<CanvasThing>
     ) => Promise<void>;
+    syncThing: (thingId: string, serverThing: Partial<CanvasThing>) => void;
     deleteThing: (thingId: string) => Promise<void>;
     moveThing: (thingId: string, x: number, y: number, width?: number, height?: number) => void;
 
@@ -500,6 +507,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             // Revert on error
             set({ things: currentThings });
         }
+    },
+
+    // Sync thing from server (local update only, no patch)
+    syncThing: (thingId: string, serverThing: Partial<CanvasThing>) => {
+        set({
+            things: get().things.map((t) =>
+                t.id === thingId ? { ...t, ...serverThing } : t
+            ),
+        });
     },
 
     // Delete thing

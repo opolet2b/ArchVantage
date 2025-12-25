@@ -17,7 +17,7 @@ from app.routers.auth import get_current_active_user
 from app.models.user import User, Role
 from app.models.canvas_models import (
     Canvas, CanvasThing, CanvasLink, Domain,
-    ThingType as ModelThingType, LinkType as ModelLinkType
+    ThingType as ModelThingType, LinkType as ModelLinkType, RAGStatus
 )
 from app.schemas.canvas_schemas import (
     CanvasCreate, CanvasUpdate, CanvasResponse, CanvasWithContents,
@@ -28,6 +28,7 @@ from app.schemas.canvas_schemas import (
     AnalyzeRequest, AnalyzeResponse, AnalyzeAction
 )
 from app.services.rag_service import rag_service
+from app.routers.canvas_worker import handle_async_vectorization
 from pydantic import BaseModel
 
 
@@ -239,8 +240,9 @@ async def create_thing(
         db.refresh(thing)
         print(f"[CanvasRouter] Thing created successfully: {thing.id}")
 
-        # Trigger RAG Ingestion for Documents
-        if thing.type == ModelThingType.DOCUMENT:
+        # Trigger RAG Ingestion for Documents and Images
+        # Update: Now supports IMAGE processing via VLM
+        if thing.type == ModelThingType.DOCUMENT or thing.type == ModelThingType.IMAGE:
             try:
                 # Logic to find the file execution.
                 asset_id = thing.content.get("asset_id")
@@ -267,11 +269,17 @@ async def create_thing(
                 
                 if real_path:
                     print(f"[CanvasRouter] Triggering Async Vectorization for {real_path}")
+                    
+                    # Set status to PENDING
+                    thing.rag_status = RAGStatus.PENDING
+                    db.commit() # Save pending status before offloading
+                    
                     # Offload blocking ingestion to background task
                     background_tasks.add_task(
-                        rag_service.ingest_file, 
+                        handle_async_vectorization, 
+                        thing.id,
                         real_path, 
-                        metadata={"canvas_id": canvas_id}
+                        canvas_id
                     )
                 else:
                     print(f"[CanvasRouter] Could not determine local file path for asset {asset_id}")
@@ -313,6 +321,11 @@ def list_things(
             detail="Canvas not found"
         )
     
+    # Debug log for image things
+    for t in canvas.things:
+        if t.type.value == "image" or t.content.get("generated_description"):
+             print(f"[CanvasRouter] ListThings: Thing {t.id} ({t.type.value}). Keys: {t.content.keys()}")
+
     return canvas.things
 
 
@@ -343,11 +356,25 @@ def update_thing(
     from sqlalchemy.orm.attributes import flag_modified
     
     # Update fields
+    # Update fields
     if request.content is not None:
         print(f"[CanvasRouter] Updating thing {thing_id} content. Regions: {request.content.get('regions')}")
-        thing.content = request.content
+        
+        # Robust Merge: Protect critical VLM fields from being overwritten by stale frontend state
+        existing_content = thing.content or {}
+        new_content = request.content.copy() # Ensure we don't modify the input
+        
+        preserved_fields = ["description", "generated_description", "vision_model", "source_image", "generated_at"]
+        for field in preserved_fields:
+            # If the field exists in DB but is missing/empty in the request, keep the DB version
+            # This handles the case where frontend sends a stale 'content' object without the async-generated description
+            if existing_content.get(field) and not new_content.get(field):
+                print(f"[CanvasRouter] Preserving critical field '{field}' during update.")
+                new_content[field] = existing_content[field]
+        
+        thing.content = new_content
         flag_modified(thing, "content") # Explicitly flag JSON as modified
-        print(f"[CanvasRouter] Content updated and flagged modified.")
+        print(f"[CanvasRouter] Content updated and flagged modified. Keys: {new_content.keys()}")
     if request.position is not None:
         thing.position_x = request.position.x
         thing.position_y = request.position.y
@@ -808,12 +835,25 @@ async def analyze_selection(
     if len(selected_content) > 1000 or "base64" in str(selected_content).lower():
          content_for_prompt = "[Image Content]"
 
+    
+    # Imports for Prompt Service
+    from app.services.prompt_service import prompt_service
+    from app.prompts import SUMMARIZE_PROMPT, EXPLAIN_PROMPT
+
     if request.action == AnalyzeAction.SUMMARIZE:
         system_prompt = "You are a helpful assistant. Provide concise, clear summaries."
-        user_prompt = f"Please provide a concise summary of the following content:\n\n{content_for_prompt}"
+        user_prompt = prompt_service.get_prompt(
+            SUMMARIZE_PROMPT.key,
+            variables={"content": content_for_prompt},
+            user_id=current_user.id
+        )
     elif request.action == AnalyzeAction.EXPLAIN:
         system_prompt = "You are a helpful assistant. Explain concepts clearly and simply."
-        user_prompt = f"Please explain the following content in simple, clear terms:\n\n{content_for_prompt}"
+        user_prompt = prompt_service.get_prompt(
+            EXPLAIN_PROMPT.key,
+            variables={"content": content_for_prompt},
+            user_id=current_user.id
+        )
     elif request.action == AnalyzeAction.EXTRACT_POINTS:
         system_prompt = "You are a helpful assistant. Extract key information as bullet points."
         user_prompt = f"Please extract the key points from the following content as a bullet list:\n\n{content_for_prompt}"

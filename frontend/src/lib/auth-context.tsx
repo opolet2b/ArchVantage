@@ -31,9 +31,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const validateToken = async () => {
             const token = localStorage.getItem("token")
             if (token) {
-                // Create abort controller with 5 second timeout
+                // Create abort controller with 60 second timeout to handle slow backend (e.g. during heavy AI ops)
                 const controller = new AbortController()
-                const timeoutId = setTimeout(() => controller.abort(), 5000)
+                const timeoutId = setTimeout(() => controller.abort(), 60000)
 
                 try {
                     const res = await fetch(`${API_URL}/auth/me`, {

@@ -3,14 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     chat, workflow, rag, search, research, config, conversation, 
     agents, auth, users, roles, oauth, tools, mcp_servers,
-    agent_blueprints, agent_execution, templates, canvas, assets
+    agent_blueprints, agent_execution, templates, canvas, assets, prompts
 )
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
 from dotenv import load_dotenv
 
 # Import models to register them with Base before create_all
-from app.models import canvas_models, asset_models  # noqa: F401
+from app.models import canvas_models, asset_models, prompt_models  # noqa: F401
 
 load_dotenv()
 
@@ -31,6 +31,12 @@ async def startup_event():
         run_migrations(db)
         # Initialize default data
         init_db(db)
+        
+        # Sync Prompts to Registry
+        from app.services.prompt_service import prompt_service
+        from app.prompts import ALL_PROMPTS
+        prompt_service.register_prompts(ALL_PROMPTS)
+        print(f"DEBUG: Registered {len(ALL_PROMPTS)} prompts")
     finally:
         db.close()
 
@@ -64,6 +70,7 @@ app.include_router(agent_execution.router, prefix="/api/v1", tags=["agent-execut
 app.include_router(templates.router, prefix="/api/v1", tags=["templates"])
 app.include_router(canvas.router, prefix="/api/v1", tags=["canvas"])
 app.include_router(assets.router, prefix="/api/v1/assets", tags=["assets"])
+app.include_router(prompts.router, prefix="/api/v1", tags=["prompts"])
 
 @app.get("/")
 def read_root():

@@ -24,6 +24,10 @@ import {
     Minimize2,
     Maximize2,
     Trash2,
+    Loader2,
+    CheckCircle2,
+    AlertCircle,
+    BrainCircuit,
 } from "lucide-react";
 import { cn, API_URL } from "@/lib/utils";
 import { CanvasThing, ZoomLevel, useCanvasStore } from "../canvas-store";
@@ -41,6 +45,7 @@ import {
     Fragment,
     RegionFragment,
     useSelection,
+    VectorizationPreviewDialog,
 } from "../viewers";
 import {
     Dialog,
@@ -243,6 +248,72 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     // Result dialog state
     const [resultDialogOpen, setResultDialogOpen] = React.useState(false);
     const [analysisResult, setAnalysisResult] = React.useState<string>("");
+
+    // Vectorization Preview Dialog state
+    const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false);
+    const [previewContent, setPreviewContent] = React.useState<{ title: string, content: string, type: "image_description" | "scanned_pdf" | "text" }>({ title: "", content: "", type: "text" });
+
+    // Handle opening preview
+    const handleOpenPreview = () => {
+        const description = thing.content?.description;
+        const generatedDescription = thing.content?.generated_description;
+
+        if (description) {
+            setPreviewContent({
+                title: "Image Description",
+                content: description as string,
+                type: "image_description"
+            });
+            setPreviewDialogOpen(true);
+        } else if (generatedDescription) {
+            setPreviewContent({
+                title: "Scanned PDF Transcription",
+                content: generatedDescription as string,
+                type: "scanned_pdf"
+            });
+            setPreviewDialogOpen(true);
+        }
+    };
+
+    // State for local status override to avoid full canvas refresh flicker
+    const [localStatus, setLocalStatus] = React.useState(thing.rag_status);
+
+    // Sync local status when prop changes
+    React.useEffect(() => {
+        setLocalStatus(thing.rag_status);
+    }, [thing.rag_status]);
+
+    // Polling effect for RAG Status
+    React.useEffect(() => {
+        if (localStatus === "pending" || localStatus === "processing") {
+            const intervalId = setInterval(async () => {
+                try {
+                    const token = localStorage.getItem("token");
+                    const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
+                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                    });
+                    if (res.ok) {
+                        const things = await res.json();
+                        // Find our thing
+                        const updatedThing = things.find((t: any) => t.id === thing.id);
+                        if (updatedThing && updatedThing.rag_status !== localStatus) {
+                            setLocalStatus(updatedThing.rag_status);
+                            // Also update store to persist this changes globally AND update content (description)
+                            // Use syncThing to avoid PATCHing back to server (prevent overwrite race conditions)
+                            useCanvasStore.getState().syncThing(thing.id, {
+                                rag_status: updatedThing.rag_status,
+                                content: updatedThing.content
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to poll thing status", e);
+                }
+            }, 2000); // Poll every 2s
+
+            return () => clearInterval(intervalId);
+        }
+    }, [localStatus, canvasId, thing.id]);
 
     // Link dialog state
     const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
@@ -1134,6 +1205,43 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             {thing.title || getDefaultTitle()}
                         </span>
                     )}
+
+                    {/* RAG Status Indicator */}
+                    {localStatus && localStatus !== "none" && (() => {
+                        // Cast content to any to avoid strict type checks if fields are missing in type def
+                        const c = thing.content as any;
+                        const hasDesc = !!c.description;
+                        const hasGenDesc = !!c.generated_description;
+                        const isCompleted = localStatus === "completed";
+                        const isClickable = (hasDesc || hasGenDesc) && isCompleted;
+
+                        // Debug log (throttled/conditional to avoid spam)
+                        if (isCompleted && !isClickable) {
+                            console.log(`[ThingNode] Thing ${thing.id} completed but not clickable. Desc: ${hasDesc}, GenDesc: ${hasGenDesc}, Content keys: ${Object.keys(c)}`);
+                        }
+
+                        return (
+                            <div
+                                className={cn("flex items-center", isClickable && "cursor-pointer hover:opacity-80")}
+                                title={`Vectorization: ${localStatus}${isClickable ? " (Click to view content)" : ""}`}
+                                onClick={(e) => {
+                                    if (isClickable) {
+                                        e.stopPropagation();
+                                        handleOpenPreview();
+                                    }
+                                }}
+                            >
+                                {localStatus === "pending" || localStatus === "processing" ? (
+                                    <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+                                ) : localStatus === "completed" ? (
+                                    <BrainCircuit className="h-4 w-4 text-green-500" />
+                                ) : localStatus === "failed" ? (
+                                    <AlertCircle className="h-4 w-4 text-red-500" />
+                                ) : null}
+                            </div>
+                        );
+                    })()}
+
                     {/* Iconify button - shown when selected */}
                     {(isSelected || selected) && onToggleIconify && (
                         <button
@@ -1279,6 +1387,15 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* Content Preview Dialog */}
+            <VectorizationPreviewDialog
+                open={previewDialogOpen}
+                onOpenChange={setPreviewDialogOpen}
+                title={previewContent.title}
+                content={previewContent.content}
+                type={previewContent.type}
+            />
         </>
     );
 }

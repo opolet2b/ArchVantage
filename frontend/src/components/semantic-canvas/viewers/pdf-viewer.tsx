@@ -28,8 +28,8 @@ if (typeof Promise.withResolvers === "undefined") {
 }
 
 console.log("[PDFViewer] React-PDF pdfjs.version:", pdfjs.version);
-// Use local legacy worker synchronously to avoid race conditions
-pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.legacy.mjs`;
+// Use CDN worker to avoid local bundle issues and race conditions
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 // =============================================================================
 // Props

@@ -16,5 +16,6 @@ export { SelectionProvider, useSelection } from "./selection-context";
 export { SelectionToolbar } from "./selection-toolbar";
 export { SelectableContent } from "./selectable-content";
 export { useAnalyze } from "./use-analyze";
+export { VectorizationPreviewDialog } from "./vectorization-preview-dialog";
 export type { Fragment, TextFragment, CellFragment, RegionFragment, MessageFragment } from "./types";
 export type { LLMAction } from "./selection-toolbar";

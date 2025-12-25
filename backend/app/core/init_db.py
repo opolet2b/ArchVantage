@@ -91,6 +91,28 @@ def run_migrations(db: Session) -> None:
                 except Exception as alter_error:
                     print(f"Warning: Could not add pre_iconify_size column: {alter_error}")
                     db.rollback()
+                    print(f"Warning: Could not add pre_iconify_size column: {alter_error}")
+                    db.rollback()
+
+            # Check if rag_status column exists
+            try:
+                result = db.execute(
+                    text("SELECT rag_status FROM canvas_things LIMIT 1")
+                )
+                result.close()
+                print("Migration check: rag_status column already exists.")
+            except Exception:
+                # Add rag_status column
+                print("Adding 'rag_status' column to canvas_things table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE canvas_things ADD COLUMN rag_status VARCHAR(20) DEFAULT 'none'")
+                    )
+                    db.commit()
+                    print("Added 'rag_status' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add rag_status column: {alter_error}")
+                    db.rollback()
     except Exception as e:
         print(f"Canvas_things migration check failed: {e}")
 

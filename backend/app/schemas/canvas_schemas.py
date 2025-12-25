@@ -153,6 +153,7 @@ class ThingResponse(BaseModel):
     summaries: Dict[str, str]
     title: Optional[str]
     collapsed: bool
+    rag_status: str = "none"
     # Iconify feature fields
     iconified: bool = False
     pre_iconify_size: Optional[Dict[str, float]] = None

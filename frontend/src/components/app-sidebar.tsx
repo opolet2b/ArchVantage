@@ -20,6 +20,7 @@ const navItems = [
     { href: "/rag", icon: Database, label: "RAG" },
     { href: "/search", icon: Search, label: "Research" },
     { href: "/settings", icon: Settings, label: "Settings" },
+    { href: "/admin/prompts", icon: FileText, label: "Prompts" },
     { href: "/help", icon: HelpCircle, label: "Help" },
 ]
 

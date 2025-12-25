@@ -57,6 +57,15 @@ class ThingType(str, Enum):
     URL = "url"
 
 
+class RAGStatus(str, Enum):
+    """Status of RAG vectorization for a thing."""
+    NONE = "none"
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class LinkType(str, Enum):
     """
     Types of relationships between things.
@@ -207,6 +216,9 @@ class CanvasThing(Base):
     # Store original size before iconify for restoration
     # Format: {"width": float, "height": float}
     pre_iconify_size = Column(JSON, nullable=True)
+    
+    # RAG Status
+    rag_status = Column(String, default="none")
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
