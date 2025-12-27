@@ -4,7 +4,7 @@ from typing import List, Optional
 import chromadb
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, Document
 from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.core.node_parser import SentenceSplitter
 
 class RAGService:
@@ -14,19 +14,21 @@ class RAGService:
         
         try:
             # Configure Settings
-            # Using HuggingFace local embeddings - no API key required
-            # Using a small, fast model that runs locally
-            Settings.embed_model = HuggingFaceEmbedding(
-                model_name="sentence-transformers/all-MiniLM-L6-v2",
-                device="cpu"
+            # Using Ollama Embeddings to avoid local CPU hangs and leverage GPU if available
+            print("[RAGService] Connecting to Ollama for Embeddings (model: nomic-embed-text)...")
+            Settings.embed_model = OllamaEmbedding(
+                model_name="nomic-embed-text",
+                base_url="http://localhost:11434",
+                ollama_additional_kwargs={"mirostat": 0}
             )
             Settings.text_splitter = SentenceSplitter(chunk_size=1000, chunk_overlap=200)
             
             # Initialize Chroma Client
-            # DEBUG: Use EphemeralClient to bypass potential SQLite/File locks
-            print("[RAGService] DEBUG: Using EphemeralClient (In-Memory) for vector store.")
-            self.chroma_client = chromadb.EphemeralClient()
-            self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag")
+            # Use PersistentClient for data retention
+            print(f"[RAGService] Initializing PersistentClient at {self.persist_directory}")
+            self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
+            # Using v2 collection to support 768-dim embeddings (Ollama/Nomic) instead of old 384-dim
+            self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
             
             # Set up Vector Store and Storage Context
             self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
@@ -124,6 +126,28 @@ class RAGService:
             return {"status": "no_documents_found"}
         except Exception as e:
             print(f"Error ingesting file {file_path}: {e}")
+            raise e
+
+    MAX_TEXT_LENGTH = 10000
+
+    def ingest_slideshow(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
+        """
+        Ingest a PowerPoint file using its pre-extracted JSON structure.
+        Delegates to the specialized SlideshowIngestor.
+        """
+        try:
+            from app.services.rag.slideshow_ingestor import slideshow_ingestor
+            
+            return slideshow_ingestor.ingest_slideshow(
+                file_path=file_path,
+                index=self.index,
+                storage_context=self.storage_context,
+                conversation_id=conversation_id,
+                metadata=metadata,
+                progress_callback=progress_callback
+            )
+        except Exception as e:
+            print(f"[RAGService] Error ingesting slideshow: {e}")
             raise e
 
     def ingest_text(self, text: str, metadata: Optional[dict] = None):
@@ -224,9 +248,12 @@ class RAGService:
             List of dicts with 'text', 'metadata', and 'score' keys.
         """
         try:
+            print(f"[RAGService] Search requested. Query: '{query}' Filters: {filters}")
             if not self._initialized or self.index is None:
+                print(f"[RAGService] Index not initialized. Returning empty.")
                 return []
             
+            print(f"[RAGService] Building filters...")
             from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
             
              # Build filters
@@ -246,8 +273,12 @@ class RAGService:
                 metadata_filters = MetadataFilters(filters=filter_list)
             
             # Create retriever
+            print(f"[RAGService] Creating retriever (k={k})...")
             retriever = self.index.as_retriever(similarity_top_k=k, filters=metadata_filters)
+            
+            print(f"[RAGService] Executing retrieve('{query}')...")
             nodes = retriever.retrieve(query)
+            print(f"[RAGService] Retrieved {len(nodes)} nodes.")
             
             results = []
             for node in nodes:

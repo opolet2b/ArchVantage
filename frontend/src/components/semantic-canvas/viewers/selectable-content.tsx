@@ -294,29 +294,50 @@ export function SelectableContent({
     );
 
     // Handle ask with custom prompt
-    const handleAskSubmit = React.useCallback(async () => {
-        if (!selection || !canvasId || !customPrompt.trim()) return;
+    // FIX: Ensure dialog closes immediately and we show feedback
+    const handleAskSubmit = React.useCallback(async (e?: React.SyntheticEvent) => {
+        if (e) e.preventDefault();
 
-        // Prepare fragment (crop if needed)
-        const fragmentToAnalyze = await prepareFragmentForAnalysis(selection.fragment);
-        setAnalysisSourceFragment(selection.fragment); // Keep original or analyzed? Analyzed has content. But original has ID? both have ID. analyzed has base64 content. use original for lightweight ID reference? No, use original selection fragment is safer if ID is there.
+        console.log("[SelectableContent] handleAskSubmit called");
 
-        const result = await analyze({
-            canvasId,
-            thingId,
-            fragment: fragmentToAnalyze,
-            action: "ask",
-            customPrompt: customPrompt.trim(),
-            model: (fragmentToAnalyze.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
-        });
-
-        if (result && result.result) {
-            await createNodeAndLink(result.result, selection.fragment);
+        if (!selection || !canvasId || !customPrompt.trim()) {
+            console.warn("[SelectableContent] Ask submit aborted: missing selection or prompt");
+            return;
         }
 
-        setAskDialogOpen(false);
-        setCustomPrompt("");
-        clearSelection();
+        // Note: Dialog stays OPEN with loading state now
+
+        // 2. Start analysis (Selection remains for toolbar loading state)
+        try {
+            const fragmentToAnalyze = await prepareFragmentForAnalysis(selection.fragment);
+            setAnalysisSourceFragment(selection.fragment);
+
+            console.log("[SelectableContent] Calling analyze...");
+            const result = await analyze({
+                canvasId,
+                thingId,
+                fragment: fragmentToAnalyze,
+                action: "ask",
+                customPrompt: customPrompt.trim(),
+                model: (fragmentToAnalyze.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
+            });
+
+            console.log("[SelectableContent] Analyze result:", !!result);
+
+            if (result && result.result) {
+                await createNodeAndLink(result.result, selection.fragment);
+            }
+
+            // Only close on success/completion
+            setAskDialogOpen(false);
+            setCustomPrompt("");
+        } catch (err) {
+            console.error("[SelectableContent] Ask failed:", err);
+        } finally {
+            // 3. Cleanup
+            console.log("[SelectableContent] Clearing selection");
+            clearSelection();
+        }
     }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis]);
 
     // Handle link action - open target selection dialog
@@ -453,7 +474,7 @@ export function SelectableContent({
 
 
             {/* Custom Prompt Dialog */}
-            <Dialog open={askDialogOpen} onOpenChange={setAskDialogOpen}>
+            <Dialog open={askDialogOpen} onOpenChange={(open) => !isLoading && setAskDialogOpen(open)}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
                         <DialogTitle>Ask about selection</DialogTitle>
@@ -461,33 +482,48 @@ export function SelectableContent({
                             Enter a question or prompt about the selected content.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="prompt">Your question</Label>
-                            <Input
-                                id="prompt"
-                                value={customPrompt}
-                                onChange={(e) => setCustomPrompt(e.target.value)}
-                                placeholder="e.g., What are the implications of this?"
-                                onKeyDown={(e) => e.key === "Enter" && handleAskSubmit()}
-                            />
+
+                    {isLoading ? (
+                        <div className="py-8 flex flex-col items-center justify-center gap-4 animate-in fade-in zoom-in-95">
+                            <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+                            <p className="text-sm text-muted-foreground">Thinking...</p>
                         </div>
-                        {selection?.fragment.content && (
+                    ) : (
+                        <div className="space-y-4 py-4">
                             <div className="space-y-2">
-                                <Label>Selected text</Label>
-                                <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded text-sm max-h-20 overflow-auto">
-                                    {selection.fragment.content.slice(0, 200)}
-                                    {selection.fragment.content.length > 200 && "..."}
-                                </div>
+                                <Label htmlFor="prompt">Your question</Label>
+                                <Input
+                                    id="prompt"
+                                    value={customPrompt}
+                                    onChange={(e) => setCustomPrompt(e.target.value)}
+                                    placeholder="e.g., What are the implications of this?"
+                                    onKeyDown={(e) => e.key === "Enter" && handleAskSubmit()}
+                                    autoFocus
+                                />
                             </div>
-                        )}
-                    </div>
+                            {selection?.fragment.content && (
+                                <div className="space-y-2">
+                                    <Label>Selected text</Label>
+                                    <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded text-sm max-h-20 overflow-auto">
+                                        {selection.fragment.content.slice(0, 200)}
+                                        {selection.fragment.content.length > 200 && "..."}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setAskDialogOpen(false)}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleAskSubmit} disabled={!customPrompt.trim()}>
-                            Ask
+                        {!isLoading && (
+                            <Button variant="outline" onClick={() => setAskDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                        )}
+                        <Button
+                            onClick={handleAskSubmit}
+                            disabled={!customPrompt.trim() || isLoading}
+                        >
+                            {isLoading ? "Processing..." : "Ask AI"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

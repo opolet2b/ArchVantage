@@ -28,6 +28,7 @@ import {
     CheckCircle2,
     AlertCircle,
     BrainCircuit,
+    Presentation,
 } from "lucide-react";
 import { cn, API_URL } from "@/lib/utils";
 import { CanvasThing, ZoomLevel, useCanvasStore } from "../canvas-store";
@@ -47,6 +48,7 @@ import {
     useSelection,
     VectorizationPreviewDialog,
 } from "../viewers";
+import { SlideshowNode } from "./slideshow-node";
 import {
     Dialog,
     DialogContent,
@@ -75,6 +77,7 @@ const thingIcons: Record<string, React.ElementType> = {
     table: Table,
     agent_result: Bot,
     url: Link,
+    slideshow: Presentation,
 };
 
 // =============================================================================
@@ -254,7 +257,21 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     const [previewContent, setPreviewContent] = React.useState<{ title: string, content: string, type: "image_description" | "scanned_pdf" | "text" }>({ title: "", content: "", type: "text" });
 
     // Handle opening preview
-    const handleOpenPreview = () => {
+    const handleOpenPreview = async () => {
+        if (thing.type === 'slideshow') {
+            // Restore JSON display as per user request
+            const jsonDebug = JSON.stringify(thing.content, null, 2);
+            setPreviewContent({
+                title: "Slideshow Data (JSON)",
+                content: jsonDebug,
+                type: "text"
+            });
+            setPreviewDialogOpen(true);
+
+            // We skip the auto-analyze for now since the user specifically requested the JSON view.
+            return;
+        }
+
         const description = thing.content?.description;
         const generatedDescription = thing.content?.generated_description;
 
@@ -732,40 +749,53 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     );
 
     // Handle ask with custom prompt
-    const handleAskSubmit = React.useCallback(async () => {
+    const handleAskSubmit = React.useCallback(async (e?: React.SyntheticEvent) => {
+        if (e) e.preventDefault();
+
         if (!canvasId || !customPrompt.trim()) return;
 
-        let finalFragment = fullThingFragment;
-        let modelToUse = selectedModel;
+        // Note: Dialog stays OPEN with loading state now
 
-        if (thing.type === "image") {
-            modelToUse = visionModel || selectedModel;
-            if (thing.content.file_path) {
-                const base64 = await fetchImageAsBase64(thing.content.file_path as string);
-                if (base64) {
-                    finalFragment = {
-                        ...fullThingFragment,
-                        content: base64,
-                    };
+        try {
+            console.log("[ThingNode] Starting analysis...");
+            let finalFragment = fullThingFragment;
+            let modelToUse = selectedModel;
+
+            if (thing.type === "image") {
+                modelToUse = visionModel || selectedModel;
+                if (thing.content.file_path) {
+                    const base64 = await fetchImageAsBase64(thing.content.file_path as string);
+                    if (base64) {
+                        finalFragment = {
+                            ...fullThingFragment,
+                            content: base64,
+                        };
+                    }
                 }
             }
+
+            const result = await analyze({
+                canvasId,
+                thingId: thing.id,
+                fragment: finalFragment,
+                action: "ask",
+                customPrompt: customPrompt.trim(),
+                model: modelToUse || undefined,
+            });
+
+            console.log("[ThingNode] Analysis result:", !!result);
+
+            if (result && result.result) {
+                await createNodeAndLink(result.result, fullThingFragment);
+            }
+
+            // Only close and clear on success/completion
+            setAskDialogOpen(false);
+            setCustomPrompt("");
+        } catch (err) {
+            console.error("[ThingNode] Ask failed:", err);
+            setAskDialogOpen(false);
         }
-
-        const result = await analyze({
-            canvasId,
-            thingId: thing.id,
-            fragment: finalFragment,
-            action: "ask",
-            customPrompt: customPrompt.trim(),
-            model: modelToUse || undefined,
-        });
-
-        if (result && result.result) {
-            await createNodeAndLink(result.result, fullThingFragment);
-        }
-
-        setAskDialogOpen(false);
-        setCustomPrompt("");
     }, [canvasId, thing, fullThingFragment, customPrompt, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64]);
 
     // Handle link action - open target selection dialog
@@ -992,6 +1022,13 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     </SelectableContent>
                 );
 
+            case "slideshow":
+                return (
+                    <SelectableContent thingId={thing.id}>
+                        <SlideshowNode thing={thing} />
+                    </SelectableContent>
+                );
+
             case "url":
                 return (
                     <a
@@ -1213,7 +1250,8 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                         const hasDesc = !!c.description;
                         const hasGenDesc = !!c.generated_description;
                         const isCompleted = localStatus === "completed";
-                        const isClickable = (hasDesc || hasGenDesc) && isCompleted;
+                        const isSlideshow = thing.type === 'slideshow';
+                        const isClickable = ((hasDesc || hasGenDesc) || isSlideshow) && isCompleted;
 
                         // Debug log (throttled/conditional to avoid spam)
                         if (isCompleted && !isClickable) {
@@ -1290,7 +1328,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
             </div>
 
             {/* Custom Prompt Dialog */}
-            <Dialog open={askDialogOpen} onOpenChange={setAskDialogOpen}>
+            <Dialog open={askDialogOpen} onOpenChange={(open) => !isLoading && setAskDialogOpen(open)}>
                 <DialogContent className="sm:max-w-md nodrag cursor-default">
                     <DialogHeader>
                         <DialogTitle>Ask about this content</DialogTitle>
@@ -1298,24 +1336,39 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                             Enter a question or prompt about the selected thing.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="prompt">Your question</Label>
-                            <Input
-                                id="prompt"
-                                value={customPrompt}
-                                onChange={(e) => setCustomPrompt(e.target.value)}
-                                placeholder="e.g., What are the implications of this?"
-                                onKeyDown={(e) => e.key === "Enter" && handleAskSubmit()}
-                            />
+
+                    {isLoading ? (
+                        <div className="py-8 flex flex-col items-center justify-center gap-4 animate-in fade-in zoom-in-95">
+                            <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+                            <p className="text-sm text-muted-foreground">Thinking...</p>
                         </div>
-                    </div>
+                    ) : (
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="prompt">Your question</Label>
+                                <Input
+                                    id="prompt"
+                                    value={customPrompt}
+                                    onChange={(e) => setCustomPrompt(e.target.value)}
+                                    placeholder="e.g., What are the implications of this?"
+                                    onKeyDown={(e) => e.key === "Enter" && handleAskSubmit()}
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+                    )}
+
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setAskDialogOpen(false)}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleAskSubmit} disabled={!customPrompt.trim()}>
-                            Ask
+                        {!isLoading && (
+                            <Button variant="outline" onClick={() => setAskDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                        )}
+                        <Button
+                            onClick={handleAskSubmit}
+                            disabled={!customPrompt.trim() || isLoading}
+                        >
+                            {isLoading ? "Processing..." : "Ask AI"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -823,7 +823,9 @@ function CanvasViewInner() {
 
                     // 2. Create the Canvas Thing
                     const isImage = file.type.startsWith("image/");
-                    const isText = !isImage && (
+                    const isSlideshow = file.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+                    const isPdf = file.type === "application/pdf";
+                    const isText = !isImage && !isSlideshow && !isPdf && (
                         file.name.endsWith(".txt") ||
                         file.name.endsWith(".md") ||
                         file.name.endsWith(".json") ||
@@ -839,17 +841,41 @@ function CanvasViewInner() {
                                 asset_id: assetId,
                                 file_size: file.size,
                                 mime_type: file.type,
-                                vision_model: visionModel // Pass selected VLM preference
+                                vision_model: visionModel
+                            },
+                            position,
+                            file.name
+                        );
+                    } else if (isSlideshow) {
+                        await addThing(
+                            "slideshow",
+                            {
+                                filename: file.name,
+                                file_path: assetUrl,
+                                asset_id: assetId,
+                                file_size: file.size,
+                                mime_type: file.type,
+                                // We don't have total_slides extracted yet in frontend response
+                                // But the node will load the sidecar JSON later
+                            },
+                            position,
+                            file.name
+                        );
+                    } else if (isPdf) {
+                        await addThing(
+                            "document",
+                            {
+                                filename: file.name,
+                                file_path: assetUrl,
+                                asset_id: assetId,
+                                file_size: file.size,
+                                file_type: file.type,
+                                mime_type: file.type
                             },
                             position,
                             file.name
                         );
                     } else if (isText) {
-                        // For text, we might strictly want to store content in DB, 
-                        // BUT for the "Managed Asset" approach, we treat the file as the source of truth.
-                        // However, the current TextViewer expects `content`.
-                        // For consistency with current UX, we can read the content for display 
-                        // but ALSO link to the asset.
                         const textContent = await file.text();
                         await addThing(
                             "document",
@@ -857,14 +883,14 @@ function CanvasViewInner() {
                                 filename: file.name,
                                 content: textContent,
                                 asset_id: assetId,
-                                file_path: assetUrl, // Backup link
+                                file_path: assetUrl,
                                 mime_type: file.type
                             },
                             position,
                             file.name
                         );
                     } else {
-                        // Binary/Other (PDF, Excel, etc)
+                        // Binary/Other
                         await addThing(
                             "document",
                             {

@@ -240,9 +240,8 @@ async def create_thing(
         db.refresh(thing)
         print(f"[CanvasRouter] Thing created successfully: {thing.id}")
 
-        # Trigger RAG Ingestion for Documents and Images
-        # Update: Now supports IMAGE processing via VLM
-        if thing.type == ModelThingType.DOCUMENT or thing.type == ModelThingType.IMAGE:
+        # Trigger RAG Ingestion for Documents, Images, and Slideshows
+        if thing.type in [ModelThingType.DOCUMENT, ModelThingType.IMAGE, ModelThingType.SLIDESHOW]:
             try:
                 # Logic to find the file execution.
                 asset_id = thing.content.get("asset_id")
@@ -287,6 +286,8 @@ async def create_thing(
             except Exception as e:
                 print(f"[CanvasRouter] RAG Ingestion Setup Error: {e}")
 
+
+
         return thing
 
         return thing
@@ -327,6 +328,31 @@ def list_things(
              print(f"[CanvasRouter] ListThings: Thing {t.id} ({t.type.value}). Keys: {t.content.keys()}")
 
     return canvas.things
+
+
+@router.get(
+    "/canvases/{canvas_id}/things/{thing_id}",
+    response_model=ThingResponse
+)
+def get_thing(
+    canvas_id: str,
+    thing_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get a specific thing from the canvas."""
+    thing = db.query(CanvasThing).join(Canvas).filter(
+        CanvasThing.id == thing_id,
+        CanvasThing.canvas_id == canvas_id,
+        Canvas.owner_id == current_user.id
+    ).first()
+    
+    if not thing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thing not found"
+        )
+    return thing
 
 
 @router.patch(
@@ -820,9 +846,58 @@ async def analyze_selection(
     
     # Get the selected content
     selected_content = request.fragment.content or ""
-    # print(f"[AnalyzeEndpoint] Selected content type: {type(selected_content)}")
-    # print(f"[AnalyzeEndpoint] Selected content preview: {str(selected_content)[:200]}")
     
+    # Phase 2: RAG Integration for Slideshows
+    # If this is a slideshow and the content looks like metadata (JSON), 
+    # we should fetch relevant text from the Vector Store to give the LLM context.
+    if thing.type.value == "slideshow":
+        # Check if RAG is available
+        # Note: thing.rag_status is a DB Column enum (or string in some contexts?)
+        # Enum comparison should work if imports are correct.
+        if thing.rag_status == RAGStatus.COMPLETED or str(thing.rag_status) == "completed":
+             print(f"[Analyze] Detected Slideshow with RAG. Fetching context...")
+             
+             # If action is ASK, search for the user's prompt. Otherwise summarize.
+             query_text = "Summarize this presentation"
+             if request.action == AnalyzeAction.ASK and request.custom_prompt:
+                 query_text = request.custom_prompt
+             
+             # Retrieve top chunks from RAG
+             try:
+                 # Search using the query
+                 # We must filter by asset_id because ingestion happens at upload time (before canvas assignment),
+                 # so the vectors generally don't have canvas_id metadata yet.
+                 search_filters = {}
+                 asset_id = thing.content.get("asset_id")
+                 if asset_id:
+                     search_filters["asset_id"] = asset_id
+                 else:
+                     # Fallback if asset_id is missing
+                     search_filters["canvas_id"] = canvas_id
+ 
+                 results = rag_service.search(query=query_text, k=5, filters=search_filters)
+                 
+                 if results:
+                     # Join chunks to form context
+                     context_texts = [r['text'] for r in results]
+                     
+                     # PREPEND SYSTEM INSTRUCTION FOR SPATIAL AWARENESS
+                     system_note = (
+                        "SYSTEM NOTE: The following context describes slides with spatial coordinates (x,y,w,h normalized 0.0-1.0) "
+                        "and visual attributes (Shape Type, Colors). "
+                        "Use this to mentally reconstruct the visual layout and hierarchy. "
+                        "Coordinates: x=0 (left), y=0 (top). "
+                        "Visuals are described as [TYPE] (Layout...) (Color...) \"Text\"."
+                     )
+                     
+                     selected_content = f"{system_note}\n\nRelevant Slides/Context:\n" + "\n---\n".join(context_texts)
+                     print(f"[Analyze] Retrieved {len(results)} chunks from RAG for context.")
+                 else:
+                     selected_content = "No relevant context found in RAG index for this query."
+             except Exception as e:
+                 print(f"[Analyze] RAG Search failed: {e}")
+                 # Fallback to existing content (metadata)
+
     if not selected_content:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -832,8 +907,9 @@ async def analyze_selection(
     # Build prompt based on action
     # If content looks like base64 or is very long, don't put it all in the text prompt
     content_for_prompt = selected_content
-    if len(selected_content) > 1000 or "base64" in str(selected_content).lower():
-         content_for_prompt = "[Image Content]"
+    # Only truncate if it looks like a raw image data URL
+    if "base64" in str(selected_content).lower() and len(selected_content) > 1000:
+         content_for_prompt = "[Image Content (Base64 Truncated)]"
 
     
     # Imports for Prompt Service
@@ -915,7 +991,7 @@ async def analyze_selection(
             if request.action == AnalyzeAction.SUMMARIZE:
                  final_user_prompt = "Summarize the visual content of this image."
 
-            result = await vision_service.analyze(
+            response = await vision_service.analyze(
                 image_data=image_payload,
                 prompt=final_user_prompt,
                 system_prompt=final_system_prompt,
@@ -923,19 +999,43 @@ async def analyze_selection(
             )
         else:
             # Standard Text LLM
-            messages = [
-                Message(role="system", content=system_prompt),
-                Message(role="user", content=user_prompt)
-            ]
-            result = await llm_service.chat(messages, model_name)
-            
+            # Debug Logging
+            print("\nXXX DEBUG PROMPT XXX")
+            print(f"System Prompt: {system_prompt}")
+            print(f"User Prompt (len={len(user_prompt)}): {user_prompt[:1000]}... [may be truncated]")
+            print("XXX DEBUG PROMPT END XXX\n")
+
+            # MAGIC COMMAND FOR DEBUGGING
+            if request.action == AnalyzeAction.ASK and request.custom_prompt == "DEBUG_PROMPT":
+                 return AnalyzeResponse(
+                    thing_id=request.thing_id,
+                    action=request.action,
+                    result=f"--- SYSTEM PROMPT ---\n{system_prompt}\n\n--- USER PROMPT ---\n{user_prompt}",
+                    created_thing_id=None 
+                )
+
+            from app.models.chat import Message
+            response = await llm_service.chat(
+                messages=[
+                    Message(role="system", content=system_prompt),
+                    Message(role="user", content=user_prompt)
+                ],
+                model_name=request.model
+            )
+            print(f"[Analyze] LLM Response received (len={len(response)})")
+        
+        return AnalyzeResponse(
+            thing_id=request.thing_id,
+            action=request.action,
+            result=response,
+            created_thing_id=None 
+        )
+
     except Exception as e:
-        print(f"[Analyze] LLM/Vision error: {e}")
-        result = f"Error analyzing content: {str(e)}"
-    
-    return AnalyzeResponse(
-        thing_id=request.thing_id,
-        action=request.action,
-        result=result,
-        created_thing_id=None
-    )
+        print(f"[Analyze] Error: {e}")
+        return AnalyzeResponse(
+            thing_id=request.thing_id,
+            action=request.action,
+            result=f"Error analyzing content: {str(e)}",
+            created_thing_id=None
+        )

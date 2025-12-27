@@ -26,7 +26,8 @@ export type ThingType =
     | "database"
     | "table"
     | "agent_result"
-    | "url";
+    | "url"
+    | "slideshow";
 
 /**
  * Types of relationships between things.

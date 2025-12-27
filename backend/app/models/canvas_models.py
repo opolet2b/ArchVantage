@@ -55,6 +55,7 @@ class ThingType(str, Enum):
     TABLE = "table"
     AGENT_RESULT = "agent_result"
     URL = "url"
+    SLIDESHOW = "slideshow"
 
 
 class RAGStatus(str, Enum):

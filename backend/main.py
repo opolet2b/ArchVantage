@@ -19,6 +19,13 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ChatBot Agent Orchestrator")
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"!!! INCOMING REQUEST: {request.method} {request.url.path}")
+    response = await call_next(request)
+    print(f"!!! RESPONSE STATUS: {response.status_code}")
+    return response
+
 @app.on_event("startup")
 async def startup_event():
     watcher_service.start()

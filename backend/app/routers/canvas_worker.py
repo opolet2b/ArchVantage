@@ -87,6 +87,48 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                  db.commit()
                  return
 
+        elif thing.type.value == "slideshow":
+            print(f"[CanvasWorker] Ingesting Slideshow...")
+            
+            # Progress Callback
+            def update_progress(current, total):
+                try:
+                    # We need to re-query or just use the current object if valid
+                    # But since we might incur overhead, let's just update content
+                    # We use a fresh dict to ensure SA detects change
+                    
+                    # Refreshing 'thing' in loop might be heavy? 
+                    # Actually, 'thing' is attached to session 'db'. 
+                    
+                    # Note: We should probably only commit every N items to save DB IO if total is huge
+                    # But for now, 1 commit per slide is fine (human speed).
+                    
+                    new_content = dict(thing.content)
+                    new_content["ingestion_progress"] = {
+                        "current": current,
+                        "total": total,
+                        "percent": int((current / total) * 100)
+                    }
+                    thing.content = new_content
+                    
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(thing, "content")
+                    db.commit()
+                except Exception as e:
+                    print(f"[CanvasWorker] Error updating progress: {e}")
+
+            # Slideshows have a sidecar JSON, which ingest_slideshow handles.
+            # Metadata: Include canvas_id and thing_id to fix RAG Search filtering.
+            # CRITICAL: Run in threadpool to prevent blocking the async event loop!
+            from starlette.concurrency import run_in_threadpool
+            
+            result = await run_in_threadpool(
+                rag_service.ingest_slideshow,
+                file_path,
+                metadata={"canvas_id": canvas_id, "thing_id": thing_id, "asset_id": thing.content.get("asset_id")},
+                progress_callback=update_progress
+            )
+
         else:
             # Default Document Ingestion
             result = rag_service.ingest_file(
