@@ -7,7 +7,7 @@ import {
     DialogTitle,
     DialogDescription,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { Button } from "@/components/ui/button";
 import { Copy } from "lucide-react";
 
@@ -44,11 +44,11 @@ export function VectorizationPreviewDialog({
                 </DialogHeader>
 
                 <div className="flex-1 overflow-hidden border rounded-md min-h-[200px] mt-2 relative group">
-                    <ScrollArea className="h-full w-full p-4">
+                    <div className="h-full w-full p-4 overflow-auto">
                         <div className="text-sm text-foreground whitespace-pre-wrap font-mono">
                             {content || "No content available."}
                         </div>
-                    </ScrollArea>
+                    </div>
                     <Button
                         variant="ghost"
                         size="icon"

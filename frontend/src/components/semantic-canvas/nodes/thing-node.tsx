@@ -260,13 +260,53 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     const handleOpenPreview = async () => {
         if (thing.type === 'slideshow') {
             // Restore JSON display as per user request
-            const jsonDebug = JSON.stringify(thing.content, null, 2);
+            // We need to fetch the full sidecar JSON, not just the metadata in thing.content
+            const assetId = thing.content?.asset_id;
+
+            if (!assetId) {
+                setPreviewContent({
+                    title: "Slideshow Data (JSON)",
+                    content: JSON.stringify(thing.content, null, 2) + "\n\n(No asset_id found to fetch full hierarchy)",
+                    type: "text"
+                });
+                setPreviewDialogOpen(true);
+                return;
+            }
+
             setPreviewContent({
                 title: "Slideshow Data (JSON)",
-                content: jsonDebug,
+                content: "Loading full presentation hierarchy...",
                 type: "text"
             });
             setPreviewDialogOpen(true);
+
+            try {
+                const token = localStorage.getItem("token");
+                const res = await fetch(`/api/v1/assets/sidecar/${assetId}`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+
+                if (res.ok) {
+                    const fullJson = await res.json();
+                    setPreviewContent({
+                        title: "Slideshow Data (JSON)",
+                        content: JSON.stringify(fullJson, null, 2),
+                        type: "text"
+                    });
+                } else {
+                    setPreviewContent({
+                        title: "Slideshow Data (Error)",
+                        content: `Failed to fetch sidecar JSON: ${res.statusText}`,
+                        type: "text"
+                    });
+                }
+            } catch (e) {
+                setPreviewContent({
+                    title: "Slideshow Data (Error)",
+                    content: `Network error fetching JSON: ${e}`,
+                    type: "text"
+                });
+            }
 
             // We skip the auto-analyze for now since the user specifically requested the JSON view.
             return;
