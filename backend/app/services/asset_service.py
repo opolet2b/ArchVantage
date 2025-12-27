@@ -150,4 +150,54 @@ class AssetService:
             
         return file_path, asset.mime_type, asset.original_name
 
+    @staticmethod
+    def delete_asset(
+        db: Session,
+        asset_id: str,
+        user_id: int
+    ) -> bool:
+        """
+        Delete an asset and its physical file.
+        """
+        asset = db.query(Asset).filter(Asset.id == asset_id).first()
+        
+        if not asset:
+            # Already gone or not found
+            return False
+            
+        if asset.owner_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to delete this asset"
+            )
+            
+        # 1. Delete physical file
+        file_path = STORAGE_ROOT / asset.file_path
+        if file_path.exists():
+            try:
+                file_path.unlink()
+                print(f"[AssetService] Deleted file: {file_path}")
+            except Exception as e:
+                print(f"[AssetService] Error deleting file {file_path}: {e}")
+                
+        # 2. Delete Sidecar JSON if exists (for PPTX etc)
+        sidecar_path = Path(str(file_path) + ".json")
+        if sidecar_path.exists():
+            try:
+                sidecar_path.unlink()
+                print(f"[AssetService] Deleted sidecar: {sidecar_path}")
+            except Exception as e:
+                print(f"[AssetService] Error deleting sidecar {sidecar_path}: {e}")
+                
+        # 3. Delete DB Record
+        db.delete(asset)
+        try:
+            db.commit()
+            print(f"[AssetService] Deleted asset record: {asset_id}")
+            return True
+        except Exception as e:
+            db.rollback()
+            print(f"[AssetService] Error deleting asset DB record: {e}")
+            raise e
+
 asset_service = AssetService()

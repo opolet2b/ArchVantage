@@ -444,6 +444,19 @@ def delete_thing(
             detail="Thing not found"
         )
     
+    
+    # Clean up associated assets (physical files)
+    if thing.content and "asset_id" in thing.content:
+        asset_id = thing.content["asset_id"]
+        from app.services.asset_service import asset_service
+        try:
+            # We assume current_user is owner as verified by query above
+            print(f"[CanvasRouter] Deleting associated asset {asset_id} for thing {thing_id}")
+            asset_service.delete_asset(db, asset_id, current_user.id)
+        except Exception as e:
+            print(f"[CanvasRouter] Warning: Failed to delete asset {asset_id}: {e}")
+            # Continue deleting the thing itself
+            
     db.delete(thing)
     db.commit()
     return {"message": "Thing deleted"}

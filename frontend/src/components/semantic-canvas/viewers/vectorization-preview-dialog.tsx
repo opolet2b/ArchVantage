@@ -43,16 +43,16 @@ export function VectorizationPreviewDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-hidden border rounded-md min-h-[200px] mt-2 relative group">
-                    <div className="h-full w-full p-4 overflow-auto">
-                        <div className="text-sm text-foreground whitespace-pre-wrap font-mono">
+                <div className="relative border rounded-md mt-2 group bg-muted/5">
+                    <div className="max-h-[60vh] w-full p-4 overflow-auto font-mono text-xs">
+                        <pre className="whitespace-pre-wrap">
                             {content || "No content available."}
-                        </div>
+                        </pre>
                     </div>
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background"
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 hover:bg-background shadow-sm"
                         onClick={handleCopy}
                         title="Copy to clipboard"
                     >
