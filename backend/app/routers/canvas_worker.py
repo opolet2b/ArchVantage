@@ -136,6 +136,18 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                 metadata={"canvas_id": canvas_id, "thing_id": thing_id}
             )
             
+            if result.get("status") == "success":
+                # Save extracted text to Thing for display (if available)
+                if "full_text" in result:
+                    print(f"[CanvasWorker] Saving extracted text to Thing {thing_id} ({len(result['full_text'])} chars)...")
+                    new_content = dict(thing.content)
+                    new_content["text_content"] = result["full_text"]
+                    thing.content = new_content
+                    
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(thing, "content")
+                    db.commit()
+            
             # Check for "Scanned PDF" (Low text density)
             if result.get("status") == "success":
                 text_len = result.get("text_length", 0)

@@ -30,8 +30,6 @@ interface SpreadsheetViewerProps {
     selectionEnabled?: boolean;
     /** Optional highlight fragment */
     highlight?: { range?: string } | null;
-    /** Optional highlight fragment */
-    highlight?: { range?: string } | null;
 }
 
 // =============================================================================

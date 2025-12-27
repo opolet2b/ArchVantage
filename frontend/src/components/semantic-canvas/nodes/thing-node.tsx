@@ -1022,6 +1022,20 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     );
                 }
 
+                // Word Documents (or others with extracted text)
+                if (content.text_content) {
+                    return (
+                        <SelectableContent thingId={thing.id}>
+                            <MarkdownViewer
+                                content={content.text_content as string}
+                                className="h-full overflow-y-auto px-4"
+                                onSelect={() => { }} // Optional: Can implement selection if needed
+                                selectionEnabled={true}
+                            />
+                        </SelectableContent>
+                    );
+                }
+
                 // Default: plain text viewer
                 return (
                     <SelectableContent thingId={thing.id}>

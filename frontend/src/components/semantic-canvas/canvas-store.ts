@@ -410,6 +410,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     type,
                     content,
                     position: { x: position.x, y: position.y },
+                    size: { width: 400, height: 400 }, // Correctly nested size object
                     title,
                 }),
             });
@@ -432,11 +433,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
     },
 
-    // Update thing
     updateThing: async (thingId, updates) => {
         const { canvasId } = get();
-        const token = getAuthToken();
-        if (!token || !canvasId) return;
+        const token = localStorage.getItem("token"); // Direct access to be sure
+
+        if (!token) {
+            console.error("[Store] No auth token found in localStorage for updateThing");
+            return;
+        }
+        if (!canvasId) {
+            console.error("[Store] No canvasId for updateThing");
+            return;
+        }
 
         // Optimistic update
         const currentThings = get().things;
