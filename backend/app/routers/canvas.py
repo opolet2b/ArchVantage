@@ -266,6 +266,11 @@ async def create_thing(
                      else:
                          print(f"[CanvasRouter] Asset record not found for ID: {asset_id}")
                 
+                # Support for Image-Based Slideshows (Synthetic)
+                elif thing.content.get("source_type") == "image_folder":
+                    real_path = "IMAGE_FOLDER_MODE"
+                    print(f"[CanvasRouter] Identified Image-Based Slideshow. Triggering worker.")
+                
                 if real_path:
                     print(f"[CanvasRouter] Triggering Async Vectorization for {real_path}")
                     
@@ -322,10 +327,10 @@ def list_things(
             detail="Canvas not found"
         )
     
-    # Debug log for image things
-    for t in canvas.things:
-        if t.type.value == "image" or t.content.get("generated_description"):
-             print(f"[CanvasRouter] ListThings: Thing {t.id} ({t.type.value}). Keys: {t.content.keys()}")
+    # Debug log removed to prevent console flooding
+    # for t in canvas.things:
+    #     if t.type.value == "image" or t.content.get("generated_description"):
+    #          print(f"[CanvasRouter] ListThings: Thing {t.id} ({t.type.value}). Keys: {t.content.keys()}")
 
     return canvas.things
 

@@ -135,7 +135,14 @@ class OllamaVisionProvider(VisionProvider):
                     "images": [img_b64] 
                 }
             ],
-            "stream": False
+            "stream": False,
+            "options": {
+                "temperature": 0.3,       # Moderate creativity
+                "repeat_penalty": 1.2,    # STRUCTURAL FIX: Penalizes loops like "bombombom"
+                "num_ctx": 4096,          # Ensure enough context for image + text
+                "top_k": 40,
+                "top_p": 0.9
+            }
         }
 
         if system_prompt:

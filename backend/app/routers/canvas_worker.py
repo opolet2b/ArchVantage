@@ -98,19 +98,266 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                  return
 
         elif thing.type.value == "slideshow":
-            print(f"[CanvasWorker] Ingesting Slideshow...")
+            print(f"[CanvasWorker] Processing Slideshow... ThingID={thing_id}")
+            source_type = thing.content.get("source_type", "pptx")
+            print(f"[CanvasWorker] Slideshow Source Type: {source_type}")
             
-            # Slideshows have a sidecar JSON, which ingest_slideshow handles.
-            # Metadata: Include canvas_id and thing_id to fix RAG Search filtering.
-            # CRITICAL: Run in threadpool to prevent blocking the async event loop!
-            from starlette.concurrency import run_in_threadpool
-            
-            result = await run_in_threadpool(
-                rag_service.ingest_slideshow,
-                file_path,
-                metadata={"canvas_id": canvas_id, "thing_id": thing_id, "asset_id": thing.content.get("asset_id")},
-                progress_callback=update_progress
-            )
+            if source_type == "image_folder":
+                 # ==========================================================
+                 # 1. Image-Based Slideshow (Folder of Images)
+                 # ==========================================================
+                 print(f"[CanvasWorker] PROCESSING IMAGE FOLDER SLIDESHOW MODE")
+                 from app.services.vision_service import vision_service
+                 from app.models.asset_models import Asset
+                 from app.services.asset_service import STORAGE_ROOT
+                 import base64
+                 import asyncio
+                 from PIL import Image
+                 import io
+
+                 slides = thing.content.get("slides", [])
+                 total_slides = len(slides)
+                 print(f"[CanvasWorker] Found {total_slides} slides to analyze.")
+                 
+                 slides_done = 0
+                 
+                 update_progress(0, total_slides)
+                 
+                 full_transcription = []
+                 
+                 
+                 # Concurrency for VLM
+                 # STRICT SERIAL EXECUTION for Local Models (Ollama)
+                 # Parallel requests cause VRAM starvation and "garbage" output (loops).
+                 semaphore = asyncio.Semaphore(1)
+                 # semaphore = asyncio.Semaphore(3) # Too aggressive for local
+                 
+                 # Pre-fetch paths to avoid DB issues in async loop
+                 slide_paths = {}
+                 for slide in slides:
+                     aid = slide.get("image_asset_id")
+                     if aid:
+                         asset = db.query(Asset).filter(Asset.id == aid).first()
+                         if asset:
+                             full_path = STORAGE_ROOT / asset.file_path
+                             if full_path.exists():
+                                 slide_paths[aid] = str(full_path)
+                             else:
+                                 print(f"[CanvasWorker] Asset file missing: {full_path}")
+                         else:
+                             print(f"[CanvasWorker] Asset record not found for: {aid}")
+                 
+                 print(f"[CanvasWorker] Resolved {len(slide_paths)} image paths.")
+
+                 async def analyze_slide_image(i, slide):
+                     nonlocal slides_done
+                     async with semaphore:
+                         aid = slide.get("image_asset_id")
+                         path = slide_paths.get(aid)
+                         
+                         if not path:
+                             print(f"[CanvasWorker] Slide {i} SKIPPED (No Path). Asset: {aid}")
+                             slide["ai_description"] = "Image file not found."
+                             slides_done += 1
+                             update_progress(slides_done, total_slides)
+                             return
+
+                         try:
+                             print(f"[CanvasWorker] Analyzing Slide {i+1} at {path}...")
+                             
+                             # Resize and Optimize Image for VLM
+                             img_bytes = io.BytesIO()
+                             with Image.open(path) as img:
+                                 # Ensure we have a white background for transparency
+                                 # (Standard PIL convert('RGB') from RGBA turns transparent pixels BLACK, 
+                                 # which makes black text unreadable)
+                                 if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                                     img = img.convert('RGBA')
+                                     background = Image.new('RGB', img.size, (255, 255, 255))
+                                     background.paste(img, mask=img.split()[3]) # 3 is the alpha channel
+                                     img = background
+                                 else:
+                                     img = img.convert('RGB')
+                                     
+                                 # Resize to max 1024px (Best stability for Llama 3.2 Vision)
+                                 max_dim = 1024
+                                 if max(img.size) > max_dim:
+                                     img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+                                 
+                                 # High quality info for text reading
+                                 img.save(img_bytes, format='JPEG', quality=95)
+                             
+                             b64_data = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
+                             
+                             vision_model = thing.content.get("vision_model", "default")
+                             # Improved Prompt for Optical Character Recognition + Summary
+                             prompt_text = (
+                                 "Identify the main title and key points in this slide. Summarize the content."
+                             )
+                             
+                             desc = await vision_service.analyze(
+                                 image_data=b64_data,
+                                 prompt=prompt_text,
+                                 model_name=vision_model
+                             )
+                             
+                             # Fallback for repetitive loops
+                             # Case 1: Many repeated words ("word word word")
+                             words = desc.split()
+                             is_repetitive = False
+                             if len(words) > 20:
+                                 unique_ratio = len(set(words)) / len(words)
+                                 if unique_ratio < 0.2:
+                                     is_repetitive = True
+                             
+                             # Case 2: Single long nonsense word ("RefreshRefreshRefresh")
+                             if len(desc) > 100 and len(words) < 5:
+                                 is_repetitive = True
+
+                             if is_repetitive:
+                                 desc = "(Analysis failed: Model produced repetitive output. Please retry.)"
+                                 
+                             slide["ai_description"] = desc
+                             full_transcription.append(f"--- Slide {i+1} ---\n{desc}")
+                             print(f"[CanvasWorker] Slide {i+1} Analyzed. Length: {len(desc)}")
+                             
+                         except Exception as e:
+                             print(f"[CanvasWorker] VLM Error Slide {i}: {e}")
+                             slide["ai_description"] = f"Analysis failed: {e}"
+                         
+                         slides_done += 1
+                         update_progress(slides_done, total_slides)
+
+                 # Run Parallel VLM
+                 if total_slides > 0:
+                    tasks = [analyze_slide_image(i, slide) for i, slide in enumerate(slides)]
+                    await asyncio.gather(*tasks)
+                 
+                 # Update Content
+                 new_content = dict(thing.content)
+                 new_content["slides"] = slides # Updated with ai_description
+                 
+                 # Save aggregated text for RAG
+                 combined_text = "\n\n".join(full_transcription)
+                 new_content["generated_description"] = combined_text # Store for display/debugging
+                 print(f"[CanvasWorker] Saving updated content. Combined Text Len: {len(combined_text)}")
+                 
+                 thing.content = new_content
+                 from sqlalchemy.orm.attributes import flag_modified
+                 flag_modified(thing, "content")
+                 db.commit()
+                 
+                 print(f"[CanvasWorker] Ingesting VLM Slideshow Text into RAG...")
+                 result = rag_service.ingest_text(
+                     combined_text,
+                     metadata={"canvas_id": canvas_id, "thing_id": thing_id, "type": "slideshow_images"}
+                 )
+                 print(f"[CanvasWorker] Image Slideshow Processing COMPLETE.")
+
+            else:
+                # ==========================================================
+                # 2. Standard PPTX Slideshow (Sidecar JSON)
+                # ==========================================================
+                
+                # Phase 2: AI Slide Analysis
+                # We want to populate the 'ai_description' field in the sidecar JSON so the frontend can display it.
+                json_path = f"{file_path}.json"
+                import os
+                import json
+                from app.services.llm_service import llm_service
+                from app.models.chat import Message
+                
+                if os.path.exists(json_path):
+                    print(f"[CanvasWorker] Found sidecar JSON at {json_path}. Starting AI Analysis (Parallel)...")
+                    try:
+                        import asyncio
+                        with open(json_path, "r") as f:
+                            presentation_data = json.load(f)
+                        
+                        slides = presentation_data.get("slides", [])
+                        total_slides = len(slides)
+                        slides_done = 0
+                        
+                        # Initialize progress
+                        update_progress(0, total_slides)
+                        
+                        # Concurrency control (max 3 parallel LLM calls to avoid rate limits/timeouts)
+                        semaphore = asyncio.Semaphore(3)
+                        
+                        async def process_slide_ai(i, slide):
+                            nonlocal slides_done
+                            async with semaphore:
+                                # Skip if already analyzed
+                                if slide.get("ai_description"): 
+                                    slides_done += 1
+                                    update_progress(slides_done, total_slides)
+                                    return False
+
+                                # Construct prompt
+                                elements_desc = []
+                                for el in slide.get("elements", []):
+                                    text = el.get("text", "").strip()
+                                    shape = el.get("shape_kind", el.get("type", "UNKNOWN"))
+                                    if text:
+                                        elements_desc.append(f"- {shape}: \"{text}\"")
+                                    else:
+                                        elements_desc.append(f"- {shape} (Visual element)")
+                                
+                                if not elements_desc:
+                                    slide["ai_description"] = "Empty slide."
+                                    slides_done += 1
+                                    update_progress(slides_done, total_slides)
+                                    return True
+
+                                slide_content = "\n".join(elements_desc[:20]) # Limit to first 20 elements to save context
+                                
+                                prompt = f"""
+                                Analyze this PowerPoint slide (Slide {i+1}).
+                                Describe its key message in 1 sentence.
+                                
+                                Content:
+                                {slide_content}
+                                """
+                                
+                                try:
+                                    print(f"[CanvasWorker] Requesting AI analysis for Slide {i+1}...")
+                                    response = await llm_service.chat([Message(role="user", content=prompt)], model_name="default")
+                                    slide["ai_description"] = response.strip()
+                                    print(f"[CanvasWorker] Slide {i+1} Analyzed.")
+                                except Exception as le:
+                                    print(f"[CanvasWorker] LLM Error Slide {i+1}: {le}")
+                                    slide["ai_description"] = "Analysis unavailable."
+                                
+                                slides_done += 1
+                                update_progress(slides_done, total_slides)
+                                return True
+
+                        # Run all slides in parallel with semaphore
+                        tasks = [process_slide_ai(i, slide) for i, slide in enumerate(slides)]
+                        results = await asyncio.gather(*tasks)
+                        
+                        if any(results):
+                            with open(json_path, "w") as f:
+                                json.dump(presentation_data, f)
+                            print(f"[CanvasWorker] Updated sidecar JSON with AI descriptions.")
+                            
+                    except Exception as e:
+                        print(f"[CanvasWorker] Error during AI Slide Analysis: {e}")
+                else:
+                    print(f"[CanvasWorker] Sidecar JSON not found. Skipping AI Analysis.")
+
+                print(f"[CanvasWorker] Ingesting Slideshow into RAG...")
+                
+                # Metadata: Include canvas_id and thing_id to fix RAG Search filtering.
+                # CRITICAL: Run in threadpool to prevent blocking the async event loop!
+                from starlette.concurrency import run_in_threadpool
+                
+                result = await run_in_threadpool(
+                    rag_service.ingest_slideshow,
+                    file_path,
+                    metadata={"canvas_id": canvas_id, "thing_id": thing_id, "asset_id": thing.content.get("asset_id")},
+                    progress_callback=update_progress
+                )
 
         else:
             # Default Document Ingestion

@@ -19,6 +19,14 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
         setProgressThing(thing);
     }, [thing]);
 
+    // Sync progressThing to jsonContent for embedded slideshows (Image Folder)
+    // This ensures that when the poller fetches updated AI descriptions, the viewer updates.
+    React.useEffect(() => {
+        if (!thing.content?.asset_id && progressThing.content) {
+            setJsonContent(progressThing.content);
+        }
+    }, [progressThing, thing.content?.asset_id]);
+
     // Polling for RAG Status
     React.useEffect(() => {
         let intervalId: NodeJS.Timeout;
@@ -32,8 +40,12 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
             intervalId = setInterval(async () => {
                 try {
                     const token = localStorage.getItem("token");
+                    if (!token || !thing.canvas_id || !thing.id) return;
+
                     const res = await fetch(`/api/v1/canvases/${thing.canvas_id}/things/${thing.id}`, {
-                        headers: { "Authorization": `Bearer ${token}` }
+                        headers: {
+                            "Authorization": `Bearer ${token}`
+                        }
                     });
                     if (res.ok) {
                         const updatedThing = await res.json();
@@ -48,7 +60,7 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
                 } catch (e) {
                     console.error("Polling error", e);
                 }
-            }, 500); // Poll every 500ms for smoother updates
+            }, 3000); // Poll every 3 seconds to avoid flooding
         }
 
         return () => {

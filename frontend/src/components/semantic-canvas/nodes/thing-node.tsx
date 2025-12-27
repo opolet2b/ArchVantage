@@ -253,17 +253,26 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
 
     // Polling effect for RAG Status
     React.useEffect(() => {
-        if (localStatus === "pending" || localStatus === "processing") {
+        // Only run if status is pending/processing to avoid unnecessary polling
+        const shouldPoll = localStatus === "pending" || localStatus === "processing";
+
+        if (shouldPoll) {
             const intervalId = setInterval(async () => {
                 try {
                     const token = localStorage.getItem("token");
-                    const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
-                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                    // Guard: Ensure we have necessary IDs before fetching
+                    if (!token || !currentThing.canvas_id || !currentThing.id) return;
+
+                    // Use the specific endpoint for a single thing, NOT the list endpoint
+                    // The original code was fetching the LIST and searching, which is inefficient and led to the bug
+                    const res = await fetch(`${API_URL}/canvases/${canvasId}/things/${currentThing.id}`, {
+                        headers: {
+                            "Authorization": `Bearer ${token}`,
+                        },
                     });
+
                     if (res.ok) {
-                        const things = await res.json();
-                        // Find our thing
-                        const updatedThing = things.find((t: any) => t.id === currentThing.id);
+                        const updatedThing = await res.json();
                         if (updatedThing && updatedThing.rag_status !== localStatus) {
                             setLocalStatus(updatedThing.rag_status);
                             // Also update store to persist this changes globally AND update content (description)
@@ -277,7 +286,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                 } catch (e) {
                     console.error("Failed to poll thing status", e);
                 }
-            }, 2000); // Poll every 2s
+            }, 3000); // Poll every 3s
 
             return () => clearInterval(intervalId);
         }
@@ -347,10 +356,12 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
             intervalId = setInterval(async () => {
                 try {
                     const token = localStorage.getItem("token");
-                    if (!token) return;
+                    if (!token || !currentThing.canvas_id || !currentThing.id) return;
 
                     const res = await fetch(`/api/v1/canvases/${currentThing.canvas_id}/things/${currentThing.id}`, {
-                        headers: { "Authorization": `Bearer ${token}` }
+                        headers: {
+                            "Authorization": `Bearer ${token}`
+                        }
                     });
                     if (res.ok) {
                         const updatedThing = await res.json();
@@ -366,7 +377,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                 } catch (e) {
                     console.error("Polling error", e);
                 }
-            }, 500);
+            }, 3000); // Poll every 3 seconds to avoid flooding
         } else {
             // Sync state if we stopped polling but original thing prop updated (e.g. parent refresh)
             if (currentThing.rag_status !== progressThing.rag_status) {

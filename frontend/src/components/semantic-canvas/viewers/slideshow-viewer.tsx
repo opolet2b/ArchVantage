@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Maximize2, Minimize2, SplitSquareHorizontal 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SlideRenderer } from "./slide-renderer";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 
 interface SlideshowViewerProps {
     content: {
@@ -115,17 +115,23 @@ export function SlideshowViewer({ content, className }: SlideshowViewerProps) {
                         <div className="px-3 py-2 border-b text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                             AI Analysis
                         </div>
-                        <ScrollArea className="flex-1 p-3">
+                        <div className="flex-1 overflow-y-auto p-3">
                             <div className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
-                                {currentSlide.ai_description ? (
-                                    currentSlide.ai_description
-                                ) : (
-                                    <span className="text-muted-foreground italic">
-                                        No specific analysis available for this slide.
-                                    </span>
-                                )}
+                                {(() => {
+                                    if (!currentSlide.ai_description) {
+                                        return (
+                                            <span className="text-muted-foreground italic">
+                                                No specific analysis available for this slide.
+                                            </span>
+                                        );
+                                    }
+                                    // Strip <think> tags
+                                    const raw = currentSlide.ai_description;
+                                    const clean = raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+                                    return clean || raw; // Fallback to raw if dry (unlikely)
+                                })()}
                             </div>
-                        </ScrollArea>
+                        </div>
                     </div>
                 )}
             </div>
