@@ -63,7 +63,7 @@ const edgeTypesMemo = {};
 // =============================================================================
 
 function CanvasViewInner() {
-    const { fitView, getViewport, setViewport } = useReactFlow();
+    const { fitView, getViewport, setViewport, screenToFlowPosition } = useReactFlow();
 
     // Canvas store state
     const {
@@ -90,11 +90,11 @@ function CanvasViewInner() {
         addThingToDomain,
         removeThingFromDomain,
         toggleIconify,
+        selectedModel,
+        setSelectedModel,
     } = useCanvasStore();
 
     // Model state from store
-    const selectedModel = useCanvasStore((state) => state.selectedModel);
-    const setSelectedModel = useCanvasStore((state) => state.setSelectedModel);
     const visionModel = useCanvasStore((state) => state.visionModel);
     const setVisionModel = useCanvasStore((state) => state.setVisionModel);
 
@@ -779,12 +779,14 @@ function CanvasViewInner() {
             const files = Array.from(e.dataTransfer.files);
             if (files.length === 0) return;
 
-            // Calculate drop position relative to canvas
-            // We use the first file's position for the start, then cascade
-            let position = {
-                x: e.clientX - viewport.x,
-                y: e.clientY - viewport.y,
-            };
+            // Calculate drop position in React Flow coordinates
+            // screenToFlowPosition handles zoom, pan, and element bounds automatically
+            const startingPosition = screenToFlowPosition({
+                x: e.clientX,
+                y: e.clientY,
+            });
+
+            let position = { ...startingPosition };
 
             const token = localStorage.getItem("token");
             if (!token) {

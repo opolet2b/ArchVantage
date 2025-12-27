@@ -161,6 +161,45 @@ export function CanvasToolbar() {
         setShowConversationDialog(false);
     };
 
+    // Upload file helper
+    const uploadFile = async (file: File): Promise<{ id: string; url: string } | null> => {
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const token = localStorage.getItem("token");
+            const headers: HeadersInit = {};
+            if (token) {
+                headers["Authorization"] = `Bearer ${token}`;
+            }
+
+            // Determine API URL
+            let baseUrl = "http://localhost:8000/api/v1";
+            if (typeof window !== "undefined") {
+                // Use env var or default
+                // We can't import API_URL easily if it's not exported or if we want to be safe
+                // But it is imported from @/lib/utils? No, let's check imports.
+                // Assuming standard path for now or importing it.
+            }
+            // For now, hardcode relative path /api/v1 for proxy or absolute
+            const response = await fetch("/api/v1/assets/upload", {
+                method: "POST",
+                headers,
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error(`Upload failed: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            return { id: data.id, url: data.url };
+        } catch (error) {
+            console.error("Failed to upload file:", error);
+            return null;
+        }
+    };
+
     // Handle file drop
     const handleFileDrop = React.useCallback(
         async (e: React.DragEvent) => {
@@ -174,28 +213,58 @@ export function CanvasToolbar() {
                 };
 
                 if (file.type.startsWith("image/")) {
-                    // TODO: Upload to backend and get URL
-                    await addThing(
-                        "image",
-                        {
-                            filename: file.name,
-                            file_path: URL.createObjectURL(file),
-                        },
-                        position,
-                        file.name
-                    );
+                    // Upload first
+                    const upload = await uploadFile(file);
+
+                    if (upload) {
+                        await addThing(
+                            "image",
+                            {
+                                filename: file.name,
+                                file_path: `/api/v1/assets/${upload.id}`,
+                                asset_id: upload.id,
+                            },
+                            position,
+                            file.name
+                        );
+                    }
                 } else {
-                    // Read text content for documents
-                    const text = await file.text();
-                    await addThing(
-                        "document",
-                        {
-                            filename: file.name,
-                            content: text,
-                        },
-                        position,
-                        file.name
-                    );
+                    // Check if supported text file for direct reading
+                    const textExtensions = ['.txt', '.md', '.json', '.xml', '.html', '.htm', '.yaml', '.yml', '.log'];
+                    const isTextFile = textExtensions.some(ext => file.name.toLowerCase().endsWith(ext)) ||
+                        (file.type.startsWith('text/') && !file.type.includes('csv')); // CSVs are better as spreadsheets/assets
+
+                    if (isTextFile) {
+                        // Read text content for documents
+                        const text = await file.text();
+                        await addThing(
+                            "document",
+                            {
+                                filename: file.name,
+                                content: text,
+                            },
+                            position,
+                            file.name
+                        );
+                    } else {
+                        // Upload binary/mixed files (PDF, Excel, CSV)
+                        const upload = await uploadFile(file);
+
+                        if (upload) {
+                            await addThing(
+                                "document",
+                                {
+                                    filename: file.name,
+                                    file_path: `/api/v1/assets/${upload.id}`,
+                                    asset_id: upload.id,
+                                    file_type: file.type,
+                                    file_size: file.size,
+                                },
+                                position,
+                                file.name
+                            );
+                        }
+                    }
                 }
             }
         },
@@ -207,15 +276,19 @@ export function CanvasToolbar() {
         const files = Array.from(e.target.files || []);
         for (const file of files) {
             if (file.type.startsWith("image/")) {
-                await addThing(
-                    "image",
-                    {
-                        filename: file.name,
-                        file_path: URL.createObjectURL(file),
-                    },
-                    getCenterPosition(),
-                    file.name
-                );
+                const upload = await uploadFile(file);
+                if (upload) {
+                    await addThing(
+                        "image",
+                        {
+                            filename: file.name,
+                            file_path: `/api/v1/assets/${upload.id}`,
+                            asset_id: upload.id,
+                        },
+                        getCenterPosition(),
+                        file.name
+                    );
+                }
             }
         }
         // Reset input so same file can be selected again
@@ -226,10 +299,9 @@ export function CanvasToolbar() {
         const files = Array.from(e.target.files || []);
         for (const file of files) {
             // Determine if file is text-based or binary
-            const textExtensions = ['.txt', '.md', '.json', '.csv', '.xml', '.html', '.htm', '.yaml', '.yml', '.log'];
+            const textExtensions = ['.txt', '.md', '.json', '.xml', '.html', '.htm', '.yaml', '.yml', '.log'];
             const isTextFile = textExtensions.some(ext => file.name.toLowerCase().endsWith(ext)) ||
-                file.type.startsWith('text/') ||
-                file.type === 'application/json';
+                (file.type.startsWith('text/') && !file.type.includes('csv'));
 
             if (isTextFile) {
                 // Read text content for text-based documents
@@ -248,18 +320,22 @@ export function CanvasToolbar() {
                     console.error("Failed to read file as text:", file.name, err);
                 }
             } else {
-                // For binary files (PDF, Excel, Word), store as blob URL
-                await addThing(
-                    "document",
-                    {
-                        filename: file.name,
-                        file_path: URL.createObjectURL(file),
-                        file_type: file.type,
-                        file_size: file.size,
-                    },
-                    getCenterPosition(),
-                    file.name
-                );
+                // For binary files (PDF, Excel, Word), upload and store asset ID
+                const upload = await uploadFile(file);
+                if (upload) {
+                    await addThing(
+                        "document",
+                        {
+                            filename: file.name,
+                            file_path: `/api/v1/assets/${upload.id}`,
+                            asset_id: upload.id,
+                            file_type: file.type,
+                            file_size: file.size,
+                        },
+                        getCenterPosition(),
+                        file.name
+                    );
+                }
             }
         }
         // Reset input so same file can be selected again

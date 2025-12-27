@@ -329,6 +329,13 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                 type: "scanned_pdf"
             });
             setPreviewDialogOpen(true);
+        } else if (thing.type === 'document' && localStatus === 'completed') {
+            setPreviewContent({
+                title: "Document Intelligence",
+                content: "This document has been successfully indexed into the Neural Memory.\n\nYou can ask questions about its content.",
+                type: "text"
+            });
+            setPreviewDialogOpen(true);
         }
     };
 
@@ -999,13 +1006,16 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     fileType?.includes("excel") ||
                     fileType?.includes("csv")
                 ) {
+                    // Construct API URL if asset_id is present, otherwise fallback to path
+                    const assetId = content.asset_id;
+                    const fileUrl = assetId ? `/api/v1/assets/${assetId}` : (filePath || textContent || "");
+
                     return (
-                        // <div className="p-2 border rounded bg-slate-100 text-xs">Spreadsheet Viewer Disabled</div>
                         <SelectableContent thingId={thing.id}>
                             <SpreadsheetViewer
-                                content={filePath || textContent || ""}
+                                content={fileUrl}
                                 filename={filename}
-                                className="h-[200px]"
+                                className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                                 highlight={highlight}
                             />
                         </SelectableContent>
@@ -1291,7 +1301,8 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                         const hasGenDesc = !!c.generated_description;
                         const isCompleted = localStatus === "completed";
                         const isSlideshow = thing.type === 'slideshow';
-                        const isClickable = ((hasDesc || hasGenDesc) || isSlideshow) && isCompleted;
+                        const isDocument = thing.type === 'document';
+                        const isClickable = ((hasDesc || hasGenDesc) || isSlideshow || isDocument) && isCompleted;
 
                         // Debug log (throttled/conditional to avoid spam)
                         if (isCompleted && !isClickable) {

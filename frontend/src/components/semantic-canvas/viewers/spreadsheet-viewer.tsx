@@ -23,11 +23,13 @@ interface SpreadsheetViewerProps {
     /** File name to determine type */
     filename?: string;
     /** Callback when cells are selected */
-    onSelect?: (fragment: CellFragment) => void;
+    onSelect?: (fragment: CellFragment, position?: { x: number; y: number }) => void;
     /** Optional className for styling */
     className?: string;
     /** Whether selection is enabled */
     selectionEnabled?: boolean;
+    /** Optional highlight fragment */
+    highlight?: { range?: string } | null;
     /** Optional highlight fragment */
     highlight?: { range?: string } | null;
 }
@@ -55,6 +57,8 @@ export function SpreadsheetViewer({
     const [page, setPage] = React.useState(0);
     const PAGE_SIZE = 100;
 
+    const workbookRef = React.useRef<XLSX.WorkBook | null>(null);
+
     // Reset page when loading new content
     React.useEffect(() => {
         setPage(0);
@@ -68,31 +72,35 @@ export function SpreadsheetViewer({
         try {
             let workbook: XLSX.WorkBook;
 
-            // Check if content is a blob URL (binary file)
-            if (content.startsWith("blob:")) {
-                const response = await fetch(content);
+            // Check if content is a valid URL (blob, absolute http, or relative api path)
+            if (content.startsWith("blob:") || content.startsWith("http") || content.startsWith("/")) {
+                // Determine response type based on file extension if possible, or just arraybuffer
+                // If it's an API URL, we might need auth headers if it's protected?
+                // The /api/v1/assets/{id} endpoint relies on cookies or we might need the token.
+                // Standard fetch here might miss the token if it's in localStorage.
+
+                const token = typeof localStorage !== 'undefined' ? localStorage.getItem("token") : null;
+                const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
+
+                const response = await fetch(content, { headers });
+                if (!response.ok) throw new Error(`Failed to fetch file: ${response.statusText}`);
+
                 const arrayBuffer = await response.arrayBuffer();
                 workbook = XLSX.read(arrayBuffer, { type: "array" });
             } else {
-                // Assume CSV or text content
+                // Assume CSV or text content provided directly
                 workbook = XLSX.read(content, { type: "string" });
             }
+
+            // Store workbook for later use (switching sheets)
+            workbookRef.current = workbook;
 
             // Get sheet names
             const sheetNames = workbook.SheetNames;
             setSheets(sheetNames);
+
+            // Set active sheet to first one (this will trigger the effect below)
             setActiveSheet(sheetNames[0] || "");
-
-            // Parse first sheet
-            if (sheetNames.length > 0) {
-                const sheet = workbook.Sheets[sheetNames[0]];
-                const jsonData = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
-
-                if (jsonData.length > 0) {
-                    setHeaders(jsonData[0] as string[]);
-                    setData(jsonData.slice(1) as any[][]);
-                }
-            }
             setIsLoaded(true);
         } catch (err) {
             console.error("Failed to parse spreadsheet:", err);
@@ -101,6 +109,34 @@ export function SpreadsheetViewer({
             setIsLoading(false);
         }
     }, [content]);
+
+    // Auto-load effect
+    React.useEffect(() => {
+        handleLoad();
+    }, [handleLoad]);
+
+    // Effect to load data when active sheet changes
+    React.useEffect(() => {
+        if (!activeSheet || !workbookRef.current) return;
+
+        try {
+            const sheet = workbookRef.current.Sheets[activeSheet];
+            if (sheet) {
+                const jsonData = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
+                if (jsonData.length > 0) {
+                    setHeaders(jsonData[0] as string[]);
+                    setData(jsonData.slice(1) as any[][]);
+                } else {
+                    setHeaders([]);
+                    setData([]);
+                }
+                // Reset page on sheet switch
+                setPage(0);
+            }
+        } catch (e) {
+            console.error("Error loading sheet:", e);
+        }
+    }, [activeSheet]);
 
     // State for multi-selection tracking
     const lastSelectedRowRef = React.useRef<number | null>(null);
@@ -211,7 +247,15 @@ export function SpreadsheetViewer({
         };
 
         setSelectedCells(newSelectedCells);
-        onSelect(fragment);
+
+        // Calculate position for toolbox
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const position = {
+            x: rect.left + rect.width / 2,
+            y: rect.bottom
+        };
+
+        onSelect(fragment, position);
     };
 
     // Handle row click (select entire row)
@@ -281,7 +325,17 @@ export function SpreadsheetViewer({
         };
 
         setSelectedCells(newSelectedCells);
-        onSelect(fragment);
+
+        // Calculate position for toolbox
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        // For rows, we might want it near the click or centered on row? 
+        // User clicked the row number cell, which is small. Let's put it there.
+        const position = {
+            x: rect.left + rect.width / 2,
+            y: rect.bottom
+        };
+
+        onSelect(fragment, position);
     };
 
     // Handle column click (select entire column)
@@ -333,7 +387,15 @@ export function SpreadsheetViewer({
         };
 
         setSelectedCells(newSelectedCells);
-        onSelect(fragment);
+
+        // Calculate position for toolbox
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const position = {
+            x: rect.left + rect.width / 2,
+            y: rect.bottom
+        };
+
+        onSelect(fragment, position);
     };
 
     // Column letter helper
