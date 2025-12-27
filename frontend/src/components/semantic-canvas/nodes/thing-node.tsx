@@ -29,7 +29,11 @@ import {
     AlertCircle,
     BrainCircuit,
     Presentation,
+    Lightbulb,
+    Eye,
+    EyeOff
 } from "lucide-react";
+
 import { cn, API_URL } from "@/lib/utils";
 import { CanvasThing, ZoomLevel, useCanvasStore } from "../canvas-store";
 import {
@@ -204,12 +208,13 @@ interface ThingNodeData {
 // Thing Node Component
 // =============================================================================
 
-export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
-    // Get latest thing state from store to ensure reactivity (bypass potential ReactFlow prop lag)
-    const freshThing = useCanvasStore(state => state.things.find(t => t.id === data.thing.id));
-    const thing = freshThing || data.thing;
+export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData>) => {
+    // Canvas context
+    const canvasId = useCanvasStore(state => state.canvasId);
 
+    // Get props from data
     const {
+        thing: initialThing,
         zoomLevel,
         isSelected,
         onOpenConversation,
@@ -217,7 +222,94 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         onDelete,
         onResizeEnd
     } = data;
-    const Icon = thingIcons[thing.type] || FileText;
+
+    // Get latest thing state from store to ensure reactivity (bypass potential ReactFlow prop lag)
+    const freshThing = useCanvasStore(state => state.things.find(t => t.id === initialThing.id));
+    // Fallback to initialThing if freshThing not found (though unexpected)
+    const thing = freshThing || initialThing;
+    const currentThing = thing; // Alias
+
+    const Icon = thingIcons[currentThing.type] || FileText;
+
+    // Link Dialog State
+    const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
+    const [pendingFragment, setPendingFragment] = React.useState<Fragment | null>(null);
+    const [availableTargets, setAvailableTargets] = React.useState<CanvasThing[]>([]);
+
+    // Delete Region Dialog State
+    const [deleteRegionDialogOpen, setDeleteRegionDialogOpen] = React.useState(false);
+    const [regionToDelete, setRegionToDelete] = React.useState<string | null>(null);
+
+    // State to track if inner content is selected (to hide outer toolbar)
+    const [hasInnerSelection, setHasInnerSelection] = React.useState(false);
+
+    // State for local status override to avoid full canvas refresh flicker
+    const [localStatus, setLocalStatus] = React.useState(currentThing.rag_status);
+
+    // Sync local status when prop changes
+    React.useEffect(() => {
+        setLocalStatus(currentThing.rag_status);
+    }, [currentThing.rag_status]);
+
+    // Polling effect for RAG Status
+    React.useEffect(() => {
+        if (localStatus === "pending" || localStatus === "processing") {
+            const intervalId = setInterval(async () => {
+                try {
+                    const token = localStorage.getItem("token");
+                    const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
+                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                    });
+                    if (res.ok) {
+                        const things = await res.json();
+                        // Find our thing
+                        const updatedThing = things.find((t: any) => t.id === currentThing.id);
+                        if (updatedThing && updatedThing.rag_status !== localStatus) {
+                            setLocalStatus(updatedThing.rag_status);
+                            // Also update store to persist this changes globally AND update content (description)
+                            // Use syncThing to avoid PATCHing back to server (prevent overwrite race conditions)
+                            useCanvasStore.getState().syncThing(currentThing.id, {
+                                rag_status: updatedThing.rag_status,
+                                content: updatedThing.content
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to poll thing status", e);
+                }
+            }, 2000); // Poll every 2s
+
+            return () => clearInterval(intervalId);
+        }
+    }, [localStatus, canvasId, currentThing.id]);
+
+    // Ask dialog state
+    const [askDialogOpen, setAskDialogOpen] = React.useState(false);
+    const [customPrompt, setCustomPrompt] = React.useState("");
+
+    // Thinking Visibility State
+    const [isThinkingVisible, setIsThinkingVisible] = React.useState(false);
+
+    // Parse content for <think> tags (Memoized)
+    const { thinkingContent, cleanContent, hasThinking } = React.useMemo(() => {
+        const c = thing.content;
+        // Check text content sources
+        const rawText = (typeof c.text === "string" ? c.text : "") ||
+            (typeof c.content === "string" ? c.content : "") ||
+            (typeof c.text_content === "string" ? c.text_content : ""); // Support extracted text too
+
+        if (!rawText) return { thinkingContent: null, cleanContent: rawText, hasThinking: false };
+
+        const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/);
+        if (thinkMatch) {
+            return {
+                thinkingContent: thinkMatch[1].trim(),
+                cleanContent: rawText.replace(thinkMatch[0], "").trim(),
+                hasThinking: true
+            };
+        }
+        return { thinkingContent: null, cleanContent: rawText, hasThinking: false };
+    }, [thing.content]);
 
     // Canvas store helpers
     const addThing = useCanvasStore((state) => state.addThing);
@@ -229,14 +321,13 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     const visionModel = useCanvasStore((state) => state.visionModel);
     const links = useCanvasStore((state) => state.links);
     const { analyze, isLoading } = useAnalyze();
-    const canvasId = useCanvasStore((state) => state.canvasId);
     const { setSelection } = useSelection();
 
     // Debug re-render
     React.useEffect(() => {
-        if (thing.type === "image") {
-            const regionCount = (thing.content as any).regions?.length || 0;
-            console.log(`[ThingNode] RENDER ${thing.id}. Regions: ${regionCount}`);
+        if (currentThing.type === "image") {
+            const regionCount = (currentThing.content as any).regions?.length || 0;
+            console.log(`[ThingNode] RENDER ${currentThing.id}. Regions: ${regionCount}`);
         }
     });
 
@@ -244,9 +335,54 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
     const nodeRef = React.useRef<HTMLDivElement>(null);
     const [toolbarPosition, setToolbarPosition] = React.useState<{ x: number, y: number } | null>(null);
 
-    // Ask dialog state
-    const [askDialogOpen, setAskDialogOpen] = React.useState(false);
-    const [customPrompt, setCustomPrompt] = React.useState("");
+    // --- Progress Bar Logic (for documents/slideshows) ---
+    const [progressThing, setProgressThing] = React.useState<CanvasThing>(currentThing);
+
+    // Poll for progress updates if status is "processing"
+    React.useEffect(() => {
+        let intervalId: NodeJS.Timeout;
+        const shouldPoll = progressThing.rag_status === "processing";
+
+        if (shouldPoll) {
+            intervalId = setInterval(async () => {
+                try {
+                    const token = localStorage.getItem("token");
+                    if (!token) return;
+
+                    const res = await fetch(`/api/v1/canvases/${currentThing.canvas_id}/things/${currentThing.id}`, {
+                        headers: { "Authorization": `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        const updatedThing = await res.json();
+                        // Update if status changed or progress changed
+                        const hasStatusChanged = updatedThing.rag_status !== progressThing.rag_status;
+                        const hasProgressChanged = JSON.stringify(updatedThing.content?.ingestion_progress)
+                            !== JSON.stringify(progressThing.content?.ingestion_progress);
+
+                        if (hasStatusChanged || hasProgressChanged) {
+                            setProgressThing(updatedThing);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Polling error", e);
+                }
+            }, 500);
+        } else {
+            // Sync state if we stopped polling but original thing prop updated (e.g. parent refresh)
+            if (currentThing.rag_status !== progressThing.rag_status) {
+                setProgressThing(currentThing);
+            }
+        }
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [progressThing.rag_status, progressThing.content?.ingestion_progress, currentThing.canvas_id, currentThing.id, currentThing.rag_status]);
+
+    // Use progressThing for rendering status/content
+    const displayThing = progressThing;
+    const content = displayThing.content;
+    const ingestionProgress = content.ingestion_progress as any; // Cast to any to fix TS errors
 
     // Result dialog state
     const [resultDialogOpen, setResultDialogOpen] = React.useState(false);
@@ -258,15 +394,15 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
 
     // Handle opening preview
     const handleOpenPreview = async () => {
-        if (thing.type === 'slideshow') {
+        if (displayThing.type === 'slideshow') {
             // Restore JSON display as per user request
-            // We need to fetch the full sidecar JSON, not just the metadata in thing.content
-            const assetId = thing.content?.asset_id;
+            // We need to fetch the full sidecar JSON, not just the metadata in displayThing.content
+            const assetId = displayThing.content?.asset_id;
 
             if (!assetId) {
                 setPreviewContent({
                     title: "Slideshow Data (JSON)",
-                    content: JSON.stringify(thing.content, null, 2) + "\n\n(No asset_id found to fetch full hierarchy)",
+                    content: JSON.stringify(displayThing.content, null, 2) + "\n\n(No asset_id found to fetch full hierarchy)",
                     type: "text"
                 });
                 setPreviewDialogOpen(true);
@@ -307,13 +443,11 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                     type: "text"
                 });
             }
-
-            // We skip the auto-analyze for now since the user specifically requested the JSON view.
             return;
         }
 
-        const description = thing.content?.description;
-        const generatedDescription = thing.content?.generated_description;
+        const description = currentThing.content?.description;
+        const generatedDescription = currentThing.content?.generated_description;
 
         if (description) {
             setPreviewContent({
@@ -329,7 +463,7 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                 type: "scanned_pdf"
             });
             setPreviewDialogOpen(true);
-        } else if (thing.type === 'document' && localStatus === 'completed') {
+        } else if (currentThing.type === 'document' && currentThing.rag_status === 'completed') {
             setPreviewContent({
                 title: "Document Intelligence",
                 content: "This document has been successfully indexed into the Neural Memory.\n\nYou can ask questions about its content.",
@@ -339,79 +473,14 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
         }
     };
 
-    // State for local status override to avoid full canvas refresh flicker
-    const [localStatus, setLocalStatus] = React.useState(thing.rag_status);
-
-    // Sync local status when prop changes
-    React.useEffect(() => {
-        setLocalStatus(thing.rag_status);
-    }, [thing.rag_status]);
-
-    // Polling effect for RAG Status
-    React.useEffect(() => {
-        if (localStatus === "pending" || localStatus === "processing") {
-            const intervalId = setInterval(async () => {
-                try {
-                    const token = localStorage.getItem("token");
-                    const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
-                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
-                    });
-                    if (res.ok) {
-                        const things = await res.json();
-                        // Find our thing
-                        const updatedThing = things.find((t: any) => t.id === thing.id);
-                        if (updatedThing && updatedThing.rag_status !== localStatus) {
-                            setLocalStatus(updatedThing.rag_status);
-                            // Also update store to persist this changes globally AND update content (description)
-                            // Use syncThing to avoid PATCHing back to server (prevent overwrite race conditions)
-                            useCanvasStore.getState().syncThing(thing.id, {
-                                rag_status: updatedThing.rag_status,
-                                content: updatedThing.content
-                            });
-                        }
-                    }
-                } catch (e) {
-                    console.error("Failed to poll thing status", e);
-                }
-            }, 2000); // Poll every 2s
-
-            return () => clearInterval(intervalId);
-        }
-    }, [localStatus, canvasId, thing.id]);
-
-    // Link dialog state
-    const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
-    const [pendingFragment, setPendingFragment] = React.useState<Fragment | null>(null);
-    const [availableTargets, setAvailableTargets] = React.useState<any[]>([]);
-
-    // State to track if inner content is selected (to hide outer toolbar)
-    const [hasInnerSelection, setHasInnerSelection] = React.useState(false);
-
-    // Delete region confirmation state
-    const [deleteRegionDialogOpen, setDeleteRegionDialogOpen] = React.useState(false);
-    const [regionToDelete, setRegionToDelete] = React.useState<string | null>(null);
-
     // Update toolbar position when selected
     React.useEffect(() => {
         if (selected && nodeRef.current) {
-            const updatePosition = () => {
-                const rect = nodeRef.current?.getBoundingClientRect();
-                if (rect) {
-                    setToolbarPosition({
-                        x: rect.left + rect.width / 2 - 110, // Center (assuming 220px width)
-                        y: rect.top - 45, // Above node
-                    });
-                }
-            };
-
-            updatePosition();
-            // Update on scroll/resize
-            window.addEventListener("scroll", updatePosition);
-            window.addEventListener("resize", updatePosition);
-            return () => {
-                window.removeEventListener("scroll", updatePosition);
-                window.removeEventListener("resize", updatePosition);
-            };
+            const rect = nodeRef.current.getBoundingClientRect();
+            setToolbarPosition({
+                x: rect.left + rect.width / 2,
+                y: rect.top - 10,
+            });
         } else {
             setToolbarPosition(null);
         }
@@ -936,11 +1005,27 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
             case "text":
                 return (
                     <SelectableContent thingId={thing.id}>
-                        <TextViewer
-                            content={content.text as string || ""}
-                            className="h-full overflow-y-auto"
-                            highlight={highlight}
-                        />
+                        <div className="flex flex-col h-full overflow-hidden">
+                            {/* Thinking Block */}
+                            {hasThinking && isThinkingVisible && (
+                                <div className="flex-none mb-3 p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-md border border-amber-100 dark:border-amber-900/30 text-sm text-slate-600 dark:text-slate-400 italic overflow-y-auto max-h-[150px]">
+                                    <div className="flex items-center gap-2 font-semibold text-xs mb-1 not-italic text-amber-600 dark:text-amber-500 opacity-80">
+                                        <BrainCircuit className="w-3 h-3" />
+                                        Thinking Process
+                                    </div>
+                                    <MarkdownViewer content={thinkingContent || ""} className="text-sm prose-sm dark:prose-invert leading-relaxed" />
+                                </div>
+                            )}
+
+                            {/* Main Content */}
+                            <div className="flex-1 min-h-0 overflow-y-auto">
+                                <TextViewer
+                                    content={cleanContent || (content.text as string) || ""} // Fallback
+                                    className="h-full"
+                                    highlight={highlight}
+                                />
+                            </div>
+                        </div>
                     </SelectableContent>
                 );
 
@@ -961,6 +1046,31 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                 );
 
             case "document":
+                // If processing, show progress bar immediately to override any stale content
+                if ((currentThing.rag_status as any) === "processing" || (currentThing.rag_status as any) === "pending") {
+                    return (
+                        <SelectableContent thingId={thing.id}>
+                            <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-4">
+                                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                                <div className="space-y-1">
+                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                        Processing Document...
+                                    </p>
+                                    <div className="w-48 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-blue-500 transition-all duration-500 ease-out"
+                                            style={{ width: `${ingestionProgress?.percent || 0}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-xs text-slate-500">
+                                        {ingestionProgress ? `${ingestionProgress.current} / ${ingestionProgress.total} chunks` : "Initializing..."}
+                                    </p>
+                                </div>
+                            </div>
+                        </SelectableContent>
+                    );
+                }
+
                 // Determine document type and use appropriate viewer
                 const fileType = content.file_type as string | undefined;
                 const filePath = content.file_path as string | undefined;
@@ -968,8 +1078,9 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
 
                 // PDF files
                 if (
-                    fileType?.includes("pdf") ||
-                    filename?.toLowerCase().endsWith(".pdf")
+                    (fileType?.includes("pdf") || filename?.toLowerCase().endsWith(".pdf")) &&
+                    !filename?.toLowerCase().endsWith(".docx") &&
+                    !filename?.toLowerCase().endsWith(".doc")
                 ) {
                     if (filePath) {
                         return (
@@ -1307,6 +1418,23 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                         </span>
                     )}
 
+                    {/* Thinking Toggle - Only if thinking content exists */}
+                    {hasThinking && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsThinkingVisible(!isThinkingVisible);
+                            }}
+                            className={cn(
+                                "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
+                                isThinkingVisible ? "text-amber-500 bg-amber-50 dark:bg-amber-900/20" : "text-slate-400 hover:text-amber-500"
+                            )}
+                            title={isThinkingVisible ? "Hide Thinking Process" : "Show Thinking Process"}
+                        >
+                            <Lightbulb className={cn("h-4 w-4", isThinkingVisible && "fill-current")} />
+                        </button>
+                    )}
+
                     {/* RAG Status Indicator */}
                     {localStatus && localStatus !== "none" && (() => {
                         // Cast content to any to avoid strict type checks if fields are missing in type def
@@ -1316,20 +1444,28 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
                         const isCompleted = localStatus === "completed";
                         const isSlideshow = thing.type === 'slideshow';
                         const isDocument = thing.type === 'document';
-                        const isClickable = ((hasDesc || hasGenDesc) || isSlideshow || isDocument) && isCompleted;
-
-                        // Debug log (throttled/conditional to avoid spam)
-                        if (isCompleted && !isClickable) {
-                            console.log(`[ThingNode] Thing ${thing.id} completed but not clickable. Desc: ${hasDesc}, GenDesc: ${hasGenDesc}, Content keys: ${Object.keys(c)}`);
-                        }
+                        const isFailed = localStatus === "failed";
+                        const isClickable = ((hasDesc || hasGenDesc) || isSlideshow || isDocument) && isCompleted || isFailed;
 
                         return (
                             <div
                                 className={cn("flex items-center", isClickable && "cursor-pointer hover:opacity-80")}
-                                title={`Vectorization: ${localStatus}${isClickable ? " (Click to view content)" : ""}`}
+                                title={isFailed ? "Ingestion Failed (Click for logs)" : `Vectorization: ${localStatus}${isClickable ? " (Click to view content)" : ""}`}
                                 onClick={(e) => {
                                     if (isClickable) {
                                         e.stopPropagation();
+
+                                        if (isFailed) {
+                                            const errorMsg = c.last_error || "Unknown error occurred during ingestion.";
+                                            setPreviewContent({
+                                                title: "Ingestion Error",
+                                                content: errorMsg,
+                                                type: "text"
+                                            });
+                                            setPreviewDialogOpen(true);
+                                            return;
+                                        }
+
                                         handleOpenPreview();
                                     }
                                 }}
@@ -1516,6 +1652,6 @@ export function ThingNode({ data, selected }: NodeProps<ThingNodeData>) {
             />
         </>
     );
-}
+});
 
 

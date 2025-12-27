@@ -55,147 +55,33 @@ class RAGService:
             self.storage_context = None
             self.index = None
 
-    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None):
+    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
         print(f"[RAGService] Starting ingestion for: {file_path}")
         try:
-            # LlamaIndex SimpleDirectoryReader handles various file types automatically
-            # We explicitly check for OLE (binary .doc) vs ZIP (.docx) to avoid reading binary as text
-            
-            # Check magic bytes
+            # Check magic bytes for legacy OLE files first
             with open(file_path, 'rb') as f:
                 header = f.read(8)
-            
             is_ole = header.startswith(b'\xd0\xcf\x11\xe0')
-            is_zip = header.startswith(b'PK\x03\x04')
             
             if is_ole:
                 print(f"[RAGService] Detected binary OLE file (legacy .doc): {file_path}")
-                # MarkItDown *might* handle it if it supports .doc, or we need another tool.
-                # If MarkItDown supports it via 'unstructured' or similar:
-                try:
-                    from markitdown import MarkItDown
-                    md = MarkItDown()
-                    result = md.convert(file_path)
-                    text = result.text_content
-                    documents = [Document(text=text)]
-                except Exception as e:
-                    print(f"[RAGService] MarkItDown failed on .doc file: {e}")
-                    # Fallback or error message for user
-                    return {"status": "error", "error": "Legacy .doc format detected. Please save as .docx and try again."}
-                    
-            elif is_zip or file_path.lower().endswith('.docx'):
-                 # It's likely a valid .docx
-                from markitdown import MarkItDown
-                md = MarkItDown()
-                result = md.convert(file_path)
-                text = result.text_content
-                
-                # Check for images to warn user
-                try:
-                    import docx
-                    doc = docx.Document(file_path)
-                    has_images = False
-                    
-                    # Check inline shapes (common for images)
-                    if len(doc.inline_shapes) > 0:
-                         has_images = True
-                    else:
-                        # Check relationships for any image types (header/footer images etc)
-                        for rel in doc.part.rels.values():
-                            if "image" in rel.reltype:
-                                has_images = True
-                                break
-                                
-                    if has_images:
-                        warning_msg = (
-                            "> [!WARNING]\n"
-                            "> **Images Detected**: This document contains images or embedded objects which cannot be displayed here.\n"
-                            "> To view this document with full visual fidelity, please **export it as a PDF** and import the PDF instead.\n\n"
-                        )
-                        text = warning_msg + text
-                except Exception as e:
-                    print(f"[RAGService] Failed to check for images in docx: {e}")
-                
-                documents = [Document(text=text)]
-                
-            else:
-                # Default for other types
-                documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
-                
-            print(f"[RAGService] Loaded {len(documents)} document fragments from file.")
+                return {"status": "error", "error": "Legacy .doc format detected. Please save as .docx and try again."}
+
+            # Delegate to DocumentIngestor
+            from app.services.rag.document_ingestor import document_ingestor
             
-            if documents:
-                # Add metadata
-                for doc in documents:
-                    if conversation_id:
-                        doc.metadata["conversation_id"] = conversation_id
-                    
-                    doc.metadata["source"] = file_path
-                    
-                    # Add metadata
-                for doc in documents:
-                    if conversation_id:
-                        doc.metadata["conversation_id"] = conversation_id
-                    
-                    doc.metadata["source"] = file_path
-                    
-                    # Add custom metadata (e.g. canvas_id)
-                    if metadata:
-                        for key, value in metadata.items():
-                            doc.metadata[key] = value
+            return document_ingestor.ingest_document(
+                file_path=file_path,
+                index=self.index,
+                storage_context=self.storage_context,
+                conversation_id=conversation_id,
+                metadata=metadata,
+                progress_callback=progress_callback
+            )
 
-                    # Excluded metadata keys to avoid errors with some vector stores if needed
-                    doc.excluded_llm_metadata_keys = ["conversation_id", "source"]
-                    if metadata:
-                        doc.excluded_llm_metadata_keys.extend(metadata.keys())
-
-                    doc.excluded_embed_metadata_keys = ["conversation_id", "source"]
-                    if metadata:
-                         doc.excluded_embed_metadata_keys.extend(metadata.keys())
-
-                # Optimization: Split into nodes first
-                print(f"[RAGService] Splitting {len(documents)} documents into nodes...")
-                nodes = Settings.text_splitter.get_nodes_from_documents(documents)
-                print(f"[RAGService] Created {len(nodes)} nodes.")
-                
-                # Debug: Test embedding generation explicitly
-                if nodes:
-                    print("[RAGService] DEBUG: Generating embedding for first node to verify model...")
-                    import time
-                    t0 = time.time()
-                    # We can manually get embedding to show it works
-                    _ = Settings.embed_model.get_text_embedding(nodes[0].get_content())
-                    print(f"[RAGService] DEBUG: Embedding generation successful. Took {time.time()-t0:.2f}s")
-
-                print(f"[RAGService] Inserting {len(nodes)} nodes one-by-one to trace progress...")
-                for i, node in enumerate(nodes):
-                     print(f"[RAGService] Inserting node {i+1}/{len(nodes)}...")
-                     self.index.insert_nodes([node])
-                     print(f"[RAGService] Node {i+1} inserted.")
-                
-                # Calculate total text length for heuristic checks
-                total_text_len = sum(len(node.get_content()) for node in nodes)
-                
-                print(f"[RAGService] Vectorization complete. Ingested {len(nodes)} fragments. Total Chars: {total_text_len}")
-                
-                # Combine all text for frontend display
-                full_text = "\n\n".join([node.get_content() for node in nodes])
-                
-                return {
-                    "status": "success", 
-                    "count": len(nodes), 
-                    "text_length": total_text_len,
-                    "doc_count": len(documents),
-                    "full_text": full_text
-                }
-            
-            print(f"[RAGService] WARNING: No content extracted from file: {file_path}")
-            return {"status": "no_documents_found"}
         except Exception as e:
             print(f"Error ingesting file {file_path}: {e}")
             raise e
-
-    MAX_TEXT_LENGTH = 10000
 
     def ingest_slideshow(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
         """

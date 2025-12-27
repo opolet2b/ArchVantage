@@ -94,7 +94,16 @@ export function MarkdownViewer({
             )}
             onMouseUp={handleMouseUp}
         >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                    img: (props) => {
+                        if (!props.src) return null;
+                        // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+                        return <img {...props} />;
+                    }
+                }}
+            >
                 {content}
             </ReactMarkdown>
         </div>

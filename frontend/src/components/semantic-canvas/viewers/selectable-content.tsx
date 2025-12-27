@@ -10,6 +10,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { Loader2 } from "lucide-react";
 import { SelectionToolbar, LLMAction } from "./selection-toolbar";
 import { useAnalyze } from "./use-analyze";
 import type { Fragment } from "./types";

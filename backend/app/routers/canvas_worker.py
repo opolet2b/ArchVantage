@@ -28,6 +28,24 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
         
         result = None
         
+        # Generic Progress Callback
+        def update_progress(current, total):
+            try:
+                # We reuse the same logic for all types
+                new_content = dict(thing.content)
+                new_content["ingestion_progress"] = {
+                    "current": current,
+                    "total": total,
+                    "percent": int((current / total) * 100)
+                }
+                thing.content = new_content
+                
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "content")
+                db.commit()
+            except Exception as e:
+                print(f"[CanvasWorker] Error updating progress: {e}")
+
         if thing.type.value == "image":
              print(f"[CanvasWorker] Processing Image Thing using VLM...")
              from app.services.vision_service import vision_service
@@ -52,13 +70,8 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                  print(f"[CanvasWorker] VLM Description generated ({len(description)} chars).")
                  
                  # 4. Save description to Thing Content
-                 # Need to ensure we don't overwrite other content fields unexpectedly, 
-                 # but 'content' is a JSON field, so we can update it.
-                 # SQLAlchemy explicit update for JSON fields often needs a fresh copy or flag_modified
-                 # But here we are in a session.
                  thing.content["description"] = description
-                 # flag_modified(thing, "content") # If needed, but usually dict update works if we re-assign or use specific method
-                 # Creating a new dict to ensure SQLAlchemy detects change
+                 
                  new_content = dict(thing.content)
                  new_content["description"] = description
                  thing.content = new_content
@@ -71,9 +84,6 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                  # Verify persistence immediately
                  db.expire(thing) 
                  db.refresh(thing)
-                 print(f"[CanvasWorker] Content committed and refreshed. Keys: {thing.content.keys()}")
-                 if "description" not in thing.content:
-                     print("[CanvasWorker] CRITICAL FAILURE: Description not found after commit!")
                  
                  # 5. Ingest Description into RAG
                  result = rag_service.ingest_text(
@@ -90,33 +100,6 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
         elif thing.type.value == "slideshow":
             print(f"[CanvasWorker] Ingesting Slideshow...")
             
-            # Progress Callback
-            def update_progress(current, total):
-                try:
-                    # We need to re-query or just use the current object if valid
-                    # But since we might incur overhead, let's just update content
-                    # We use a fresh dict to ensure SA detects change
-                    
-                    # Refreshing 'thing' in loop might be heavy? 
-                    # Actually, 'thing' is attached to session 'db'. 
-                    
-                    # Note: We should probably only commit every N items to save DB IO if total is huge
-                    # But for now, 1 commit per slide is fine (human speed).
-                    
-                    new_content = dict(thing.content)
-                    new_content["ingestion_progress"] = {
-                        "current": current,
-                        "total": total,
-                        "percent": int((current / total) * 100)
-                    }
-                    thing.content = new_content
-                    
-                    from sqlalchemy.orm.attributes import flag_modified
-                    flag_modified(thing, "content")
-                    db.commit()
-                except Exception as e:
-                    print(f"[CanvasWorker] Error updating progress: {e}")
-
             # Slideshows have a sidecar JSON, which ingest_slideshow handles.
             # Metadata: Include canvas_id and thing_id to fix RAG Search filtering.
             # CRITICAL: Run in threadpool to prevent blocking the async event loop!
@@ -133,7 +116,8 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
             # Default Document Ingestion
             result = rag_service.ingest_file(
                 file_path, 
-                metadata={"canvas_id": canvas_id, "thing_id": thing_id}
+                metadata={"canvas_id": canvas_id, "thing_id": thing_id},
+                progress_callback=update_progress
             )
             
             if result.get("status") == "success":
@@ -149,7 +133,8 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                     db.commit()
             
             # Check for "Scanned PDF" (Low text density)
-            if result.get("status") == "success":
+            # CRITICAL FIX: Only run this on actual PDF files!
+            if result.get("status") == "success" and file_path.lower().endswith(".pdf"):
                 text_len = result.get("text_length", 0)
                 doc_count = result.get("doc_count", 1)
                 
@@ -194,9 +179,6 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                          print(f"[CanvasWorker] Scanned PDF content committed. Keys: {new_content.keys()}")
                          
                          # 3. Re-ingest as text (Appending to index)
-                         # We might want to remove the sparse nodes from the first attempt, 
-                         # but RAG usually handles redundancy fine. 
-                         # Ideally we would delete them, but for now we append the high-quality transcription.
                          result = rag_service.ingest_text(
                              combined_text,
                              metadata={"canvas_id": canvas_id, "thing_id": thing_id, "type": "scanned_pdf_transcription", "source": file_path}
@@ -218,7 +200,16 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
         else:
             # Check if it was "no_documents_found" or error
             thing.rag_status = RAGStatus.FAILED
-            print(f"[CanvasWorker] Vectorization ENDED with status: {result.get('status')}")
+            error_msg = result.get("error") or f"Vectorization ended with status: {result.get('status')}"
+            
+            # Save error details
+            new_content = dict(thing.content)
+            new_content["last_error"] = error_msg
+            thing.content = new_content
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(thing, "content")
+            
+            print(f"[CanvasWorker] Vectorization FAILED: {error_msg}")
 
         db.commit()
         
@@ -228,8 +219,16 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
            thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
            if thing:
                thing.rag_status = RAGStatus.FAILED
+               
+               # Save error details for frontend display
+               new_content = dict(thing.content or {})
+               new_content["last_error"] = str(e)
+               thing.content = new_content
+               from sqlalchemy.orm.attributes import flag_modified
+               flag_modified(thing, "content")
+               
                db.commit()
         except:
-            pass
+             pass
     finally:
         db.close()

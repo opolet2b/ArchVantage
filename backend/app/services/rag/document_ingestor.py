@@ -1,0 +1,111 @@
+import os
+from typing import List, Optional, Dict, Any
+from llama_index.core import Document, VectorStoreIndex, StorageContext
+from llama_index.core import SimpleDirectoryReader
+
+class DocumentIngestor:
+    """
+    Ingestor for standard documents (PDF, Docx, Text, etc).
+    Supports progress reporting.
+    """
+    
+    def __init__(self):
+        pass
+
+    def ingest_document(self, file_path: str, index: VectorStoreIndex, storage_context: StorageContext, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
+        """
+        Ingest a document file.
+        Supports .docx specific handling via MarkItDown.
+        """
+        print(f"[DocumentIngestor] Starting ingestion for: {file_path}")
+        
+        is_docx = file_path.lower().endswith('.docx')
+        
+        # Word Document Handling
+        if is_docx:
+            from markitdown import MarkItDown
+            import re
+            
+            md = MarkItDown()
+            result = md.convert(file_path)
+            text = result.text_content
+            
+            # Clean up base64 images from markdown to prevent context overflow
+            # Pattern matches ![alt](data:image/...) and preserves alt text
+            text = re.sub(
+                r'!\[(.*?)\]\(data:image/[^)]+\)', 
+                lambda m: f"[Image: {m.group(1)}]" if m.group(1) else "[Image]", 
+                text
+            )
+            
+            # Check for images to warn user
+            try:
+                import docx
+                doc = docx.Document(file_path)
+                has_images = False
+                if len(doc.inline_shapes) > 0:
+                     has_images = True
+                else:
+                    for rel in doc.part.rels.values():
+                        if "image" in rel.reltype:
+                            has_images = True
+                            break
+                if has_images:
+                    warning_msg = (
+                        "> [!WARNING]\n"
+                        "> **Images Detected**: This document contains images or embedded objects which cannot be displayed here.\n"
+                        "> To view this document with full visual fidelity, please **export it as a PDF** and import the PDF instead.\n\n"
+                    )
+                    text = warning_msg + text
+            except Exception as e:
+                print(f"[DocumentIngestor] Failed to check for images in docx: {e}")
+            
+            documents = [Document(text=text)]
+            
+        else:
+            # Default handling (PDF, txt, etc) using SimpleDirectoryReader
+            documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+
+        # Common metadata handling
+        if documents:
+            combined_text = ""
+            # Pre-add metadata to documents before splitting
+            for doc in documents:
+                if metadata:
+                    doc.metadata.update(metadata)
+                doc.metadata["source"] = file_path
+                doc.metadata["type"] = "document"
+                if conversation_id:
+                    doc.metadata["conversation_id"] = conversation_id
+                
+                # Exclude metadata from embedding/llm if needed
+                doc.excluded_llm_metadata_keys = ["conversation_id", "source"]
+                doc.excluded_embed_metadata_keys = ["conversation_id", "source"]
+                if metadata:
+                    doc.excluded_llm_metadata_keys.extend(metadata.keys())
+                    doc.excluded_embed_metadata_keys.extend(metadata.keys())
+
+                combined_text += doc.text + "\n\n"
+
+            # Split into nodes for granular progress tracking
+            from llama_index.core import Settings
+            print(f"[DocumentIngestor] Splitting documents into nodes...")
+            nodes = Settings.text_splitter.get_nodes_from_documents(documents)
+            total_nodes = len(nodes)
+            print(f"[DocumentIngestor] Created {total_nodes} nodes. Starting insertion...")
+            
+            for i, node in enumerate(nodes):
+                index.insert_nodes([node])
+                if progress_callback:
+                    progress_callback(i + 1, total_nodes)
+            
+            print(f"[DocumentIngestor] Ingestion complete.")
+            return {
+                "status": "success", 
+                "count": total_nodes,
+                "full_text": combined_text.strip()
+            }
+        else:
+            return {"status": "no_content", "full_text": ""}
+
+document_ingestor = DocumentIngestor()
