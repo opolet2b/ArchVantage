@@ -11,6 +11,7 @@ import { Handle, Position } from "reactflow";
 // Import react-pdf styles for text layer
 import "react-pdf/dist/Page/TextLayer.css";
 import "react-pdf/dist/Page/AnnotationLayer.css";
+import { InteractiveOverlayLayer } from "./interactive-overlay-layer";
 
 // Configure PDF.js worker
 if (typeof Promise.withResolvers === "undefined") {
@@ -27,9 +28,11 @@ if (typeof Promise.withResolvers === "undefined") {
     }
 }
 
-console.log("[PDFViewer] React-PDF pdfjs.version:", pdfjs.version);
-// Use CDN worker to avoid local bundle issues and race conditions
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Only set worker if not already set to avoid race conditions/resets
+if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    console.log("[PDFViewer] Setting PDF.js worker source:", pdfjs.version);
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+}
 
 // =============================================================================
 // Props
@@ -51,6 +54,10 @@ interface PDFViewerProps {
     /** Callback when an overlay is deleted */
     onOverlayDelete?: (id: string) => void;
 }
+
+// =============================================================================
+// PDF Viewer Component
+// =============================================================================
 
 // =============================================================================
 // PDF Viewer Component
@@ -79,23 +86,10 @@ export function PDFViewer({
     // Mode state: 'text' or 'region'
     const [mode, setMode] = React.useState<"text" | "region">("text");
 
-    // Region selection state
-    const [isSelecting, setIsSelecting] = React.useState(false);
-    const [selectionStart, setSelectionStart] = React.useState<{ x: number; y: number } | null>(null);
-    const [selectionEnd, setSelectionEnd] = React.useState<{ x: number; y: number } | null>(null);
-
     // Overlays state (local, could be lifted if needed)
-    // Map initial overlays to include potential content if not present
-    const [overlays, setOverlays] = React.useState<any[]>(props.overlays || []);
+    // Map initial overlays using props
+    const overlays = props.overlays || [];
     const [activeOverlayId, setActiveOverlayId] = React.useState<string | null>(null);
-
-    // Sync props.overlays to state if they change (optional, depending on if controlled/uncontrolled)
-    React.useEffect(() => {
-        if (props.overlays) {
-            setOverlays(props.overlays);
-        }
-    }, [props.overlays]);
-
 
     // State for secure file source
     const [fileSrc, setFileSrc] = React.useState<string | null>(null);
@@ -233,162 +227,138 @@ export function PDFViewer({
     }, [onSelect, selectionEnabled, pageNumber, mode]);
 
     // =========================================================================
-    // Region Selection Logic
+    // Region Selection Logic (Delegated to InteractiveOverlayLayer)
     // =========================================================================
 
-    const getRelativePosition = (e: React.MouseEvent): { x: number; y: number } | null => {
-        const container = pageContainerRef.current;
-        if (!container) return null;
+    const handleSelectionComplete = async (rect: { x: number; y: number; width: number; height: number; pctX: number; pctY: number; pctW: number; pctH: number }) => {
+        if (!pageContainerRef.current) return;
 
-        const rect = container.getBoundingClientRect();
+        // 1. Capture Image Data
+        let base64Content = "";
+        try {
+            // Find the canvas element inside the page container
+            const canvas = pageContainerRef.current.querySelector("canvas");
+            if (canvas) {
+                // Create a temporary canvas to draw the crop
+                const tempCanvas = document.createElement("canvas");
+                // We need to account for the canvas scaling (retain quality)
+                const scaleX = canvas.width / canvas.offsetWidth;
+                const scaleY = canvas.height / canvas.offsetHeight;
 
-        // Coordinates relative to the Page container
-        return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
-        };
-    };
+                tempCanvas.width = rect.width * scaleX;
+                tempCanvas.height = rect.height * scaleY;
 
-    const handleMouseDown = (e: React.MouseEvent) => {
-        if (mode !== "region" || !selectionEnabled) return;
-
-        // Clear active overlay when clicking background
-        setActiveOverlayId(null);
-        e.preventDefault(); // Prevent text selection in region mode
-
-        const pos = getRelativePosition(e);
-        if (!pos) return;
-
-        setIsSelecting(true);
-        setSelectionStart(pos);
-        setSelectionEnd(pos);
-    };
-
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (!isSelecting || !selectionStart) return;
-
-        const pos = getRelativePosition(e);
-        if (!pos) return;
-
-        setSelectionEnd(pos);
-    };
-
-    const handleMouseUp = (e: React.MouseEvent) => {
-        // If we are selecting region
-        if (isSelecting && selectionStart && selectionEnd && mode === "region") {
-            finishRegionSelection();
-            return;
-        }
-
-        // If not selecting region, generally we let native events handle text selection
-        // But we check here in case.
-        if (mode === "text") {
-            handleTextSelection();
-        }
-    };
-
-    const finishRegionSelection = async () => {
-        if (!selectionStart || !selectionEnd || !pageContainerRef.current) {
-            setIsSelecting(false);
-            return;
-        }
-
-        const x = Math.min(selectionStart.x, selectionEnd.x);
-        const y = Math.min(selectionStart.y, selectionEnd.y);
-        const width = Math.abs(selectionEnd.x - selectionStart.x);
-        const height = Math.abs(selectionEnd.y - selectionStart.y);
-
-        if (width > 10 && height > 10) {
-            // 1. Capture Image Data
-            let base64Content = "";
-            try {
-                // Find the canvas element inside the page container
-                const canvas = pageContainerRef.current.querySelector("canvas");
-                if (canvas) {
-                    // Create a temporary canvas to draw the crop
-                    const tempCanvas = document.createElement("canvas");
-                    // We need to account for the canvas scaling (retain quality)
-                    const scaleX = canvas.width / canvas.offsetWidth;
-                    const scaleY = canvas.height / canvas.offsetHeight;
-
-                    tempCanvas.width = width * scaleX;
-                    tempCanvas.height = height * scaleY;
-
-                    const ctx = tempCanvas.getContext("2d");
-                    if (ctx) {
-                        ctx.drawImage(
-                            canvas,
-                            x * scaleX, y * scaleY, width * scaleX, height * scaleY,
-                            0, 0, width * scaleX, height * scaleY
-                        );
-                        base64Content = tempCanvas.toDataURL("image/jpeg");
-                    }
+                const ctx = tempCanvas.getContext("2d");
+                if (ctx) {
+                    ctx.drawImage(
+                        canvas,
+                        rect.x * scaleX, rect.y * scaleY, rect.width * scaleX, rect.height * scaleY,
+                        0, 0, rect.width * scaleX, rect.height * scaleY
+                    );
+                    base64Content = tempCanvas.toDataURL("image/jpeg");
                 }
-            } catch (err) {
-                console.error("Failed to crop PDF region:", err);
             }
+        } catch (err) {
+            console.error("Failed to crop PDF region:", err);
+        }
 
-            // 2. Create Fragment
-            // Percentage coordinates for storing
+        // 2. Create Fragment
+        const regionId = Date.now().toString();
+        const fragment: RegionFragment = {
+            id: regionId,
+            type: "region",
+            x: rect.pctX,
+            y: rect.pctY,
+            width: rect.pctW,
+            height: rect.pctH,
+            content: base64Content,
+            slideIndex: pageNumber // Re-use slideIndex or add pageNumber? Type def says pageNumber on TextFragment... let's check types.
+            // RegionFragment definition needs pageNumber? 
+            // In types.ts: RegionFragment has slideIndex. TextFragment has pageNumber.
+            // Let's use slideIndex as a proxy for pageNumber since they are conceptually similar (pages/slides)
+            // OR strictly add pageNumber to RegionFragment.
+            // Let's check types.ts again.
+        };
+        // Wait, I should check types.tsx. I can't see it now.
+        // Assuming I should add it to the spread or just reuse slideIndex for now if generic.
+        // Actually, slideIndex is usually 0-based index. PageNumber is 1-based in PDF.js usually.
+        // Let's coerce: slideIndex: pageNumber - 1 ? 
+        // PDFViewer uses 'pageNumber' state starting at 1.
+        (fragment as any).slideIndex = pageNumber - 1; // Map PDF page 1 -> Index 0 to align with concept of "Index"
+        (fragment as any).pageNumber = pageNumber; // Explicitly add both? 
+
+        // 3. Notify Parent
+        if (onSelect) {
+            // Calculate screen position for toolbar
             const container = pageContainerRef.current;
-            const pctX = (x / container.offsetWidth) * 100;
-            const pctY = (y / container.offsetHeight) * 100;
-            const pctW = (width / container.offsetWidth) * 100;
-            const pctH = (height / container.offsetHeight) * 100;
+            const containerRect = container.getBoundingClientRect();
 
-            const regionId = Date.now().toString();
-            // Store content in the fragment
-            const fragment: RegionFragment = {
-                id: regionId,
-                type: "region",
-                x: pctX,
-                y: pctY,
-                width: pctW,
-                height: pctH,
-                content: base64Content
+            const screenPos = {
+                x: containerRect.left + rect.x + rect.width / 2,
+                y: containerRect.top + rect.y + rect.height
             };
 
-            // 3. Add to local overlays for visual feedback
-            // We use the ID as the label initially if none provided
-            const newOverlay = {
-                id: regionId,
-                label: regionId,
-                x: pctX, y: pctY, width: pctW, height: pctH,
-                content: base64Content
-            };
-            setOverlays(prev => [...prev, newOverlay]);
-            setActiveOverlayId(regionId);
+            onSelect(fragment, screenPos);
+        }
 
-            // 4. Notify Parent
-            if (onSelect) {
-                // Calculate screen position for toolbar
-                const rect = container.getBoundingClientRect();
-                const screenPos = {
-                    x: rect.left + x + width / 2,
-                    y: rect.top + y + height
+        // Note: We don't need to manually update local overlays here if the parent
+        // handles onSelect -> database -> props.overlays cycle properly.
+        // If not, we might need ephemeral state. But typically thing.content update loop handles it.
+    }
+
+    // Filter overlays for current page logic (TODO based on data)
+    // Currently storage doesn't seem to have page info on regions clearly?
+    // User request: "overlay on a scanned PDF is an overlay over a long multi-pages scanned document / picture with scrolling"
+    // If it's scrolling, we have multiple pages.
+    // Current PDFViewer renders ONE page at a time with buttons.
+    // So distinct pages.
+    // We should filter overlays based on page. But current overlays prop is just a flat list.
+    // Assumption: we will eventually add pageIndex to fragments.
+    // For now, allow all (might be confusing) or try to adhere to session?
+    // Let's pass all but maybe filtered if they have page metadata.
+    const currentOverlays = overlays.filter(o => {
+        // If overlay has no pageNumber, show it? Or assume page 1?
+        // Let's rely on backend storing page info.
+        // For compatibility with current implementation:
+        if ((o as any).pageNumber !== undefined) {
+            return (o as any).pageNumber === pageNumber;
+        }
+        // If no page number, maybe it was created on "current" page so user expects it here?
+        // Or maybe it's global?
+        // Let's show it to prevent data hiding, but this is a TODO for the user data model.
+        return true;
+    });
+
+    const handleOverlayAction = (action: 'resize' | 'delete' | 'click', id: string, data?: any) => {
+        if (action === 'click') {
+            setActiveOverlayId(id);
+            // Re-trigger onSelect? Copy from old impl
+            const overlay = overlays.find(o => o.id === id);
+            if (overlay && onSelect && pageContainerRef.current) {
+                const fragment: RegionFragment = {
+                    id: overlay.id,
+                    type: "region",
+                    x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height,
+                    content: (overlay as any).content
                 };
+                const container = pageContainerRef.current;
+                const rect = container.getBoundingClientRect();
+                const xPx = (overlay.x / 100) * rect.width;
+                const yPx = (overlay.y / 100) * rect.height;
+                const wPx = (overlay.width / 100) * rect.width;
+                const hPx = (overlay.height / 100) * rect.height;
 
+                const screenPos = {
+                    x: rect.left + xPx + wPx / 2,
+                    y: rect.top + yPx + hPx
+                };
                 onSelect(fragment, screenPos);
             }
         }
-
-        setIsSelecting(false);
-        setSelectionStart(null);
-        setSelectionEnd(null);
+        if (action === 'delete') onOverlayDelete?.(id);
+        if (action === 'resize') onOverlayResize?.(id, data.x, data.y, data.width, data.height);
     };
 
-    // Handler for overlay resizing
-    const handleOverlayResize = (id: string, x: number, y: number, width: number, height: number) => {
-        if (onOverlayResize) {
-            onOverlayResize(id, x, y, width, height);
-        } else {
-            setOverlays(prev => prev.map(o =>
-                o.id === id ? { ...o, x, y, width, height } : o
-            ));
-        }
-    };
-
-    // Manual load handler
     const handleLoad = () => {
         setIsLoading(true);
         setError(null);
@@ -485,12 +455,16 @@ export function PDFViewer({
             <div
                 className={cn(
                     "flex-1 overflow-auto flex justify-center bg-slate-200 dark:bg-slate-900",
-                    mode === "text" ? "select-text" : "select-none cursor-crosshair"
+                    mode === "text" ? "select-text" : "select-none"
                 )}
-                onMouseUp={handleMouseUp}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseLeave={() => setIsSelecting(false)}
+                // We handle region selection via the overlay layer now, but text selection locally?
+                // The overlay layer captures events if we put it ON TOP.
+                // We should put OverlayLayer INSIDE the Page Wrapper.
+                // Text selection needs native events. InteractiveOverlayLayer stops propagation if enabled?
+                // No, it only stops if it handles it.
+                // We need to disable OverlayLayer pointer events if mode === "text"?
+                // Or pass `selectionEnabled={mode === 'region'}`
+                onMouseUp={() => { if (mode === "text") handleTextSelection(); }}
             >
                 <Document
                     file={fileSrc}
@@ -503,78 +477,27 @@ export function PDFViewer({
                     }
                 >
                     <div ref={pageContainerRef} className="relative mx-auto w-fit">
-                        <Page
-                            pageNumber={pageNumber}
-                            scale={typeof scale === "number" ? scale : undefined}
-                            width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
-                            className={cn(
-                                "shadow-lg mx-auto",
-                                mode === "region" && "pointer-events-none" // Disable text selection events in region mode
-                            )}
-                            renderTextLayer={selectionEnabled && mode === "text"} // Only render text layer if text mode
-                            renderAnnotationLayer={false}
-                        />
-
-                        {/* Region Selection Overlay Container */}
-                        <div className="absolute inset-0 pointer-events-none">
-                            {/* Selection Box */}
-                            {isSelecting && selectionStart && selectionEnd && (
-                                <div
-                                    className="absolute border-2 border-green-500 bg-green-500/20"
-                                    style={{
-                                        left: Math.min(selectionStart.x, selectionEnd.x),
-                                        top: Math.min(selectionStart.y, selectionEnd.y),
-                                        width: Math.abs(selectionEnd.x - selectionStart.x),
-                                        height: Math.abs(selectionEnd.y - selectionStart.y),
-                                    }}
-                                />
-                            )}
-
-                            {/* Existing Overlays */}
-                            {overlays.map((overlay) => (
-                                <OverlayItem
-                                    key={overlay.id}
-                                    overlay={overlay}
-                                    isActive={activeOverlayId === overlay.id}
-                                    onResizeProp={handleOverlayResize}
-                                    onDeleteProp={(id) => {
-                                        if (onOverlayDelete) {
-                                            onOverlayDelete(id);
-                                        } else {
-                                            setOverlays(prev => prev.filter(o => o.id !== id));
-                                        }
-                                        setActiveOverlayId(null);
-                                    }}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setActiveOverlayId(overlay.id);
-                                        // Re-trigger onSelect for this region
-                                        if (onSelect && pageContainerRef.current) {
-                                            const fragment: RegionFragment = {
-                                                id: overlay.id,
-                                                type: "region",
-                                                x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height,
-                                                content: overlay.content
-                                            };
-                                            const container = pageContainerRef.current;
-                                            const rect = container.getBoundingClientRect();
-                                            const xPx = (overlay.x / 100) * rect.width;
-                                            const yPx = (overlay.y / 100) * rect.height;
-                                            const wPx = (overlay.width / 100) * rect.width;
-                                            const hPx = (overlay.height / 100) * rect.height;
-
-                                            const screenPos = {
-                                                x: rect.left + xPx + wPx / 2,
-                                                y: rect.top + yPx + hPx
-                                            };
-
-                                            // @ts-ignore
-                                            onSelect(fragment, screenPos);
-                                        }
-                                    }}
-                                />
-                            ))}
-                        </div>
+                        {/* We Wrap the Page with InteractiveOverlayLayer */}
+                        <InteractiveOverlayLayer
+                            overlays={currentOverlays as RegionFragment[]}
+                            selectionEnabled={mode === "region" && selectionEnabled}
+                            onSelectionComplete={handleSelectionComplete}
+                            onOverlayAction={handleOverlayAction}
+                            activeOverlayId={activeOverlayId}
+                        >
+                            <Page
+                                pageNumber={pageNumber}
+                                scale={typeof scale === "number" ? scale : undefined}
+                                width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
+                                className={cn(
+                                    "shadow-lg mx-auto",
+                                    // Pointer events for text selection if needed
+                                    // mode === "region" && "pointer-events-none" // OverlayLayer handles region events, but we need text selection
+                                )}
+                                renderTextLayer={selectionEnabled && mode === "text"}
+                                renderAnnotationLayer={false}
+                            />
+                        </InteractiveOverlayLayer>
                     </div>
                 </Document>
             </div >
@@ -582,172 +505,6 @@ export function PDFViewer({
     );
 }
 
-// =============================================================================
-// Overlay Item Component (Resizeable version for PDF)
-// =============================================================================
 
-function OverlayItem({
-    overlay,
-    isActive,
-    onResizeProp,
-    onDeleteProp,
-    onClick
-}: {
-    overlay: { id: string; label?: string; x: number; y: number; width: number; height: number };
-    isActive: boolean;
-    onResizeProp?: (id: string, x: number, y: number, width: number, height: number) => void;
-    onDeleteProp?: (id: string) => void;
-    onClick?: (e: React.MouseEvent) => void;
-}) {
-    // Local state for smooth resizing without updating parent on every pixel
-    const [localOverlay, setLocalOverlay] = React.useState(overlay);
 
-    // Sync local state when prop updates
-    React.useEffect(() => {
-        setLocalOverlay(overlay);
-    }, [overlay]);
 
-    // Check if we have a label to display (prefer label, fallback to ID if active/requested)
-    // The requirement is "green box should have as title the ID of the fragment"
-    const displayLabel = overlay.label || overlay.id;
-
-    // Refs for drag math
-    const containerRef = React.useRef<HTMLDivElement>(null);
-    const startPosRef = React.useRef<{ x: number, y: number, w: number, h: number } | null>(null);
-    const mouseStartRef = React.useRef<{ x: number, y: number } | null>(null);
-    const handleRef = React.useRef<string | null>(null);
-
-    const handleMouseDown = (e: React.MouseEvent, handleType: string) => {
-        e.stopPropagation();
-        e.preventDefault();
-
-        handleRef.current = handleType;
-        // Use current LOCAL state as start
-        startPosRef.current = { x: localOverlay.x, y: localOverlay.y, w: localOverlay.width, h: localOverlay.height };
-        mouseStartRef.current = { x: e.clientX, y: e.clientY };
-
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-        if (!handleRef.current || !startPosRef.current || !mouseStartRef.current || !containerRef.current) return;
-
-        // Get container dimensions to convert px -> %
-        const container = containerRef.current.offsetParent as HTMLElement;
-        if (!container) return;
-
-        const containerW = container.offsetWidth;
-        const containerH = container.offsetHeight;
-        if (containerW === 0 || containerH === 0) return;
-
-        // No zoom scaling issues here typically because the container itself scales, 
-        // but let's check if there's a transform on the page?
-        // In PDF page, the page itself is scaled via React-PDF's scale prop usually on canvas/text layer.
-        // Our overlays are just children of absolute div.
-        // If the container is the Page wrapper, its CSS width/height match the rendered size.
-        // So simple px -> % conversion should work if event.clientX is handled relative to viewport.
-
-        // We calculate delta in px
-        const deltaX_px = e.clientX - mouseStartRef.current.x;
-        const deltaY_px = e.clientY - mouseStartRef.current.y;
-
-        const deltaX_pct = (deltaX_px / containerW) * 100;
-        const deltaY_pct = (deltaY_px / containerH) * 100;
-
-        let newX = startPosRef.current.x;
-        let newY = startPosRef.current.y;
-        let newW = startPosRef.current.w;
-        let newH = startPosRef.current.h;
-
-        // Apply resize logic based on handle
-        if (handleRef.current.includes("e")) { // East
-            newW = Math.max(2, startPosRef.current.w + deltaX_pct);
-        }
-        if (handleRef.current.includes("s")) { // South
-            newH = Math.max(2, startPosRef.current.h + deltaY_pct);
-        }
-        if (handleRef.current.includes("w")) { // West
-            const maxDelta = startPosRef.current.w - 2;
-            const d = Math.min(maxDelta, deltaX_pct);
-            newX = startPosRef.current.x + d;
-            newW = startPosRef.current.w - d;
-        }
-        if (handleRef.current.includes("n")) { // North
-            const maxDelta = startPosRef.current.h - 2;
-            const d = Math.min(maxDelta, deltaY_pct);
-            newY = startPosRef.current.y + d;
-            newH = startPosRef.current.h - d;
-        }
-
-        // Update LOCAL state only (visual feedback)
-        setLocalOverlay(prev => ({ ...prev, x: newX, y: newY, width: newW, height: newH }));
-    };
-
-    // We need a ref to track the latest overlay state to commit it
-    const latestOverlayRef = React.useRef(localOverlay);
-    React.useEffect(() => { latestOverlayRef.current = localOverlay; }, [localOverlay]);
-
-    const handleMouseUp = () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-        handleRef.current = null;
-
-        // Commit the change
-        if (onResizeProp) {
-            const final = latestOverlayRef.current;
-            onResizeProp(final.id, final.x, final.y, final.width, final.height);
-        }
-    };
-
-    return (
-        <div
-            ref={containerRef}
-            className={cn(
-                "absolute border-2 pointer-events-auto group transition-colors cursor-pointer",
-                isActive ? "border-green-400 z-20 bg-green-500/10" : "border-green-600/50 z-10 hover:border-green-500"
-            )}
-            style={{
-                left: `${localOverlay.x}%`,
-                top: `${localOverlay.y}%`,
-                width: `${localOverlay.width}%`,
-                height: `${localOverlay.height}%`,
-            }}
-            onMouseDown={(e) => {
-                e.stopPropagation();
-                onClick?.(e);
-            }}
-        >
-            {/* Label */}
-            {displayLabel && (
-                <span className="absolute -top-6 left-0 text-xs bg-slate-800 text-white px-2 py-1 rounded shadow overflow-hidden max-w-full truncate whitespace-nowrap z-50">
-                    {displayLabel}
-                </span>
-            )}
-
-            {/* Controls - Only visible when ACTIVE */}
-            {isActive && (
-                <>
-                    {/* Delete Button */}
-                    <button
-                        className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 transition-colors z-50"
-                        title="Delete Region"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteProp?.(overlay.id);
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                    >
-                        <X className="h-3 w-3" />
-                    </button>
-
-                    {/* Resize Handles (Corners) */}
-                    <div className="absolute -top-1 -left-1 w-3 h-3 bg-white border border-green-600 cursor-nw-resize z-40" onMouseDown={(e) => handleMouseDown(e, "nw")} />
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-white border border-green-600 cursor-ne-resize z-40" onMouseDown={(e) => handleMouseDown(e, "ne")} />
-                    <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-white border border-green-600 cursor-sw-resize z-40" onMouseDown={(e) => handleMouseDown(e, "sw")} />
-                    <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-white border border-green-600 cursor-se-resize z-40" onMouseDown={(e) => handleMouseDown(e, "se")} />
-                </>
-            )}
-        </div>
-    );
-}

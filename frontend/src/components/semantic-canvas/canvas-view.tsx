@@ -9,28 +9,30 @@
 "use client";
 
 import * as React from "react";
-import ReactFlow, {
+import {
+    ReactFlow,
     Background,
     Controls,
     MiniMap,
     useNodesState,
     useEdgesState,
-    addEdge,
     Node,
     Edge,
     Connection,
-    NodeTypes,
+    ReactFlowProvider,
+    Panel,
     NodeChange,
     useReactFlow,
-    ReactFlowProvider,
-    OnNodesChange,
-    OnEdgesChange,
+    EdgeTypes,
+    MarkerType,
 } from "reactflow";
 import "reactflow/dist/style.css";
 
-import { useCanvasStore, getZoomLevel, LinkType, CanvasLink } from "./canvas-store";
 import { ThingNode } from "./nodes/thing-node";
 import { DomainNode } from "./nodes/domain-node";
+import { CustomEdge } from "./edges/custom-edge";
+
+import { useCanvasStore, getZoomLevel, LinkType, CanvasLink } from "./canvas-store";
 import { CanvasToolbar } from "./canvas-toolbar";
 import { LinkTypeDialog } from "./link-type-dialog";
 import { cn, API_URL } from "@/lib/utils";
@@ -55,7 +57,11 @@ const nodeTypesMemo = {
     domain: DomainNode,
 };
 
-const edgeTypesMemo = {};
+const edgeTypesMemo: EdgeTypes = {
+    custom: CustomEdge,
+};
+
+
 
 
 // =============================================================================
@@ -295,27 +301,86 @@ function CanvasViewInner() {
     };
 
     // Convert links to React Flow edges (memoized)
-    const allEdges: Edge[] = React.useMemo(() => links.map((link) => ({
-        id: link.id,
-        source: link.source_id,
-        target: link.target_id,
-        sourceHandle: (link.source_fragment?.type === "region") ? `fragment-handle-${link.id}` : undefined,
-        label: link.label || undefined,
-        type: "smoothstep",
-        animated: link.type === "derived_from",
-        style: {
-            stroke: getLinkColor(link.type),
-            strokeWidth: 2,
-        },
-        labelStyle: {
-            fontSize: 12,
-            fontWeight: 500,
-        },
-        labelBgStyle: {
-            fill: "#fff",
-            fillOpacity: 0.9,
-        },
-    })), [links]);
+    const allEdges: Edge[] = React.useMemo(() => {
+        // Group links by source-target pair to calculate offsets
+        const groups: Record<string, typeof links> = {};
+
+        links.forEach(link => {
+            const key = `${link.source_id}-${link.target_id}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(link);
+        });
+
+        const edges: Edge[] = [];
+
+        Object.values(groups).forEach(group => {
+            // Sort group to ensure consistent ordering (e.g. by creation time or ID)
+            // This prevents jumping when links are added/removed
+            group.sort((a, b) => a.id.localeCompare(b.id));
+
+            const total = group.length;
+
+            group.forEach((link, index) => {
+                // Determine offset for this link
+                // Pattern: Center (0), then alternate variants
+                // Count 1: [0]
+                // Count 2: [1, -1] or [0.5, -0.5]? Let's use integers for our CustomEdge logic.
+                // CustomEdge logic: 0 is straight. +/- N are curves.
+                // If Count 1: offset 0
+                // If Count 2: offset 1, -1
+                // If Count 3: 0, 1, -1
+                // If Count 4: 1.5, 0.5, -0.5, -1.5? (Equidistant)
+
+                // Let's us a simple centering logic:
+                // Shift indices to be centered around 0.
+                // e.g. Count 3: indices 0, 1, 2 -> -1, 0, 1
+                // Count 2: indices 0, 1 -> -0.5, 0.5
+
+                const centeredIndex = index - (total - 1) / 2;
+
+                // If total is 1, centeredIndex is 0.
+                // If total is 2, -0.5, 0.5. (Magnify by 2? -> -1, 1)
+                // If total is 3, -1, 0, 1.
+
+                // Adjust magnitude slightly for better separation if only 2
+                // Force mostly integer steps for cleaner look?
+                // Our CustomEdge multiplies offset by 25px.
+
+                edges.push({
+                    id: link.id,
+                    source: link.source_id,
+                    target: link.target_id,
+                    sourceHandle: (link.source_fragment?.type === "region") ? `fragment-handle-${link.id}` : undefined,
+                    label: link.label || undefined,
+                    type: "custom", // Use our CustomEdge
+                    data: {
+                        offset: centeredIndex
+                    },
+                    animated: link.type === "derived_from",
+                    markerEnd: {
+                        type: MarkerType.ArrowClosed,
+                        width: 20,
+                        height: 20,
+                        color: getLinkColor(link.type),
+                    },
+                    style: {
+                        stroke: getLinkColor(link.type),
+                        strokeWidth: 2,
+                    },
+                    labelStyle: {
+                        fontSize: 12,
+                        fontWeight: 500,
+                    },
+                    labelBgStyle: {
+                        fill: "#fff",
+                        fillOpacity: 0.9,
+                    },
+                });
+            });
+        });
+
+        return edges;
+    }, [links]);
 
     // React Flow state - initialized with current nodes
     const [nodes, setNodes, onNodesChange] = useNodesState(allNodes);

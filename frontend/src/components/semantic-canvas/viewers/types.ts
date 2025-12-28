@@ -36,11 +36,29 @@ export interface CellFragment extends Fragment {
 // Region fragment for images
 export interface RegionFragment extends Fragment {
     type: "region";
+    id: string; // Required for overlays
     x: number;
     y: number;
     width: number;
     height: number;
+    slideIndex?: number; // For slideshows
+    label?: string; // Optional label
 }
+
+// Link fragment (visual overlay from a link)
+export interface LinkFragment {
+    type: "link";
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    label?: string;
+    content?: string;
+    slideIndex?: number;
+}
+
+export type OverlayFragment = RegionFragment | LinkFragment;
 
 // Message fragment for conversations
 export interface MessageFragment extends Fragment {

@@ -3,12 +3,25 @@ import * as React from "react";
 import { CanvasThing } from "../canvas-store";
 import { SlideshowViewer } from "../viewers/slideshow-viewer";
 import { Loader2, AlertCircle } from "lucide-react";
+import { RegionFragment, OverlayFragment } from "../viewers/types";
 
 interface SlideshowNodeProps {
     thing: CanvasThing;
+    overlays?: OverlayFragment[];
+    onSelect?: (fragment: RegionFragment, position?: { x: number; y: number }) => void;
+    onOverlayResize?: (id: string, x: number, y: number, width: number, height: number) => void;
+    onOverlayDelete?: (id: string) => void;
+    onOverlayClick?: (fragment: RegionFragment, position?: { x: number; y: number }) => void;
 }
 
-export function SlideshowNode({ thing }: SlideshowNodeProps) {
+export function SlideshowNode({
+    thing,
+    overlays,
+    onSelect,
+    onOverlayResize,
+    onOverlayDelete,
+    onOverlayClick
+}: SlideshowNodeProps) {
     const [jsonContent, setJsonContent] = React.useState<any>(null);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
@@ -23,9 +36,12 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
     // This ensures that when the poller fetches updated AI descriptions, the viewer updates.
     React.useEffect(() => {
         if (!thing.content?.asset_id && progressThing.content) {
-            setJsonContent(progressThing.content);
+            setJsonContent({
+                ...progressThing.content,
+                // regions: overlays || progressThing.content.regions // Don't merge here, do it in render
+            });
         }
-    }, [progressThing, thing.content?.asset_id]);
+    }, [progressThing, thing.content?.asset_id]); // Removed overlays dependency
 
     // Polling for RAG Status
     React.useEffect(() => {
@@ -74,7 +90,10 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
         const loadContent = async () => {
             if (!thing.content?.asset_id) {
                 if (thing.content && 'slides' in thing.content) {
-                    setJsonContent(thing.content);
+                    setJsonContent({
+                        ...thing.content,
+                        // regions: overlays || thing.content.regions 
+                    });
                     return;
                 }
                 setError("Missing asset_id or slide data.");
@@ -103,7 +122,10 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
                 }
 
                 const data = await response.json();
-                setJsonContent(data);
+                setJsonContent({
+                    ...data,
+                    // regions: overlays || data.regions
+                });
             } catch (e) {
                 console.error(e);
                 setError("Network error loading slides");
@@ -113,7 +135,7 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
         };
 
         loadContent();
-    }, [thing.content?.asset_id]);
+    }, [thing.content?.asset_id]); // Removed overlays dependency
 
     if (error) {
         return (
@@ -147,8 +169,15 @@ export function SlideshowNode({ thing }: SlideshowNodeProps) {
         <div className="relative w-full h-full flex flex-col group overflow-hidden">
             {/* Main Viewer */}
             <SlideshowViewer
-                content={jsonContent}
+                content={{
+                    ...jsonContent,
+                    regions: overlays || jsonContent.regions || []
+                }}
                 className="w-full h-full border-none rounded-none"
+                onSelect={onSelect}
+                onOverlayResize={onOverlayResize}
+                onOverlayDelete={onOverlayDelete}
+                onOverlayClick={onOverlayClick}
             />
 
             {/* Progress Overlay (Toast style) */}

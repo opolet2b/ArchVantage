@@ -332,13 +332,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
     const { analyze, isLoading } = useAnalyze();
     const { setSelection } = useSelection();
 
-    // Debug re-render
-    React.useEffect(() => {
-        if (currentThing.type === "image") {
-            const regionCount = (currentThing.content as any).regions?.length || 0;
-            console.log(`[ThingNode] RENDER ${currentThing.id}. Regions: ${regionCount}`);
-        }
-    });
+
 
     // Ref for positioning toolbar
     const nodeRef = React.useRef<HTMLDivElement>(null);
@@ -515,8 +509,8 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
 
     // Calculate image overlays from links AND content.regions
     const imageOverlays = React.useMemo(() => {
-        // Allow for both image and document (PDF) types
-        if (thing.type !== "image" && thing.type !== "document") return [];
+        // Allow for image, document coverage AND slideshow
+        if (thing.type !== "image" && thing.type !== "document" && thing.type !== "slideshow") return [];
         // For documents, only if PDF? Logic seems safe to apply if regions exist
 
         // 1. Overlays from Links
@@ -542,7 +536,8 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
             width: r.width,
             height: r.height,
             type: "region" as const,
-            content: r.content // Keep content for reference
+            content: r.content, // Keep content for reference
+            slideIndex: r.slideIndex // Preserve slideIndex for slideshows
         }));
 
         return [...linkOverlays, ...regionOverlays];
@@ -551,7 +546,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
     // Handle create new region (persist to content)
     const handleRegionCreate = React.useCallback(async (fragment: Fragment, _position?: { x: number; y: number }) => {
         // Allow for both image and document (PDF) types
-        if (thing.type !== "image" && thing.type !== "document") return;
+        if (thing.type !== "image" && thing.type !== "document" && thing.type !== "slideshow") return;
         // If generic fragment, check type.
         if (fragment.type !== "region") return;
         const regionFragment = fragment as RegionFragment;
@@ -577,7 +572,9 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
             width: regionFragment.width,
             height: regionFragment.height,
             content: undefined, // Do not store heavy base64 in database
-            label: regionId
+            label: regionId,
+            slideIndex: regionFragment.slideIndex, // Persist slideIndex
+            pageNumber: (regionFragment as any).pageNumber // Persist pageNumber if present
         };
 
         const updatedRegions = [...currentRegions, newRegion];
@@ -1211,7 +1208,20 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
             case "slideshow":
                 return (
                     <SelectableContent thingId={thing.id}>
-                        <SlideshowNode thing={thing} />
+                        <SlideshowNode
+                            thing={thing}
+                            overlays={imageOverlays}
+                            onSelect={(fragment, position) => {
+                                handleRegionCreate(fragment, position);
+                                setSelection(thing.id, fragment, position);
+                            }}
+                            onOverlayResize={handleOverlayResize}
+                            onOverlayDelete={handleOverlayDelete}
+                            onOverlayClick={(fragment, position) => {
+                                console.log("[ThingNode] Slideshow Overlay Clicked", fragment.id);
+                                setSelection(thing.id, fragment, position);
+                            }}
+                        />
                     </SelectableContent>
                 );
 
