@@ -195,11 +195,21 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                                  "Identify the main title and key points in this slide. Summarize the content."
                              )
                              
-                             desc = await vision_service.analyze(
-                                 image_data=b64_data,
-                                 prompt=prompt_text,
-                                 model_name=vision_model
-                             )
+                             try:
+                                 desc = await asyncio.wait_for(
+                                     vision_service.analyze(
+                                         image_data=b64_data,
+                                         prompt=prompt_text,
+                                         model_name=vision_model
+                                     ),
+                                     timeout=120.0
+                                 )
+                             except asyncio.TimeoutError:
+                                 print(f"[CanvasWorker] VLM Timeout Slide {i+1}")
+                                 desc = "(Analysis timed out)"
+                             except Exception as ve:
+                                 print(f"[CanvasWorker] VLM Error Slide {i+1}: {ve}")
+                                 desc =f"(Analysis failed: {ve})"
                              
                              # Fallback for repetitive loops
                              # Case 1: Many repeated words ("word word word")
@@ -281,8 +291,19 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                         # Initialize progress
                         update_progress(0, total_slides)
                         
-                        # Concurrency control (max 3 parallel LLM calls to avoid rate limits/timeouts)
-                        semaphore = asyncio.Semaphore(3)
+                        # Prepare semaphore for concurrency
+                        concurrency_limit = 3
+                        
+                        # Check for sequential processing preference in default LLM preset
+                        from app.services.config_service import config_service
+                        default_preset = config_service.get_default_llm_preset()
+                        if default_preset and default_preset.get("is_sequential"):
+                            concurrency_limit = 1
+                            print(f"[CanvasWorker] Using sequential processing (concurrency=1) as configured.")
+                        else:
+                            print(f"[CanvasWorker] Using parallel processing (concurrency={concurrency_limit}).")
+
+                        semaphore = asyncio.Semaphore(concurrency_limit)
                         
                         async def process_slide_ai(i, slide):
                             nonlocal slides_done
@@ -321,9 +342,15 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                                 
                                 try:
                                     print(f"[CanvasWorker] Requesting AI analysis for Slide {i+1}...")
-                                    response = await llm_service.chat([Message(role="user", content=prompt)], model_name="default")
+                                    response = await asyncio.wait_for(
+                                        llm_service.chat([Message(role="user", content=prompt)], model_name="default"),
+                                        timeout=120.0
+                                    )
                                     slide["ai_description"] = response.strip()
                                     print(f"[CanvasWorker] Slide {i+1} Analyzed.")
+                                except asyncio.TimeoutError:
+                                    print(f"[CanvasWorker] LLM Timeout Slide {i+1}")
+                                    slide["ai_description"] = "(Analysis timed out)"
                                 except Exception as le:
                                     print(f"[CanvasWorker] LLM Error Slide {i+1}: {le}")
                                     slide["ai_description"] = "Analysis unavailable."
@@ -336,10 +363,25 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                         tasks = [process_slide_ai(i, slide) for i, slide in enumerate(slides)]
                         results = await asyncio.gather(*tasks)
                         
-                        if any(results):
-                            with open(json_path, "w") as f:
-                                json.dump(presentation_data, f)
-                            print(f"[CanvasWorker] Updated sidecar JSON with AI descriptions.")
+                        # Fix: Always sync if we have valid slides, even if cached (results all False)
+                        if slides:
+                            if any(results): # Only write file if changed
+                                with open(json_path, "w") as f:
+                                    json.dump(presentation_data, f)
+                                print(f"[CanvasWorker] Updated sidecar JSON with AI descriptions.")
+                            
+                            # CRITICAL FIX: Also update the DB Thing Content so frontend sees the analysis!
+                            import time
+                            print(f"[CanvasWorker] Syncing analyzed slides to DB for Thing {thing_id}...")
+                            new_content = dict(thing.content)
+                            new_content["slides"] = slides # slides list now has 'ai_description' populated
+                            new_content["_analysis_timestamp"] = time.time() # Force change detection
+                            thing.content = new_content
+                            
+                            from sqlalchemy.orm.attributes import flag_modified
+                            flag_modified(thing, "content")
+                            db.commit()
+                            print(f"[CanvasWorker] DB sync complete.")
                             
                     except Exception as e:
                         print(f"[CanvasWorker] Error during AI Slide Analysis: {e}")
@@ -383,16 +425,26 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
             # CRITICAL FIX: Only run this on actual PDF files!
             if result.get("status") == "success" and file_path.lower().endswith(".pdf"):
                 text_len = result.get("text_length", 0)
-                doc_count = result.get("doc_count", 1)
+                doc_count = result.get("doc_count", 1) # Default to 1 to avoid div by zero
+                
+                if doc_count <= 0: doc_count = 1
+                
+                avg_chars_per_page = text_len / doc_count
+                print(f"[CanvasWorker] PDF Text Analysis: {text_len} chars over {doc_count} pages. Avg: {avg_chars_per_page:.2f} chars/page.")
                 
                 # Heuristic: < 50 chars per page on average implies scanned/image-only
-                if doc_count > 0 and (text_len / doc_count) < 50:
-                     print(f"[CanvasWorker] Low text density detected ({text_len} chars for {doc_count} pages). Switching to Scanned PDF Mode (VLM)...")
+                # User report: "Normal" PDF triggering this. Lowering threshold to < 50 might be too aggressive if PDF has strict layout?
+                # Actually 50 chars is very low (basically empty). 
+                # If it triggered, then LlamaIndex likely failed to extract text (maybe encryption or weird encoding).
+                # Let's keep 50 but ADD LOGGING to see why it thinks it's empty. 
+                if avg_chars_per_page < 50:
+                     print(f"[CanvasWorker] Low text density detected (<50). Switching to Scanned PDF Mode (VLM)...")
                      
                      from app.services.vision_service import vision_service
                      from app.services.pdf_service import pdf_service
                      
                      try:
+                         import asyncio
                          # 1. Convert to images
                          images = pdf_service.convert_pdf_to_images(file_path)
                          print(f"[CanvasWorker] Rendered {len(images)} pages from PDF.")
@@ -402,13 +454,32 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                          vision_model = thing.content.get("vision_model", "default")
                          
                          full_description = []
+                         total_pages = len(images)
+                         
                          for i, img_b64 in enumerate(images):
                              print(f"[CanvasWorker] Transcribing Page {i+1}/{len(images)}...")
-                             page_desc = await vision_service.analyze(
-                                 image_data=img_b64,
-                                 prompt=f"Transcribe all text on this page exactly. Also describe any diagrams, tables, or images in detail. (Page {i+1})",
-                                 model_name=vision_model
-                             )
+                             update_progress(i, total_pages) # Show progress: "Processing 0/X" -> "Processing 1/X" logic?
+                             # Actually we want "Processing document X/Y chunks" style.
+                             # update_progress sets `percent`. 
+                             # Let's update `ingestion_progress` manually to reflect "Transcribing Page X/Y"
+                             
+                             try:
+                                 # 120 second timeout for VLM per page
+                                 page_desc = await asyncio.wait_for(
+                                     vision_service.analyze(
+                                         image_data=img_b64,
+                                         prompt=f"Transcribe all text on this page exactly. Also describe any diagrams, tables, or images in detail. (Page {i+1})",
+                                         model_name=vision_model
+                                     ),
+                                     timeout=120.0
+                                 )
+                             except asyncio.TimeoutError:
+                                 print(f"[CanvasWorker] VLM Timeout on Page {i+1}")
+                                 page_desc = "(Analysis timed out for this page)"
+                             except Exception as e:
+                                 print(f"[CanvasWorker] VLM Error on Page {i+1}: {e}")
+                                 page_desc = f"(Analysis failed: {e})"
+
                              full_description.append(f"--- Page {i+1} ---\n{page_desc}")
                              
                          combined_text = "\n\n".join(full_description)
@@ -439,6 +510,7 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
         
         # Reload thing 
         thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+        # Verify result status
         print(f"[CanvasWorker] Reloaded thing {thing_id}. Content keys: {thing.content.keys() if thing and thing.content else 'None'}")
         
         if result and result.get("status") == "success":

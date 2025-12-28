@@ -30,6 +30,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [serviceKey, setServiceKey] = useState("")
     const [modelKey, setModelKey] = useState("")
     const [isVision, setIsVision] = useState(false)
+    const [isSequential, setIsSequential] = useState(false)
 
     const [defaultLLM, setDefaultLLM] = useState("")
     const [defaultVision, setDefaultVision] = useState("")
@@ -97,6 +98,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 setModelKey(preset.model_api_key || "")
             }
             setIsVision(!!preset.is_vision)
+            setIsSequential(!!(preset as any).is_sequential)
         }
     }
 
@@ -116,6 +118,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 service_api_key: type === "remote" ? serviceKey : undefined,
                 model_api_key: type === "remote" ? modelKey : undefined,
                 is_vision: isVision,
+                is_sequential: type === "local" ? isSequential : false,
             }
 
             const res = await fetch(`${API_URL}/config/presets`, {
@@ -332,6 +335,22 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                         <p className="text-xs text-muted-foreground">
                             Ensure Ollama is running at http://localhost:11434
                         </p>
+
+                        <div className="flex items-center space-x-2 pt-2">
+                            <input
+                                type="checkbox"
+                                id="isSequential"
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                checked={isSequential}
+                                onChange={(e) => setIsSequential(e.target.checked)}
+                            />
+                            <label
+                                htmlFor="isSequential"
+                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                            >
+                                Run sequentially - generally faster/safer for local LLMs
+                            </label>
+                        </div>
                     </div>
                 )}
 

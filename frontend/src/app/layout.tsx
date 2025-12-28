@@ -15,6 +15,8 @@ import { AuthProvider } from "@/lib/auth-context"
 import { ViewModeProvider } from "@/lib/view-mode-context"
 import { AuthGuard } from "@/components/auth-guard"
 
+import { Toaster } from "@/components/ui/toaster"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -37,6 +39,7 @@ export default function RootLayout({
             </AuthProvider>
           </ConversationProvider>
         </ViewModeProvider>
+        <Toaster />
       </body>
     </html>
   );

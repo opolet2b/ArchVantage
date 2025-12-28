@@ -103,7 +103,9 @@ class DocumentIngestor:
             return {
                 "status": "success", 
                 "count": total_nodes,
-                "full_text": combined_text.strip()
+                "full_text": combined_text.strip(),
+                "text_length": len(combined_text.strip()),
+                "doc_count": len(documents)
             }
         else:
             return {"status": "no_content", "full_text": ""}

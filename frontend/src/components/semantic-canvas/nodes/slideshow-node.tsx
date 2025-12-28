@@ -34,14 +34,23 @@ export function SlideshowNode({
 
     // Sync progressThing to jsonContent for embedded slideshows (Image Folder)
     // This ensures that when the poller fetches updated AI descriptions, the viewer updates.
+    // Sync progressThing to jsonContent for embedded slideshows (Image Folder)
+    // This ensures that when the poller fetches updated AI descriptions, the viewer updates.
     React.useEffect(() => {
-        if (!thing.content?.asset_id && progressThing.content) {
+        // Condition 1: Embedded slideshow (no asset_id)
+        const isEmbedded = !thing.content?.asset_id && progressThing.content;
+
+        // Condition 2: Analysis Completed (update content regardless of type to show new descriptions)
+        const isCompleted = thing.rag_status === 'completed' && thing.content?.slides;
+
+        if (isEmbedded || isCompleted) {
+            console.log("[SlideshowNode] Syncing content from prop update:", thing.rag_status);
             setJsonContent({
                 ...progressThing.content,
                 // regions: overlays || progressThing.content.regions // Don't merge here, do it in render
             });
         }
-    }, [progressThing, thing.content?.asset_id]); // Removed overlays dependency
+    }, [progressThing, thing.rag_status, thing.content, thing.content?.asset_id]); // Removed overlays dependency
 
     // Polling for RAG Status
     React.useEffect(() => {
@@ -67,6 +76,16 @@ export function SlideshowNode({
                         const updatedThing = await res.json();
                         // Merge the updated rag_status and content.ingestion_progress
                         const hasStatusChanged = updatedThing.rag_status !== progressThing.rag_status;
+
+                        // If status changed to completed, force reload of content strictly
+                        if (hasStatusChanged && updatedThing.rag_status === 'completed') {
+                            // Use DB content directly to update viewer immediately
+                            if (updatedThing.content && updatedThing.content.slides) {
+                                console.log("[SlideshowNode] Analysis completed, updating content from DB polling...");
+                                setJsonContent({ ...updatedThing.content });
+                            }
+                        }
+
                         const hasProgressChanged = JSON.stringify(updatedThing.content?.ingestion_progress) !== JSON.stringify(progressThing.content?.ingestion_progress);
 
                         if (hasStatusChanged || hasProgressChanged) {

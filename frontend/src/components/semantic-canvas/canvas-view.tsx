@@ -110,6 +110,24 @@ function CanvasViewInner() {
     // Debug render
     console.log(`[CanvasView] RENDER STATE: Rendering CanvasViewInner for canvas: ${canvasId}`);
 
+    // Polling for processing items (RAG status)
+    const refreshThings = useCanvasStore((state) => state.refreshThings);
+
+    React.useEffect(() => {
+        const hasProcessingItems = things.some(
+            t => t.rag_status === "processing" || t.rag_status === "pending"
+        );
+
+        if (hasProcessingItems) {
+            console.log("[CanvasView] Polling for processing items...");
+            const interval = setInterval(() => {
+                refreshThings();
+            }, 3000); // Poll every 3 seconds
+
+            return () => clearInterval(interval);
+        }
+    }, [things, refreshThings]);
+
 
     // Model presets state for dropdown
     interface ModelPreset {
@@ -489,8 +507,11 @@ function CanvasViewInner() {
             h: t.height,
             iconified: t.iconified,
             rag_status: t.rag_status,
+            updated_at: t.updated_at,
             // Track content changes (simplistic hash for regions and VLM desc)
             regions: t.type === 'image' ? (t.content as any).regions?.length : undefined,
+            // Track slideshow changes specifically
+            slides_ts: t.type === 'slideshow' ? (t.content as any)._analysis_timestamp : undefined,
             has_desc: (t.content as any).description ? true : false,
             has_gen_desc: (t.content as any).generated_description ? true : false,
         })));

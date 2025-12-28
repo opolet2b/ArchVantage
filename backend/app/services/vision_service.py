@@ -139,7 +139,7 @@ class OllamaVisionProvider(VisionProvider):
             "options": {
                 "temperature": 0.3,       # Moderate creativity
                 "repeat_penalty": 1.2,    # STRUCTURAL FIX: Penalizes loops like "bombombom"
-                "num_ctx": 4096,          # Ensure enough context for image + text
+                "num_ctx": 8192,          # Increased to 8k to prevent "decode: cannot decode batches" errors
                 "top_k": 40,
                 "top_p": 0.9
             }

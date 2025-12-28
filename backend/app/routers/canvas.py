@@ -292,8 +292,8 @@ async def create_thing(
             except Exception as e:
                 print(f"[CanvasRouter] RAG Ingestion Setup Error: {e}")
 
-
-
+        # Ensure we return the absolute latest state (including status updates)
+        db.refresh(thing)
         return thing
 
         return thing

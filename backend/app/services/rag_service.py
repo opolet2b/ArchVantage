@@ -101,7 +101,7 @@ class RAGService:
             )
         except Exception as e:
             print(f"[RAGService] Error ingesting slideshow: {e}")
-            raise e
+            return {"status": "error", "error": str(e)}
 
     def ingest_text(self, text: str, metadata: Optional[dict] = None):
         """

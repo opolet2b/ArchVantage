@@ -191,6 +191,9 @@ interface CanvasState {
     updateViewport: (viewport: Viewport) => void;
     saveViewport: () => Promise<void>;
 
+    // Refresh data silently
+    refreshThings: () => Promise<void>;
+
     // Thing actions
     addThing: (
         type: ThingType,
@@ -329,6 +332,31 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 error: err instanceof Error ? err.message : "Unknown error",
                 isLoading: false,
             });
+        }
+    },
+
+    // Silent refresh for polling
+    refreshThings: async () => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return;
+
+        try {
+            const res = await fetch(`${API_URL}/canvases/${canvasId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (res.ok) {
+                const canvas: Canvas = await res.json();
+                // Only update things and links, keep viewport/selection
+                set({
+                    things: canvas.things,
+                    links: canvas.links,
+                    domains: canvas.domains, // sync domains too just in case
+                });
+            }
+        } catch (err) {
+            console.error("Failed to refresh canvas:", err);
         }
     },
 

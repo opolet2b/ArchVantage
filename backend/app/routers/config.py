@@ -13,6 +13,7 @@ class ConfigRequest(BaseModel):
     service_api_key: Optional[str] = None
     model_api_key: Optional[str] = None
     is_vision: Optional[bool] = False
+    is_sequential: Optional[bool] = False # New flag for local models
 
 @router.get("/config/models")
 async def get_models():
