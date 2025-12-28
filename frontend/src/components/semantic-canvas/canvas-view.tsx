@@ -98,6 +98,9 @@ function CanvasViewInner() {
         toggleIconify,
         selectedModel,
         setSelectedModel,
+        selectedDomainIds,
+        selectDomain,
+        setSelectedItems,
     } = useCanvasStore();
 
     // Model state from store
@@ -189,7 +192,7 @@ function CanvasViewInner() {
     // Context menu state
     const [contextMenuOpen, setContextMenuOpen] = React.useState(false);
     const [contextMenuPosition, setContextMenuPosition] = React.useState({ x: 0, y: 0 });
-    const [contextMenuContext, setContextMenuContext] = React.useState<"canvas" | "domain">("canvas");
+    const [contextMenuContext, setContextMenuContext] = React.useState<"canvas" | "domain" | "selection">("canvas");
     const [contextMenuDomainId, setContextMenuDomainId] = React.useState<string | undefined>(undefined);
 
     // Handle opening a conversation from canvas
@@ -213,6 +216,7 @@ function CanvasViewInner() {
     const thingNodes: Node[] = React.useMemo(() => things.map((thing) => ({
         id: thing.id,
         type: "thing",
+        selected: selectedThingIds.includes(thing.id),
         position: { x: thing.position_x, y: thing.position_y },
         data: {
             thing,
@@ -236,18 +240,52 @@ function CanvasViewInner() {
         updateDomain(domainId, { name: newName });
     }, [updateDomain]);
 
-    // Handle domain right-click (context menu for domain) - defined here before domainNodes
-    const handleDomainContextMenu = React.useCallback(
-        (event: React.MouseEvent, domainId: string) => {
+    // Handle node right-click (context menu) - Replaces manual domain handlers
+    const onNodeContextMenu = React.useCallback(
+        (event: React.MouseEvent, node: Node) => {
+            console.log("[CanvasView] onNodeContextMenu fired for node:", node.id, node.type);
             event.preventDefault();
+            // Critical: Stop propagation so the pane context menu doesn't fire and overwrite state
             event.stopPropagation();
+
+            // Check if node is in current selection
+            const isSelected = node.type === "thing"
+                ? selectedThingIds.includes(node.id)
+                : selectedDomainIds.includes(node.id);
+
+            if (!isSelected) {
+                // If not selected, select it (exclusive)
+                if (node.type === "thing") selectThing(node.id);
+                else selectDomain(node.id); // Recursive by default (as per store)
+            }
+
+            // Set context to "selection" (acts on all selected items)
             setContextMenuPosition({ x: event.clientX, y: event.clientY });
-            setContextMenuContext("domain");
-            setContextMenuDomainId(domainId);
+            setContextMenuContext("selection");
+            setContextMenuDomainId(undefined); // Not used in selection context
             setContextMenuOpen(true);
         },
-        []
+        [selectedThingIds, selectedDomainIds, selectThing, selectDomain]
     );
+
+    // Handle domain right-click (context menu for domain) - defined here before domainNodes
+    // Note: We need this bridge because React Flow sometimes fails to trigger onNodeContextMenu
+    // for complex custom nodes with z-indexing layers.
+    const handleDomainContextMenu = React.useCallback(
+        (event: React.MouseEvent, domainId: string) => {
+            console.log(`[CanvasView] handleDomainContextMenu fired for ${domainId}`);
+            // Find the node object to pass to onNodeContextMenu
+            const mockNode: Node = {
+                id: domainId,
+                type: "domain",
+                data: {}, // Minimal data needed
+                position: { x: 0, y: 0 } // Dummy
+            };
+            onNodeContextMenu(event, mockNode);
+        },
+        [onNodeContextMenu]
+    );
+
 
     // Convert domains to React Flow nodes (memoized, rendered behind things)
     // Handle domain resize end
@@ -259,6 +297,7 @@ function CanvasViewInner() {
     const domainNodes: Node[] = React.useMemo(() => domains.map((domain) => ({
         id: domain.id,
         type: "domain",
+        selected: selectedDomainIds.includes(domain.id),
         position: { x: domain.position_x, y: domain.position_y },
         data: {
             domain,
@@ -274,7 +313,7 @@ function CanvasViewInner() {
             width: domain.width || 300,
             height: domain.height || 200,
         },
-    })), [domains, zoomLevel, handleDomainRename, handleDomainContextMenu, handleDomainResize]);
+    })), [domains, zoomLevel, handleDomainRename, handleDomainResize, selectedDomainIds]);
 
     // Combine nodes (memoized)
     const allNodes = React.useMemo(() =>
@@ -718,12 +757,20 @@ function CanvasViewInner() {
 
     // Handle node selection
     const onNodeClick = React.useCallback(
-        (_: React.MouseEvent, node: Node) => {
-            if (node.type === "thing") {
-                selectThing(node.id);
+        (event: React.MouseEvent, node: Node) => {
+            const shiftKey = event.shiftKey;
+
+            // Note: For "things", we rely on React Flow's native selection handling 
+            // which syncs to store via onSelectionChange. 
+            // We only manually handle Domain clicks to trigger the special Recursive Selection logic.
+
+            if (node.type === "domain") {
+                // Recursive selection of content
+                // We use the store action because it calculates children logic
+                selectDomain(node.id, shiftKey, true);
             }
         },
-        [selectThing]
+        [selectDomain]
     );
 
     // Handle canvas click (deselect)
@@ -731,16 +778,53 @@ function CanvasViewInner() {
         clearSelection();
     }, [clearSelection]);
 
-    // Handle canvas right-click (context menu)
+    // Handle canvas rights-click (context menu)
     const handlePaneContextMenu = React.useCallback(
         (event: React.MouseEvent) => {
+            console.log("[CanvasView] handlePaneContextMenu fired (Background)");
             event.preventDefault();
+
+            // CHECK FOR SELECTION OVERSHOOT:
+            // Sometimes right-clicking on a selection box (drag rect) or between selected items bubbles to here.
+            // If the user right-clicks while things are selected, check if they clicked on something selection-related.
+            // React Flow selection rect usually has class 'react-flow__selection' or similar.
+            // Or just check if we have a selection and assume intent if not clicked on empty space? 
+            // Better: Check event target.
+            const target = event.target as HTMLElement;
+            // Common classes for selection visuals
+            const isSelectionClick =
+                target.classList.contains('react-flow__selection') ||
+                target.classList.contains('react-flow__nodesselection') ||
+                target.classList.contains('react-flow__nodesselection-rect');
+
+            // Also, if we have a non-empty selection, and the user right-clicks,
+            // standard behavior in many apps (like Windows explorer) is:
+            // - If click is ON a selected item -> Selection Menu (handled by onNodeContextMenu)
+            // - If click is ON whitespace -> Deselect and show View Menu (Canvas context)
+
+            // The issue is React Flow's drag selection box might block the click or bubble it up as "pane" click.
+
+            const { selectedThingIds, selectedDomainIds } = useCanvasStore.getState();
+            const hasSelection = selectedThingIds.length > 0 || selectedDomainIds.length > 0;
+
+            if (hasSelection && isSelectionClick) {
+                console.log("[CanvasView] Right-click on selection visual. Preserving selection.");
+                setContextMenuPosition({ x: event.clientX, y: event.clientY });
+                setContextMenuContext("selection");
+                setContextMenuDomainId(undefined);
+                setContextMenuOpen(true);
+                return;
+            }
+
+            // Spec: Right-Click on Canvas Background: The selection is cleared.
+            clearSelection();
+
             setContextMenuPosition({ x: event.clientX, y: event.clientY });
             setContextMenuContext("canvas");
             setContextMenuDomainId(undefined);
             setContextMenuOpen(true);
         },
-        []
+        [clearSelection]
     );
 
     // Drag-and-drop file handling state
@@ -756,11 +840,27 @@ function CanvasViewInner() {
         }
     }, []);
 
-    // Handle selection change for traceability highlighting
+    // Handle selection change (Sync with Store + Traceability)
     const onSelectionChange = React.useCallback(
         ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
-            const { setHighlightedFragment, links } = useCanvasStore.getState();
+            const { setHighlightedFragment, links, setSelectedItems } = useCanvasStore.getState();
 
+            // 1. Sync React Flow selection to Store (for drag selection)
+            // Note: This fires on every selection change (click, drag, etc.)
+            // We need to map the selected nodes to our store structure
+            const thingIds = selectedNodes
+                .filter(n => n.type === 'thing')
+                .map(n => n.id);
+            const domainIds = selectedNodes
+                .filter(n => n.type === 'domain')
+                .map(n => n.id);
+
+            // Only update if triggered by interaction that React Flow controls (like drag)
+            // But since we control 'selected' prop, we must use our setters.
+            // Using a batched setter to avoid tearing
+            setSelectedItems(thingIds, domainIds);
+
+            // 2. Traceability (Highlighting) logic
             // Priority 1: Selected Link
             if (selectedEdges.length === 1) {
                 const edge = selectedEdges[0];
@@ -986,6 +1086,35 @@ function CanvasViewInner() {
         [addThing, viewport]
     );
 
+    // Handle Context Menu Actions
+    const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string) => {
+        console.log(`[CanvasView] Context Menu Action: ${action} in context ${context}`);
+
+        if (action === "discover_links") {
+            const { selectedThingIds, selectedDomainIds, discoverLinks } = useCanvasStore.getState();
+            let tIds: string[] = [];
+            let dIds: string[] = [];
+
+            if (context === "selection") {
+                tIds = [...selectedThingIds];
+                dIds = [...selectedDomainIds];
+            } else if (context === "domain" && domainId) {
+                dIds = [domainId];
+            }
+
+            if (tIds.length === 0 && dIds.length === 0) {
+                console.warn("No items selected for discovery");
+                return;
+            }
+
+            // Call store
+            const result = await discoverLinks(tIds, dIds);
+            if (result) {
+                console.log(`[DiscoverLinks] Created ${result.links_created} links.`);
+            }
+        }
+    }, []);
+
     return (
         <div className="h-full w-full flex flex-col relative">
             {/* Canvas Header with Model Selector */}
@@ -1089,6 +1218,7 @@ function CanvasViewInner() {
                     onEdgeClick={onEdgeClick}
                     onSelectionChange={onSelectionChange}
                     onPaneClick={onPaneClick}
+                    onNodeContextMenu={onNodeContextMenu}
                     onDragOver={handleDragOver}
                     onDrop={handleFileDrop}
                     nodeTypes={nodeTypes}
@@ -1097,7 +1227,10 @@ function CanvasViewInner() {
                     minZoom={0.1}
                     maxZoom={2}
                     defaultViewport={viewport}
-                    selectNodesOnDrag={false}
+                    selectNodesOnDrag={true} // Enable drag selection
+                    selectionOnDrag={true} // Explicit enable
+                    selectionKeyCode="Shift" // Use Shift for marquee or default (usually Shift or None depending on preference, User asked for "Select by dragging... englobing them". Standard RF behavior is drag on canvas pans, Shift+Drag selects. Let's see RF defaults. Default is Shift for selection. I'll stick to defaults or set it.)
+                    multiSelectionKeyCode="Shift"
                     nodesDraggable={true}
                     nodesConnectable={true}
                     elementsSelectable={true}
@@ -1138,6 +1271,7 @@ function CanvasViewInner() {
                     context={contextMenuContext}
                     domainId={contextMenuDomainId}
                     onClose={() => setContextMenuOpen(false)}
+                    onAction={handleContextMenuAction}
                 />
             </div>
         </div>

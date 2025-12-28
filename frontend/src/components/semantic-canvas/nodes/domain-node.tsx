@@ -121,7 +121,11 @@ export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
                     minWidth: 150,
                     minHeight: 100,
                 }}
-                onContextMenu={(e) => onContextMenu?.(e, domain.id)}
+                onContextMenu={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    onContextMenu?.(e, domain.id);
+                }}
             >
                 {/* Domain label - double-click to edit */}
                 <div

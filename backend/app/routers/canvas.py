@@ -25,7 +25,8 @@ from app.schemas.canvas_schemas import (
     LinkCreate, LinkUpdate, LinkResponse,
     DomainCreate, DomainUpdate, DomainResponse,
     SummarizeRequest, SummarizeResponse,
-    AnalyzeRequest, AnalyzeResponse, AnalyzeAction
+    AnalyzeRequest, AnalyzeResponse, AnalyzeAction,
+    DiscoverLinksRequest, DiscoverLinksResponse
 )
 from app.services.rag_service import rag_service
 from app.routers.canvas_worker import handle_async_vectorization
@@ -1057,3 +1058,220 @@ async def analyze_selection(
             result=f"Error analyzing content: {str(e)}",
             created_thing_id=None
         )
+# =============================================================================
+# Discover Links (Semantic Analysis)
+# =============================================================================
+
+@router.post(
+    "/canvases/{canvas_id}/discover-links",
+    response_model=DiscoverLinksResponse
+)
+async def discover_links(
+    canvas_id: str,
+    request: DiscoverLinksRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Analyze selected items (Things & Domains) to discover and create semantic links.
+    """
+    from app.services.llm_service import llm_service
+    from app.models.chat import Message
+    from app.schemas.canvas_schemas import DiscoverLinksResponse, DiscoveredLinkDetail
+    
+    # 1. Verify Canvas Access
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        Canvas.owner_id == current_user.id
+    ).first()
+    
+    if not canvas:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Canvas not found"
+        )
+            
+    # 2. Collect Entities (Things & Domains)
+    things_map = {} # id -> {title, content_summary, type}
+    domains_map = {} # id -> {name, description}
+    
+    # Fetch Things
+    if request.thing_ids:
+        things = db.query(CanvasThing).filter(
+            CanvasThing.id.in_(request.thing_ids),
+            CanvasThing.canvas_id == canvas_id
+        ).all()
+        
+        for thing in things:
+            # Determine summary
+            summary = ""
+            # Priority: Generated Summary > Description > Raw Text Content
+            content = thing.content or {}
+            
+            if content.get("generated_description"):
+                summary = content["generated_description"]
+            elif content.get("description"):
+                summary = content["description"]
+            elif thing.type == ModelThingType.TEXT:
+                summary = content.get("text", "")[:500] # Truncate raw text
+            elif thing.type == ModelThingType.DOCUMENT:
+                summary = f"Document: {content.get('filename', 'Unknown')}"
+            elif thing.type == ModelThingType.IMAGE:
+                 summary = "Image (No description available)"
+            
+            things_map[thing.id] = {
+                "title": thing.title or f"{thing.type.value} {thing.id[:4]}",
+                "summary": summary,
+                "type": thing.type.value
+            }
+
+    # Fetch Domains
+    if request.domain_ids:
+        domains = db.query(Domain).filter(
+            Domain.id.in_(request.domain_ids),
+            Domain.canvas_id == canvas_id
+        ).all()
+        
+        for domain in domains:
+            # Domain Summary Logic:
+            # If domain has no description, we should synthesize one from its contents?
+            # For this MVP, let's use name + existing description. 
+            # (Synthesizing domain description could be a separate pre-step or done here if cheap).
+            
+            # Simple aggregation of contents for context (if description missing)
+            desc = domain.description or ""
+            if not desc:
+                # Find things inside this domain (even if not selected)
+                internal_things = db.query(CanvasThing).filter(
+                    CanvasThing.domain_id == domain.id
+                ).limit(5).all() # Sample 5 things
+                
+                titles = [t.title or t.type.value for t in internal_things]
+                if titles:
+                    desc = f"Contains: {', '.join(titles)}"
+            
+            domains_map[domain.id] = {
+                "name": domain.name,
+                "description": desc
+            }
+
+    if not things_map and not domains_map:
+        return DiscoverLinksResponse(links_created=0, domains_updated=0, details=[])
+
+    # 3. Construct Prompt
+    # We output a structured list of entities for the LLM
+    entities_text = "Entities to Analyze:\n\n"
+    
+    for tid, data in things_map.items():
+        entities_text += f"- THING [{tid}]: Name='{data['title']}', Type='{data['type']}'. \n  Content: {data['summary']}\n\n"
+        
+    for did, data in domains_map.items():
+        entities_text += f"- DOMAIN [{did}]: Name='{data['name']}'. \n  Context: {data['description']}\n\n"
+        
+    system_prompt = (
+        "You are an expert semantic analyst. Your goal is to discover meaningful relationships between the provided entities.\n"
+        "Analyze the content and context of each entity.\n"
+        "Identify relationships of the following types:\n"
+        "- related (General connection)\n"
+        "- references (Explicit citation)\n"
+        "- derived_from (Source/Origin)\n"
+        "- contains (Logical containment, not spatial)\n"
+        "- proves / refutes ( logical argumentation)\n"
+        "- prerequisite / influences / triggers / blocks (Process flow)\n"
+        "- supersedes (Versioning)\n\n"
+        "Output a JSON object with a list 'links'. Each link must have:\n"
+        "{ 'source_id': 'UUID', 'target_id': 'UUID', 'type': 'TYPE', 'label': 'Short Label', 'rationale': 'Reason' }\n"
+        "Only output high-confidence semantic links. Do not hallucinate connections."
+    )
+    
+    user_prompt = f"{entities_text}\n\nProvide the analysis in JSON format."
+
+    # 4. Call LLM
+    try:
+        # Use json mode if model supports it, or just ask nicely. Assumed efficient model selected.
+        response_text = await llm_service.chat(
+            messages=[
+                Message(role="system", content=system_prompt),
+                Message(role="user", content=user_prompt)
+            ],
+            model_name=request.model,
+            response_format={"type": "json_object"} # If supported by backend wrapper
+        )
+        
+        # Parse JSON
+        import json
+        try:
+            # Handle potential markdown wrapping
+            cleaned_text = response_text.replace("```json", "").replace("```", "").strip()
+            result_json = json.loads(cleaned_text)
+            links_data = result_json.get("links", [])
+        except json.JSONDecodeError:
+            print(f"[DiscoverLinks] Failed to parse JSON: {response_text}")
+            return DiscoverLinksResponse(links_created=0, domains_updated=0, details=[])
+
+        # 5. Create Links
+        created_links = []
+        created_count = 0
+        
+        existing_links = db.query(CanvasLink).filter(
+            CanvasLink.canvas_id == canvas_id
+        ).all()
+        
+        # Simple existing check set
+        existing_keys = set((l.source_id, l.target_id) for l in existing_links)
+        
+        for link_data in links_data:
+            source = link_data.get("source_id")
+            target = link_data.get("target_id")
+            l_type = link_data.get("type", "related").lower()
+            label = link_data.get("label", "")
+            
+            # Validate IDs exist in our scope
+            valid_ids = set(things_map.keys()) | set(domains_map.keys())
+            if source not in valid_ids or target not in valid_ids:
+                continue
+                
+            if source == target:
+                continue
+                
+            if (source, target) in existing_keys:
+                continue
+                
+            # Create Link
+            # Map loose types to Enum if possible, else fallback 'related'
+            try:
+                model_type = ModelLinkType(l_type)
+            except ValueError:
+                model_type = ModelLinkType.RELATED
+            
+            new_link = CanvasLink(
+                canvas_id=canvas_id,
+                source_id=source,
+                target_id=target,
+                type=model_type,
+                label=label
+            )
+            db.add(new_link)
+            created_count += 1
+            existing_keys.add((source, target))
+            
+            created_links.append(DiscoveredLinkDetail(
+                source_id=source,
+                target_id=target,
+                type=model_type.value,
+                label=label,
+                rationale=link_data.get("rationale")
+            ))
+            
+        db.commit()
+        
+        return DiscoverLinksResponse(
+            links_created=created_count,
+            domains_updated=0, # Not implemented yet
+            details=created_links
+        )
+
+    except Exception as e:
+        print(f"[DiscoverLinks] Error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

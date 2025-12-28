@@ -313,3 +313,31 @@ class AnalyzeResponse(BaseModel):
 
 # Update forward references
 CanvasWithContents.model_rebuild()
+
+
+# =============================================================================
+# Discover Links (Semantic Analysis)
+# =============================================================================
+
+class DiscoverLinksRequest(BaseModel):
+    """Request to semantic discovery of links between selected items."""
+    thing_ids: List[str] = []
+    domain_ids: List[str] = []
+    model: Optional[str] = None
+
+
+class DiscoveredLinkDetail(BaseModel):
+    """Details of a discovered link."""
+    source_id: str
+    target_id: str
+    type: str # LinkType but looser for LLM output tolerance
+    label: str
+    rationale: Optional[str] = None
+
+
+class DiscoverLinksResponse(BaseModel):
+    """Response for link discovery."""
+    links_created: int
+    domains_updated: int
+    details: List[DiscoveredLinkDetail]
+

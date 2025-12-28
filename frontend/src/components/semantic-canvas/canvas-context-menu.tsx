@@ -46,14 +46,14 @@ interface CanvasContextMenuProps {
     isOpen: boolean;
     /** Position to display the menu */
     position: { x: number; y: number };
-    /** Context: "canvas" applies to all things, "domain" to things in domain */
-    context: "canvas" | "domain";
+    /** Context: "canvas" applies to all things, "domain" to things in domain, "selection" to current selection */
+    context: "canvas" | "domain" | "selection";
     /** Domain ID when context is "domain" */
     domainId?: string;
     /** Called when menu is closed */
     onClose: () => void;
     /** Called when an action is selected */
-    onAction?: (action: AnalysisAction, context: "canvas" | "domain", domainId?: string) => void;
+    onAction?: (action: AnalysisAction, context: "canvas" | "domain" | "selection", domainId?: string) => void;
 }
 
 // =============================================================================
@@ -71,28 +71,69 @@ export function CanvasContextMenu({
     const things = useCanvasStore((state) => state.things);
     const domains = useCanvasStore((state) => state.domains);
     const selectedModel = useCanvasStore((state) => state.selectedModel);
+    const selectedThingIds = useCanvasStore((state) => state.selectedThingIds);
+    const selectedDomainIds = useCanvasStore((state) => state.selectedDomainIds);
 
     // Calculate item count based on context:
     // - Canvas: things NOT in any domain + domains count
-    // - Domain: things in that specific domain
+    // - Selection: things in selection + things in selected domains.
+    // Robust logic: Filter 'things' by the selected IDs to ensure we only count actual Things.
     const itemCount = React.useMemo(() => {
+        console.log(`[CanvasContextMenu] Calc itemCount. Context: ${context}. SelectedThings: ${selectedThingIds.length}. SelectedDomains: ${selectedDomainIds.length}.`);
+
+        if (context === "selection") {
+            // Get things directly selected
+            const selectedThings = things.filter(t => selectedThingIds.includes(t.id));
+
+            // Get things inside selected domains (explicit recursion check in case store didn't sync yet, 
+            // though store selectDomain should handle this. Doing it explicitly makes it robust.)
+            const thingsInDomains = things.filter(t => t.domain_id && selectedDomainIds.includes(t.domain_id));
+
+            // Combine and unique
+            const uniqueThingIds = new Set([
+                ...selectedThings.map(t => t.id),
+                ...thingsInDomains.map(t => t.id)
+            ]);
+
+            // Log for debugging
+            console.log(`[CanvasContextMenu] Selection Count Debug: Direct: ${selectedThings.length}, InDomains: ${thingsInDomains.length}, Unique: ${uniqueThingIds.size}`);
+
+            return uniqueThingIds.size;
+        }
+
         if (context === "domain" && domainId) {
-            // Count things in the specific domain
+            // Rule: All things inside the domain. Domain itself NOT counted.
             return things.filter((t) => t.domain_id === domainId).length;
         }
-        // Canvas: things without domain + domain count
+
+        // Rule: Canvas context
+        // All Root Things (not in domain) AND all Domains.
+        // Things inside domains are NOT counted.
         const thingsNotInDomain = things.filter((t) => t.domain_id === null || t.domain_id === undefined);
         return thingsNotInDomain.length + domains.length;
-    }, [context, domainId, things, domains]);
+    }, [context, domainId, things, domains, selectedThingIds, selectedDomainIds]);
 
     // Get things in scope for the action (for logging/future use)
     const thingsInScope = React.useMemo(() => {
+        if (context === "selection") {
+            // Match itemCount logic:
+            const selectedThings = things.filter(t => selectedThingIds.includes(t.id));
+            const thingsInDomains = things.filter(t => t.domain_id && selectedDomainIds.includes(t.domain_id));
+
+            const combined = [...selectedThings, ...thingsInDomains];
+            const seen = new Set<string>();
+            return combined.filter(t => {
+                if (seen.has(t.id)) return false;
+                seen.add(t.id);
+                return true;
+            });
+        }
         if (context === "domain" && domainId) {
             return things.filter((t) => t.domain_id === domainId);
         }
-        // All things for canvas context (domains handled separately)
+        // Canvas context: Root things
         return things.filter((t) => !t.domain_id);
-    }, [context, domainId, things]);
+    }, [context, domainId, things, selectedThingIds, selectedDomainIds]);
 
     // Handle action selection
     const handleAction = (action: AnalysisAction) => {
@@ -110,7 +151,7 @@ export function CanvasContextMenu({
     };
 
     // Context label for menu header
-    const contextLabel = context === "domain" ? "Domain" : "Canvas";
+    const contextLabel = context === "domain" ? "Domain" : context === "selection" ? "Selection" : "Canvas";
 
     if (!isOpen) return null;
 

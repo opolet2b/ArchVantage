@@ -165,6 +165,7 @@ interface CanvasState {
 
     // Selection
     selectedThingIds: string[];
+    selectedDomainIds: string[];
 
     // Loading states
     isLoading: boolean;
@@ -244,10 +245,15 @@ interface CanvasState {
 
     // Selection
     selectThing: (thingId: string, multi?: boolean) => void;
+    selectDomain: (domainId: string, multi?: boolean, recursive?: boolean) => void;
+    setSelectedItems: (thingIds: string[], domainIds: string[]) => void;
     clearSelection: () => void;
 
     // Iconify feature
     toggleIconify: (thingId: string) => Promise<void>;
+
+    // Semantic Discovery
+    discoverLinks: (thingIds: string[], domainIds: string[]) => Promise<{ links_created: number; domains_updated: number; details: any[] } | null>;
 }
 
 /**
@@ -272,6 +278,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     viewport: { x: 0, y: 0, zoom: 1.0 },
     zoomLevel: "full",
     selectedThingIds: [],
+    selectedDomainIds: [],
     isLoading: false,
     error: null,
 
@@ -823,41 +830,60 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     // Remove thing from domain
     removeThingFromDomain: async (thingId) => {
-        const { canvasId, things } = get();
-        const token = getAuthToken();
-        if (!token || !canvasId) return;
+        get().updateThing(thingId, { domain_id: null });
+    },
 
-        try {
-            await fetch(`${API_URL}/canvases/${canvasId}/things/${thingId}`, {
-                method: "PATCH",
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ domain_id: null }),
-            });
-
-            set({
-                things: things.map((t) =>
-                    t.id === thingId ? { ...t, domain_id: null } : t
-                ),
-            });
-        } catch (err) {
-            console.error("Failed to remove thing from domain:", err);
+    // Selection Handling
+    selectThing: (thingId, multi = false) => {
+        const { selectedThingIds } = get();
+        if (multi) {
+            // Toggle
+            if (selectedThingIds.includes(thingId)) {
+                set({ selectedThingIds: selectedThingIds.filter((id) => id !== thingId) });
+            } else {
+                set({ selectedThingIds: [...selectedThingIds, thingId] });
+            }
+        } else {
+            // Exclusive
+            set({ selectedThingIds: [thingId], selectedDomainIds: [] });
         }
     },
 
-    // Selection
-    selectThing: (thingId, multi = false) => {
+    selectDomain: (domainId, multi = false, recursive = true) => {
+        const { selectedDomainIds, things, selectedThingIds } = get();
+        let newSelectedDomainIds = [];
+        let newSelectedThingIds = multi ? [...selectedThingIds] : [];
+
+        if (multi) {
+            if (selectedDomainIds.includes(domainId)) {
+                newSelectedDomainIds = selectedDomainIds.filter(id => id !== domainId);
+            } else {
+                newSelectedDomainIds = [...selectedDomainIds, domainId];
+            }
+        } else {
+            newSelectedDomainIds = [domainId];
+        }
+
+        // Recursive selection
+        if (recursive && (multi ? !selectedDomainIds.includes(domainId) : true)) {
+            const thingsInDomain = things.filter((t) => t.domain_id === domainId);
+            const thingsIds = thingsInDomain.map((t) => t.id);
+            // Add unique things
+            newSelectedThingIds = [...new Set([...newSelectedThingIds, ...thingsIds])];
+        }
+
         set({
-            selectedThingIds: multi
-                ? [...get().selectedThingIds, thingId]
-                : [thingId],
+            selectedDomainIds: newSelectedDomainIds,
+            selectedThingIds: newSelectedThingIds,
         });
     },
 
+    setSelectedItems: (thingIds, domainIds) => {
+        set({ selectedThingIds: thingIds, selectedDomainIds: domainIds });
+    },
+
     clearSelection: () => {
-        set({ selectedThingIds: [] });
+        set({ selectedThingIds: [], selectedDomainIds: [] });
     },
 
     // Iconify feature - toggle thing between full and icon mode
@@ -870,65 +896,72 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         if (!thing) return;
 
         const newIconified = !thing.iconified;
-        let updates: {
-            iconified: boolean;
-            pre_iconify_size?: { width: number; height: number } | null;
-            size?: { width: number; height: number };
-        };
+        let updates: Partial<CanvasThing> = { iconified: newIconified };
 
         if (newIconified) {
-            // Iconifying: save current size before reducing to icon
             updates = {
-                iconified: true,
-                pre_iconify_size: {
-                    width: thing.width || 280,
-                    height: thing.height || 150,
-                },
+                ...updates,
+                pre_iconify_size: { width: thing.width || 400, height: thing.height || 300 },
+                width: 100,
+                height: 100,
             };
         } else {
-            // Restoring: restore previous size
-            updates = {
-                iconified: false,
-                size: thing.pre_iconify_size || { width: 280, height: 150 },
-            };
+            if (thing.pre_iconify_size) {
+                updates = {
+                    ...updates,
+                    width: thing.pre_iconify_size.width,
+                    height: thing.pre_iconify_size.height,
+                };
+            } else {
+                updates = { ...updates, width: 400, height: 300 };
+            }
         }
 
-        // Update local state immediately
-        set({
-            things: things.map((t) =>
-                t.id === thingId
-                    ? {
-                        ...t,
-                        iconified: newIconified,
-                        pre_iconify_size: newIconified
-                            ? updates.pre_iconify_size!
-                            : t.pre_iconify_size,
-                        width: newIconified ? null : (updates.size?.width || t.width),
-                        height: newIconified ? null : (updates.size?.height || t.height),
-                    }
-                    : t
-            ),
-        });
+        await get().updateThing(thingId, updates);
+    },
 
-        // Persist to backend
+    // Semantic Discovery
+    discoverLinks: async (thingIds: string[], domainIds: string[]) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return;
+
+        set({ isLoading: true });
+
         try {
-            await fetch(
-                `${API_URL}/canvases/${canvasId}/things/${thingId}`,
+            const res = await fetch(
+                `${API_URL}/canvases/${canvasId}/discover-links`,
                 {
-                    method: "PATCH",
+                    method: "POST",
                     headers: {
                         Authorization: `Bearer ${token}`,
                         "Content-Type": "application/json",
                     },
                     body: JSON.stringify({
-                        iconified: updates.iconified,
-                        pre_iconify_size: updates.pre_iconify_size,
-                        size: updates.size,
+                        thing_ids: thingIds,
+                        domain_ids: domainIds
                     }),
                 }
             );
-        } catch (err) {
-            console.error("Failed to toggle iconify:", err);
+
+            if (!res.ok) {
+                const err = await res.text();
+                throw new Error(err);
+            }
+
+            const data = await res.json(); // DiscoverLinksResponse
+
+            // Refresh links from server if any created
+            if (data.links_created > 0) {
+                get().loadCanvas(canvasId);
+            }
+
+            set({ isLoading: false });
+            return data;
+        } catch (e) {
+            console.error("Discover Links failed", e);
+            set({ isLoading: false, error: e instanceof Error ? e.message : String(e) });
+            return null;
         }
-    },
+    }
 }));
