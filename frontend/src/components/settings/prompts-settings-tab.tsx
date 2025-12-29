@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import {
     Table,
     TableBody,
@@ -25,9 +24,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
 import { promptService, PromptDefinition } from "@/lib/prompt-service"
-import { Loader2, RefreshCw, RotateCcw, Save } from "lucide-react"
+import { Loader2, RefreshCw, RotateCcw, Plus } from "lucide-react"
 
-export default function PromptsPage() {
+export function PromptsSettingsTab() {
     const [prompts, setPrompts] = useState<PromptDefinition[]>([])
     const [loading, setLoading] = useState(true)
     const [editingPrompt, setEditingPrompt] = useState<PromptDefinition | null>(null)
@@ -57,10 +56,6 @@ export default function PromptsPage() {
 
     const handleEdit = (prompt: PromptDefinition) => {
         setEditingPrompt(prompt)
-        // If active override exists, use it. Else use default (converted to template if needed)
-        // Actually, better to start empty or with default?
-        // If override exists, showing it is mandatory.
-        // If no override, showing default allows user to copy/paste.
         setOverrideContent(prompt.active_override || prompt.default_content)
     }
 
@@ -116,10 +111,10 @@ export default function PromptsPage() {
     }
 
     return (
-        <div className="container py-6 space-y-6">
+        <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Prompt Management</h1>
+                    <h2 className="text-xl font-bold tracking-tight">Prompt Management</h2>
                     <p className="text-muted-foreground">Manage system prompts and user overrides.</p>
                 </div>
                 <Button variant="outline" onClick={fetchPrompts} disabled={loading}>
@@ -262,23 +257,5 @@ export default function PromptsPage() {
                 </DialogContent>
             </Dialog>
         </div>
-    )
-}
-
-function Plus({ className }: { className?: string }) {
-    return (
-        <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={className}
-        >
-            <path d="M5 12h14" />
-            <path d="M12 5v14" />
-        </svg>
     )
 }

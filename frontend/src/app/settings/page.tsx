@@ -8,6 +8,7 @@ import { CategoriesTab } from "@/components/settings/categories-tab"
 import { TemplatesSettingsTab } from "@/components/settings/templates-settings-tab"
 import { RagSettingsTab } from "@/components/settings/rag-settings-tab"
 import { DebugSettingsTab } from "@/components/settings/debug-settings-tab"
+import { PromptsSettingsTab } from "@/components/settings/prompts-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
@@ -73,6 +74,14 @@ export default function SettingsPage() {
                             <Bug className="mr-2 h-4 w-4" />
                             Debug
                         </Button>
+                        <Button
+                            variant={activeTab === "prompts" ? "secondary" : "ghost"}
+                            className="justify-start"
+                            onClick={() => handleTabChange("prompts")}
+                        >
+                            <FileText className="mr-2 h-4 w-4" />
+                            Prompts
+                        </Button>
                         {isAdmin && (
                             <Button
                                 variant={(activeTab === "users" ||
@@ -128,6 +137,7 @@ export default function SettingsPage() {
                             activeTab === "oauth") && isAdmin && <UsersPage />}
                         {activeTab === "mcp-servers" && isAdmin && <MCPServersTab />}
                         {activeTab === "categories" && isAdmin && <CategoriesTab />}
+                        {activeTab === "prompts" && <PromptsSettingsTab />}
                         {activeTab === "templates" && isAdmin && <TemplatesSettingsTab />}
                     </main>
                 </div>
