@@ -13,6 +13,9 @@ class LLMService:
         pass
 
     def _get_model(self, model_name: str):
+        if not model_name:
+            model_name = "default"
+
         from app.services.config_service import config_service
         
         preset = None
@@ -65,11 +68,24 @@ class LLMService:
                 converted.append(SystemMessage(content=msg.content))
         return converted
 
-    async def chat(self, messages: List[Message], model_name: str = "gpt-3.5-turbo") -> str:
+    async def chat(self, messages: List[Message], model_name: str = "gpt-3.5-turbo", **kwargs) -> str:
         try:
             llm = self._get_model(model_name)
+            
+            # Handle JSON mode request
+            # canvas.py sends response_format={"type": "json_object"}
+            if kwargs.get("response_format") == {"type": "json_object"}:
+                 # Try to apply JSON mode if supported
+                 if isinstance(llm, ChatOpenAI):
+                      llm = llm.bind(response_format={"type": "json_object"})
+                 elif isinstance(llm, ChatOllama):
+                      llm = llm.bind(format="json")
+            
+            # Remove response_format from kwargs to avoid passing it to ainvoke (which might be strict)
+            kwargs.pop("response_format", None)
+
             langchain_messages = self._convert_messages(messages)
-            response = await llm.ainvoke(langchain_messages)
+            response = await llm.ainvoke(langchain_messages, **kwargs)
             return response.content
         except Exception as e:
             print(f"Error in LLMService: {e}")

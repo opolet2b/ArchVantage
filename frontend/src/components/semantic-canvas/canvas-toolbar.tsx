@@ -63,6 +63,7 @@ export function CanvasToolbar() {
     // Form states
     const [textContent, setTextContent] = React.useState("");
     const [domainName, setDomainName] = React.useState("");
+    const [domainDescription, setDomainDescription] = React.useState("");
     const [urlContent, setUrlContent] = React.useState("");
     const [selectedConversationId, setSelectedConversationId] = React.useState<string | null>(null);
 
@@ -174,14 +175,16 @@ export function CanvasToolbar() {
 
     // Add domain
     const handleAddDomain = async () => {
-        if (!domainName.trim()) return;
+        if (!domainName.trim() || !domainDescription.trim()) return;
 
         await addDomain(
             domainName,
+            domainDescription,
             getCenterPosition()
         );
 
         setDomainName("");
+        setDomainDescription("");
         setShowDomainDialog(false);
     };
 
@@ -565,11 +568,20 @@ export function CanvasToolbar() {
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                            <Label>Domain Name</Label>
+                            <Label>Domain Name <span className="text-red-500">*</span></Label>
                             <Input
                                 value={domainName}
                                 onChange={(e) => setDomainName(e.target.value)}
                                 placeholder="Research, Projects, Ideas..."
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Description <span className="text-red-500">*</span></Label>
+                            <Textarea
+                                value={domainDescription}
+                                onChange={(e) => setDomainDescription(e.target.value)}
+                                placeholder="Describe the purpose of this domain..."
+                                rows={3}
                             />
                         </div>
                     </div>
@@ -580,7 +592,12 @@ export function CanvasToolbar() {
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleAddDomain}>Create</Button>
+                        <Button
+                            onClick={handleAddDomain}
+                            disabled={!domainName.trim() || !domainDescription.trim()}
+                        >
+                            Create
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

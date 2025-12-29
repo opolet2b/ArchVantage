@@ -7,6 +7,7 @@ Handles CRUD operations for canvases, things, links, and domains.
 PEP 8 Compliant
 """
 from typing import List
+import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -621,6 +622,7 @@ def create_domain(
         color=request.color,
         position_x=request.position.x,
         position_y=request.position.y,
+        description=request.description,
         parent_id=request.parent_id if request.parent_id else None
     )
     db.add(domain)
@@ -657,6 +659,8 @@ def update_domain(
         domain.name = request.name
     if request.color is not None:
         domain.color = request.color
+    if request.description is not None:
+        domain.description = request.description
     if request.position is not None:
         domain.position_x = request.position.x
         domain.position_y = request.position.y
@@ -1078,7 +1082,15 @@ async def discover_links(
     from app.services.llm_service import llm_service
     from app.models.chat import Message
     from app.schemas.canvas_schemas import DiscoverLinksResponse, DiscoveredLinkDetail
-    
+    from app.services.debug_service import debug_service
+    import json
+
+    debug_service.log("INFO", "DiscoverLinks", f"Starting discovery for Canvas {canvas_id}", {
+        "thing_ids": request.thing_ids,
+        "domain_ids": request.domain_ids,
+        "model": request.model
+    })
+
     # 1. Verify Canvas Access
     canvas = db.query(Canvas).filter(
         Canvas.id == canvas_id,
@@ -1090,113 +1102,214 @@ async def discover_links(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Canvas not found"
         )
-            
-    # 2. Collect Entities (Things & Domains)
-    things_map = {} # id -> {title, content_summary, type}
-    domains_map = {} # id -> {name, description}
-    
-    # Fetch Things
-    if request.thing_ids:
-        things = db.query(CanvasThing).filter(
-            CanvasThing.id.in_(request.thing_ids),
-            CanvasThing.canvas_id == canvas_id
-        ).all()
         
-        for thing in things:
-            # Determine summary
-            summary = ""
-            # Priority: Generated Summary > Description > Raw Text Content
-            content = thing.content or {}
-            
-            if content.get("generated_description"):
-                summary = content["generated_description"]
-            elif content.get("description"):
-                summary = content["description"]
-            elif thing.type == ModelThingType.TEXT:
-                summary = content.get("text", "")[:500] # Truncate raw text
-            elif thing.type == ModelThingType.DOCUMENT:
-                summary = f"Document: {content.get('filename', 'Unknown')}"
-            elif thing.type == ModelThingType.IMAGE:
-                 summary = "Image (No description available)"
-            
-            things_map[thing.id] = {
-                "title": thing.title or f"{thing.type.value} {thing.id[:4]}",
-                "summary": summary,
-                "type": thing.type.value
-            }
-
-    # Fetch Domains
-    if request.domain_ids:
-        domains = db.query(Domain).filter(
-            Domain.id.in_(request.domain_ids),
-            Domain.canvas_id == canvas_id
-        ).all()
-        
-        for domain in domains:
-            # Domain Summary Logic:
-            # If domain has no description, we should synthesize one from its contents?
-            # For this MVP, let's use name + existing description. 
-            # (Synthesizing domain description could be a separate pre-step or done here if cheap).
-            
-            # Simple aggregation of contents for context (if description missing)
-            desc = domain.description or ""
-            if not desc:
-                # Find things inside this domain (even if not selected)
-                internal_things = db.query(CanvasThing).filter(
-                    CanvasThing.domain_id == domain.id
-                ).limit(5).all() # Sample 5 things
-                
-                titles = [t.title or t.type.value for t in internal_things]
-                if titles:
-                    desc = f"Contains: {', '.join(titles)}"
-            
-            domains_map[domain.id] = {
-                "name": domain.name,
-                "description": desc
-            }
-
-    if not things_map and not domains_map:
-        return DiscoverLinksResponse(links_created=0, domains_updated=0, details=[])
-
-    # 3. Construct Prompt
-    # We output a structured list of entities for the LLM
-    entities_text = "Entities to Analyze:\n\n"
-    
-    for tid, data in things_map.items():
-        entities_text += f"- THING [{tid}]: Name='{data['title']}', Type='{data['type']}'. \n  Content: {data['summary']}\n\n"
-        
-    for did, data in domains_map.items():
-        entities_text += f"- DOMAIN [{did}]: Name='{data['name']}'. \n  Context: {data['description']}\n\n"
-        
-    system_prompt = (
-        "You are an expert semantic analyst. Your goal is to discover meaningful relationships between the provided entities.\n"
-        "Analyze the content and context of each entity.\n"
-        "Identify relationships of the following types:\n"
-        "- related (General connection)\n"
-        "- references (Explicit citation)\n"
-        "- derived_from (Source/Origin)\n"
-        "- contains (Logical containment, not spatial)\n"
-        "- proves / refutes ( logical argumentation)\n"
-        "- prerequisite / influences / triggers / blocks (Process flow)\n"
-        "- supersedes (Versioning)\n\n"
-        "Output a JSON object with a list 'links'. Each link must have:\n"
-        "{ 'source_id': 'UUID', 'target_id': 'UUID', 'type': 'TYPE', 'label': 'Short Label', 'rationale': 'Reason' }\n"
-        "Only output high-confidence semantic links. Do not hallucinate connections."
-    )
-    
-    user_prompt = f"{entities_text}\n\nProvide the analysis in JSON format."
-
-    # 4. Call LLM
     try:
-        # Use json mode if model supports it, or just ask nicely. Assumed efficient model selected.
+        # 2. Collect Entities
+        things_map = {}
+        domains_map = {}
+        
+        # Fetch Things
+        if request.thing_ids:
+            things = db.query(CanvasThing).filter(
+                CanvasThing.id.in_(request.thing_ids),
+                CanvasThing.canvas_id == canvas_id
+            ).all()
+            
+            for thing in things:
+                # Determine summary
+                summary = ""
+                # Priority: Generated Summary > Description > Raw Text Content
+                content = thing.content or {}
+                
+                if content.get("generated_description"):
+                    summary = content["generated_description"]
+                elif content.get("description"):
+                    summary = content["description"]
+                elif thing.type == ModelThingType.TEXT:
+                    summary = content.get("text", "")[:500] # Truncate raw text
+                elif thing.type == ModelThingType.DOCUMENT:
+                    summary = f"Document: {content.get('filename', 'Unknown')}"
+                    debug_service.log("DEBUG", "DiscoverLinks", f"Checking RAG status for {thing.id}: {thing.rag_status}")
+                    
+                    if thing.rag_status and thing.rag_status.lower() == "completed":
+                        try:
+                            from app.services.rag_service import rag_service
+                            # Correct filter is 'thing_id' as set in canvas_worker.py
+                            filters = {"thing_id": thing.id}
+                            
+                            debug_service.log("DEBUG", "DiscoverLinks", f"Fetching RAG context for {thing.id} with filters {filters}...")
+                            
+                            results = rag_service.search(
+                                query="Summary and key themes of this document",
+                                filters=filters,
+                                k=3
+                            )
+                            
+                            if not results:
+                                 # Fallback: Try searching by filename if thing_id didn't work (unlikely if status is completed)
+                                filename = content.get("filename")
+                                if filename:
+                                    debug_service.log("WARN", "DiscoverLinks", f"No results for thing_id {thing.id}, trying filename {filename}")
+                                    # SimpleDirectoryReader often adds 'file_name' to metadata
+                                    results = rag_service.search(
+                                        query="Summary and key themes of this document",
+                                        filters={"file_name": filename},
+                                        k=3
+                                    )
+
+                            if results:
+                                debug_service.log("INFO", "DiscoverLinks", f"Found {len(results)} RAG chunks for {thing.id}")
+                                rag_context = "\n".join([r["text"] for r in results])
+                                summary += f"\n\nContext:\n{rag_context}"
+                            else:
+                                debug_service.log("WARN", "DiscoverLinks", f"No RAG results found for {thing.id} after fallback.")
+                                
+                        except Exception as e:
+                            debug_service.log("ERROR", "DiscoverLinks", f"Failed to fetch RAG context for thing {thing.id}: {e}")
+                    else:
+                        debug_service.log("WARN", "DiscoverLinks", f"Skipping RAG for {thing.id} - status is {thing.rag_status}")
+                elif thing.type == ModelThingType.IMAGE:
+                     summary = "Image (No description available)"
+                
+                things_map[thing.id] = {
+                    "title": thing.title or f"{thing.type.value} {thing.id[:4]}",
+                    "summary": summary,
+                    "type": thing.type.value
+                }
+
+        # Fetch Domains
+        if request.domain_ids:
+            domains = db.query(Domain).filter(
+                Domain.id.in_(request.domain_ids),
+                Domain.canvas_id == canvas_id
+            ).all()
+            
+            for domain in domains:
+                # Domain Summary Logic:
+                # Use description if available, otherwise synthesize from contents
+                
+                desc = domain.description or ""
+                
+                if not desc:
+                    # Find things inside this domain (even if not selected)
+                    internal_things = db.query(CanvasThing).filter(
+                        CanvasThing.domain_id == domain.id
+                    ).limit(5).all()
+                    
+                    titles = [t.title or t.type.value for t in internal_things]
+                    if titles:
+                        desc = f"Contains: {', '.join(titles)}"
+                
+                domains_map[domain.id] = {
+                    "name": domain.name,
+                    "description": desc
+                }
+        
+        debug_service.log("INFO", "DiscoverLinks", f"Entities collected: {len(things_map)} Things, {len(domains_map)} Domains", {
+            "things": things_map,
+            "domains": domains_map
+        })
+
+        if not things_map and not domains_map:
+            return DiscoverLinksResponse(links_created=0, domains_updated=0, details=[])
+
+        # 3. Construct Prompt
+        system_prompt = """
+        You are an expert Semantic Analyst and Knowledge Graph Architect.
+        Your goal is to analyze the provided entities (Things and Domains) and discover deep, meaningful, and specific semantic connections between them.
+
+        You must output a JSON object with a list of "links".
+
+        ### valid Link Types (in order of preference):
+        1. proves / refutes (Logical or evidential connection)
+        2. triggers / blocks (Causal or process connection)
+        3. prerequisites / supersedes (Temporal or dependency connection)
+        4. influences (Soft causal connection)
+        5. derived_from (Source origin)
+        6. contains (Logical containment)
+        7. references (Explicit citation - use sparingly)
+        8. related (General connection - AVOID unless necessary)
+
+        ### Valid Output Format:
+        {
+            "links": [
+                {
+                    "source_id": "UUID",
+                    "target_id": "UUID",
+                    "type": "one of the types above",
+                    "label": "A descriptive phrase explaining the link (max 5-6 words)",
+                    "rationale": "Brief explanation of why this link exists"
+                }
+            ]
+        }
+
+        ### Rules for High-Quality Links:
+        1. **BE SPECIFIC**: Never use generic labels like "references" or "relates to". 
+           - BAD: Label="references"
+           - GOOD: Label="provides statistical evidence for"
+           - GOOD: Label="defines the protocol used in"
+        2. **PREFER CAUSALITY**: If A causes B, or A is needed for B, use `triggers`, `influences`, or `prerequisites`.
+        3. **AVOID OBVIOUS**: Do not link things just because they are in the same domain. Link them only if their *content* interacts.
+        4. **DIRECTION MATTERS**: Ensure source->target direction makes logical sense for the chosen type (e.g. Evidence -> Hypothesis = PROVES).
+        5. **MULTIPLE LINKS**: It is acceptable to create multiple links between the same two entities IF they represent distinct relationships (e.g. A 'references' B AND A 'refutes' B).
+        """
+        
+        user_prompt = f"""
+        Analyze the following entities and their content to find semantic connections.
+        
+        ### Input Entities
+        
+        Things:
+        {json.dumps(things_map, indent=2)}
+        
+        Domains:
+        {json.dumps(domains_map, indent=2)}
+        
+        ### Instructions
+        Analyze the "summary" and "context" of each entity. 
+        Look for concepts, data points, or themes that bridge these entities.
+        Generate the JSON output.
+        """
+        
+        # Log the prompt for debugging
+        debug_service.log("DEBUG", "DiscoverLinks", "Prompt Constructed", {
+            "system_prompt": system_prompt,
+            "user_prompt_preview": user_prompt[:1000] + "..." if len(user_prompt) > 1000 else user_prompt
+        })
+
+
+        # 4. Call LLM
+        from app.services.config_service import config_service
+        
+        # Resolve Model Preset if needed
+        model_name = request.model
+        config = config_service.get_config()
+        presets = config.get("presets", [])
+        
+        # Check if request.model matches a preset name
+        matched_preset = next((p for p in presets if p["name"] == model_name), None)
+        
+        if matched_preset:
+            if matched_preset["type"] == "local":
+                model_name = matched_preset.get("model_name", model_name)
+                debug_service.log("INFO", "DiscoverLinks", f"Resolved preset '{request.model}' to local model '{model_name}'")
+            else:
+                 model_name = matched_preset.get("model_name") or request.model
+                 debug_service.log("INFO", "DiscoverLinks", f"Resolved remote preset '{request.model}' to '{model_name}'")
+        else:
+             debug_service.log("WARN", "DiscoverLinks", f"No preset found for '{request.model}', using as raw model name.")
+
         response_text = await llm_service.chat(
             messages=[
                 Message(role="system", content=system_prompt),
                 Message(role="user", content=user_prompt)
             ],
-            model_name=request.model,
-            response_format={"type": "json_object"} # If supported by backend wrapper
+            model_name=model_name,
+            response_format={"type": "json_object"}
         )
+        
+        debug_service.log("DEBUG", "DiscoverLinks", "LLM Response Received", {"response": response_text})
+
         
         # Parse JSON
         import json
@@ -1205,9 +1318,10 @@ async def discover_links(
             cleaned_text = response_text.replace("```json", "").replace("```", "").strip()
             result_json = json.loads(cleaned_text)
             links_data = result_json.get("links", [])
-        except json.JSONDecodeError:
-            print(f"[DiscoverLinks] Failed to parse JSON: {response_text}")
+        except json.JSONDecodeError as je:
+            debug_service.log("ERROR", "DiscoverLinks", "Failed to parse JSON response", {"response_text": response_text, "error": str(je)})
             return DiscoverLinksResponse(links_created=0, domains_updated=0, details=[])
+
 
         # 5. Create Links
         created_links = []
@@ -1217,8 +1331,8 @@ async def discover_links(
             CanvasLink.canvas_id == canvas_id
         ).all()
         
-        # Simple existing check set
-        existing_keys = set((l.source_id, l.target_id) for l in existing_links)
+        # Determine existing keys by (source, target, type) to allow multiple types between same nodes
+        existing_keys = set((l.source_id, l.target_id, l.type) for l in existing_links)
         
         for link_data in links_data:
             source = link_data.get("source_id")
@@ -1233,27 +1347,28 @@ async def discover_links(
                 
             if source == target:
                 continue
-                
-            if (source, target) in existing_keys:
-                continue
-                
-            # Create Link
+            
             # Map loose types to Enum if possible, else fallback 'related'
             try:
                 model_type = ModelLinkType(l_type)
             except ValueError:
                 model_type = ModelLinkType.RELATED
-            
+                
+            # Check for duplicate link (same source, target, and type)
+            if (source, target, model_type) in existing_keys:
+                continue
+                
+            # Create Link
             new_link = CanvasLink(
                 canvas_id=canvas_id,
                 source_id=source,
                 target_id=target,
                 type=model_type,
-                label=label
+                label=label or None
             )
             db.add(new_link)
             created_count += 1
-            existing_keys.add((source, target))
+            existing_keys.add((source, target, model_type))
             
             created_links.append(DiscoveredLinkDetail(
                 source_id=source,
@@ -1265,13 +1380,17 @@ async def discover_links(
             
         db.commit()
         
+        debug_service.log("INFO", "DiscoverLinks", f"Discovery complete. Created {created_count} new links.")
+        
         return DiscoverLinksResponse(
             links_created=created_count,
-            domains_updated=0, # Not implemented yet
+            domains_updated=0,
             details=created_links
         )
 
     except Exception as e:
+        debug_service.log("ERROR", "DiscoverLinks", f"Unexpected Error: {str(e)}", {"traceback": traceback.format_exc()})
         print(f"[DiscoverLinks] Error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+

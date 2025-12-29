@@ -208,9 +208,11 @@ class LinkUpdate(BaseModel):
 # Domains
 # =============================================================================
 
+
 class DomainCreate(BaseModel):
     """Request to create a domain."""
     name: str
+    description: str  # Mandatory as per user request
     color: str = "#6366f1"
     position: Position = Field(default_factory=Position)
     parent_id: Optional[str] = None
@@ -219,6 +221,7 @@ class DomainCreate(BaseModel):
 class DomainUpdate(BaseModel):
     """Request to update a domain."""
     name: Optional[str] = None
+    description: Optional[str] = None
     color: Optional[str] = None
     position: Optional[Position] = None
     parent_id: Optional[str] = None
@@ -232,11 +235,13 @@ class DomainResponse(BaseModel):
     canvas_id: str
     parent_id: Optional[str]
     name: str
+    description: Optional[str]
     color: str
     position_x: float
     position_y: float
     width: float
     height: float
+
     created_at: datetime
     updated_at: Optional[datetime]
 

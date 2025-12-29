@@ -253,9 +253,9 @@ function CanvasViewInner() {
         } : undefined,
     })), [things, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing, handleThingResize]);
 
-    // Handle domain rename
-    const handleDomainRename = React.useCallback((domainId: string, newName: string) => {
-        updateDomain(domainId, { name: newName });
+    // Handle domain update (name and description)
+    const handleDomainUpdate = React.useCallback((domainId: string, updates: { name: string; description: string }) => {
+        updateDomain(domainId, updates);
     }, [updateDomain]);
 
     // Handle node right-click (context menu) - Replaces manual domain handlers
@@ -320,7 +320,7 @@ function CanvasViewInner() {
         data: {
             domain,
             zoomLevel,
-            onRename: handleDomainRename,
+            onUpdate: handleDomainUpdate,
             onContextMenu: handleDomainContextMenu,
             onResizeEnd: handleDomainResize,
         },
@@ -331,7 +331,7 @@ function CanvasViewInner() {
             width: domain.width || 300,
             height: domain.height || 200,
         },
-    })), [domains, zoomLevel, handleDomainRename, handleDomainResize, selectedDomainIds]);
+    })), [domains, zoomLevel, handleDomainUpdate, handleDomainResize, selectedDomainIds]);
 
     // Combine nodes (memoized)
     const allNodes = React.useMemo(() =>

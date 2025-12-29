@@ -332,6 +332,7 @@ class Domain(Base):
     )
     
     name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
     color = Column(String(7), default="#6366f1")  # Hex color
     
     # Position and size (auto-calculated from children)

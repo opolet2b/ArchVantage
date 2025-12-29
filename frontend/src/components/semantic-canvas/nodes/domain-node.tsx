@@ -10,7 +10,7 @@
 "use client";
 
 import * as React from "react";
-import { NodeProps, NodeResizer } from "reactflow";
+import { NodeProps, NodeResizer, Handle, Position } from "reactflow";
 import { Domain, ZoomLevel } from "../canvas-store";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
@@ -22,10 +22,28 @@ import { Input } from "@/components/ui/input";
 interface DomainNodeData {
     domain: Domain;
     zoomLevel: ZoomLevel;
-    onRename?: (domainId: string, newName: string) => void;
+    onUpdate?: (domainId: string, updates: { name: string; description: string }) => void;
     onContextMenu?: (event: React.MouseEvent, domainId: string) => void;
     onResizeEnd?: (domainId: string, width: number, height: number) => void;
 }
+
+// ... resize styles ...
+
+// =============================================================================
+// Domain Node Component
+// =============================================================================
+
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Pencil } from "lucide-react";
 
 // =============================================================================
 // Custom resize handle style for better visibility
@@ -43,47 +61,29 @@ const lineHandleStyle = {
     borderWidth: 3,
 };
 
-// =============================================================================
-// Domain Node Component
-// =============================================================================
-
 export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
-    const { domain, zoomLevel, onRename, onContextMenu } = data;
+    const { domain, zoomLevel, onUpdate, onContextMenu } = data;
     const [isEditing, setIsEditing] = React.useState(false);
     const [editName, setEditName] = React.useState(domain.name);
-    const inputRef = React.useRef<HTMLInputElement>(null);
+    const [editDescription, setEditDescription] = React.useState(domain.description || "");
 
-    // Focus input when editing starts
-    React.useEffect(() => {
-        if (isEditing && inputRef.current) {
-            inputRef.current.focus();
-            inputRef.current.select();
-        }
-    }, [isEditing]);
-
-    // Handle double-click to start editing
-    const handleDoubleClick = (e: React.MouseEvent) => {
+    // Handle open edit dialog
+    const handleEditClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         setEditName(domain.name);
+        setEditDescription(domain.description || "");
         setIsEditing(true);
     };
 
-    // Submit rename
-    const submitRename = () => {
-        if (editName.trim() && editName !== domain.name && onRename) {
-            onRename(domain.id, editName.trim());
+    // Submit update
+    const submitUpdate = () => {
+        if (editName.trim() && onUpdate) {
+            onUpdate(domain.id, {
+                name: editName.trim(),
+                description: editDescription.trim()
+            });
         }
         setIsEditing(false);
-    };
-
-    // Handle keyboard events
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === "Enter") {
-            submitRename();
-        } else if (e.key === "Escape") {
-            setEditName(domain.name);
-            setIsEditing(false);
-        }
     };
 
     // Opacity decreases at higher zoom levels (domains fade as you zoom in)
@@ -127,36 +127,32 @@ export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
                     onContextMenu?.(e, domain.id);
                 }}
             >
-                {/* Domain label - double-click to edit */}
+                {/* Domain label */}
                 <div
                     className={cn(
-                        "absolute -top-7 left-2 px-3 py-1 rounded-md text-sm font-semibold",
-                        "bg-white dark:bg-slate-900 shadow-sm",
-                        selected && "ring-2 ring-offset-1",
-                        !isEditing && "cursor-pointer hover:ring-2 hover:ring-offset-1"
+                        "absolute -top-7 left-2 px-3 py-1 rounded-md text-sm font-semibold flex items-center gap-2",
+                        "bg-white dark:bg-slate-900 shadow-sm transition-all",
+                        selected && "ring-2 ring-offset-1"
                     )}
                     style={{
                         backgroundColor: domain.color,
                         color: "white",
-                        // Use CSS variable for ring color
                         "--tw-ring-color": domain.color,
                     } as React.CSSProperties}
-                    onDoubleClick={handleDoubleClick}
-                    title="Double-click to rename"
                 >
-                    {isEditing ? (
-                        <Input
-                            ref={inputRef}
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            onBlur={submitRename}
-                            onKeyDown={handleKeyDown}
-                            onClick={(e) => e.stopPropagation()}
-                            className="h-5 w-32 text-xs px-1 py-0 border-none bg-transparent text-white placeholder:text-white/70"
-                        />
-                    ) : (
-                        domain.name
-                    )}
+                    <span>{domain.name}</span>
+
+                    {/* Edit Button (visible on hover or selection) */}
+                    <div
+                        className={cn(
+                            "cursor-pointer opacity-0 hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-black/20",
+                            selected && "opacity-100" // Always visible and full opacity if selected
+                        )}
+                        onClick={handleEditClick}
+                        title="Edit Domain"
+                    >
+                        <Pencil className="h-4 w-4" strokeWidth={2.5} />
+                    </div>
                 </div>
 
                 {/* Selection indicator - corner dots when not selected */}
@@ -180,7 +176,76 @@ export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
                         />
                     </>
                 )}
+
+                {/* Connection Handles (Required for edges to connect to domains) */}
+                <Handle
+                    type="target"
+                    position={Position.Left}
+                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ backgroundColor: domain.color }}
+                />
+                <Handle
+                    type="source"
+                    position={Position.Right}
+                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ backgroundColor: domain.color }}
+                />
+                <Handle
+                    type="target"
+                    id="top"
+                    position={Position.Top}
+                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ backgroundColor: domain.color }}
+                />
+                <Handle
+                    type="source"
+                    id="bottom"
+                    position={Position.Bottom}
+                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ backgroundColor: domain.color }}
+                />
             </div>
+
+            {/* Edit Dialog - Rendered via Portal or using the Dialog component which handles portalling */}
+            {isEditing && (
+                <Dialog open={isEditing} onOpenChange={setIsEditing}>
+                    <DialogContent onClick={(e) => e.stopPropagation()}>
+                        <DialogHeader>
+                            <DialogTitle>Edit Domain</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                            <div className="space-y-2">
+                                <Label>Domain Name <span className="text-red-500">*</span></Label>
+                                <Input
+                                    value={editName}
+                                    onChange={(e) => setEditName(e.target.value)}
+                                    placeholder="Domain Name"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Description</Label>
+                                <Textarea
+                                    value={editDescription}
+                                    onChange={(e) => setEditDescription(e.target.value)}
+                                    placeholder="Describe the purpose of this domain..."
+                                    rows={3}
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                variant="outline"
+                                onClick={() => setIsEditing(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button onClick={submitUpdate} disabled={!editName.trim()}>
+                                Save Changes
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            )}
         </>
     );
 }

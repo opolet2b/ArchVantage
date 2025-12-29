@@ -7,10 +7,11 @@ import { MCPServersTab } from "@/components/settings/mcp-servers-tab"
 import { CategoriesTab } from "@/components/settings/categories-tab"
 import { TemplatesSettingsTab } from "@/components/settings/templates-settings-tab"
 import { RagSettingsTab } from "@/components/settings/rag-settings-tab"
+import { DebugSettingsTab } from "@/components/settings/debug-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, Server, FolderOpen, FileText, Database } from "lucide-react"
+import { Users, Server, FolderOpen, FileText, Database, Bug } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -62,8 +63,15 @@ export default function SettingsPage() {
                             className="justify-start"
                             onClick={() => handleTabChange("rag")}
                         >
-                            <Database className="mr-2 h-4 w-4" />
                             RAG / Knowledge
+                        </Button>
+                        <Button
+                            variant={activeTab === "debug" ? "secondary" : "ghost"}
+                            className="justify-start"
+                            onClick={() => handleTabChange("debug")}
+                        >
+                            <Bug className="mr-2 h-4 w-4" />
+                            Debug
                         </Button>
                         {isAdmin && (
                             <Button
@@ -113,6 +121,7 @@ export default function SettingsPage() {
                     <main className="flex-1">
                         {activeTab === "model" && <ModelConfig />}
                         {activeTab === "rag" && <RagSettingsTab />}
+                        {activeTab === "debug" && <DebugSettingsTab />}
                         {(activeTab === "users" ||
                             activeTab === "roles" ||
                             activeTab === "group-mappings" ||

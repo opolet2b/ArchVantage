@@ -107,6 +107,7 @@ export interface Domain {
     canvas_id: string;
     parent_id: string | null;
     name: string;
+    description: string | null;
     color: string;
     position_x: number;
     position_y: number;
@@ -227,6 +228,7 @@ interface CanvasState {
     // Domain actions
     addDomain: (
         name: string,
+        description: string,
         position: { x: number; y: number },
         color?: string
     ) => Promise<Domain | null>;
@@ -688,11 +690,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add domain
-    addDomain: async (name, position, color = "#6366f1") => {
+    addDomain: async (name, description, position, color = "#6366f1") => {
         const { canvasId } = get();
         const token = getAuthToken();
 
-        console.log("[addDomain] Creating domain:", { name, position, color });
+        console.log("[addDomain] Creating domain:", { name, description, position, color });
         console.log("[addDomain] canvasId:", canvasId, "token:", !!token);
 
         if (!token) {
@@ -714,7 +716,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ name, position, color }),
+                body: JSON.stringify({ name, description, position, color }),
             });
 
             console.log("[addDomain] Response status:", res.status);
@@ -755,6 +757,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                             ? { x: updates.position_x, y: updates.position_y }
                             : undefined,
                         name: updates.name,
+                        description: updates.description,
                         color: updates.color,
                         width: updates.width,
                         height: updates.height,
@@ -967,7 +970,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     },
                     body: JSON.stringify({
                         thing_ids: thingIds,
-                        domain_ids: domainIds
+                        domain_ids: domainIds,
+                        model: get().selectedModel
                     }),
                 }
             );
