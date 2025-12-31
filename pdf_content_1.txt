@@ -1,0 +1,181 @@
+
+========================================
+FILE: c:\Users\opole\Downloads\ChatBotn\Specs\Functional\Intelligent Documents Analysis\List_Of_Specification_Documents.pdf
+========================================
+--- Page 1 ---
+The documents describe a feature that will allow users to execute an analysis on a selected 
+assets (or a set of selected assets) on the canvas. 
+The user will right-click on the asset (or these assets) and the contextual menu will display 
+a list of templates organized per categories. 
+After selecting a template, the application will launch a pipeline that will execute and 
+analysis of the selected asset(s) and produce a result (textual report, diagram, table, etc.) 
+Here is the description of the specification documents: 
+• “User_Manual-Smart_Analysis_Workbench.pdf “: This document is a general 
+description of the feature 
+• “Using_A_Template.pdf” : this document is a mockup of how the user executes an 
+analysis on an asset (or a selection of assets) 
+• “Functional_Specifications_Smart_Document_Analysis_Framework.pdf”: this 
+document are the functional specifications of the feature 
+• Technical_Specifications-Smart_Analysis_Framework.pdf: this document are the 
+technical specifications of the feature 
+• “Smart_Document_Analysis_Workbench.pdf”: this document is a mockup of how a 
+“power-user” will specify the templates to be used on the canvas 
+• “Intelligent_Document_Analysis_Framework-Admin_Panel.pdf”: this document 
+describes the Admin Panel that allows an “admin” to define the content of lists 
+(categories) that can be used in the Workbench. 
+• “Master_Reference-Intelligent_Document_Analysis_Framework.pdf”: This 
+document describes the exhaustive content of lists and master data proposed by 
+the workbench 
+ 
+
+========================================
+FILE: c:\Users\opole\Downloads\ChatBotn\Specs\Functional\Intelligent Documents Analysis\Functional_Specifications_Smart_Document_Analysis_Framework.pdf
+========================================
+--- Page 1 ---
+Functional Specifications: Smart 
+Analysis Framework 
+1. Executive Summary 
+The Smart Analysis Framework is an orchestration layer designed to transform raw document 
+assets into structured, expert-level analyses. It separates the Execution (Workbench), the 
+Configuration (Template Studio), and the Governance (Admin Interface). This document 
+provides exhaustive specifications for developers and stakeholders to build a consistent, 
+high-precision analysis engine. 
+2. Workbench: Analysis Execution (End-User View) 
+The Workbench is integrated into the existing Canvas environment. It acts as the 
+consumption layer for the templates created in the Studio. 
+2.1 Trigger & Contextual Selection 
+● Action: The user selects one or more documents on the Canvas and right-clicks to open 
+a contextual menu. 
+● Template Filtering: The system dynamically filters available templates based on the 
+selection count. 
+● Execution Modal: If a template requires specific parameters, a non-intrusive modal 
+appears. 
+2.2 Result Visualization 
+● Textual: High-fidelity Markdown (.md). 
+● Tables: Structured Markdown or CSV. 
+● Diagrams: Interactive SVG/PNG rendered from Mermaid code. 
+● Traceability: Clickable source links with document highlighting based on Evidence 
+Objects. 
+3. Template Studio: The Configuration Engine (Power 
+User View) 
+The Template Studio is a No-Code environment where Power Users build sequential Analysis 
+Pipelines. 
+3.1 Pipeline Orchestration 
+--- Page 2 ---
+Analyses are executed as a strict linear sequence of blocks: Data Extractor → Specialized AI 
+Agent → Output Formatter. 
+3.2 Module: Data Extractor (The "Pre-Processor") 
+● Target Entities Help: The Studio provides "AI Suggestions" based on the document 
+category. 
+● Common Document Sections (Multi-select): 
+○ A. Generic/Functional Sections: Introduction/Summary, Analysis of Pros, Analysis 
+of Cons, Conclusions. 
+○ B. Domain-Specific Sections: (Contextual) Financial Statements, Legal Clauses, 
+Technical Specs, etc. 
+3.3 Module: Specialized AI Agent (The "Reasoning Core") 
+● Persona Selection: Legal Counsel, Financial Auditor, Cybersecurity Architect, Strategic 
+Consultant, Technical Architect. 
+● Framework Wizard: Contextual suggestions (STRIDE for Risk, SWOT for Strategy, 
+TOGAF for Architecture) based on the template type defined at start. 
+3.4 Module: Variable Management (No-Code Input) 
+● Variable Panel: UI-driven management of dynamic inputs. 
+● UI Controls: Name, Label, Type (Text, Date, Number, List), and Default Value. 
+3.5 Module: Output Formatter (Target Format) 
+● Textual Reports: Markdown (.md). 
+● Diagrams/Schemas: Mermaid (SVG/PNG). 
+● Tables/Data: CSV or Markdown. 
+4. Admin Interface: Framework Governance (System 
+Admin) 
+The Admin Interface allows administrators to manage global settings: Analysis Taxonomy, 
+Knowledge Base Sections, Persona Management, Framework Governance (including AI 
+Specifications), Terminology/Thesauruses, and Logic/UI Metadata. 
+5. Technical Architecture & Data Objects 
+5.1 Evidence Objects (JSON Structure) 
+Every finding must be returned with an array of evidence_objects to ensure absolute 
+traceability (source_id, snippet, page_number, coordinates). 
+--- Page 3 ---
+5.2 Map-Reduce Logic 
+Automatically invoked for large or multiple document sets. Processing is split into a Map 
+Phase (individual asset analysis) and a Reduce Phase (global synthesis). 
+6. Critical Development Guardrails 
+1. Strict Traceability: Grounding metadata required for every paragraph. 
+2. Expertise Scaling: Dynamic reasoning depth (Chain of Thought vs. Fast Response). 
+3. Hallucination Prevention: Strict Temperature control (0.0-0.1). 
+4. Thesaurus Guard: Post-processing terminology validation step. 
+7. JSON Template Schema (The "Workflow" Definition) 
+This JSON structure is the output of the Template Studio and the input for the Analysis 
+Engine. 
+7.1 Schema Definition 
+{ 
+  "template_metadata": { 
+    "id": "uuid", 
+    "name": "Risk Analysis Audit", 
+    "category_id": "risk_mgmt", 
+    "description": "Exhaustive risk audit based on STRIDE framework.", 
+    "version": "1.0.0" 
+  }, 
+  "execution_constraints": { 
+    "min_docs": 1, 
+    "max_docs": 5, 
+    "input_mode": "single" 
+  }, 
+  "user_inputs": [ 
+    { 
+      "id": "var_target_system", 
+      "label": "Target System Name", 
+      "type": "string", 
+      "default": "Internal Network" 
+    } 
+  ], 
+  "pipeline": [ 
+    { 
+--- Page 4 ---
+      "step": 1, 
+      "type": "data_extractor", 
+      "params": { 
+        "generic_sections": ["Background", "Analysis of Cons"], 
+        "domain_sections": ["Technical Specifications", "Risk Assessments"], 
+        "target_entities": ["Vulnerabilities", "Data Flows", "Assets"], 
+        "extraction_objectives": "Identify all assets and potential entry points mentioned." 
+      } 
+    }, 
+    { 
+      "step": 2, 
+      "type": "specialized_ai_agent", 
+      "params": { 
+        "persona_id": "cyber_arch", 
+        "framework_id": "stride", 
+        "expertise_level_default": "expert", 
+        "thesaurus_id": "nist_csf", 
+        "logic_depth": "chain_of_thought", 
+        "custom_instructions": "Focus specifically on {{var_target_system}} security posture." 
+      } 
+    }, 
+    { 
+      "step": 3, 
+      "type": "output_formatter", 
+      "params": { 
+        "primary_format": "markdown", 
+        "visual_format": "mermaid", 
+        "data_format": "csv", 
+        "include_evidence_table": true 
+      } 
+    } 
+  ], 
+  "guardrails": { 
+    "temperature": 0.1, 
+    "hallucination_check": "strict", 
+    "enforce_citations": true 
+  } 
+} 
+ 
+7.2 Exhaustive Risk Analysis Example (Contextual UI) 
+--- Page 5 ---
+When a user builds a Risk Analysis template: 
+1. Framework Wizard: Suggests STRIDE, DREAD, or NIST. If user selects STRIDE, the 
+Admin-defined "AI Specification" for STRIDE is injected into Step 2. 
+2. Data Extractor: Suggests "Risk Assessments" and "Analysis of Cons" as sections. 
+3. Agent Persona: Automatically defaults to "Cybersecurity Architect." 
+4. Output: Automatically configures a "Risk Matrix" (SVG) and an "Evidence List" (.md) as 
+mandatory outputs. 
+End of Specifications 

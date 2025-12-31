@@ -35,7 +35,7 @@ import {
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
-import { CanvasThing, ZoomLevel, useCanvasStore } from "../canvas-store";
+import { CanvasThing, ZoomLevel, useCanvasStore, LinkType } from "../canvas-store";
 import {
     MarkdownViewer,
     SpreadsheetViewer,
@@ -65,6 +65,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createPortal } from "react-dom";
+import { LinkTypeDialog } from "../link-type-dialog"; // Import LinkTypeDialog
 
 // =============================================================================
 // Icon Mapping
@@ -931,22 +932,37 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
         setLinkDialogOpen(true);
     }, [thing.id]);
 
+    // Link Type Dialog State
+    const [linkTypeDialogOpen, setLinkTypeDialogOpen] = React.useState(false);
+    const [selectedTargetId, setSelectedTargetId] = React.useState<string | null>(null);
+
     // Handle selecting a target for the link
-    const handleLinkToTarget = React.useCallback(async (targetId: string) => {
+    const handleLinkToTarget = React.useCallback((targetId: string) => {
         if (!pendingFragment) return;
+
+        // Store target and open type dialog instead of creating immediately
+        setSelectedTargetId(targetId);
+        setLinkDialogOpen(false);
+        setLinkTypeDialogOpen(true);
+    }, [pendingFragment]);
+
+    // Handle actual link creation after type selection
+    const handleConfirmLink = React.useCallback(async (type: LinkType, label?: string) => {
+        if (!pendingFragment || !selectedTargetId) return;
 
         await addLink(
             thing.id,
-            targetId,
-            "related",
-            "Related",
+            selectedTargetId,
+            type,
+            label, // Pass selected label (may be empty/undefined)
             getFragmentData(pendingFragment),
             undefined
         );
 
-        setLinkDialogOpen(false);
+        setLinkTypeDialogOpen(false);
         setPendingFragment(null);
-    }, [thing.id, pendingFragment, addLink]);
+        setSelectedTargetId(null);
+    }, [thing.id, pendingFragment, selectedTargetId, addLink]);
 
     // Handle creating result as new thing (from result dialog if we used that)
     const handleCreateThing = React.useCallback(async () => {
@@ -1598,7 +1614,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
 
             {/* Link Target Selection Dialog */}
             <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-                <DialogContent className="sm:max-w-md nodrag cursor-default">
+                <DialogContent className="sm:max-w-lg nodrag cursor-default">
                     <DialogHeader>
                         <DialogTitle>Link to another node</DialogTitle>
                         <DialogDescription>
@@ -1607,7 +1623,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                     </DialogHeader>
                     <div className="py-4">
                         <Label>Select target node</Label>
-                        <div className="mt-2 space-y-2 max-h-[200px] overflow-auto">
+                        <div className="mt-2 space-y-2 max-h-[300px] overflow-auto px-1">
                             {availableTargets.length === 0 ? (
                                 <div className="text-sm text-muted-foreground text-center py-4">
                                     No other nodes on canvas to link to
@@ -1617,10 +1633,11 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                                     <Button
                                         key={target.id}
                                         variant="outline"
-                                        className="w-full justify-start text-left h-auto py-2"
+                                        className="w-full justify-start text-left h-auto py-2 px-3 overflow-hidden"
                                         onClick={() => handleLinkToTarget(target.id)}
+                                        title={target.title || target.type} // Tooltip for full name
                                     >
-                                        <div className="truncate">
+                                        <div className="truncate w-full">
                                             <span className="font-medium">
                                                 {target.title || target.type}
                                             </span>
@@ -1662,6 +1679,19 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+
+            {/* Link Type Selection Dialog - Interjected before actual creation */}
+            <LinkTypeDialog
+                isOpen={linkTypeDialogOpen}
+                onClose={() => {
+                    setLinkTypeDialogOpen(false);
+                    setPendingFragment(null);
+                    setSelectedTargetId(null);
+                }}
+                onConfirm={handleConfirmLink}
+                mode="create"
+            />
 
             {/* Content Preview Dialog */}
             <VectorizationPreviewDialog

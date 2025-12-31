@@ -1,0 +1,961 @@
+
+========================================
+FILE: c:\Users\opole\Downloads\ChatBotn\Specs\Functional\Intelligent Documents Analysis\Intelligent_Document_Analysis_Framework-Admin_Panel.pdf
+========================================
+--- Page 1 ---
+Intelligent Document Analysis Admin Panel 
+The admin panel allows to manage dynamic lists used in the Template Builder. 
+ 
+ 
+Figure 1: Admin Panel - The Taxonomy Screen 
+
+--- Page 2 ---
+ 
+ 
+Figure 2: Adding a new Taxonomy 
+ 
+Figure 3: Drop down - List of categories of taxonomies 
+
+--- Page 3 ---
+ 
+Figure 4: drop Down - List of Input Modes for Taxonomies 
+ 
+Figure 5: Admin Panel - Document Sections 
+
+--- Page 4 ---
+ 
+Figure 6: Adding a document section 
+ 
+Figure 7: Document Sections - Drop Down for Document Sections Categories 
+
+--- Page 5 ---
+ 
+Figure 8: Admin Panel -  AI Personas 
+ 
+Figure 9: AI Personas - Adding an AI persona 
+
+--- Page 6 ---
+ 
+Figure 10: AI Personas - Tone of Voice 
+ 
+Figure 11: Admin Panel – Frameworks 
+
+--- Page 7 ---
+ 
+Figure 12: Frameworks - Adding a framework 
+ 
+Figure 13: Frameworks - Drop Down - Categories of Frameworks 
+
+--- Page 8 ---
+ 
+Figure 14: Admin Panel - Thesaurus & Knowledge 
+ 
+Figure 15: Thesaurus & Knowledge - Adding a Thesaurus 
+
+--- Page 9 ---
+ 
+Figure 16: Admin Panel - Managing categories for other screens of the Admin Panel 
+ 
+Figure 17: Categories Management - Adding a New category 
+
+--- Page 10 ---
+ 
+Figure 18: Categories Management - Drop Down - List if Usage Context (Match the different screens of the Admin Panel) 
+ 
+NOTE: Updating an entity is done using the same screens as “Adding” an entity. For 
+example below is the screen for Updating an AI Persona 
+
+--- Page 11 ---
+ 
+Figure 19: AI Personas - Updating an AI persona 
+NOTE 2 : for each entity there is an icon (pencil) for updating the category and an icon for 
+deleting the entity (the user is requested for confirmation). These icons appear when 
+hovering over the entity. See below an example for AI Personas: 
+
+--- Page 12 ---
+ 
+Figure 20: AI Personas - Icons for Editing or Deleting 
+ 
+Code for the Mockup 
+Here is the code for the Mockup of the Admin Panel 
+import React, { useState } from 'react'; 
+import {  
+  Settings,  
+  Users,  
+  Layers,  
+  BookOpen,  
+  Globe,  
+  Plus,  
+  Edit2,  
+  Trash2,  
+  Search,  
+  Shield,  
+  Database, 
+
+--- Page 13 ---
+  Terminal, 
+  ChevronRight, 
+  ExternalLink, 
+  Code, 
+  X, 
+  Check, 
+  Type, 
+  FileText, 
+  MessageSquare, 
+  Tag  
+} from 'lucide-react'; 
+ 
+// --- Mock Data --- 
+ 
+const ADMIN_SECTIONS = [ 
+  { id: 'taxonomy', name: 'Analysis Taxonomy', icon: <Layers className="w-5 h-5" />, desc: 
+'Categories, activity types, and input modes.' }, 
+  { id: 'sections', name: 'Document Sections', icon: <BookOpen className="w-5 h-5" />, desc: 
+'Generic and domain-specific document mapping.' }, 
+  { id: 'personas', name: 'AI Personas', icon: <Users className="w-5 h-5" />, desc: 'Roles, 
+system prompts, and expertise tones.' }, 
+  { id: 'frameworks', name: 'Frameworks Library', icon: <Shield className="w-5 h-5" />, desc: 
+'Risk, Strategy, and Architecture models.' }, 
+  { id: 'thesaurus', name: 'Thesaurus & Knowledge', icon: <Globe className="w-5 h-5" />, desc: 
+'Terminology databases and industry lexicons.' }, 
+  { id: 'categories', name: 'Global Categories', icon: <Tag className="w-5 h-5" />, desc: 'Manage 
+dynamic lists for taxonomies, sections, and models.' }, 
+]; 
+ 
+const MOCK_GLOBAL_CATEGORIES = [ 
+  { id: 'gc1', name: 'Strategic', context: 'Taxonomy', active: true }, 
+  { id: 'gc2', name: 'Diagnostic', context: 'Taxonomy', active: true }, 
+  { id: 'gc3', name: 'Comparison', context: 'Taxonomy', active: true }, 
+  { id: 'gc4', name: 'Legal', context: 'Doc Sections', active: true }, 
+  { id: 'gc5', name: 'Financial', context: 'Doc Sections', active: true }, 
+  { id: 'gc6', name: 'Risk', context: 'Frameworks', active: true }, 
+  { id: 'gc7', name: 'Architecture', context: 'Frameworks', active: true }, 
+]; 
+--- Page 14 ---
+ 
+const MOCK_TAXONOMY = [ 
+  { id: 't1', category: 'Comparison', type: 'Benchmarking', mode: 'Multi', desc: 'Evaluate 
+against a reference standard.' }, 
+  { id: 't2', category: 'Strategic', type: 'SWOT', mode: 'Single', desc: 'Analyze internal and 
+external factors.' }, 
+  { id: 't3', category: 'Diagnostic', type: 'Anomaly detection', mode: 'Single', desc: 'Identify 
+irregularities in data.' }, 
+]; 
+ 
+const MOCK_DOC_SECTIONS = [ 
+  { id: 's1', name: 'Executive Summary', group: 'Generic', expertise: 'Executive' }, 
+  { id: 's2', name: 'Financial Statements', group: 'Domain-Specific', category: 'Finance' }, 
+  { id: 's3', name: 'Liability Clauses', group: 'Domain-Specific', category: 'Legal' }, 
+]; 
+ 
+const MOCK_THESAURUS = [ 
+  { id: 'th1', name: 'HL7 Medical Terminology', domain: 'Healthcare', source: 'HL7 International' 
+}, 
+  { id: 'th2', name: 'TOGAF Architecture Lexicon', domain: 'IT Architecture', source: 'The Open 
+Group' }, 
+]; 
+ 
+const MOCK_FRAMEWORKS = [ 
+  { id: 'swot', category: 'Strategy', name: 'SWOT Analysis', spec: 'Analyze internal 
+Strengths/Weaknesses and external Opportunities/Threats...' }, 
+  { id: 'stride', category: 'Risk', name: 'STRIDE Model', spec: 'Identify threats: Spoofing, 
+Tampering, Repudiation, Information Disclosure...' }, 
+]; 
+ 
+const App = () => { 
+  const [activeTab, setActiveTab] = useState('taxonomy'); 
+  const [searchQuery, setSearchQuery] = useState(''); 
+  const [showModal, setShowModal] = useState(false); 
+  const [editingItem, setEditingItem] = useState(null); 
+ 
+  const openAddModal = () => { 
+    setEditingItem(null); 
+--- Page 15 ---
+    setShowModal(true); 
+  }; 
+ 
+  const openEditModal = (item) => { 
+    setEditingItem(item); 
+    setShowModal(true); 
+  }; 
+ 
+  const closeModal = () => setShowModal(false); 
+ 
+  // --- Form Components for the Modal --- 
+ 
+  const CategoryForm = () => ( 
+    <div className="space-y-4"> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Category Name</label> 
+        <input  
+          type="text"  
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm 
+focus:ring-2 focus:ring-indigo-500 outline-none"  
+          placeholder="e.g. Cybersecurity"  
+          defaultValue={editingItem?.name || ''} 
+        /> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Usage Context</label> 
+        <select  
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm 
+focus:ring-2 focus:ring-indigo-500 outline-none" 
+          defaultValue={editingItem?.context || 'Taxonomy'} 
+        > 
+          <option>Taxonomy</option> 
+          <option>Doc Sections</option> 
+          <option>Frameworks Library</option> 
+          <option>AI Personas</option> 
+--- Page 16 ---
+          <option>Thesaurus</option> 
+        </select> 
+        <p className="mt-2 text-[11px] text-slate-400 leading-relaxed italic"> 
+          This category will be injected into the dynamic dropdowns of the selected module. 
+        </p> 
+      </div> 
+      <div className="flex items-center gap-2"> 
+        <input type="checkbox" id="active" defaultChecked={editingItem?.active ?? true} 
+className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" /> 
+        <label htmlFor="active" className="text-xs font-bold text-slate-600">Active and 
+Visible</label> 
+      </div> 
+    </div> 
+  ); 
+ 
+  const TaxonomyForm = () => ( 
+    <div className="space-y-4"> 
+      <div className="grid grid-cols-2 gap-4"> 
+        <div> 
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Category</label> 
+          <select  
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm 
+focus:ring-2 focus:ring-indigo-500 outline-none" 
+            defaultValue={editingItem?.category || ''} 
+          > 
+            <option value="" disabled>Select category</option> 
+            {MOCK_GLOBAL_CATEGORIES.filter(c => c.context === 'Taxonomy').map(c => ( 
+              <option key={c.id} value={c.name}>{c.name}</option> 
+            ))} 
+          </select> 
+        </div> 
+        <div> 
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Input Mode</label> 
+          <select  
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm 
+focus:ring-2 focus:ring-indigo-500 outline-none" 
+--- Page 17 ---
+            defaultValue={editingItem?.mode || 'Single'} 
+          > 
+            <option>Single</option> 
+            <option>Multi</option> 
+          </select> 
+        </div> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Activity Type Name</label> 
+        <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 
+py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Gap Analysis" 
+defaultValue={editingItem?.type || ''} /> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Description</label> 
+        <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 
+text-sm focus:ring-2 focus:ring-indigo-500 outline-none h-24" placeholder="What does this 
+activity mean?" defaultValue={editingItem?.desc || ''} /> 
+      </div> 
+    </div> 
+  ); 
+ 
+  const SectionForm = () => ( 
+    <div className="space-y-4"> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Section Name</label> 
+        <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 
+py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Conclusions" 
+defaultValue={editingItem?.name || ''} /> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Group Type</label> 
+        <div className="grid grid-cols-2 gap-2"> 
+          <button className={`py-2 rounded-xl text-xs font-bold transition-all ${(!editingItem || 
+editingItem.group === 'Generic') ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-
+slate-600'}`}>Generic</button> 
+--- Page 18 ---
+          <button className={`py-2 rounded-xl text-xs font-bold transition-all 
+${(editingItem?.group === 'Domain-Specific') ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-
+100 text-slate-600'}`}>Domain-Specific</button> 
+        </div> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Category Mapping</label> 
+        <select  
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm 
+focus:ring-2 focus:ring-indigo-500 outline-none" 
+          defaultValue={editingItem?.category || 'None (Generic)'} 
+        > 
+          <option value="None (Generic)">None (Generic)</option> 
+          {MOCK_GLOBAL_CATEGORIES.filter(c => c.context === 'Doc Sections').map(c => ( 
+            <option key={c.id} value={c.name}>{c.name}</option> 
+          ))} 
+        </select> 
+      </div> 
+    </div> 
+  ); 
+ 
+  const PersonaForm = () => ( 
+    <div className="space-y-4"> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Persona Name</label> 
+        <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 
+py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Financial 
+Auditor" defaultValue={editingItem?.role || ''} /> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Roleplay Instructions (System Prompt)</label> 
+        <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 
+text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none h-32" placeholder="You are an 
+expert financial auditor..." defaultValue={editingItem?.systemPrompt || ''} /> 
+      </div> 
+      <div> 
+--- Page 19 ---
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Tone of Voice</label> 
+        <select  
+          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm 
+focus:ring-2 focus:ring-indigo-500 outline-none" 
+          defaultValue={editingItem?.tone || 'Professional & Advisory'} 
+        > 
+          <option>Fact-based & Dry</option> 
+          <option>Professional & Advisory</option> 
+          <option>Executive & Concise</option> 
+          <option>Technical & Exhaustive</option> 
+        </select> 
+      </div> 
+    </div> 
+  ); 
+ 
+  const FrameworkForm = () => ( 
+    <div className="space-y-4"> 
+      <div className="grid grid-cols-2 gap-4"> 
+        <div> 
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Category</label> 
+          <select  
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm 
+focus:ring-2 focus:ring-indigo-500 outline-none" 
+            defaultValue={editingItem?.category || ''} 
+          > 
+             <option value="" disabled>Select category</option> 
+             {MOCK_GLOBAL_CATEGORIES.filter(c => c.context === 'Frameworks').map(c => ( 
+              <option key={c.id} value={c.name}>{c.name}</option> 
+            ))} 
+          </select> 
+        </div> 
+        <div> 
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Name</label> 
+--- Page 20 ---
+          <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-
+4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. SWOT" 
+defaultValue={editingItem?.name || ''} /> 
+        </div> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">AI Specification (Analysis Rules)</label> 
+        <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 
+text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none h-48" placeholder="Define 
+exactly how the AI should apply this framework..." defaultValue={editingItem?.spec || ''} /> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">External Documentation URL</label> 
+        <div className="flex gap-2"> 
+           <input type="text" className="flex-1 bg-slate-50 border border-slate-200 rounded-xl 
+px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="https://..." /> 
+           <button className="p-2 bg-slate-100 rounded-xl text-slate-500"><ExternalLink size={18} 
+/></button> 
+        </div> 
+      </div> 
+    </div> 
+  ); 
+ 
+  const ThesaurusForm = () => ( 
+    <div className="space-y-4"> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Thesaurus Name</label> 
+        <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 
+py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. HL7 Standards" 
+defaultValue={editingItem?.name || ''} /> 
+      </div> 
+      <div className="grid grid-cols-2 gap-4"> 
+        <div> 
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Industry / Domain</label> 
+          <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-
+4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. Healthcare" 
+defaultValue={editingItem?.domain || ''} /> 
+--- Page 21 ---
+        </div> 
+        <div> 
+          <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Source Organization</label> 
+          <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-
+4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" placeholder="e.g. ISO" 
+defaultValue={editingItem?.source || ''} /> 
+        </div> 
+      </div> 
+      <div> 
+        <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 tracking-
+widest">Terminology Database (JSON Mapping)</label> 
+        <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 
+text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none h-32" placeholder="{ 'term': 
+'definition', ... }" /> 
+      </div> 
+    </div> 
+  ); 
+ 
+  return ( 
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden relative"> 
+       
+      {/* --- Modal Overlay --- */} 
+      {showModal && ( 
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in 
+fade-in duration-200"> 
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={closeModal} 
+/> 
+          <div className="relative bg-white w-full max-w-xl rounded-[2.5rem] shadow-
+[0_20px_50px_rgba(0,0,0,0.2)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"> 
+            <header className="p-8 border-b border-slate-100 flex items-center justify-between"> 
+              <div> 
+                <h3 className="text-xl font-black tracking-tight">{editingItem ? 'Edit' : 'Add 
+New'} {ADMIN_SECTIONS.find(s => s.id === activeTab)?.name.replace('Global ', '').slice(0, -
+1)}</h3> 
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-
+1">Configure system parameters</p> 
+              </div> 
+              <button onClick={closeModal} className="p-2 hover:bg-slate-100 rounded-xl 
+transition-colors"> 
+                <X className="w-5 h-5" /> 
+--- Page 22 ---
+              </button> 
+            </header> 
+             
+            <div className="p-8 overflow-y-auto max-h-[70vh]"> 
+              {activeTab === 'categories' && <CategoryForm />} 
+              {activeTab === 'taxonomy' && <TaxonomyForm />} 
+              {activeTab === 'sections' && <SectionForm />} 
+              {activeTab === 'personas' && <PersonaForm />} 
+              {activeTab === 'frameworks' && <FrameworkForm />} 
+              {activeTab === 'thesaurus' && <ThesaurusForm />} 
+            </div> 
+ 
+            <footer className="p-8 bg-slate-50 border-t border-slate-100 flex gap-4"> 
+              <button onClick={closeModal} className="flex-1 py-3 px-6 bg-white border border-
+slate-200 rounded-2xl font-bold text-sm text-slate-600 hover:bg-slate-100 transition-
+all">Cancel</button> 
+              <button className="flex-1 py-3 px-6 bg-indigo-600 text-white rounded-2xl font-bold 
+text-sm shadow-xl shadow-indigo-200 hover:bg-indigo-500 transition-all flex items-center justify-
+center gap-2"> 
+                <Check className="w-4 h-4" /> {editingItem ? 'Update' : 'Save'} Resource 
+              </button> 
+            </footer> 
+          </div> 
+        </div> 
+      )} 
+ 
+      {/* --- Sidebar Navigation --- */} 
+      <aside className="w-72 bg-slate-900 flex flex-col shadow-xl z-20"> 
+        <div className="p-8"> 
+          <div className="flex items-center gap-3 mb-10"> 
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center 
+text-white shadow-lg shadow-indigo-500/20"> 
+              <Settings className="w-6 h-6" /> 
+            </div> 
+            <div> 
+              <h1 className="font-black text-xl text-white tracking-tighter">Admin Panel</h1> 
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-
+widest">System Governance</p> 
+--- Page 23 ---
+            </div> 
+          </div> 
+ 
+          <nav className="space-y-1"> 
+            {ADMIN_SECTIONS.map((section) => ( 
+              <button 
+                key={section.id} 
+                onClick={() => setActiveTab(section.id)} 
+                className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all 
+${ 
+                  activeTab === section.id  
+                  ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-500/10'  
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800' 
+                }`} 
+              > 
+                {section.icon} 
+                <span className="font-bold text-sm tracking-tight">{section.name}</span> 
+              </button> 
+            ))} 
+          </nav> 
+        </div> 
+ 
+        <div className="mt-auto p-8"> 
+          <div className="p-5 bg-slate-800 rounded-3xl"> 
+            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-
+2">Build Stats</p> 
+            <div className="flex items-end justify-between text-white"> 
+              <span className="text-2xl font-black">42</span> 
+              <span className="text-[10px] font-bold text-emerald-400 uppercase">Templates 
+Active</span> 
+            </div> 
+          </div> 
+        </div> 
+      </aside> 
+ 
+      {/* --- Main Content Area --- */} 
+--- Page 24 ---
+      <main className="flex-1 flex flex-col overflow-hidden"> 
+        <header className="h-20 bg-white border-b border-slate-200 px-10 flex items-center 
+justify-between shadow-sm z-10"> 
+          <div className="flex items-center gap-3"> 
+            <h2 className="text-xl font-black tracking-tight text-slate-800"> 
+              {ADMIN_SECTIONS.find(s => s.id === activeTab)?.name} 
+            </h2> 
+            <ChevronRight className="w-4 h-4 text-slate-300" /> 
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-
+widest">Management</span> 
+          </div> 
+           
+          <div className="flex items-center gap-4"> 
+            <div className="relative"> 
+              <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" 
+/> 
+              <input  
+                type="text"  
+                placeholder="Search resources..."  
+                className="pl-11 pr-4 py-2.5 bg-slate-100 border-none rounded-2xl text-sm w-72 
+focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
+                value={searchQuery} 
+                onChange={(e) => setSearchQuery(e.target.value)} 
+              /> 
+            </div> 
+            <button  
+              onClick={openAddModal} 
+              className="bg-indigo-600 text-white p-3 rounded-2xl hover:bg-indigo-500 transition-
+all shadow-lg shadow-indigo-100 flex items-center gap-2" 
+            > 
+              <Plus className="w-5 h-5" /> 
+            </button> 
+          </div> 
+        </header> 
+ 
+        <div className="flex-1 overflow-y-auto p-10 bg-slate-50/50"> 
+          <div className="max-w-6xl mx-auto space-y-6"> 
+--- Page 25 ---
+             
+            {/* --- Analysis Taxonomy View --- */} 
+            {activeTab === 'taxonomy' && ( 
+              <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm 
+overflow-hidden"> 
+                <table className="w-full text-left border-collapse"> 
+                  <thead> 
+                    <tr className="bg-slate-50/80"> 
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100">Category</th> 
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100">Activity Type</th> 
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100">Input Mode</th> 
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100 text-right">Actions</th> 
+                    </tr> 
+                  </thead> 
+                  <tbody> 
+                    {MOCK_TAXONOMY.map((item) => ( 
+                      <tr key={item.id} className="hover:bg-slate-50 transition-colors group"> 
+                        <td className="px-8 py-5 border-b border-slate-50"> 
+                          <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 
+py-1 rounded-md">{item.category}</span> 
+                        </td> 
+                        <td className="px-8 py-5 border-b border-slate-50 text-sm font-bold text-
+slate-700">{item.type}</td> 
+                        <td className="px-8 py-5 border-b border-slate-50 text-xs text-slate-500 
+font-medium">{item.mode}</td> 
+                        <td className="px-8 py-5 border-b border-slate-50 text-right"> 
+                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-
+100 transition-opacity"> 
+                            <button onClick={() => openEditModal(item)} className="p-2 bg-slate-
+100 rounded-xl text-slate-500 hover:text-indigo-600"><Edit2 size={14} /></button> 
+                            <button className="p-2 bg-slate-100 rounded-xl text-slate-500 
+hover:text-rose-600"><Trash2 size={14} /></button> 
+                          </div> 
+                        </td> 
+                      </tr> 
+                    ))} 
+--- Page 26 ---
+                  </tbody> 
+                </table> 
+              </div> 
+            )} 
+ 
+            {/* --- Document Sections View --- */} 
+            {activeTab === 'sections' && ( 
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"> 
+                {MOCK_DOC_SECTIONS.map((section) => ( 
+                  <div key={section.id} className="bg-white p-6 rounded-[2rem] border border-
+slate-100 shadow-sm flex items-center justify-between group"> 
+                    <div className="flex items-center gap-4"> 
+                      <div className="p-3 bg-indigo-50 rounded-2xl text-indigo-600"><Type 
+size={20} /></div> 
+                      <div> 
+                        <h4 className="font-bold text-slate-800 tracking-
+tight">{section.name}</h4> 
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-
+widest mt-0.5">{section.group} • {section.expertise || section.category}</p> 
+                      </div> 
+                    </div> 
+                    <button onClick={() => openEditModal(section)} className="opacity-0 group-
+hover:opacity-100 p-2 text-slate-300 hover:text-indigo-600 transition-all"> 
+                      <Edit2 size={16} /> 
+                    </button> 
+                  </div> 
+                ))} 
+                <div onClick={openAddModal} className="border-2 border-dashed border-slate-200 
+rounded-[2rem] p-6 flex items-center justify-center gap-3 text-slate-400 hover:border-indigo-300 
+hover:text-indigo-600 transition-all cursor-pointer group"> 
+                  <Plus size={20} /> 
+                  <span className="font-bold text-sm tracking-tight">Add Section</span> 
+                </div> 
+              </div> 
+            )} 
+ 
+            {/* --- Thesaurus View --- */} 
+            {activeTab === 'thesaurus' && ( 
+--- Page 27 ---
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6"> 
+                {MOCK_THESAURUS.map((th) => ( 
+                  <div key={th.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-
+100 shadow-sm flex flex-col gap-6 relative overflow-hidden group"> 
+                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 
+transition-opacity"> 
+                       <button onClick={() => openEditModal(th)} className="p-2 bg-slate-100 
+rounded-xl text-slate-500"><Edit2 size={16} /></button> 
+                    </div> 
+                    <div className="flex items-center gap-4"> 
+                       <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center 
+justify-center text-white shadow-lg shadow-indigo-200"> 
+                          <Globe size={24} /> 
+                       </div> 
+                       <div> 
+                          <h4 className="text-xl font-black tracking-tight">{th.name}</h4> 
+                          <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 
+px-2 py-0.5 rounded-md uppercase tracking-widest">{th.domain}</span> 
+                       </div> 
+                    </div> 
+                    <div className="p-4 bg-slate-50 rounded-2xl flex items-center justify-between 
+border border-slate-100"> 
+                       <div className="flex items-center gap-2"> 
+                          <Database size={14} className="text-slate-400" /> 
+                          <span className="text-xs font-bold text-slate-500">Source: 
+{th.source}</span> 
+                       </div> 
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-
+widest">Active Database</span> 
+                    </div> 
+                  </div> 
+                ))} 
+              </div> 
+            )} 
+ 
+            {/* --- AI Personas View --- */} 
+            {activeTab === 'personas' && ( 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6"> 
+--- Page 28 ---
+                {['Legal Counsel', 'Financial Auditor', 'Cyber Security Architect', 'Strategic 
+Consultant'].map(role => ( 
+                  <div key={role} className="bg-white p-8 rounded-[2.5rem] border border-slate-
+100 shadow-sm group"> 
+                    <div className="flex justify-between items-start mb-6"> 
+                      <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center 
+justify-center text-slate-500 border border-slate-100"><Users size={24} /></div> 
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-
+opacity"> 
+                         <button onClick={() => openEditModal({role})} className="p-2 bg-slate-50 
+rounded-xl text-slate-400 hover:text-indigo-600"><Edit2 size={16} /></button> 
+                         <button className="p-2 bg-slate-50 rounded-xl text-slate-400 hover:text-
+rose-600"><Trash2 size={16} /></button> 
+                      </div> 
+                    </div> 
+                    <h4 className="text-xl font-black mb-2 text-slate-800">{role}</h4> 
+                    <p className="text-xs text-slate-400 font-medium leading-relaxed italic mb-
+6">"Acts as a senior {role.toLowerCase()} with high reasoning depth and strict adherence to 
+documentation..."</p> 
+                    <div className="pt-6 border-t border-slate-50 flex items-center justify-
+between"> 
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-
+widest">Expertise: Professional</span> 
+                       <div className="flex -space-x-2"> 
+                          {[1,2,3].map(i => <div key={i} className="w-6 h-6 rounded-full border-2 
+border-white bg-slate-200" />)} 
+                       </div> 
+                    </div> 
+                  </div> 
+                ))} 
+              </div> 
+            )} 
+ 
+            {/* --- Frameworks View --- */} 
+            {activeTab === 'frameworks' && ( 
+              <div className="space-y-4"> 
+                {MOCK_FRAMEWORKS.map(fw => ( 
+                  <div key={fw.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 
+shadow-sm group flex flex-col md:flex-row gap-6"> 
+                    <div className="w-16 h-16 bg-slate-50 rounded-2xl border flex items-center 
+justify-center text-slate-300 shrink-0"><Shield size={28} /></div> 
+--- Page 29 ---
+                    <div className="flex-1"> 
+                      <div className="flex items-center gap-3 mb-2"> 
+                        <h4 className="text-lg font-black tracking-tight">{fw.name}</h4> 
+                        <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 
+py-0.5 rounded-md uppercase tracking-widest">{fw.category}</span> 
+                      </div> 
+                      <div className="bg-slate-900/95 p-4 rounded-2xl flex items-start gap-3 
+border border-slate-800"> 
+                        <Code size={16} className="text-indigo-400 mt-1 shrink-0" /> 
+                        <p className="text-[11px] font-mono text-slate-400 leading-relaxed line-
+clamp-2">{fw.spec}</p> 
+                      </div> 
+                    </div> 
+                    <div className="flex md:flex-col gap-2 justify-center pl-6 border-l border-
+slate-50 border-dashed"> 
+                      <button onClick={() => openEditModal(fw)} className="p-3 bg-slate-50 text-
+slate-400 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"><Edit2 size={18} 
+/></button> 
+                      <button className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:text-
+rose-600 hover:bg-rose-50 transition-all"><Trash2 size={18} /></button> 
+                    </div> 
+                  </div> 
+                ))} 
+              </div> 
+            )} 
+ 
+            {/* --- Global Categories View --- */} 
+            {activeTab === 'categories' && ( 
+              <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm 
+overflow-hidden"> 
+                <table className="w-full text-left border-collapse"> 
+                  <thead> 
+                    <tr className="bg-slate-50/80"> 
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100">Name</th> 
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100">Usage Context</th> 
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100">Status</th> 
+--- Page 30 ---
+                      <th className="px-8 py-4 text-[10px] font-black text-slate-400 uppercase 
+tracking-widest border-b border-slate-100 text-right">Actions</th> 
+                    </tr> 
+                  </thead> 
+                  <tbody> 
+                    {MOCK_GLOBAL_CATEGORIES.map((item) => ( 
+                      <tr key={item.id} className="hover:bg-slate-50 transition-colors group"> 
+                        <td className="px-8 py-5 border-b border-slate-50 text-sm font-bold text-
+slate-700">{item.name}</td> 
+                        <td className="px-8 py-5 border-b border-slate-50"> 
+                          <span className="text-[10px] font-black text-slate-500 border border-
+slate-200 px-2 py-1 rounded-md bg-slate-100 uppercase">{item.context}</span> 
+                        </td> 
+                        <td className="px-8 py-5 border-b border-slate-50"> 
+                          {item.active ? ( 
+                            <span className="flex items-center gap-1.5 text-emerald-600 text-
+[10px] font-black uppercase"> 
+                              <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Active 
+                            </span> 
+                          ) : ( 
+                            <span className="flex items-center gap-1.5 text-slate-400 text-[10px] 
+font-black uppercase"> 
+                              <div className="w-1.5 h-1.5 bg-slate-300 rounded-full" /> Inactive 
+                            </span> 
+                          )} 
+                        </td> 
+                        <td className="px-8 py-5 border-b border-slate-50 text-right"> 
+                          <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-
+100 transition-opacity"> 
+                            <button onClick={() => openEditModal(item)} className="p-2 bg-slate-
+100 rounded-xl text-slate-500 hover:text-indigo-600"><Edit2 size={14} /></button> 
+                            <button className="p-2 bg-slate-100 rounded-xl text-slate-500 
+hover:text-rose-600"><Trash2 size={14} /></button> 
+                          </div> 
+                        </td> 
+                      </tr> 
+                    ))} 
+                  </tbody> 
+                </table> 
+--- Page 31 ---
+              </div> 
+            )} 
+ 
+          </div> 
+        </div> 
+      </main> 
+    </div> 
+  ); 
+}; 
+ 
+export default App; 
+ 
+
+========================================
+FILE: c:\Users\opole\Downloads\ChatBotn\Specs\Functional\Intelligent Documents Analysis\Technical_Specifications-Smart_Analysis_Framework.pdf
+========================================
+--- Page 1 ---
+Technical Specifications: Smart Analysis 
+Framework 
+1. System Architecture Overview 
+The framework acts as a high-level orchestration layer within the Canvas environment. It 
+processes document selections through a template-driven pipeline using a standardized 
+JSON contract. 
+1.1 High-Level Stack 
+● Frontend: React 18+ with React Flow for the pipeline editor (Studio) and Tailwind CSS 
+for the execution UI. 
+● Orchestrator: Backend logic (Node.js/Python) responsible for parsing the Template 
+JSON and managing the execution lifecycle. 
+● LLM Integration: Agnostic. Interfaces with existing multi-provider implementation 
+(Cloud/Local). 
+● Persistence: RDBMS for storing templates, personas, and framework rules. 
+2. Generic Data Schema (The "Contract") 
+Le schéma doit être agnostique au domaine métier. Voici la structure normalisée qui sera 
+produite par le Studio et consommée par l'Engine. 
+2.1 The Smart Template Object 
+{ 
+  "template_id": "uuid", 
+  "metadata": { 
+    "name": "string", 
+    "version": "string", 
+    "category": "Strategic | Compliance | Technical | Legal", 
+    "description": "string" 
+  }, 
+  "execution_constraints": { 
+    "input_mode": "single | multi", 
+    "min_assets": "number", 
+    "max_assets": "number" 
+  }, 
+  "user_parameters": [ 
+    { 
+--- Page 2 ---
+      "id": "string", 
+      "label": "string", 
+      "type": "text | number | date | time | list_single | list_multi", 
+      "description": "string (mandatory for AI grounding)", 
+      "options": ["string"], 
+      "required": "boolean" 
+    } 
+  ], 
+  "pipeline": [ 
+    { 
+      "step": 1, 
+      "module": "data_extractor", 
+      "params": { 
+        "target_sections": ["string"], 
+        "target_entities": ["string"], 
+        "objectives": "string" 
+      } 
+    }, 
+    { 
+      "step": 2, 
+      "module": "ai_agent", 
+      "params": { 
+        "persona_id": "string", 
+        "framework_id": "string", 
+        "logic_depth": "fast | chain_of_thought | deep_audit", 
+        "thesaurus_id": "string (optional)" 
+      } 
+    }, 
+    { 
+      "step": 3, 
+      "module": "output_formatter", 
+      "params": { 
+        "synthesis_category": "Text | Tables | Pictures | Diagrams | Combination", 
+        "rendering_type": "string (from Master Reference)", 
+        "file_formats": ["md", "csv", "svg"] 
+      } 
+    } 
+  ] 
+} 
+ 
+--- Page 3 ---
+3. The Analysis Lifecycle 
+3.1 Step 1: Pre-processing (Context Optimization) 
+L'Engine utilise la couche de vectorisation existante de l'application pour extraire uniquement 
+les target_sections définies. Cela réduit le bruit et optimise la fenêtre de contexte du LLM. 
+3.2 Step 2: Individual Analysis (Map Phase) 
+Pour chaque document sélectionné, l'Engine génère des Evidence Objects. 
+{ 
+  "id": "uuid", 
+  "snippet": "raw_text_source", 
+  "asset_id": "canvas_id", 
+  "page": "number", 
+  "confidence": "float" 
+} 
+ 
+3.3 Step 3: Synthesis (Reduce Phase) 
+L'Engine agrège tous les Evidence Objects et les injecte dans le ai_agent avec les 
+user_parameters saisis par l'utilisateur final. L'IA produit alors la synthèse finale en respectant 
+le framework_id et la persona_id. 
+4. UI/UX & Visual Rendering 
+● Studio: Utilise React Flow pour manipuler le tableau pipeline comme un graphe de 
+noeuds. 
+● Mermaid & SVG: Les modules output_formatter génèrent du code (Mermaid) ou des 
+chemins de données (Tables) rendus dynamiquement par le Frontend. 
+● Traceability: Chaque affirmation dans le rapport final doit porter l'ID d'un Evidence 
+Object pour permettre le "Source Highlighting". 
+5. Execution Guardrails 
+● Concurrency Mode: Configurable par template ou globalement (Séquentiel pour LLM 
+locaux, Parallèle pour Cloud). 
+● Temperature: Fixée à 0.0 pour l'extraction et 0.1 pour la synthèse afin de garantir la 
+reproductibilité. 
+● Validation: Étape de post-traitement optionnelle pour valider la conformité 
+terminologique avec le thesaurus_id. 
+--- Page 4 ---
+End of Technical Specifications 
+
+========================================
+FILE: c:\Users\opole\Downloads\ChatBotn\Specs\Functional\Intelligent Documents Analysis\Using_A_Template.pdf
+========================================
+--- Page 1 ---
+Applying a template 
+ 
+Figure 1: The user Right-Clicks on an asset (or a selection of Assets) in the canvas. A contextual menu displays the list of 
+available templates, organized per category 
+
+--- Page 2 ---
+ 
+Figure 2: Based on the definition of the template, the user may have to enter some values (for a defined variable) or to 
+select in a list (for list-type variables) 
+ 
+Figure 3: Example of a list 
+
+--- Page 3 ---
+ 
+Figure 4: When Starting the execution, the template's pipeline is executed 
+ 
+Figure 5: Ultimately the report is displayed including (on the left side) the report itself that can include text or:and 
+diagrams... And on the left panel, the evideces that support the analysis 
+
+--- Page 4 ---
+ 
+Figure 6: The user can click on an evidence ti jump to the source. There is also the reasoning logic. 
+

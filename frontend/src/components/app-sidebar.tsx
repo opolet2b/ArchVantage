@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench, HelpCircle, FileText, Map } from "lucide-react"
+import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench, HelpCircle, FileText, Map, Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ConversationList } from "@/components/sidebar/conversation-list"
@@ -17,6 +17,7 @@ const navItems = [
     { href: "/agents/builder/new", icon: Plus, label: "Agent Builder" },
     { href: "/tools", icon: Wrench, label: "Tools" },
     { href: "/templates", icon: FileText, label: "Templates" },
+    { href: "/smart-analysis", icon: Brain, label: "Smart Analysis" },
     { href: "/rag", icon: Database, label: "RAG" },
     { href: "/search", icon: Search, label: "Research" },
     { href: "/settings", icon: Settings, label: "Settings" },
@@ -110,8 +111,13 @@ export function AppSidebar() {
                 {navItems.map((item) => (
                     <Link key={item.href} href={item.href}>
                         <Button
-                            variant={pathname === item.href ? "secondary" : "ghost"}
-                            className={cn("w-full justify-start gap-2", pathname === item.href && "bg-slate-200 dark:bg-slate-800")}
+                            variant="ghost"
+                            className={cn(
+                                "w-full justify-start gap-2 transition-colors",
+                                pathname === item.href
+                                    ? "bg-[#4F46E5] text-white hover:bg-[#4338CA] hover:text-white"
+                                    : "hover:bg-slate-200 dark:hover:bg-slate-800"
+                            )}
                         >
                             <item.icon className="h-4 w-4" />
                             {item.label}

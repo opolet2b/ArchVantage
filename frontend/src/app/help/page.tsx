@@ -59,6 +59,16 @@ const HELP_TOPICS = [
             { id: "models", title: "Model Setup", path: "settings/local_model" },
             { id: "mcp-servers", title: "MCP Servers", path: "settings/mcp_server_url" },
         ]
+    },
+    {
+        id: "smart-analysis",
+        title: "Smart Analysis",
+        icon: FileText,
+        pages: [
+            { id: "sa-overview", title: "Overview", path: "smart-analysis/overview" },
+            { id: "sa-modules", title: "Workbench Modules", path: "smart-analysis/workbench_modules" },
+            { id: "sa-step-config", title: "Step Configuration", path: "smart-analysis/step_configuration" },
+        ]
     }
 ]
 

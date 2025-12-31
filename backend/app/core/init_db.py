@@ -116,6 +116,35 @@ def run_migrations(db: Session) -> None:
     except Exception as e:
         print(f"Canvas_things migration check failed: {e}")
 
+    # Migration for smart_analysis_templates activity_type
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='smart_analysis_templates'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            try:
+                result = db.execute(
+                    text("SELECT activity_type FROM smart_analysis_templates LIMIT 1")
+                )
+                result.close()
+                print("Migration check: activity_type column already exists in smart_analysis_templates.")
+            except Exception:
+                print("Adding 'activity_type' column to smart_analysis_templates table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE smart_analysis_templates ADD COLUMN activity_type VARCHAR NOT NULL DEFAULT 'General'")
+                    )
+                    db.commit()
+                    print("Added 'activity_type' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add activity_type column: {alter_error}")
+                    db.rollback()
+    except Exception as e:
+        print(f"smart_analysis_templates migration check failed: {e}")
+
 def init_db(db: Session) -> None:
     # 1. Create Default Roles
     roles = ["Admin", "User"]
@@ -157,4 +186,5 @@ def init_db(db: Session) -> None:
 
 if __name__ == "__main__":
     db = SessionLocal()
+    run_migrations(db)
     init_db(db)

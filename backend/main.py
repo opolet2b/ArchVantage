@@ -3,14 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     chat, workflow, rag, search, research, config, conversation, 
     agents, auth, users, roles, oauth, tools, mcp_servers,
-    agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug
+    agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
+    smart_template
 )
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
 from dotenv import load_dotenv
 
 # Import models to register them with Base before create_all
-from app.models import canvas_models, asset_models, prompt_models  # noqa: F401
+from app.models import canvas_models, asset_models, prompt_models, smart_template as smart_template_models  # noqa: F401
 
 load_dotenv()
 
@@ -79,6 +80,7 @@ app.include_router(canvas.router, prefix="/api/v1", tags=["canvas"])
 app.include_router(assets.router, prefix="/api/v1/assets", tags=["assets"])
 app.include_router(prompts.router, prefix="/api/v1", tags=["prompts"])
 app.include_router(debug.router, prefix="/api/v1", tags=["debug"])
+app.include_router(smart_template.router, prefix="/api/v1", tags=["smart-templates"])
 
 @app.get("/")
 def read_root():
