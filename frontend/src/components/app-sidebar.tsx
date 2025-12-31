@@ -13,11 +13,9 @@ import { useAuth } from "@/lib/auth-context"
 
 const navItems = [
     { href: "/workflow", icon: GitGraph, label: "Workflows" },
-    { href: "/agents", icon: Bot, label: "My Agents" },
-    { href: "/agents/builder/new", icon: Plus, label: "Agent Builder" },
-    { href: "/tools", icon: Wrench, label: "Tools" },
-    { href: "/templates", icon: FileText, label: "Templates" },
+    { href: "/agents-tools", icon: Bot, label: "Agents and Tools" },
     { href: "/smart-analysis", icon: Brain, label: "Smart Analysis" },
+    { href: "/templates", icon: FileText, label: "Templates" },
     { href: "/rag", icon: Database, label: "RAG" },
     { href: "/search", icon: Search, label: "Research" },
     { href: "/settings", icon: Settings, label: "Settings" },

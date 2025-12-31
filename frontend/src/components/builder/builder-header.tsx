@@ -170,7 +170,7 @@ export function BuilderHeader() {
                 <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => router.push("/agents")}
+                    onClick={() => router.push("/agents-tools/agents")}
                 >
                     ← Back
                 </Button>
