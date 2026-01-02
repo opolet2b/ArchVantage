@@ -31,7 +31,8 @@ import {
     Presentation,
     Lightbulb,
     Eye,
-    EyeOff
+    EyeOff,
+    Copy
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -211,7 +212,9 @@ interface ThingNodeData {
 
 export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData>) => {
     // Canvas context
+    // Canvas context
     const canvasId = useCanvasStore(state => state.canvasId);
+    const updateThing = useCanvasStore(state => state.updateThing);
 
     // Get props from data
     const {
@@ -246,6 +249,22 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
 
     // State for local status override to avoid full canvas refresh flicker
     const [localStatus, setLocalStatus] = React.useState(currentThing.rag_status);
+
+    // Title Editing State
+    const [isEditingTitle, setIsEditingTitle] = React.useState(false);
+    const [titleInputValue, setTitleInputValue] = React.useState("");
+
+    // Update local title state when thing updates
+    React.useEffect(() => {
+        setTitleInputValue(currentThing.title || getDefaultTitle());
+    }, [currentThing.title]);
+
+    const handleTitleSave = () => {
+        if (titleInputValue.trim() !== currentThing.title) {
+            updateThing(currentThing.id, { title: titleInputValue.trim() });
+        }
+        setIsEditingTitle(false);
+    };
 
     // Sync local status when prop changes
     React.useEffect(() => {
@@ -323,7 +342,6 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
 
     // Canvas store helpers
     const addThing = useCanvasStore((state) => state.addThing);
-    const updateThing = useCanvasStore((state) => state.updateThing);
     const addLink = useCanvasStore((state) => state.addLink);
     const updateLink = useCanvasStore((state) => state.updateLink);
     const deleteLink = useCanvasStore((state) => state.deleteLink);
@@ -1063,8 +1081,9 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                 return (
                     <SelectableContent thingId={thing.id}>
                         <ConversationViewer
-                            messages={messages || []}
-                            className="max-h-[200px] overflow-y-auto"
+                            conversationId={(content as any).conversation_id}
+                            initialMessages={messages || []}
+                            className="h-full"
                         />
                     </SelectableContent>
                 );
@@ -1450,9 +1469,33 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                 )}>
                     <Icon className={cn("h-4 w-4 flex-shrink-0", colorTheme.iconColor)} />
                     {zoomLevel !== "summary" && (
-                        <span className="text-sm font-medium truncate flex-1">
-                            {thing.title || getDefaultTitle()}
-                        </span>
+                        isEditingTitle ? (
+                            <Input
+                                value={titleInputValue}
+                                onChange={(e) => setTitleInputValue(e.target.value)}
+                                onBlur={handleTitleSave}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleTitleSave();
+                                    e.stopPropagation(); // Prevent canvas hotkeys
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="h-6 py-0 px-1 text-sm font-medium flex-1 min-w-0 bg-white/50 dark:bg-black/50 border-none focus-visible:ring-1"
+                                autoFocus
+                            />
+                        ) : (
+                            <span
+                                className="text-sm font-medium truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                onDoubleClick={(e) => {
+                                    e.stopPropagation();
+                                    setTitleInputValue(thing.title || getDefaultTitle());
+                                    setIsEditingTitle(true);
+                                }}
+                                title="Double-click to rename"
+                            >
+                                {thing.title || getDefaultTitle()}
+                            </span>
+                        )
                     )}
 
                     {/* Thinking Toggle - Only if thinking content exists */}
@@ -1517,6 +1560,25 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                             </div>
                         );
                     })()}
+
+                    {/* Copy Content Button */}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const textToCopy = typeof thing.content.text === "string" ? thing.content.text :
+                                typeof thing.content.content === "string" ? thing.content.content :
+                                    JSON.stringify(thing.content, null, 2);
+
+                            navigator.clipboard.writeText(textToCopy);
+
+                            // Visual feedback (temporary checkmark) could be added here with state
+                            // For now, simpler consistent button style
+                        }}
+                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                        title="Copy content to clipboard"
+                    >
+                        <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                    </button>
 
                     {/* Iconify button - shown when selected */}
                     {(isSelected || selected) && onToggleIconify && (

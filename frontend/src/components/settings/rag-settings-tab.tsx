@@ -1,37 +1,155 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Database, Loader2, Play } from "lucide-react"
+import { Database, Loader2, Play, Save, RefreshCw, AlertTriangle } from "lucide-react"
 import { API_URL } from "@/lib/utils"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
+import { useToast } from "@/components/ui/use-toast"
+
+interface RagConfig {
+    embedding_provider: string
+    embedding_model: string
+    embedding_api_key?: string
+    parsing_strategy: string
+    chunk_size: number
+    chunk_overlap: number
+    enable_metadata: boolean
+}
 
 export function RagSettingsTab() {
-    const [strategy, setStrategy] = useState("recursive")
-    const [chunkSize, setChunkSize] = useState("1000")
-    const [chunkOverlap, setChunkOverlap] = useState("200")
+    const { toast } = useToast()
+    const [config, setConfig] = useState<RagConfig>({
+        embedding_provider: "ollama",
+        embedding_model: "nomic-embed-text",
+        parsing_strategy: "recursive",
+        chunk_size: 1000,
+        chunk_overlap: 200,
+        enable_metadata: false
+    })
+
+    const [isLoadingConfig, setIsLoadingConfig] = useState(true)
+    const [isSaving, setIsSaving] = useState(false)
+    const [isResetting, setIsResetting] = useState(false)
     const [ingesting, setIngesting] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
 
-    const handleVectorize = async () => {
-        setIngesting(true)
-        setStatus("Ingesting...")
+    const [availableModels, setAvailableModels] = useState<string[]>([])
+
+    // Load config on mount
+    useEffect(() => {
+        fetchConfig()
+        fetchLocalModels()
+    }, [])
+
+    const fetchLocalModels = async () => {
+        try {
+            const res = await fetch(`${API_URL}/config/models`)
+            const data = await res.json()
+            setAvailableModels(data.models || [])
+        } catch (error) {
+            console.error("Failed to fetch models", error)
+        }
+    }
+
+    const fetchConfig = async () => {
+        try {
+            const res = await fetch(`${API_URL}/config/rag`)
+            if (res.ok) {
+                const data = await res.json()
+                if (data.config) {
+                    setConfig(data.config)
+                }
+            }
+        } catch (error) {
+            console.error("Failed to load RAG config", error)
+        } finally {
+            setIsLoadingConfig(false)
+        }
+    }
+
+    const handleSave = async () => {
+        setIsSaving(true)
+        try {
+            const res = await fetch(`${API_URL}/config/rag`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(config),
+            })
+
+            if (res.ok) {
+                const data = await res.json()
+                toast({
+                    title: "Configuration Saved",
+                    description: data.warning || "Settings updated successfully.",
+                })
+            } else {
+                throw new Error("Failed to save")
+            }
+        } catch (error) {
+            toast({
+                title: "Error",
+                description: "Failed to save configuration.",
+                variant: "destructive"
+            })
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    const handleResetAndReindex = async () => {
+        if (!confirm("This will DELETE the current vector database and rebuild it with the new settings. Are you sure?")) {
+            return
+        }
+
+        setIsResetting(true)
+        setStatus("Resetting database...")
+
+        try {
+            // 1. Reset DB (Triggers re-init with new config)
+            const resetRes = await fetch(`${API_URL}/rag/reset`, { method: "POST" })
+            if (!resetRes.ok) throw new Error("Failed to reset database")
+
+            setStatus("Database reset. Starting ingestion...")
+
+            // 2. Trigger Ingestion of 'data' folder
+            await handleVectorize(true)
+
+        } catch (error) {
+            console.error("Reset failed", error)
+            setStatus("Error: Reset failed")
+            setIsResetting(false)
+        }
+    }
+
+    const handleVectorize = async (isChained = false) => {
+        if (!isChained) setIngesting(true)
+        setStatus("Ingesting documents...")
+
         try {
             const res = await fetch(`${API_URL}/rag/ingest`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     folder_path: "data",
-                    chunk_size: parseInt(chunkSize),
-                    chunk_overlap: parseInt(chunkOverlap)
+                    chunk_size: config.chunk_size,
+                    chunk_overlap: config.chunk_overlap
                 }),
             })
 
             if (res.ok) {
                 const data = await res.json()
                 setStatus(`Success! Processed ${data.count} documents.`)
+                toast({
+                    title: "Ingestion Complete",
+                    description: `Processed ${data.count} documents using ${config.embedding_provider} (${config.parsing_strategy}).`
+                })
             } else {
                 const err = await res.json()
                 setStatus(`Error: ${err.detail || "Failed to ingest"}`)
@@ -41,96 +159,216 @@ export function RagSettingsTab() {
             setStatus("Error: Connection failed")
         } finally {
             setIngesting(false)
+            setIsResetting(false)
         }
     }
 
     return (
-        <Card className="w-full max-w-2xl">
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <Database className="h-5 w-5" />
-                    RAG Knowledge Base
-                </CardTitle>
-                <CardDescription>
-                    Configure how documents in the 'data' folder are vectorized for the Knowledge Base.
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+        <div className="space-y-6 max-w-3xl">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Database className="h-5 w-5" />
+                        RAG Knowledge Base Settings
+                    </CardTitle>
+                    <CardDescription>
+                        Configure the Knowledge Base embedding models and parsing strategies.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
 
-                <div className="space-y-4 border rounded-md p-4 bg-slate-50 dark:bg-slate-900">
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium flex items-center gap-2">
-                            Ingestion Strategy
-                            <HelpTooltip contentPath="settings/rag_strategy" />
-                        </label>
-                        <select
-                            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            value={strategy}
-                            onChange={(e) => setStrategy(e.target.value)}
-                        >
-                            <option value="recursive">Recursive Directory (Standard)</option>
-                            {/* Future strategies can be added here */}
-                        </select>
-                        <p className="text-xs text-muted-foreground">
-                            Standard strategy recursively reads all files in the data directory.
-                        </p>
-                    </div>
+                    <Alert variant="destructive" className="bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-800">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Re-indexing Required</AlertTitle>
+                        <AlertDescription>
+                            Changing Embedding Provider, Model, or Parsing Strategy requires a full database reset and re-indexing to take effect.
+                        </AlertDescription>
+                    </Alert>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium flex items-center gap-2">
-                                Chunk Size
-                                <HelpTooltip contentPath="settings/rag_chunk_size" />
-                            </label>
-                            <Input
-                                type="number"
-                                value={chunkSize}
-                                onChange={(e) => setChunkSize(e.target.value)}
-                                placeholder="1000"
-                            />
+                    {isLoadingConfig ? (
+                        <div className="flex justify-center p-8">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                         </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium flex items-center gap-2">
-                                Chunk Overlap
-                                <HelpTooltip contentPath="settings/rag_overlap" />
-                            </label>
-                            <Input
-                                type="number"
-                                value={chunkOverlap}
-                                onChange={(e) => setChunkOverlap(e.target.value)}
-                                placeholder="200"
-                            />
-                        </div>
-                    </div>
-                </div>
+                    ) : (
+                        <>
+                            {/* Embedding Configuration */}
+                            <div className="space-y-4 border rounded-md p-4 bg-slate-50 dark:bg-slate-900/50">
+                                <h3 className="font-semibold text-sm uppercase text-muted-foreground mb-2">Embeddings & Model</h3>
 
-                <div className="flex flex-col gap-4">
-                    <Button
-                        onClick={handleVectorize}
-                        disabled={ingesting}
-                        size="lg"
-                        className="w-full"
-                    >
-                        {ingesting ? (
-                            <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Vectorizing...
-                            </>
-                        ) : (
-                            <>
-                                <Play className="mr-2 h-4 w-4" />
-                                Vectorize Knowledge Base
-                            </>
-                        )}
-                    </Button>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Provider</Label>
+                                        <Select
+                                            value={config.embedding_provider}
+                                            onValueChange={(v) => setConfig({ ...config, embedding_provider: v })}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select provider" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                                                <SelectItem value="openai">OpenAI (Cloud)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Model Name</Label>
+                                        <Select
+                                            value={config.embedding_model}
+                                            onValueChange={(v) => setConfig({ ...config, embedding_model: v })}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select model" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {config.embedding_provider === 'ollama' ? (
+                                                    availableModels.length > 0 ? (
+                                                        availableModels.map((m) => (
+                                                            <SelectItem key={m} value={m}>{m}</SelectItem>
+                                                        ))
+                                                    ) : (
+                                                        <SelectItem value="nomic-embed-text" disabled>No models found (ensure Ollama is running)</SelectItem>
+                                                    )
+                                                ) : (
+                                                    // OpenAI Presets
+                                                    <>
+                                                        <SelectItem value="text-embedding-3-small">text-embedding-3-small</SelectItem>
+                                                        <SelectItem value="text-embedding-3-large">text-embedding-3-large</SelectItem>
+                                                        <SelectItem value="text-embedding-ada-002">text-embedding-ada-002</SelectItem>
+                                                    </>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-xs text-muted-foreground">
+                                            {config.embedding_provider === 'ollama' ?
+                                                "Select an installed Ollama model." :
+                                                "Select an OpenAI embedding model."}
+                                        </p>
+                                    </div>
+                                </div>
 
-                    {status && (
-                        <div className={`text-sm p-2 rounded-md ${status.startsWith("Error") ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"}`}>
-                            {status}
-                        </div>
+                                {config.embedding_provider === 'openai' && (
+                                    <div className="space-y-2">
+                                        <Label>API Key</Label>
+                                        <Input
+                                            type="password"
+                                            value={config.embedding_api_key || ''}
+                                            onChange={(e) => setConfig({ ...config, embedding_api_key: e.target.value })}
+                                            placeholder="sk-..."
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Parsing Configuration */}
+                            <div className="space-y-4 border rounded-md p-4 bg-slate-50 dark:bg-slate-900/50">
+                                <h3 className="font-semibold text-sm uppercase text-muted-foreground mb-2">Parsing & Chunking</h3>
+
+                                <div className="space-y-2">
+                                    <Label className="flex items-center gap-2">
+                                        Strategy
+                                        <HelpTooltip contentPath="settings/rag_strategy" />
+                                    </Label>
+                                    <Select
+                                        value={config.parsing_strategy}
+                                        onValueChange={(v) => setConfig({ ...config, parsing_strategy: v })}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select strategy" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="recursive">Recursive (Standard) - Good for general text</SelectItem>
+                                            <SelectItem value="token">Token Splitter - Precise token limits</SelectItem>
+                                            <SelectItem value="window">Sentence Window - Better context retrieval</SelectItem>
+                                            <SelectItem value="semantic">Semantic Splitter - AI-driven context aware (Slower)</SelectItem>
+                                            <SelectItem value="markdown">Markdown - Structure-aware for .md files</SelectItem>
+                                            <SelectItem value="hierarchical">Hierarchical - Auto-merging parent/child nodes</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Chunk Size</Label>
+                                        <Input
+                                            type="number"
+                                            value={config.chunk_size}
+                                            onChange={(e) => setConfig({ ...config, chunk_size: parseInt(e.target.value) || 1000 })}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Chunk Overlap</Label>
+                                        <Input
+                                            type="number"
+                                            value={config.chunk_overlap}
+                                            onChange={(e) => setConfig({ ...config, chunk_overlap: parseInt(e.target.value) || 200 })}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-2">
+                                    <Label className="flex flex-col gap-1">
+                                        <span>Enable Metadata Extraction</span>
+                                        <span className="font-normal text-xs text-muted-foreground">Automatically extract titles and summaries (Slower ingestion)</span>
+                                    </Label>
+                                    <Switch
+                                        checked={config.enable_metadata}
+                                        onCheckedChange={(c) => setConfig({ ...config, enable_metadata: c })}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex flex-col gap-4 pt-4">
+                                <div className="flex gap-3">
+                                    <Button
+                                        onClick={handleSave}
+                                        disabled={isSaving}
+                                        className="flex-1"
+                                        variant="outline"
+                                    >
+                                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                        Save Configuration
+                                    </Button>
+
+                                    <Button
+                                        onClick={handleResetAndReindex}
+                                        disabled={isResetting || ingesting || isSaving}
+                                        className="flex-[2]"
+                                        variant="default"
+                                    >
+                                        {isResetting ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                Rebuilding Database...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <RefreshCw className="mr-2 h-4 w-4" />
+                                                Save & Re-index Knowledge Base
+                                            </>
+                                        )}
+                                    </Button>
+
+                                    {/* Legacy simple ingest button if needed, or subsumed by Reset? 
+                                        Let's keep a simple 'Add to Index' button for just appending? 
+                                        Actually, for Advanced Config, 'Re-index' is the main action. 
+                                        But 'Add' is useful if just adding files. 
+                                        For now, 'Save & Re-index' covers the configuration change use case. 
+                                    */}
+                                </div>
+
+                                {status && (
+                                    <div className={`text-sm p-3 rounded-md flex items-center gap-2 ${status.startsWith("Error") ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" : "bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"}`}>
+                                        {(isResetting || ingesting) && <Loader2 className="h-3 w-3 animate-spin" />}
+                                        {status}
+                                    </div>
+                                )}
+                            </div>
+                        </>
                     )}
-                </div>
-            </CardContent>
-        </Card>
+                </CardContent>
+            </Card>
+        </div>
     )
 }

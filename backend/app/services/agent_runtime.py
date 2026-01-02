@@ -20,6 +20,7 @@ from app.services.agent_primitives import get_primitive, PRIMITIVE_REGISTRY
 from app.services.agent_primitives.base import PrimitiveResult
 from app.services.agent_secret_manager import secret_manager
 from app.services.dry_run import SchemaDiscoveryService
+from app.models.smart_template import SmartOutputFormat, SmartTemplatePersona, SmartTemplateFramework
 
 
 class AgentState(TypedDict):
@@ -108,7 +109,96 @@ class AgentRuntime:
         """Build maps for quick node/edge lookup."""
         # Handle both Pydantic models and dicts
         nodes = self.graph_def.nodes if hasattr(self.graph_def, 'nodes') else self.graph_def.get('nodes', [])
-        edges = self.graph_def.edges if hasattr(self.graph_def, 'edges') else self.graph_def.get('edges', [])
+        
+        # Check if we have linear 'steps' instead of nodes (Studio format)
+        steps = self.graph_def.steps if hasattr(self.graph_def, 'steps') else self.graph_def.get('steps', [])
+        
+        edges = []
+        if not nodes and steps:
+            print("[RUNTIME] Detected linear 'steps' format. Converting to graph.")
+            nodes = []
+            
+            for i, step in enumerate(steps):
+                # Ensure each step has an ID
+                step_id = step.get('id') or f"step_{i}"
+                if 'id' not in step: step['id'] = step_id
+
+                # Map Studio 'config' to Primitive 'params'
+                if 'config' in step:
+                    config = step.get('config', {})
+                    params = step.get('params', {})
+                    
+                    # Merge config into params, allowing params to override config
+                    merged_params = {**config, **params}
+                    
+                    step_type = step.get('type', '').lower()
+                    
+                    if step_type == "agent":
+                        if "objective" in merged_params:
+                             merged_params["instruction"] = merged_params.pop("objective")
+                        if "reasoningDepth" in merged_params:
+                             merged_params["reasoning_depth"] = merged_params.pop("reasoningDepth")
+                        if "personaId" in merged_params and self.db:
+                             pid = merged_params.pop("personaId")
+                             p = self.db.query(SmartTemplatePersona).filter(SmartTemplatePersona.id == pid).first()
+                             if p:
+                                 merged_params["persona"] = p.role
+                        if "frameworkId" in merged_params and self.db:
+                             fid = merged_params.pop("frameworkId")
+                             if fid != "none":
+                                 f = self.db.query(SmartTemplateFramework).filter(SmartTemplateFramework.id == fid).first()
+                                 if f:
+                                     merged_params["framework"] = f.name
+                            
+                    elif step_type == "extractor":
+                        if "additionalInstructions" in merged_params:
+                            merged_params["instruction"] = merged_params.pop("additionalInstructions")
+                            
+                    step['params'] = merged_params
+                
+                # Handle Formatter Steps - Convert to DOCUMENT_CONVERTER
+                step_type_raw = step.get('type', '').lower()
+                if step_type_raw == "formatter":
+                    step['type'] = "DOCUMENT_CONVERTER"
+                    
+                    selected_params = step['params']
+                    
+                    # Resolve Format ID to Extension using DB
+                    # Check textFormatId, graphicsFormatId, dataFormatId
+                    fmt_id = config.get("textFormatId") or config.get("graphicsFormatId") or config.get("dataFormatId")
+                    if fmt_id and self.db:
+                        fmt = self.db.query(SmartOutputFormat).filter(SmartOutputFormat.id == fmt_id).first()
+                        if fmt:
+                            selected_params["output_format"] = fmt.extension.lower()
+                    
+                    if not selected_params.get("output_format"):
+                         selected_params["output_format"] = "markdown" # Default fallback
+                         
+                    # Auto-link input content from previous node if available
+                    if len(nodes) > 0:
+                        prev_id = nodes[-1].get('id')
+                        # We bind to _raw which is always present in TextTemplatePrimitive output
+                        # Use vars['key'] syntax to handle UUIDs with dashes safely
+                        selected_params["input_content"] = f"{{{{ variables['{prev_id}']['_raw'] }}}}"
+                        # Fallback binding if visual_payload doesn't exist? 
+                        # Template resolver might need multiple attempts, but let's stick to strict contract.
+
+                # Remove legacy merging logic
+                # if step_type_raw == "formatter" and len(nodes) > 0: ... (DELETED)
+
+                nodes.append(step)
+                
+                # Create sequential edge
+                if i > 0:
+                    prev_id = steps[i-1].get('id')
+                    edges.append({
+                        "source": prev_id,
+                        "target": step_id,
+                        "type": "default",
+                        "id": f"edge_{prev_id}_{step_id}"
+                    })
+        else:
+            edges = self.graph_def.edges if hasattr(self.graph_def, 'edges') else self.graph_def.get('edges', [])
         
         for node in nodes:
             node_id = node.id if hasattr(node, 'id') else node.get('id')
@@ -131,9 +221,12 @@ class AgentRuntime:
         for node_id, node in self.nodes.items():
             node_type = node.type if hasattr(node, 'type') else node.get('type')
             # Handle enum values
+            # Handle enum values
             if hasattr(node_type, 'value'):
                 node_type = node_type.value
-            if node_type == "START":
+            
+            # Case-insensitive check
+            if node_type and str(node_type).upper() == "START":
                 print(f"[RUNTIME] Found START node by type: {node_id}")
                 return node_id
         
@@ -198,6 +291,10 @@ class AgentRuntime:
         # Handle enum values
         if hasattr(node_type, 'value'):
             node_type = node_type.value
+            
+        # Normalize to uppercase for lookup
+        if node_type:
+            node_type = str(node_type).upper()
         
         # Get primitive instance
         try:
@@ -228,41 +325,25 @@ class AgentRuntime:
             step.complete({}, error_msg)
             return PrimitiveResult(success=False, error=error_msg)
     
-    async def execute(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None) -> Dict[str, Any]:
+    async def execute_stream(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None):
         """
-        Execute the agent workflow.
+        Execute the agent workflow as a stream of events.
         
-        Args:
-            inputs: Input values for the workflow
-            initial_state: Optional state to resume from (for step-by-step)
-            steps_limit: Optional limit on number of steps to execute (for step-by-step)
-            
-        Returns:
-            Execution result with status, outputs, and steps
+        Yields:
+            Dict: execution events
         """
         started_at = datetime.utcnow()
-        print("[RUNTIME DEBUG] EXECUTE METHOD ENTERED")
         
         # Initialize or Resume state
         if initial_state:
             state = initial_state
-            # Restore non-serializable objects
             state["db"] = self.db
             if "inputs" not in state: state["inputs"] = inputs
-            
-            # Identify next node to run
-            # If resuming, state["current_node"] *should* point to the next node to run
-            # because when we paused, we saved the next node there.
             current_node = state.get("current_node")
-            
-            # Using existing steps from history if needed? 
-            # Ideally we'd re-populate self.steps from history but for now let's just track new steps
-            # or we might want to return full history.
-            # Let's clean state["current_node"] to be explicit about what runs next.
         else:
             state = {
                 "inputs": inputs,
-                "variables": dict(inputs),  # Copy inputs to variables
+                "variables": dict(inputs),
                 "secrets": {},
                 "history": [],
                 "current_node": None,
@@ -270,18 +351,16 @@ class AgentRuntime:
                 "error": None,
                 "db": self.db
             }
-            # Find starting node
             current_node = self._get_start_node()
 
         if not current_node:
-            return {
-                "status": "failed",
-                "error": "No starting node found",
-                "outputs": {},
-                "steps": []
+            yield {
+                "type": "error",
+                "content": "No starting node found"
             }
+            return
 
-        # Load secrets if blueprint ID available and not already loaded
+        # Load secrets
         if not initial_state:
             blueprint_id = getattr(self.blueprint, 'id', None) or (
                 self.blueprint.get('id') if isinstance(self.blueprint, dict) else None
@@ -291,111 +370,141 @@ class AgentRuntime:
                     self.db, blueprint_id
                 )
             
-        # Execute workflow
-        max_iterations = 100  # Safety limit
+        # Yield Start Event
+        state_for_event = state.copy()
+        if "db" in state_for_event:
+            del state_for_event["db"]
+            
+        yield {
+            "type": "start",
+            "state": state_for_event
+        }
+            
+        max_iterations = 100
         iteration = 0
         steps_run = 0
 
-        
         while current_node and iteration < max_iterations:
             iteration += 1
             steps_run += 1
             state["current_node"] = current_node
             
+            # --- START EXECUTE STREAM CHANGE ---
+            # Yield Step Start
+            yield {
+                "type": "step_start",
+                "step": {
+                    "node_id": current_node,
+                    "node_type": self.nodes.get(current_node, {}).get("type", "UNKNOWN"),
+                    "node_label": self.nodes.get(current_node, {}).get("metadata", {}).get("label", ""),
+                    "started_at": datetime.utcnow().isoformat()
+                }
+            }
+            # --- END EXECUTE STREAM CHANGE ---
+
             # Execute node
             result = await self._execute_node(current_node, state)
             
             # Update state with output
             if result.success and result.output is not None:
-                # Always store with node ID prefix (for explicit node references)
-                # This ensures templates like {{json_mapping_xxx.field}} or {{call_tool_xxx}} resolve
-                # even if the output is a primitive (string, int)
                 state["variables"][current_node] = result.output
-
                 if isinstance(result.output, dict):
-                    # Merge output into variables at top level (for direct access to fields)
                     for key, value in result.output.items():
                         if not key.startswith('_'):
                             state["variables"][key] = value
-                    
                 state["current_output"] = result.output
             
-            # Add to history
             state["history"].append({
                 "node": current_node,
                 "success": result.success,
                 "output": result.output,
                 "error": result.error
             })
+
+            # --- START EXECUTE STREAM CHANGE ---
+            # Yield Step Complete
+            current_step = self.steps[-1] # The last step added by _execute_node
+            yield {
+                "type": "step_complete",
+                "step": current_step.to_dict()
+            }
+            # --- END EXECUTE STREAM CHANGE ---
             
-            # Check for failure
             if not result.success:
                 state["error"] = result.error
+                yield {
+                    "type": "error",
+                    "content": result.error
+                }
                 break
             
-            # Check for GUI input required - halt execution and wait for user
-            if (
-                isinstance(result.output, dict) and
-                result.output.get("type") == "gui_input_required"
-            ):
-                # Prepare state for persistence
+            # Check for GUI input required
+            if (isinstance(result.output, dict) and 
+                result.output.get("type") == "gui_input_required"):
                 state_to_save = state.copy()
-                if "db" in state_to_save:
-                    del state_to_save["db"]
-                    
+                if "db" in state_to_save: del state_to_save["db"]
                 completed_at = datetime.utcnow()
-                return {
-                    "status": "waiting_for_input",
-                    "waiting_node": current_node,
-                    "gui_schema": result.output.get("gui_schema", {}),
-                    "tool_name": result.output.get("tool_name", "GUI Tool"),
-                    "description": result.output.get("description", ""),
-                    "outputs": state["variables"],
-                    "execution_state": state_to_save,
-                    "full_state": state, # Return full state for resumption
-                    "steps": [step.to_dict() for step in self.steps],
-                    "error": None,
-                    "started_at": started_at.isoformat(),
-                    "completed_at": completed_at.isoformat(),
-                    "duration_ms": int(
-                        (completed_at - started_at).total_seconds() * 1000
-                    )
+                
+                yield {
+                    "type": "waiting_for_input",
+                    "data": {
+                        "status": "waiting_for_input",
+                        "waiting_node": current_node,
+                        "gui_schema": result.output.get("gui_schema", {}),
+                        "tool_name": result.output.get("tool_name", "GUI Tool"),
+                        "description": result.output.get("description", ""),
+                        "outputs": state["variables"],
+                        "execution_state": state_to_save,
+                        "steps": [step.to_dict() for step in self.steps],
+                        "error": None,
+                        "started_at": started_at.isoformat(),
+                        "completed_at": completed_at.isoformat(),
+                         "duration_ms": int((completed_at - started_at).total_seconds() * 1000)
+                    }
                 }
+                return
             
             # Get next node
             current_node = self._get_next_node(current_node, result)
             
             # Check step limit
             if steps_limit and steps_run >= steps_limit and current_node:
-                # Update state with next node reference for resumption
                 state["current_node"] = current_node
-                
-                # Check serialization safety (remove db)
                 state_to_save = state.copy()
-                if "db" in state_to_save:
-                    del state_to_save["db"]
+                if "db" in state_to_save: del state_to_save["db"]
                 
-                completed_at = datetime.utcnow()
-                return {
-                    "status": "paused",
-                    "execution_state": state_to_save,
-                    "outputs": state["variables"],
-                    "steps": [step.to_dict() for step in self.steps],
-                    "error": None,
-                    "started_at": started_at.isoformat(),
-                    "completed_at": None, # Not completed yet
+                yield {
+                    "type": "paused",
+                    "data": {
+                        "status": "paused",
+                        "execution_state": state_to_save,
+                        "outputs": state["variables"],
+                        "steps": [step.to_dict() for step in self.steps],
+                        "error": None,
+                        "started_at": started_at.isoformat(),
+                        "completed_at": None,
+                    }
                 }
+                return
+            
+            # --- START EXECUTE STREAM CHANGE ---
+            # Update state with current node for downstream consumers
+            state["current_node"] = current_node 
+            # Note: current_node is now the NEXT node (or None if finished)
+            # We also want to track the LAST executed node.
+            state["last_executed_node"] = current_step.node_id
+            
         
         completed_at = datetime.utcnow()
-        
-        # Build response
         final_status = "completed" if not state["error"] else "failed"
-
-        # Prepare filtered outputs (exclude inputs and internal variables)
+        
+        # Ensure current_node reflects the last legitimate node if we are done
+        if not state["current_node"] and len(self.steps) > 0:
+             state["current_node"] = self.steps[-1].node_id
+        
+        # Prepare filtered outputs (reusing logic from original execute)
         initial_inputs = state["inputs"]
         all_variables = state["variables"]
-        
-        # Check if the final node was an END node with an output_template
         last_node_id = state["current_node"]
         last_node = self.nodes.get(last_node_id) if last_node_id else None
         
@@ -403,81 +512,52 @@ class AgentRuntime:
         if last_node:
             node_type = last_node.type if hasattr(last_node, 'type') else last_node.get('type')
             if hasattr(node_type, 'value'): node_type = node_type.value
-            
             if node_type == "END":
                 params = last_node.params if hasattr(last_node, 'params') else last_node.get('params', {})
                 output_template = params.get("output_template")
-                
-                # Ensure output_template is a dict
                 if isinstance(output_template, str):
                     try:
                         import json
                         output_template = json.loads(output_template)
-                    except Exception:
-                        pass # Ignore parsing errors, will fail check below
+                    except Exception: pass
 
         filtered_outputs = {}
-        
         if output_template is not None and isinstance(output_template, dict):
-            # Use the template to construct the output
-            if len(output_template) > 0:
-                print(f"[RUNTIME DEBUG] Constructing output from END node template: {output_template}")
-            else:
-                 print(f"[RUNTIME DEBUG] END node template is empty. Returning empty output.")
-            
-            from app.services.agent_primitives.text_template import TextTemplatePrimitive
-            
-            # Simple Jinja2-like substitution using TextTemplate logic or simple replacement
-            # For now, let's support direct variable mapping: value is a variable name.
-            # AND support "{{ var }}" syntax.
-            
-            for key, template_str in output_template.items():
+            # Construct from template
+             for key, template_str in output_template.items():
                 if not isinstance(template_str, str):
                     filtered_outputs[key] = template_str
                     continue
-                    
-                # Check for direct variable match first
                 if template_str in all_variables:
                     filtered_outputs[key] = all_variables[template_str]
                 else:
-                    # Try Jinja2 rendering if it contains {{ }}
                     if "{{" in template_str:
-                        # We can re-use TextTemplate logic here or standard jinja2
                         try:
                             import jinja2
                             env = jinja2.Environment()
                             tmpl = env.from_string(template_str)
-                            # Convert all variables to strings/primitives for jinja? 
-                            # Jinja handles objects too.
                             filtered_outputs[key] = tmpl.render(**all_variables)
-                        except Exception as e:
-                            print(f"[RUNTIME ERROR] Template render failed for {key}: {e}")
-                            filtered_outputs[key] = template_str # Fallback
+                        except Exception:
+                            filtered_outputs[key] = template_str
                     else:
                         filtered_outputs[key] = template_str
-
         else:
-            # Default behavior: Filter inputs and internal keys
-            print(f"[RUNTIME DEBUG] No END template used. Using default filtering.")
-            print(f"[RUNTIME DEBUG] Initial inputs: {list(initial_inputs.keys())}")
-            print(f"[RUNTIME DEBUG] All variables: {list(all_variables.keys())}")
-            
+            # Default filtering
             for k, v in all_variables.items():
+                if k is None: continue
                 is_input = k in initial_inputs
-                is_internal = k.startswith('_')
+                is_internal = isinstance(k, str) and k.startswith('_')
                 if not is_input and not is_internal:
                     filtered_outputs[k] = v
-                else:
-                    reason = "input" if is_input else "internal"
-                    print(f"[RUNTIME DEBUG] Filtering out '{k}': {reason}")
 
-        print(f"[RUNTIME DEBUG] Final filtered outputs: {list(filtered_outputs.keys())}")
-        
-        return {
+        state_to_save = state.copy()
+        if "db" in state_to_save: del state_to_save["db"]
+
+        final_result = {
             "status": final_status,
             "outputs": filtered_outputs,
-            "execution_state": state["variables"],  # Return variables as publicly visible state
-            "full_state": state, # Return internal state for resumption/debugging
+            "execution_state": state["variables"],
+            "full_state": state_to_save,
             "steps": [step.to_dict() for step in self.steps],
             "error": state["error"],
             "started_at": started_at.isoformat(),
@@ -485,6 +565,38 @@ class AgentRuntime:
             "duration_ms": int((completed_at - started_at).total_seconds() * 1000)
         }
         
+        yield {
+            "type": "complete",
+            "data": final_result
+        }
+
+    async def execute(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Execute the agent workflow (blocking wrapper around execute_stream).
+        """
+        final_result = None
+        async for event in self.execute_stream(inputs, initial_state, steps_limit):
+            if event["type"] in ["complete", "paused", "waiting_for_input"]:
+                final_result = event["data"]
+            elif event["type"] == "error" and not final_result:
+                 # If we hit an error event but didn't reach 'complete', construct error result
+                 final_result = {
+                    "status": "failed",
+                    "error": event["content"],
+                    "outputs": {},
+                    "steps": [step.to_dict() for step in self.steps]
+                 }
+        
+        if not final_result:
+             return {
+                "status": "failed",
+                "error": "Execution interrupted or returned no result",
+                "outputs": {},
+                "steps": []
+            }
+            
+        return final_result
+
     def resume_with_input(self, state: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Update state with provided input and determine next node.
@@ -605,3 +717,4 @@ async def execute_blueprint(
             "outputs": {},
             "steps": []
         }
+

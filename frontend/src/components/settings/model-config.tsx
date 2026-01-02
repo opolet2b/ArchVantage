@@ -20,6 +20,7 @@ interface Preset {
     service_api_key?: string
     model_api_key?: string
     is_vision?: boolean
+    context_window?: number
 }
 
 export function ModelConfig({ onSave }: ModelConfigProps) {
@@ -31,6 +32,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [modelKey, setModelKey] = useState("")
     const [isVision, setIsVision] = useState(false)
     const [isSequential, setIsSequential] = useState(false)
+    const [contextWindow, setContextWindow] = useState(4096)
 
     const [defaultLLM, setDefaultLLM] = useState("")
     const [defaultVision, setDefaultVision] = useState("")
@@ -99,6 +101,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             }
             setIsVision(!!preset.is_vision)
             setIsSequential(!!(preset as any).is_sequential)
+            setContextWindow(preset.context_window || 4096)
         }
     }
 
@@ -119,6 +122,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 model_api_key: type === "remote" ? modelKey : undefined,
                 is_vision: isVision,
                 is_sequential: type === "local" ? isSequential : false,
+                context_window: contextWindow
             }
 
             const res = await fetch(`${API_URL}/config/presets`, {
@@ -308,6 +312,22 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                             Remote API
                         </Button>
                     </div>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="text-sm font-medium flex items-center gap-2">
+                        Context Window Limit (Tokens)
+                        <HelpTooltip contentPath="settings/context_window" />
+                    </label>
+                    <Input
+                        type="number"
+                        placeholder="e.g., 4096"
+                        value={contextWindow}
+                        onChange={(e) => setContextWindow(parseInt(e.target.value) || 0)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        Defines the token limit before auto-chunking triggers. Default: 4096 (approx 16k chars).
+                    </p>
                 </div>
 
                 {type === "local" && (

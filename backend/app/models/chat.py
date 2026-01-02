@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     """Standard chat request."""
     messages: List[Message]
     model: Optional[str] = "gpt-3.5-turbo"
+    conversation_id: Optional[str] = None
 
 
 class ChatResponse(BaseModel):

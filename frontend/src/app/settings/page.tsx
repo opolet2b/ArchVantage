@@ -9,6 +9,7 @@ import { TemplatesSettingsTab } from "@/components/settings/templates-settings-t
 import { RagSettingsTab } from "@/components/settings/rag-settings-tab"
 import { DebugSettingsTab } from "@/components/settings/debug-settings-tab"
 import { PromptsSettingsTab } from "@/components/settings/prompts-settings-tab"
+import { DatabaseSettingsTab } from "@/components/settings/database-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
@@ -82,6 +83,14 @@ export default function SettingsPage() {
                             <FileText className="mr-2 h-4 w-4" />
                             Prompts
                         </Button>
+                        <Button
+                            variant={activeTab === "database" ? "secondary" : "ghost"}
+                            className="justify-start gap-2"
+                            onClick={() => handleTabChange("database")}
+                        >
+                            <Database className="h-4 w-4" />
+                            Database
+                        </Button>
                         {isAdmin && (
                             <Button
                                 variant={(activeTab === "users" ||
@@ -138,6 +147,7 @@ export default function SettingsPage() {
                         {activeTab === "mcp-servers" && isAdmin && <MCPServersTab />}
                         {activeTab === "categories" && isAdmin && <CategoriesTab />}
                         {activeTab === "prompts" && <PromptsSettingsTab />}
+                        {activeTab === "database" && <DatabaseSettingsTab />}
                         {activeTab === "templates" && isAdmin && <TemplatesSettingsTab />}
                     </main>
                 </div>

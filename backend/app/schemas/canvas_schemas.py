@@ -340,9 +340,30 @@ class DiscoveredLinkDetail(BaseModel):
     rationale: Optional[str] = None
 
 
+
 class DiscoverLinksResponse(BaseModel):
     """Response for link discovery."""
     links_created: int
     domains_updated: int
     details: List[DiscoveredLinkDetail]
+
+
+# =============================================================================
+# Smart Analysis Execution
+# =============================================================================
+
+class ExecuteTemplateRequest(BaseModel):
+    """Request to execute a smart analysis template on selected items."""
+    template_id: str
+    canvas_id: str
+    thing_ids: List[str] = []
+    domain_ids: List[str] = []
+    model: Optional[str] = None
+
+class ExecuteTemplateResponse(BaseModel):
+    """Response for template execution start."""
+    execution_id: str
+    status: str
+    message: str
+
 

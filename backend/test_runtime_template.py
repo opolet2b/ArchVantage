@@ -17,9 +17,7 @@ import inspect
 print(f"DEBUG: AgentRuntime loaded from: {inspect.getfile(AgentRuntime)}")
 
 # DB Connection
-SQLALCHEMY_DATABASE_URL = "sqlite:///./data/sql_app.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+from app.core.database import SessionLocal
 db = SessionLocal()
 
 BLUEPRINT_ID = "f9d9ee3e-eafb-48b9-b51d-ad97602cd1cd"

@@ -2,6 +2,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from app.services.config_service import config_service
+from app.core.env_manager import env_manager
+from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 
 router = APIRouter(tags=["config"])
 
@@ -14,6 +17,7 @@ class ConfigRequest(BaseModel):
     model_api_key: Optional[str] = None
     is_vision: Optional[bool] = False
     is_sequential: Optional[bool] = False # New flag for local models
+    context_window: Optional[int] = 4096 # Default context window
 
 @router.get("/config/models")
 async def get_models():
@@ -71,3 +75,70 @@ def get_active_preset():
     # Return the LLM default as the "active" one for legacy calls
     preset = config_service.get_default_llm_preset()
     return {"active_preset": preset}
+
+class DatabaseConfigRequest(BaseModel):
+    url: str
+
+@router.get("/config/database")
+def get_database_config():
+    """Get current database configuration."""
+    url = env_manager.get_env_value("DATABASE_URL", "sqlite:///./db/sql_app.db")
+    return {"url": url}
+
+@router.post("/config/database")
+def set_database_config(request: DatabaseConfigRequest):
+    """Update database configuration in .env file."""
+    env_manager.set_env_value("DATABASE_URL", request.url)
+    return {
+        "status": "success", 
+        "message": "Configuration saved. Please restart the backend for changes to take effect.",
+        "restart_required": True
+    }
+
+@router.post("/config/database/test")
+def test_database_connection(request: DatabaseConfigRequest):
+    """Test connection to the provided database URL."""
+    try:
+        # Create a temporary engine
+        connect_args = {}
+        if request.url.startswith("sqlite"):
+            connect_args = {"check_same_thread": False}
+            
+        engine = create_engine(request.url, connect_args=connect_args)
+        
+        # Try to connect
+        with engine.connect() as connection:
+            pass
+            
+        return {"status": "success", "message": "Connection successful!"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+class RagConfigRequest(BaseModel):
+    embedding_provider: str = "ollama"  # "ollama", "openai", "huggingface"
+    embedding_model: str = "nomic-embed-text" 
+    embedding_api_key: Optional[str] = None
+    parsing_strategy: str = "recursive"  # "recursive", "window", "hierarchical"
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
+    enable_metadata: bool = False # Toggle Title/Summary extraction
+
+@router.get("/config/rag")
+def get_rag_config():
+    config = config_service.get_config()
+    rag_config = config.get("rag_config", {
+        "embedding_provider": "ollama",
+        "embedding_model": "nomic-embed-text",
+        "parsing_strategy": "recursive",
+        "chunk_size": 1000,
+        "chunk_overlap": 200,
+        "enable_metadata": False
+    })
+    return {"config": rag_config}
+
+@router.post("/config/rag")
+def save_rag_config(request: RagConfigRequest):
+    config = config_service.get_config()
+    config["rag_config"] = request.dict()
+    config_service.save_config(config)
+    return {"status": "success", "config": request.dict(), "warning": "Requires Re-indexing for changes to take effect."}

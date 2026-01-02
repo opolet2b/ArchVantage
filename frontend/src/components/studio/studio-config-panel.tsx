@@ -11,6 +11,7 @@ import { PipelineStep } from "./studio-canvas";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { API_URL } from "@/lib/utils";
 import { MultiSelect, Option } from "@/components/ui/multi-select";
+import { SuggestionDialog } from "@/components/studio/suggestion-dialog";
 import { VariableEditor, VariableConfig } from "@/components/studio/variable-editor";
 
 interface StudioConfigPanelProps {
@@ -29,6 +30,8 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
 
     // --- AI Suggestion Logic ---
     const [isSuggesting, setIsSuggesting] = useState(false);
+    const [intentDialogOpen, setIntentDialogOpen] = useState(false);
+    const [intentMode, setIntentMode] = useState<"extractor" | "agent">("extractor");
 
     // Filter rendering types based on selected category (safely handle null selectedStep)
     const synthesisCategories = Array.from(new Set(renderingTypes.map((rt: any) => rt.category)));
@@ -51,22 +54,30 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
         });
     };
 
-    const handleSuggestObjective = async () => {
+    const handleSuggestObjective = (mode: "extractor" | "agent") => {
         if (!props.selectedPreset) {
             alert("Please select an LLM Configuration in the header first.");
             return;
         }
         if (!selectedStep) return;
 
+        setIntentMode(mode);
+        setIntentDialogOpen(true);
+    };
+
+    const handleDialogSubmit = async (intent: string) => {
+        if (!selectedStep) return;
+
         setIsSuggesting(true);
+        setIntentDialogOpen(false); // Close dialog immediately or wait? Let's close first.
+
         try {
-            // Map section IDs to Names
+            // Map section IDs to Names (only relevant for extractor, but harmless for agent)
             const selectedSectionIds = selectedStep.config?.sourceSections || [];
             const selectedSectionNames = sections
                 .filter((s: any) => selectedSectionIds.includes(s.id))
                 .map((s: any) => s.name);
 
-            // If "entire" is selected (from the manual options we added), handle it
             if (selectedSectionIds.includes("entire")) {
                 selectedSectionNames.push("Entire Document");
             }
@@ -74,7 +85,9 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
             const payload = {
                 preset_name: props.selectedPreset,
                 source_sections: selectedSectionNames,
-                entities: selectedStep.config?.entitiesOfInterest || ""
+                entities: selectedStep.config?.entitiesOfInterest || "",
+                user_intent: intent,
+                mode: intentMode
             };
 
             const res = await fetch(`${API_URL}/smart-templates/suggest-objective`, {
@@ -85,7 +98,8 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
 
             if (res.ok) {
                 const data = await res.json();
-                handleUpdateConfig("additionalInstructions", data.suggestion);
+                const targetField = intentMode === "extractor" ? "additionalInstructions" : "objective";
+                handleUpdateConfig(targetField, data.suggestion);
             } else {
                 alert("Failed to generate suggestion. Check backend logs.");
             }
@@ -165,13 +179,47 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                 {/* --- EXTRACTOR CONFIG --- */}
                 {selectedStep.type === 'extractor' && (
                     <div className="space-y-6">
+
+                        {/* Asset Scope Selection */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-xs font-bold text-muted-foreground uppercase">Asset Scope</Label>
+                                <HelpTooltip contentPath="smart-analysis/asset_scope" />
+                            </div>
+                            <div className="flex bg-slate-100 rounded-lg p-1">
+                                <button
+                                    className={`flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-all ${selectedStep.config?.asset_scope !== 'multiple'
+                                            ? "bg-white text-blue-600 shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground"
+                                        }`}
+                                    onClick={() => handleUpdateConfig("asset_scope", "single")}
+                                >
+                                    Single Asset
+                                </button>
+                                <button
+                                    className={`flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-all ${selectedStep.config?.asset_scope === 'multiple'
+                                            ? "bg-white text-blue-600 shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground"
+                                        }`}
+                                    onClick={() => handleUpdateConfig("asset_scope", "multiple")}
+                                >
+                                    Multiple (Compare)
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                                {selectedStep.config?.asset_scope === 'multiple'
+                                    ? "Analysis generally involves comparison or aggregation across multiple selected files."
+                                    : "Analysis is performed on a single selected file."}
+                            </p>
+                        </div>
+
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <Label className="text-xs font-bold text-muted-foreground uppercase">Source Sections</Label>
                                 <HelpTooltip contentPath="smart-analysis/source_sections" />
                             </div>
                             <MultiSelect
-                                options={sections.map(s => ({ label: s.name, value: s.id }))} // Changed to use Option[] format
+                                options={sections.map(s => ({ label: s.name, value: s.id }))}
                                 selected={selectedStep.config?.sourceSections || []}
                                 onChange={(val) => handleUpdateConfig("sourceSections", val)}
                                 placeholder="Select sections..."
@@ -180,39 +228,52 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
 
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
-                                <Label className="text-xs font-bold text-muted-foreground uppercase">Entities of Interest</Label>
-                                <HelpTooltip contentPath="smart-analysis/entities" />
+                                <Label className="text-xs font-bold text-muted-foreground uppercase">Extraction Focus</Label>
+                                <HelpTooltip contentPath="smart-analysis/focus" />
                             </div>
                             <Textarea
-                                placeholder="e.g. Dates, Locations, Names..."
-                                value={selectedStep.config?.entitiesOfInterest || ""}
-                                onChange={(e) => handleUpdateConfig("entitiesOfInterest", e.target.value)}
+                                placeholder="What main elements or topics should be extracted?"
+                                value={selectedStep.config?.focus || ""}
+                                onChange={(e) => handleUpdateConfig("focus", e.target.value)}
                                 className="min-h-[80px]"
                             />
                         </div>
 
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
+                                <Label className="text-xs font-bold text-muted-foreground uppercase">Exclude Patterns</Label>
+                                <HelpTooltip contentPath="smart-analysis/exclude" />
+                            </div>
+                            <Textarea
+                                placeholder="What should be strictly ignored? (e.g. boilerplate, headers)"
+                                value={selectedStep.config?.exclude || ""}
+                                onChange={(e) => handleUpdateConfig("exclude", e.target.value)}
+                                className="min-h-[60px]"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                    <Label className="text-xs font-bold text-muted-foreground uppercase">Objectives</Label>
-                                    <HelpTooltip contentPath="smart-analysis/objectives" />
+                                    <Label className="text-xs font-bold text-muted-foreground uppercase">Additional Instructions</Label>
+                                    <HelpTooltip contentPath="smart-analysis/instructions" />
                                 </div>
                                 <Button
                                     size="sm"
                                     variant="outline"
                                     className="h-6 text-[10px] px-2 gap-1 text-blue-600 hover:text-blue-700 border-blue-200 hover:bg-blue-50"
-                                    onClick={handleSuggestObjective}
+                                    onClick={() => handleSuggestObjective("extractor")}
                                     disabled={isSuggesting}
                                 >
-                                    {isSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                                    {isSuggesting && intentMode === "extractor" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                                     Suggest
                                 </Button>
                             </div>
                             <Textarea
-                                placeholder="Specific instructions for extraction..."
-                                value={selectedStep.config?.additionalInstructions || ""}
-                                onChange={(e) => handleUpdateConfig("additionalInstructions", e.target.value)}
-                                className="min-h-[120px]"
+                                placeholder="Any specific formatting or processing rules..."
+                                value={selectedStep.config?.instructions || ""}
+                                onChange={(e) => handleUpdateConfig("instructions", e.target.value)}
+                                className="min-h-[100px]"
                             />
                         </div>
                     </div>
@@ -224,6 +285,8 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                         <div className="bg-purple-50 dark:bg-purple-900/10 p-3 rounded text-xs text-purple-600 dark:text-purple-400 font-medium">
                             Configure AI reasoning logic.
                         </div>
+
+
 
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
@@ -287,7 +350,34 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                             <VariableEditor
                                 variables={selectedStep.config?.variables || []}
                                 onChange={(vars) => handleUpdateConfig("variables", vars)}
+                                selectedPreset={props.selectedPreset}
                             />
+                        </div>
+
+                        <div className="space-y-2 pt-2 border-t">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-xs font-bold text-muted-foreground uppercase">Objective <span className="text-red-500">*</span></Label>
+                                    <HelpTooltip contentPath="smart-analysis/agent_objective" />
+                                </div>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-[10px] px-2 gap-1 text-purple-600 hover:text-purple-700 border-purple-200 hover:bg-purple-50"
+                                    onClick={() => handleSuggestObjective("agent")}
+                                    disabled={isSuggesting}
+                                >
+                                    {isSuggesting && intentMode === "agent" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                                    Suggest
+                                </Button>
+                            </div>
+                            <Textarea
+                                placeholder="Describe what the agent should analyze or achieve..."
+                                value={selectedStep.config?.objective || ""}
+                                onChange={(e) => handleUpdateConfig("objective", e.target.value)}
+                                className="min-h-[100px] border-l-2 border-l-purple-500"
+                            />
+                            <p className="text-[10px] text-muted-foreground">The primary prompt for the agent. Other fields will provide context for the suggestion.</p>
                         </div>
                     </div>
                 )}
@@ -409,6 +499,17 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                 )}
 
             </div>
+
+            <SuggestionDialog
+                isOpen={intentDialogOpen}
+                onClose={() => setIntentDialogOpen(false)}
+                onSubmit={handleDialogSubmit}
+                isLoading={isSuggesting}
+                title={intentMode === 'extractor' ? "Suggest Extraction Objective" : "Suggest Agent Objective"}
+                description={intentMode === 'extractor'
+                    ? "Briefly describe what data you want to extract from the document."
+                    : "Briefly describe the goal of the analysis you want the agent to perform."}
+            />
 
             <div className="p-4 border-t bg-slate-50">
                 <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-200 uppercase font-bold tracking-wide text-xs h-10">

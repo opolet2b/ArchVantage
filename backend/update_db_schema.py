@@ -2,8 +2,21 @@
 import sqlite3
 import os
 
+import sys
+# Add root to sys.path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from app.core.database import get_db_path
+    configured_path = get_db_path()
+except:
+    configured_path = None
+
 def find_db():
-    candidates = ["sql_app.db", "backend/sql_app.db", "../sql_app.db", "app/sql_app.db"]
+    candidates = []
+    if configured_path:
+        candidates.append(configured_path)
+    
+    candidates.extend(["db/sql_app.db", "sql_app.db", "backend/db/sql_app.db"])
     for path in candidates:
         if os.path.exists(path):
             return path

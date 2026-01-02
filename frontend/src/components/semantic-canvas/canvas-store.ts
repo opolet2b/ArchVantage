@@ -200,13 +200,17 @@ interface CanvasState {
         type: ThingType,
         content: Record<string, unknown>,
         position: { x: number; y: number },
-        title?: string
+        title?: string,
+        width?: number,
+        height?: number,
+        domainId?: string
     ) => Promise<CanvasThing | null>;
     updateThing: (
         thingId: string,
         updates: Partial<CanvasThing>
     ) => Promise<void>;
     syncThing: (thingId: string, serverThing: Partial<CanvasThing>) => void;
+    addServerThing: (thing: CanvasThing) => void;
     deleteThing: (thingId: string) => Promise<void>;
     moveThing: (thingId: string, x: number, y: number, width?: number, height?: number) => void;
 
@@ -259,6 +263,9 @@ interface CanvasState {
 
     // Semantic Discovery
     discoverLinks: (thingIds: string[], domainIds: string[]) => Promise<{ links_created: number; domains_updated: number; details: any[] } | null>;
+
+    // Smart Analysis Template Execution
+    executeAnalysisTemplate: (templateId: string, thingIds: string[], domainIds: string[]) => Promise<any>;
 }
 
 /**
@@ -426,7 +433,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add thing to canvas
-    addThing: async (type, content, position, title) => {
+    addThing: async (type, content, position, title, width, height, domainId) => {
         const { canvasId } = get();
         const token = getAuthToken();
         console.log(`[Store] addThing called. Type: ${type}, CanvasId: ${canvasId}`);
@@ -447,8 +454,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     type,
                     content,
                     position: { x: position.x, y: position.y },
-                    size: { width: 400, height: 400 }, // Correctly nested size object
+                    size: { width: width ?? 400, height: height ?? 400 },
                     title,
+                    domain_id: domainId,
                 }),
             });
 
@@ -561,6 +569,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             things: get().things.map((t) =>
                 t.id === thingId ? { ...t, ...serverThing } : t
             ),
+        });
+    },
+
+    // Add thing from server (already created)
+    addServerThing: (thing: CanvasThing) => {
+        set({
+            things: [...get().things, thing]
         });
     },
 
@@ -743,6 +758,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         const token = getAuthToken();
         if (!token || !canvasId) return;
 
+        // 1. Optimistic Update
+        const previousDomains = domains;
+        const optimisticDomains = domains.map((d) =>
+            d.id === domainId
+                ? {
+                    ...d,
+                    ...updates,
+                    // Handle nested updates/patches if necessary (e.g. partial position)
+                    position_x: updates.position_x !== undefined ? updates.position_x : d.position_x,
+                    position_y: updates.position_y !== undefined ? updates.position_y : d.position_y,
+                    width: updates.width !== undefined ? updates.width : d.width,
+                    height: updates.height !== undefined ? updates.height : d.height,
+                    name: updates.name !== undefined ? updates.name : d.name,
+                    description: updates.description !== undefined ? updates.description : d.description,
+                    color: updates.color !== undefined ? updates.color : d.color,
+                }
+                : d
+        );
+        set({ domains: optimisticDomains });
+
         try {
             const res = await fetch(
                 `${API_URL}/canvases/${canvasId}/domains/${domainId}`,
@@ -768,11 +803,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             if (!res.ok) throw new Error("Failed to update domain");
 
             const updated: Domain = await res.json();
+            // 2. Confirm Update (Replace with server version)
             set({
-                domains: domains.map((d) => (d.id === domainId ? updated : d)),
+                domains: get().domains.map((d) => (d.id === domainId ? updated : d)),
             });
         } catch (err) {
             console.error("Failed to update domain:", err);
+            // 3. Revert on Error
+            set({ domains: previousDomains });
         }
     },
 
@@ -799,9 +837,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         for (const domain of domains) {
             if (
                 x >= domain.position_x &&
-                x <= domain.position_x + domain.width &&
-                y >= domain.position_y &&
-                y <= domain.position_y + domain.height
+                x <= domain.position_x + (domain.width || 300) &&
+                y >= domain.position_y - 40 &&
+                y <= domain.position_y + (domain.height || 200)
             ) {
                 return domain.id;
             }
@@ -992,6 +1030,54 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             return data;
         } catch (e) {
             console.error("Discover Links failed", e);
+            set({ isLoading: false, error: e instanceof Error ? e.message : String(e) });
+            return null;
+        }
+    },
+
+    // Execute Smart Analysis Template
+    executeAnalysisTemplate: async (templateId: string, thingIds: string[], domainIds: string[]) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return null;
+
+        set({ isLoading: true });
+        console.log(`[CanvasStore] Executing template ${templateId} on canvas ${canvasId}`);
+
+        try {
+            const res = await fetch(
+                `${API_URL}/canvases/${canvasId}/execute-template`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        template_id: templateId,
+                        canvas_id: canvasId,
+                        thing_ids: thingIds,
+                        domain_ids: domainIds,
+                        model: get().selectedModel || undefined
+                    }),
+                }
+            );
+
+            if (!res.ok) {
+                const err = await res.text();
+                throw new Error(`Failed to execute template: ${err}`);
+            }
+
+            const result = await res.json();
+            console.log("[CanvasStore] Template execution result:", result);
+
+            get().refreshThings();
+
+            set({ isLoading: false });
+            return result;
+
+        } catch (e) {
+            console.error("Template execution failed", e);
             set({ isLoading: false, error: e instanceof Error ? e.message : String(e) });
             return null;
         }

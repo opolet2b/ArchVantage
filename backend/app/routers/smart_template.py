@@ -28,9 +28,12 @@ def update_category(item_id: str, item: schemas.SmartGlobalCategoryUpdate, db: S
 
 @router.delete("/categories/{item_id}")
 def delete_category(item_id: str, db: Session = Depends(get_db)):
-    if not smart_template_service.delete_global_category(db, item_id):
-        raise HTTPException(status_code=404, detail="Category not found")
-    return {"status": "ok"}
+    try:
+        if not smart_template_service.delete_global_category(db, item_id):
+            raise HTTPException(status_code=404, detail="Category not found")
+        return {"status": "ok"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # --- Taxonomies ---
 
@@ -199,37 +202,55 @@ class SuggestObjectiveRequest(BaseModel):
     preset_name: str
     source_sections: List[str]
     entities: str
+    user_intent: str = "" # New field for user's brief description
+    mode: str = "extractor" # "extractor" or "agent"
 
-@router.post("/suggest-objective") # Changed path to be relative to router prefix
+@router.post("/suggest-objective")
 async def suggest_objective(request: SuggestObjectiveRequest):
     """
-    Generates a prompt/objective for the AI based on selected sections and entities.
-    Uses the specified LLM preset.
+    Generates a prompt/objective based on context and user intent.
+    Supports both Data Extraction and AI Agent Analysis modes.
     """
     from app.services.llm_service import llm_service
     from app.models.chat import Message
+    import re
     
     # Construct the meta-prompt
     sections_text = ", ".join(request.source_sections) if request.source_sections else "Entire Document"
     entities_text = request.entities if request.entities else "None specified"
+    intent_text = request.user_intent if request.user_intent else "No specific intent provided."
     
     system_prompt = (
         "You are an expert AI Prompt Engineer. Your goal is to write a precise, effective instruction (prompt) "
-        "for another AI that will perform data extraction from documents."
+        "for another AI that will safely and accurately perform the requested task."
     )
     
-    user_prompt = (
-        f"Context: The user wants to extract specific data from a document.\n"
-        f"Source Sections: {sections_text}\n"
-        f"Entities of Interest: {entities_text}\n\n"
-        f"Task: Write a clear, step-by-step objective/prompt that I can give to the extraction AI. "
-        f"The prompt should instruct the AI to:\n"
-        f"1. Focus on the {sections_text}.\n"
-        f"2. LOCATE and EXTRACT the {entities_text}.\n"
-        f"3. Structure the output clearly (e.g., Markdown table or JSON format).\n"
-        f"4. Handle cases where data is missing (e.g., write 'Not Found').\n\n"
-        f"Output ONLY the prompt text, no conversational filler."
-    )
+    if request.mode == "extractor":
+        user_prompt = (
+            f"Context: The user wants to configure a Data Extraction AI.\n"
+            f"Source Sections: {sections_text}\n"
+            f"Entities of Interest: {entities_text}\n"
+            f"User's Goal: {intent_text}\n\n"
+            f"Task: Write a clear, step-by-step objective/prompt for the extraction AI.\n"
+            f"The prompt should instruct the AI to:\n"
+            f"1. Focus on the specified sections.\n"
+            f"2. LOCATE and EXTRACT the requested entities.\n"
+            f"3. Follow the user's specific goal: '{intent_text}'\n"
+            f"4. Handle missing data appropriately.\n\n"
+            f"Output ONLY the prompt text, no conversational filler."
+        )
+    else: # Agent Mode
+        user_prompt = (
+            f"Context: The user wants to configure an AI Agent for analysis.\n"
+            f"User's Goal: {intent_text}\n"
+            f"Persona/Role: The agent will be acting as a specialized analyst.\n\n"
+            f"Task: Write a detailed objective/prompt for this AI Agent.\n"
+            f"The prompt should:\n"
+            f"1. Clearly define the analytical goal based on: '{intent_text}'\n"
+            f"2. Instruct the agent on what to look for and how to think.\n"
+            f"3. Specify the desired outcome of the analysis.\n\n"
+            f"Output ONLY the prompt text, no conversational filler."
+        )
     
     messages = [
         Message(role="system", content=system_prompt),
@@ -239,8 +260,7 @@ async def suggest_objective(request: SuggestObjectiveRequest):
     try:
         response_content = await llm_service.chat(messages, model_name=request.preset_name)
         
-        # Post-processing: Strip <think>...</think> tags if present (common in deepseek/reasoning models)
-        import re
+        # Post-processing: Strip <think> tags
         cleaned_response = re.sub(r'<think>.*?</think>', '', response_content, flags=re.DOTALL).strip()
         
         return {"suggestion": cleaned_response}
@@ -335,6 +355,17 @@ async def suggest_admin_attribute(request: SuggestRequest):
             f"Category: {category}\n"
             f"Rendering Name: {name}\n"
             f"Task: Describe what this visualization looks like and when it should be used. Keep it concise."
+        )
+
+    elif request.type == "variable-description":
+        name = details.get("name", "")
+        var_type = details.get("var_type", "")
+        user_prompt = (
+            f"Write a description for an Analysis Variable.\n"
+            f"Variable Name: {name}\n"
+            f"Variable Type: {var_type}\n"
+            f"Task: Write a clear and concise description of what this variable represents and how the AI should use it. "
+            f"Explain its purpose in the context of data analysis."
         )
 
     else:

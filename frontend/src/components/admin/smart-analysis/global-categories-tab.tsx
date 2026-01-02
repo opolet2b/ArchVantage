@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { API_URL } from "@/lib/utils";
 
+import { useToast } from "@/components/ui/use-toast";
+
 interface GlobalCategoryItem {
     id: string;
     name: string;
@@ -19,8 +21,10 @@ interface GlobalCategoryItem {
 }
 
 export function GlobalCategoriesTab() {
+    const { toast } = useToast();
     const [items, setItems] = useState<GlobalCategoryItem[]>([]);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
 
     // Form state
     const [newItem, setNewItem] = useState<Partial<GlobalCategoryItem>>({
@@ -42,26 +46,56 @@ export function GlobalCategoriesTab() {
             }
         } catch (error) {
             console.error("Failed to fetch categories:", error);
+            toast({ title: "Error", description: "Failed to fetch categories", variant: "destructive" });
         }
+    };
+
+    const handleOpenAdd = () => {
+        setEditingId(null);
+        setNewItem({ name: "", context: "Taxonomy", active: true });
+        setIsDialogOpen(true);
+    };
+
+    const handleEdit = (item: GlobalCategoryItem) => {
+        setEditingId(item.id);
+        setNewItem({ ...item }); // Copy item data to form
+        setIsDialogOpen(true);
     };
 
     const handleSave = async () => {
         try {
-            const res = await fetch(`${API_URL}/smart-templates/categories`, {
-                method: "POST",
+            const url = editingId
+                ? `${API_URL}/smart-templates/categories/${editingId}`
+                : `${API_URL}/smart-templates/categories`;
+
+            const method = editingId ? "PUT" : "POST";
+
+            const res = await fetch(url, {
+                method: method,
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(newItem),
             });
 
             if (res.ok) {
                 const data = await res.json();
-                setItems([...items, data]);
+                if (editingId) {
+                    setItems(items.map(i => i.id === editingId ? data : i));
+                    toast({ title: "Success", description: "Category updated successfully" });
+                } else {
+                    setItems([...items, data]);
+                    toast({ title: "Success", description: "Category created successfully" });
+                }
                 setIsDialogOpen(false);
                 // Reset form
                 setNewItem({ name: "", context: "Taxonomy", active: true });
+                setEditingId(null);
+            } else {
+                const err = await res.json();
+                toast({ title: "Error", description: err.detail || "Failed to save category", variant: "destructive" });
             }
         } catch (error) {
             console.error("Failed to save category:", error);
+            toast({ title: "Error", description: "Failed to save category", variant: "destructive" });
         }
     };
 
@@ -72,9 +106,14 @@ export function GlobalCategoriesTab() {
             });
             if (res.ok) {
                 setItems(items.filter(item => item.id !== id));
+                toast({ title: "Success", description: "Category deleted successfully" });
+            } else {
+                const err = await res.json();
+                toast({ title: "Error", description: err.detail || "Failed to delete category", variant: "destructive" });
             }
         } catch (error) {
             console.error("Failed to delete category:", error);
+            toast({ title: "Error", description: "Failed to delete category", variant: "destructive" });
         }
     };
 
@@ -85,14 +124,12 @@ export function GlobalCategoriesTab() {
                     {items.length} categories defined.
                 </div>
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                    <DialogTrigger asChild>
-                        <Button className="bg-[#4F46E5] hover:bg-[#4338CA] text-white">
-                            <Plus className="mr-2 h-4 w-4" /> Add Category
-                        </Button>
-                    </DialogTrigger>
+                    <Button onClick={handleOpenAdd} className="bg-[#4F46E5] hover:bg-[#4338CA] text-white">
+                        <Plus className="mr-2 h-4 w-4" /> Add Category
+                    </Button>
                     <DialogContent className="sm:max-w-[425px] max-h-[85vh] flex flex-col">
                         <DialogHeader>
-                            <DialogTitle className="text-xl font-bold">Add Global Category</DialogTitle>
+                            <DialogTitle className="text-xl font-bold">{editingId ? "Edit Global Category" : "Add Global Category"}</DialogTitle>
                             <DialogDescription className="uppercase text-xs font-semibold tracking-wider text-muted-foreground">
                                 CONFIGURE CATEGORY PARAMETERS
                             </DialogDescription>
@@ -140,7 +177,7 @@ export function GlobalCategoriesTab() {
                                 <Button variant="outline" className="flex-1">Cancel</Button>
                             </DialogClose>
                             <Button onClick={handleSave} className="flex-1 bg-[#4F46E5] hover:bg-[#4338CA] text-white">
-                                <Check className="mr-2 h-4 w-4" /> Save Category
+                                <Check className="mr-2 h-4 w-4" /> {editingId ? "Update Category" : "Save Category"}
                             </Button>
                         </DialogFooter>
                     </DialogContent>
@@ -174,7 +211,7 @@ export function GlobalCategoriesTab() {
                                 </TableCell>
                                 <TableCell>
                                     <div className="flex items-center gap-2">
-                                        <Button variant="ghost" size="icon" className="h-8 w-8"><Pencil className="h-4 w-4" /></Button>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(item)}><Pencil className="h-4 w-4" /></Button>
                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => handleDelete(item.id)}><Trash2 className="h-4 w-4" /></Button>
                                     </div>
                                 </TableCell>

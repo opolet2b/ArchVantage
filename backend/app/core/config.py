@@ -8,6 +8,9 @@ class Settings:
     PROJECT_NAME: str = "ChatBot Agent Orchestrator"
     API_V1_STR: str = "/api/v1"
     
+    # Database Configuration
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./db/sql_app.db")
+
     # CORS Configuration
     # Parse comma-separated string from env, or use default list
     BACKEND_CORS_ORIGINS: List[str] = [

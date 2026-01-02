@@ -87,10 +87,40 @@ class DocumentIngestor:
 
                 combined_text += doc.text + "\n\n"
 
-            # Split into nodes for granular progress tracking
+            # Split / Extract Metadata
             from llama_index.core import Settings
-            print(f"[DocumentIngestor] Splitting documents into nodes...")
-            nodes = Settings.text_splitter.get_nodes_from_documents(documents)
+            
+            nodes = []
+            enable_metadata = metadata.get("enable_metadata", False) if metadata else False
+            
+            if enable_metadata:
+                try:
+                    print("[DocumentIngestor] Metadata Extraction Enabled. Running IngestionPipeline...")
+                    from llama_index.core.ingestion import IngestionPipeline
+                    from llama_index.core.extractors import TitleExtractor, SummaryExtractor
+                    
+                    # Ensure LLM is available for extraction
+                    if not Settings.llm:
+                         print("[DocumentIngestor] Warning: Metadata extraction requested but no LLM configured. Skipping extraction.")
+                         nodes = Settings.node_parser.get_nodes_from_documents(documents)
+                    else:
+                        pipeline = IngestionPipeline(
+                            transformations=[
+                                Settings.node_parser,
+                                TitleExtractor(nodes=5),
+                                SummaryExtractor(summaries=["prev", "self", "next"]),
+                            ]
+                        )
+                        nodes = pipeline.run(documents=documents)
+                        print(f"[DocumentIngestor] Metadata extraction complete. Generated {len(nodes)} nodes.")
+                except Exception as e:
+                    print(f"[DocumentIngestor] Error in extraction pipeline: {e}. Fallback to standard splitting.")
+                    nodes = Settings.node_parser.get_nodes_from_documents(documents)
+            else:
+                print(f"[DocumentIngestor] Splitting documents into nodes (Standard)...")
+                # Use node_parser generic property to support both Splitters and WindowParsers
+                nodes = Settings.node_parser.get_nodes_from_documents(documents)
+
             total_nodes = len(nodes)
             print(f"[DocumentIngestor] Created {total_nodes} nodes. Starting insertion...")
             

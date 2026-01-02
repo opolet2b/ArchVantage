@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Trash2, Edit2, Check, X } from "lucide-react";
+import { Plus, Trash2, Edit2, Check, X, HelpCircle, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { API_URL } from "@/lib/utils";
 
 export interface VariableConfig {
     id: string;
@@ -22,11 +24,13 @@ export interface VariableConfig {
 interface VariableEditorProps {
     variables: VariableConfig[];
     onChange: (vars: VariableConfig[]) => void;
+    selectedPreset?: string;
 }
 
-export function VariableEditor({ variables = [], onChange }: VariableEditorProps) {
+export function VariableEditor({ variables = [], onChange, selectedPreset }: VariableEditorProps) {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingVar, setEditingVar] = useState<VariableConfig | null>(null);
+    const [isSuggesting, setIsSuggesting] = useState(false);
 
     // Temp state for the form
     const [formData, setFormData] = useState<Partial<VariableConfig>>({
@@ -90,6 +94,45 @@ export function VariableEditor({ variables = [], onChange }: VariableEditorProps
             ...prev,
             options: (prev.options || []).filter((_, i) => i !== idx)
         }));
+    };
+
+    const handleSuggestDescription = async () => {
+        if (!selectedPreset) {
+            alert("Please select an AI Configuration in the header first.");
+            return;
+        }
+        if (!formData.name) {
+            alert("Please enter a variable name first.");
+            return;
+        }
+
+        setIsSuggesting(true);
+        try {
+            const res = await fetch(`${API_URL}/smart-templates/suggest`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    preset_name: selectedPreset,
+                    type: "variable-description",
+                    details: {
+                        name: formData.name,
+                        var_type: formData.type
+                    }
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setFormData(prev => ({ ...prev, description: data.suggestion }));
+            } else {
+                alert("Failed to generate suggestion.");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Error generating suggestion.");
+        } finally {
+            setIsSuggesting(false);
+        }
     };
 
     const isSelectType = formData.type === "select_single" || formData.type === "select_multiple";
@@ -165,7 +208,31 @@ export function VariableEditor({ variables = [], onChange }: VariableEditorProps
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Description</Label>
+                            <div className="flex items-center justify-between">
+                                <Label className="flex items-center gap-2">
+                                    Description
+                                    <TooltipProvider>
+                                        <Tooltip delayDuration={300}>
+                                            <TooltipTrigger asChild>
+                                                <HelpCircle className="h-4 w-4 text-muted-foreground cursor-pointer" />
+                                            </TooltipTrigger>
+                                            <TooltipContent className="max-w-[300px]">
+                                                This description is a mandatory field and it explains what this variable is for, so that the AI will understand what to do with this variable.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                </Label>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 gap-1 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                    onClick={handleSuggestDescription}
+                                    disabled={isSuggesting}
+                                >
+                                    {isSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                                    Suggest
+                                </Button>
+                            </div>
                             <Textarea
                                 placeholder="Help the AI understand what this variable represents..."
                                 value={formData.description}

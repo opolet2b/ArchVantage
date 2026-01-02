@@ -108,6 +108,20 @@ export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
                 }}
             />
 
+            {/* Connection Handles - Left (Target) and Right (Source) only */}
+            <Handle
+                type="target"
+                position={Position.Left}
+                className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950"
+                style={{ zIndex: 50 }}
+            />
+            <Handle
+                type="source"
+                position={Position.Right}
+                className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950"
+                style={{ zIndex: 50 }}
+            />
+
             <div
                 className={cn(
                     "w-full h-full rounded-xl border-2",

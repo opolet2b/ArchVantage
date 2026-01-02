@@ -3,7 +3,20 @@
 import sqlite3
 import json
 
-conn = sqlite3.connect('data/sql_app.db')
+import sys
+import os
+
+# Add root to sys.path to allow importing app
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from app.core.database import get_db_path
+
+db_path = get_db_path()
+if not db_path:
+    print("Database is not SQLite or not configured.")
+    sys.exit(1)
+
+conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
 
 # Get all agents

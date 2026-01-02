@@ -232,13 +232,13 @@ class CanvasThing(Base):
     # Links - Explicit relationship to handle cascade delete
     outgoing_links = relationship(
         "CanvasLink",
-        foreign_keys="CanvasLink.source_id",
+        primaryjoin="CanvasThing.id==foreign(CanvasLink.source_id)",
         back_populates="source",
         cascade="all, delete-orphan"
     )
     incoming_links = relationship(
         "CanvasLink",
-        foreign_keys="CanvasLink.target_id",
+        primaryjoin="CanvasThing.id==foreign(CanvasLink.target_id)",
         back_populates="target",
         cascade="all, delete-orphan"
     )
@@ -265,12 +265,10 @@ class CanvasLink(Base):
     
     source_id = Column(
         String(36),
-        ForeignKey("canvas_things.id"),
         nullable=False
     )
     target_id = Column(
         String(36),
-        ForeignKey("canvas_things.id"),
         nullable=False
     )
     
@@ -294,12 +292,12 @@ class CanvasLink(Base):
     canvas = relationship("Canvas", back_populates="links")
     source = relationship(
         "CanvasThing",
-        foreign_keys=[source_id],
+        primaryjoin="foreign(CanvasLink.source_id)==CanvasThing.id",
         back_populates="outgoing_links"
     )
     target = relationship(
         "CanvasThing",
-        foreign_keys=[target_id],
+        primaryjoin="foreign(CanvasLink.target_id)==CanvasThing.id",
         back_populates="incoming_links"
     )
 

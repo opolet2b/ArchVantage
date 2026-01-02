@@ -2,7 +2,14 @@
 import sqlite3
 import os
 
-DB_PATH = "data/sql_app.db"
+import sys
+
+# Add root to sys.path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from app.core.database import get_db_path
+
+DB_PATH = get_db_path() or "db/sql_app.db"
 
 def migrate():
     if not os.path.exists(DB_PATH):

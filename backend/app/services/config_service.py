@@ -61,6 +61,11 @@ class ConfigService:
         presets = config.get("presets", [])
         return next((p for p in presets if p["name"] == preset_name), None)
 
+    def get_preset_config(self, preset_name: str) -> Optional[Dict[str, Any]]:
+        config = self.get_config()
+        presets = config.get("presets", [])
+        return next((p for p in presets if p["name"] == preset_name), None)
+
     def set_default_llm_preset(self, preset_name: str):
         config = self.get_config()
         config["default_llm_preset_name"] = preset_name

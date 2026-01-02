@@ -9,6 +9,7 @@ PEP 8 Compliant
 from typing import List
 import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -27,9 +28,11 @@ from app.schemas.canvas_schemas import (
     DomainCreate, DomainUpdate, DomainResponse,
     SummarizeRequest, SummarizeResponse,
     AnalyzeRequest, AnalyzeResponse, AnalyzeAction,
-    DiscoverLinksRequest, DiscoverLinksResponse
+    DiscoverLinksRequest, DiscoverLinksResponse,
+    ExecuteTemplateRequest, ExecuteTemplateResponse
 )
 from app.services.rag_service import rag_service
+from app.services.smart_template_service import smart_template_service
 from app.routers.canvas_worker import handle_async_vectorization
 from pydantic import BaseModel
 
@@ -211,6 +214,7 @@ async def create_thing(
 ):
     """Add a thing to the canvas."""
     print(f"[CanvasRouter] Received create_thing request for canvas {canvas_id}, type: {request.type}")
+    print(f"[CanvasRouter] Request Domain ID: {request.domain_id}")
     try:
         # Verify canvas ownership
         canvas = db.query(Canvas).filter(
@@ -493,20 +497,34 @@ def create_link(
             detail="Canvas not found"
         )
     
-    # Verify both things exist on this canvas
+    # Verify source exists (Thing OR Domain)
     source = db.query(CanvasThing).filter(
         CanvasThing.id == request.source_id,
         CanvasThing.canvas_id == canvas_id
     ).first()
+
+    if not source:
+        source = db.query(Domain).filter(
+            Domain.id == request.source_id,
+            Domain.canvas_id == canvas_id
+        ).first()
+
+    # Verify target exists (Thing OR Domain)
     target = db.query(CanvasThing).filter(
         CanvasThing.id == request.target_id,
         CanvasThing.canvas_id == canvas_id
     ).first()
+
+    if not target:
+        target = db.query(Domain).filter(
+            Domain.id == request.target_id,
+            Domain.canvas_id == canvas_id
+        ).first()
     
     if not source or not target:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Source or target thing not found on this canvas"
+            detail="Source or target (Thing/Domain) not found on this canvas"
         )
     
     link = CanvasLink(
@@ -1391,6 +1409,100 @@ async def discover_links(
     except Exception as e:
         debug_service.log("ERROR", "DiscoverLinks", f"Unexpected Error: {str(e)}", {"traceback": traceback.format_exc()})
         print(f"[DiscoverLinks] Error: {e}")
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/canvases/{canvas_id}/execute-template", response_model=ExecuteTemplateResponse)
+async def execute_template_endpoint(
+    canvas_id: str,
+    request: ExecuteTemplateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Execute a smart analysis template on the canvas."""
+    # Ensure request canvas_id matches path
+    request.canvas_id = canvas_id 
+    
+    # Check Permissions
+    user_role_ids = [role.id for role in current_user.roles]
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
+    ).first()
+    
+    if not canvas:
+         raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Canvas not found"
+        )
+
+    try:
+        return await smart_template_service.execute_template(db, request)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        print(f"[ExecuteTemplate] Error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/canvases/{canvas_id}/execute-template/stream")
+async def execute_template_stream_endpoint(
+    canvas_id: str,
+    request: ExecuteTemplateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Execute a smart analysis template with streaming progress updates."""
+    # Ensure request canvas_id matches path
+    request.canvas_id = canvas_id 
+    
+    # Check Permissions
+    user_role_ids = [role.id for role in current_user.roles]
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
+    ).first()
+    
+    if not canvas:
+         raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Canvas not found"
+        )
+
+    import json
+    from datetime import datetime
+    
+    class SafeJSONEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            if hasattr(obj, '__dict__'):
+                return str(obj)
+            try:
+                return super().default(obj)
+            except TypeError:
+                return str(obj)
+
+    async def event_generator():
+        try:
+            print(f"[Stream] Starting template execution for {request.template_id}")
+            async for event in smart_template_service.execute_template_stream(db, request):
+                yield json.dumps(event, cls=SafeJSONEncoder) + "\n"
+        except Exception as e:
+            print(f"[Stream] Error: {e}")
+            traceback.print_exc()
+            yield json.dumps({"type": "error", "content": str(e)}, cls=SafeJSONEncoder) + "\n"
+            
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 

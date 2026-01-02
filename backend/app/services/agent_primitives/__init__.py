@@ -14,7 +14,9 @@ from app.services.agent_primitives.json_mapping import JSONMappingPrimitive
 from app.services.agent_primitives.text_template import TextTemplatePrimitive
 from app.services.agent_primitives.foreach import ForEachPrimitive
 from app.services.agent_primitives.llm_decision import LLMDecisionPrimitive
+from app.services.agent_primitives.extractor import ExtractorPrimitive
 from app.services.agent_primitives.document_converter import DocumentConverterPrimitive
+from app.services.agent_primitives.llm_generation import LLMGenerationPrimitive
 
 # Registry of all available primitives
 PRIMITIVE_REGISTRY = {
@@ -28,6 +30,13 @@ PRIMITIVE_REGISTRY = {
     "FOREACH": ForEachPrimitive,
     "LLM_DECISION": LLMDecisionPrimitive,
     "DOCUMENT_CONVERTER": DocumentConverterPrimitive,
+    "EXTRACTOR": ExtractorPrimitive,
+    "LLM_GENERATION": LLMGenerationPrimitive,
+    # Legacy aliases
+    "AGENT": LLMGenerationPrimitive,
+    "VISUALIZER": TextTemplatePrimitive,
+    "VIZUALISER": TextTemplatePrimitive, # Handle potential typo
+    "FORMATTER": TextTemplatePrimitive,
 }
 
 
@@ -61,6 +70,7 @@ __all__ = [
     "ForEachPrimitive",
     "LLMDecisionPrimitive",
     "DocumentConverterPrimitive",
+    "ExtractorPrimitive",
     "PRIMITIVE_REGISTRY",
     "get_primitive",
 ]

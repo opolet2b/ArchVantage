@@ -1,7 +1,19 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.models import smart_template as models
+from app.models.smart_template import SmartOutputFormat
 from app.schemas import smart_template as schemas
+from app.models.canvas_models import CanvasThing, Domain, ThingType, CanvasLink
+from app.schemas import canvas_schemas
+from app.services.agent_runtime import AgentRuntime
+from app.services.rag_service import rag_service
+from app.models.asset_models import Asset
+from app.services.asset_service import asset_service
+from llama_index.core import SimpleDirectoryReader
+from typing import Dict, Any
+import json
+import os
+from app.schemas.smart_contracts import AssetRef, ExtractorInput, ExtractionInstructions
 
 class SmartTemplateService:
     
@@ -14,6 +26,14 @@ class SmartTemplateService:
         return query.all()
 
     def create_global_category(self, db: Session, item: schemas.SmartGlobalCategoryCreate) -> models.SmartGlobalCategory:
+        # Check duplicate
+        existing = db.query(models.SmartGlobalCategory).filter(
+            models.SmartGlobalCategory.name == item.name,
+            models.SmartGlobalCategory.context == item.context
+        ).first()
+        if existing:
+            raise ValueError("A category with this name and context already exists.")
+
         db_item = models.SmartGlobalCategory(**item.dict())
         db.add(db_item)
         db.commit()
@@ -37,16 +57,19 @@ class SmartTemplateService:
         if not db_item:
             return False
             
-        # Check usage dependencies
-        # 1. Check Taxonomies
-        if db.query(models.SmartTemplateTaxonomy).filter(models.SmartTemplateTaxonomy.category_name == db_item.name).first():
-            return False
-        # 2. Check Document Sections
-        if db.query(models.SmartTemplateDocumentSection).filter(models.SmartTemplateDocumentSection.category_name == db_item.name).first():
-            return False
-        # 3. Check Frameworks
-        if db.query(models.SmartTemplateFramework).filter(models.SmartTemplateFramework.category_name == db_item.name).first():
-            return False
+        # Check usage dependencies based on Context
+        
+        if db_item.context == "Taxonomy":
+            if db.query(models.SmartTemplateTaxonomy).filter(models.SmartTemplateTaxonomy.category_name == db_item.name).first():
+                raise ValueError(f"Cannot delete category '{db_item.name}' because it is used in Taxonomies.")
+                
+        elif db_item.context == "Document Sections":
+            if db.query(models.SmartTemplateDocumentSection).filter(models.SmartTemplateDocumentSection.category_name == db_item.name).first():
+                raise ValueError(f"Cannot delete category '{db_item.name}' because it is used in Document Sections.")
+                
+        elif db_item.context == "Frameworks":
+            if db.query(models.SmartTemplateFramework).filter(models.SmartTemplateFramework.category_name == db_item.name).first():
+                raise ValueError(f"Cannot delete category '{db_item.name}' because it is used in Frameworks.")
             
         db.delete(db_item)
         db.commit()
@@ -58,6 +81,14 @@ class SmartTemplateService:
         return db.query(models.SmartTemplateTaxonomy).all()
 
     def create_taxonomy(self, db: Session, item: schemas.SmartTemplateTaxonomyCreate) -> models.SmartTemplateTaxonomy:
+        # Check duplicate
+        existing = db.query(models.SmartTemplateTaxonomy).filter(
+            models.SmartTemplateTaxonomy.category_name == item.category_name,
+            models.SmartTemplateTaxonomy.activity_type == item.activity_type
+        ).first()
+        if existing:
+            raise ValueError("A taxonomy for this category and activity type already exists.")
+
         db_item = models.SmartTemplateTaxonomy(**item.dict())
         db.add(db_item)
         db.commit()
@@ -88,6 +119,14 @@ class SmartTemplateService:
         return db.query(models.SmartTemplateDocumentSection).all()
 
     def create_section(self, db: Session, item: schemas.SmartTemplateDocumentSectionCreate) -> models.SmartTemplateDocumentSection:
+        # Check duplicate
+        existing = db.query(models.SmartTemplateDocumentSection).filter(
+            models.SmartTemplateDocumentSection.name == item.name,
+            models.SmartTemplateDocumentSection.category_name == item.category_name
+        ).first()
+        if existing:
+            raise ValueError("A section with this name in this category already exists.")
+
         db_item = models.SmartTemplateDocumentSection(**item.dict())
         db.add(db_item)
         db.commit()
@@ -118,6 +157,13 @@ class SmartTemplateService:
         return db.query(models.SmartTemplatePersona).all()
 
     def create_persona(self, db: Session, item: schemas.SmartTemplatePersonaCreate) -> models.SmartTemplatePersona:
+        # Check duplicate
+        existing = db.query(models.SmartTemplatePersona).filter(
+            models.SmartTemplatePersona.role == item.role
+        ).first()
+        if existing:
+            raise ValueError("A persona with this name already exists.")
+
         db_item = models.SmartTemplatePersona(**item.dict())
         db.add(db_item)
         db.commit()
@@ -148,6 +194,13 @@ class SmartTemplateService:
         return db.query(models.SmartTemplateFramework).all()
 
     def create_framework(self, db: Session, item: schemas.SmartTemplateFrameworkCreate) -> models.SmartTemplateFramework:
+        # Check duplicate
+        existing = db.query(models.SmartTemplateFramework).filter(
+            models.SmartTemplateFramework.name == item.name
+        ).first()
+        if existing:
+            raise ValueError("A framework with this name already exists.")
+
         db_item = models.SmartTemplateFramework(**item.dict())
         db.add(db_item)
         db.commit()
@@ -178,6 +231,13 @@ class SmartTemplateService:
         return db.query(models.SmartTemplateThesaurus).all()
 
     def create_thesaurus(self, db: Session, item: schemas.SmartTemplateThesaurusCreate) -> models.SmartTemplateThesaurus:
+        # Check duplicate
+        existing = db.query(models.SmartTemplateThesaurus).filter(
+            models.SmartTemplateThesaurus.name == item.name
+        ).first()
+        if existing:
+            raise ValueError("A thesaurus entry with this name already exists.")
+
         db_item = models.SmartTemplateThesaurus(**item.dict())
         db.add(db_item)
         db.commit()
@@ -227,6 +287,175 @@ class SmartTemplateService:
         db.refresh(db_item)
         return db_item
 
+    async def _resolve_thing_content(self, db: Session, thing: CanvasThing) -> str:
+        """
+        Resolve the actual text content of a thing for analysis.
+        Priority:
+        1. RAG Search (Vectorized content) - Best for "Full Document" with semantic relevance
+        2. Direct File Read (Fallback if RAG missing)
+        3. Stored metadata/summaries
+        """
+        content_summary = ""
+        content = thing.content or {}
+        
+        print(f"\n[ContentResolution] Resolving content for Thing '{thing.title}' (ID: {thing.id}, Type: {thing.type.value})")
+        
+        # Strategy for Documents
+        if thing.type.value == "document":
+            file_path = content.get("file_path")
+            
+            # 0. Resolve Path from Asset ID if missing (Fix for uploaded files)
+            if not file_path and content.get("asset_id"):
+                try:
+                    asset_id = content.get("asset_id")
+                    print(f"[ContentResolution] Missing file_path. Looking up Asset ID: {asset_id}")
+                    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+                    if asset:
+                        # Resolve absolute path using AssetService helper
+                        resolved_path = asset_service.get_storage_path(asset)
+                        if resolved_path:
+                            file_path = str(resolved_path)
+                            print(f"[ContentResolution] Resolved file path from Asset: {file_path}")
+                        else:
+                            print(f"[ContentResolution] Asset found but storage path resolution failed.")
+                    else:
+                        print(f"[ContentResolution] Asset ID {asset_id} not found in DB.")
+                except Exception as e:
+                    print(f"[ContentResolution] Asset path resolution error: {e}")
+
+            # 1. Try RAG First (Vectorized Content)
+            try:
+                if file_path:
+                    print(f"[ContentResolution] Attempting RAG Search. Filter source='{file_path}'")
+                    # Use exact source filter to match ingestion metadata
+                    rag_results = rag_service.search(
+                        query="", 
+                        k=100, 
+                        filters={"source": file_path}
+                    )
+                    
+                    if rag_results:
+                        texts = [r["text"] for r in rag_results if r.get("text")]
+                        if texts:
+                            print(f"[ContentResolution] RAG Hit! Retrieved {len(texts)} chunks.")
+                            print(f"[ContentResolution] Sample RAG content: {texts[0][:100]}...")
+                            return "\n\n...[Vectorized Content Chunk]...\n\n".join(texts)
+                        else:
+                             print(f"[ContentResolution] RAG results contained no text fields.")
+                    
+                    print("[ContentResolution] RAG Index returned NO results for this file.")
+                else:
+                    print("[ContentResolution] Skipping RAG: No file_path available.")
+                    
+            except Exception as e:
+                print(f"[ContentResolution] RAG search exception: {e}")
+
+            # 2. Fallback: Direct File Read
+            if file_path and os.path.exists(file_path):
+                try:
+                    print(f"[ContentResolution] Fallback: Reading file explicitly from disk: {file_path}")
+                    documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+                    if documents:
+                        full_text = "\n\n".join([d.text for d in documents])
+                        print(f"[ContentResolution] Direct Read Success. Length: {len(full_text)}")
+                        return full_text
+                    else:
+                        print(f"[ContentResolution] Direct Read returned no documents.")
+                except Exception as e:
+                    print(f"[ContentResolution] Direct file read exception: {e}")
+            else:
+                 print(f"[ContentResolution] Skipping Direct Read: File path invalid or does not exist: {file_path}")
+
+            # 3. Content field fallback
+            if content.get("content") and isinstance(content.get("content"), str) and len(content.get("content")) > 100:
+                 print(f"[ContentResolution] Using cached 'content' field ({len(content['content'])} chars)")
+                 return content["content"]
+
+        # Fallbacks (for non-documents or if above failed)
+        print(f"[ContentResolution] All primary methods failed. Checking metadata fallbacks...")
+        if content.get("generated_description"):
+             print(f"[ContentResolution] Using 'generated_description' (VLM output).")
+             content_summary = content["generated_description"]
+        elif content.get("description"):
+             print(f"[ContentResolution] Using 'description' field.")
+             content_summary = content["description"]
+        elif thing.type.value == "text":
+             print(f"[ContentResolution] Using 'text' node content.")
+             content_summary = content.get("text", "")[:4000] 
+        else:
+             print(f"[ContentResolution] Fallback to raw JSON dump.")
+             content_summary = str(content)
+             
+        print(f"[ContentResolution] Final resolved content length: {len(content_summary)}")
+        return content_summary
+
+    async def execute_template(self, db: Session, request: canvas_schemas.ExecuteTemplateRequest) -> canvas_schemas.ExecuteTemplateResponse:
+        # 1. Fetch Template
+        template = self.get_template_by_id(db, request.template_id)
+        if not template:
+            raise ValueError(f"Template with ID {request.template_id} not found.")
+
+        # 2. Collect Entities
+        things = []
+        if request.thing_ids:
+            things = db.query(CanvasThing).filter(
+                CanvasThing.id.in_(request.thing_ids),
+                CanvasThing.canvas_id == request.canvas_id
+            ).all()
+        
+        # 3. Construct Inputs
+        entities_data = []
+        for t in things:
+             content_summary = await self._resolve_thing_content(db, t)
+
+             entities_data.append({
+                 "id": t.id,
+                 "type": t.type.value,
+                 "title": t.title,
+                 "content": content_summary
+             })
+             
+        # Create a single string context for templates that expect text
+        combined_context = "\n\n".join([f"Item: {e['title']} ({e['type']})\n{e['content']}" for e in entities_data])
+             
+        inputs = {
+            "selection": entities_data,
+            "combined_context": combined_context,
+            "canvas_id": request.canvas_id,
+            "model": request.model
+        }
+        
+        # 4. Execute
+        # Construct a blueprint-like object for AgentRuntime
+        blueprint_mock = {
+            "graph": template.pipeline_config,
+            "id": template.id
+        }
+        
+        runtime = AgentRuntime(blueprint_mock, db)
+        print(f"[SmartTemplate] Executing template '{template.name}' with {len(entities_data)} items.")
+        
+        try:
+            result = await runtime.execute(inputs)
+            
+            status_msg = "completed" if result["status"] == "completed" else "failed"
+            message = "Execution completed successfully."
+            if result["status"] == "failed":
+                message = f"Execution failed: {result.get('error')}"
+                
+            return canvas_schemas.ExecuteTemplateResponse(
+                execution_id="temp_execution_id", # TODO: Persist execution
+                status=status_msg,
+                message=message
+            )
+        except Exception as e:
+            print(f"[SmartTemplate] Execution error: {e}")
+            return canvas_schemas.ExecuteTemplateResponse(
+                execution_id="error",
+                status="failed",
+                message=str(e)
+            )
+
     def delete_template(self, db: Session, item_id: str) -> bool:
         db_item = db.query(models.SmartAnalysisTemplate).filter(models.SmartAnalysisTemplate.id == item_id).first()
         if not db_item:
@@ -241,6 +470,14 @@ class SmartTemplateService:
         return db.query(models.SmartRenderingType).all()
 
     def create_rendering_type(self, db: Session, item: schemas.SmartRenderingTypeCreate) -> models.SmartRenderingType:
+        # Check duplicate
+        existing = db.query(models.SmartRenderingType).filter(
+            models.SmartRenderingType.category == item.category,
+            models.SmartRenderingType.name == item.name
+        ).first()
+        if existing:
+            raise ValueError("A rendering type with this name in this category already exists.")
+
         db_item = models.SmartRenderingType(**item.dict())
         db.add(db_item)
         db.commit()
@@ -271,6 +508,14 @@ class SmartTemplateService:
         return db.query(models.SmartOutputFormat).all()
 
     def create_output_format(self, db: Session, item: schemas.SmartOutputFormatCreate) -> models.SmartOutputFormat:
+        # Check duplicate
+        existing = db.query(models.SmartOutputFormat).filter(
+            models.SmartOutputFormat.type == item.type,
+            models.SmartOutputFormat.name == item.name
+        ).first()
+        if existing:
+            raise ValueError("An output format with this type and name already exists.")
+
         db_item = models.SmartOutputFormat(**item.dict())
         db.add(db_item)
         db.commit()
@@ -285,7 +530,327 @@ class SmartTemplateService:
             setattr(db_item, key, value)
         db.commit()
         db.refresh(db_item)
-        return db_item
+    async def execute_template_stream(self, db: Session, request: canvas_schemas.ExecuteTemplateRequest):
+        """
+        Execute a template and yield progress events.
+        """
+        # 1. Fetch Template
+        template = self.get_template_by_id(db, request.template_id)
+        if not template:
+            yield {"type": "error", "content": f"Template with ID {request.template_id} not found."}
+            return
+
+        # 2. Collect Entities
+        things = []
+        if request.thing_ids:
+            things = db.query(CanvasThing).filter(
+                CanvasThing.id.in_(request.thing_ids),
+                CanvasThing.canvas_id == request.canvas_id
+            ).all()
+        
+        # 3. Construct Strictly Typed Inputs (Pydantic)
+        assets = []
+        entities_data = [] # Keep for legacy combined_context fallback
+        
+        for t in things:
+             content_summary = await self._resolve_thing_content(db, t)
+             
+             # Create AssetRef
+             asset_ref = AssetRef(
+                 id=t.id,
+                 type=t.type.value,
+                 url=None, # TODO: Resolve URL if applicable
+                 content=content_summary
+             )
+             assets.append(asset_ref)
+
+             entities_data.append({
+                 "id": t.id,
+                 "type": t.type.value,
+                 "title": t.title,
+                 "content": content_summary
+             })
+             
+        # Create legacy context just in case (for generic nodes)
+        combined_context = "\n\n".join([f"Item: {e['title']} ({e['type']})\n{e['content']}" for e in entities_data])
+        
+        # Determine extraction instructions (try to find first Extractor step config)
+        extraction_instructions = ExtractionInstructions(focus="Key information related to analysis goals")
+        if template.pipeline_config:
+            steps = template.pipeline_config.get("steps", [])
+            for s in steps:
+                if s.get("type") == "extractor":
+                    config = s.get("config", {})
+                    # Map config to instructions
+                    focus = config.get("focus") or config.get("entitiesOfInterest") or "General content"
+                    exclude = config.get("exclude")
+                    mode = "default"
+                    extraction_instructions = ExtractionInstructions(focus=focus, exclude=exclude, mode=mode)
+                    break
+             
+        extractor_input = ExtractorInput(
+            assets=assets,
+            extraction_instructions=extraction_instructions
+        )
+             
+        inputs = {
+            "extractor_input": extractor_input.dict(), # STRICT INPUT
+            "selection": entities_data,
+            "combined_context": combined_context, # Fallback
+            "canvas_id": request.canvas_id,
+            "model": request.model
+        }
+        
+        # 4. Execute
+        blueprint_mock = {
+            "graph": template.pipeline_config,
+            "id": template.id
+        }
+        
+        runtime = AgentRuntime(blueprint_mock, db)
+        print(f"[SmartTemplate] Streaming execution for '{template.name}' with {len(entities_data)} items.")
+        
+        try:
+            async for event in runtime.execute_stream(inputs):
+                yield event
+                
+                # Handle completion - Persist Result
+                if event["type"] == "complete":
+                    final_result = event.get("data", {})
+                    outputs = final_result.get("outputs", {})
+                    state_vars = final_result.get("execution_state", {})
+                    full_state = final_result.get("full_state", {})
+                    
+                    # Fix: current_output is in full_state, not variables (execution_state)
+                    current_output = full_state.get("current_output")
+                    
+                    print(f"[SmartTemplate] DEBUG: current_output type: {type(current_output)}")
+                    if isinstance(current_output, dict):
+                        print(f"[SmartTemplate] DEBUG: current_output keys: {list(current_output.keys())}")
+                        if "generated_markdown" in current_output:
+                            print(f"[SmartTemplate] DEBUG: generated_markdown length: {len(current_output['generated_markdown'])}")
+                            print(f"[SmartTemplate] DEBUG: generated_markdown snippet: {current_output['generated_markdown'][:50]}...")
+                        if "_raw" in current_output:
+                            print(f"[SmartTemplate] DEBUG: _raw length: {len(str(current_output['_raw']))}")
+                    else:
+                        print(f"[SmartTemplate] DEBUG: current_output value: {str(current_output)[:100]}")
+                    
+                    # Log Runtime Error if present
+                    runtime_error = final_result.get("error") or full_state.get("error")
+                    if runtime_error:
+                         print(f"[SmartTemplate] CRITICAL RUNTIME ERROR: {runtime_error}")
+                         # If there was an error, we can't expect output. 
+                         # But we should still try to produce a fallback node if possible? Or just let it fail?
+                         # The current logic will produce an empty node. 
+
+
+                    # 1. Identify the *actual* final node (last executed step)
+                    target_node_id = full_state.get("last_executed_node") or full_state.get("current_node")
+                    
+                    # Initialize result variables
+                    thing_type = ThingType.TEXT
+                    thing_content = {"text": "", "markdown": ""}
+                    thing_title = f"Analysis: {template.name}"
+                    
+                    # Get Current Node info
+                    # Prefer last_executed_node (set by runtime) as current_node might be None (end of flow)
+                    current_node_id = full_state.get("last_executed_node") or full_state.get("current_node")
+                    current_node_params = {}
+                    
+                    if current_node_id and template.pipeline_config:
+                        # Find node in pipeline config
+                        nodes = template.pipeline_config.get("nodes", {})
+                        steps = template.pipeline_config.get("steps", []) # Check for linear steps format
+
+                        # 1. Try "nodes" (Graph format)
+                        if isinstance(nodes, list) and nodes: # Array format
+                             for n in nodes:
+                                 if n.get("id") == current_node_id:
+                                     current_node_params = n.get("data", {}).get("params", {}) or n.get("params", {})
+                                     break
+                        elif isinstance(nodes, dict) and nodes: # Dict format
+                             node_def = nodes.get(current_node_id, {})
+                             current_node_params = node_def.get("data", {}).get("params", {}) or node_def.get("params", {})
+                        
+                        # 2. Try "steps" (Linear format) if no params found yet
+                        if not current_node_params and isinstance(steps, list):
+                            print(f"[SmartTemplate] Checking {len(steps)} steps for params...")
+                            for s in steps:
+                                if s.get("id") == current_node_id:
+                                    current_node_params = s.get("params", {})
+                                    print(f"[SmartTemplate] Found node in STEPS! Params keys: {current_node_params.keys()}")
+                                    break
+                        
+                        if not current_node_params:
+                             print(f"[SmartTemplate] WARNING: Params not found in nodes OR steps for ID: {current_node_id}")
+
+                    print(f"[SmartTemplate] Final Node Params: {current_node_params.keys()}")
+
+                    # Helper to resolve format from DB or string
+                    def resolve_fmt_type(fmt_val):
+                        if not fmt_val: return None, None
+                        # Try DB lookup if it looks like a UUID (len 36)
+                        if len(str(fmt_val)) == 36:
+                             fmt_obj = db.query(models.SmartOutputFormat).filter(models.SmartOutputFormat.id == str(fmt_val)).first()
+                             if fmt_obj:
+                                 return fmt_obj.type.lower(), fmt_obj.extension.lower()
+                        return "unknown", str(fmt_val).lower()
+
+                    # 3. Parameter-Based Type Resolution
+                    
+                    # Resolve values checking both formats
+                    # 3. Deterministic Category Resolution (Visualizer -> Formatter)
+                    target_format_id = None
+                    resolved_category = "text" # Default
+                    
+                    # A. Find the Visualizer Step to determine Category
+                    visualizer_step = None
+                    if isinstance(steps, list):
+                        for s in steps:
+                            if s.get("type") == "visualizer":
+                                visualizer_step = s
+                                # Keep searching to find the *last* one if multiple
+                    
+                    # B. If Visualizer found, get its Category from DB
+                    if visualizer_step and visualizer_step.get("config", {}).get("renderingType"):
+                        r_type_id = visualizer_step["config"]["renderingType"]
+                        r_type_obj = db.query(models.SmartRenderingType).filter(models.SmartRenderingType.id == r_type_id).first()
+                        if r_type_obj:
+                            resolved_category = r_type_obj.category.lower()
+                            print(f"[SmartTemplate] Found Visualizer Category: {resolved_category}")
+                    
+                    # C. Select the appropriate Format ID based on Category
+                    # "Text", "Table", "Picture", "Diagram", "Combination"
+                    if "text" in resolved_category or "summary" in resolved_category:
+                        target_format_id = current_node_params.get("text_format") or current_node_params.get("textFormatId")
+                    elif "picture" in resolved_category or "image" in resolved_category or "diagram" in resolved_category:
+                        target_format_id = current_node_params.get("graphic_format") or current_node_params.get("graphicsFormatId")
+                    elif "table" in resolved_category or "data" in resolved_category:
+                        target_format_id = current_node_params.get("data_format") or current_node_params.get("dataFormatId")
+                    
+                    print(f"[SmartTemplate] Selected Format ID: {target_format_id} (Category: {resolved_category})")
+
+                    # D. Resolve the Target Format
+                    if target_format_id:
+                        _p_type, fmt_ext = resolve_fmt_type(target_format_id)
+                        
+                        # Graphic/Image
+                        if "image" in str(fmt_ext) or "image" in str(_p_type) or "picture" in resolved_category:
+                             thing_type = ThingType.IMAGE
+                             thing_content["image_url"] = outputs.get("image_url", "")
+                             
+                             # Extract Image content
+                             if isinstance(current_output, dict):
+                                  raw = current_output
+                                  thing_content = {
+                                     "url": raw.get("image_url") or raw.get("url"),
+                                     "alt_text": raw.get("alt_text") or "Generated Image"
+                                  }
+                             else:
+                                  thing_content = {
+                                     "url": str(current_output),
+                                     "alt_text": "Generated Image"
+                                  }
+
+                        # Table/Data
+                        elif "csv" in str(fmt_ext) or "json" in str(fmt_ext) or "table" in str(_p_type):
+                             thing_type = ThingType.TABLE
+                             # Try to find table data
+                             if isinstance(current_output, list):
+                                 thing_content["data"] = current_output
+                                 
+                        # Text/Document (Default)
+                        else:
+                             f_path = outputs.get("file_path", "")
+                             if ("pdf" in str(fmt_ext) or "document" in str(_p_type)) and f_path:
+                                 thing_type = ThingType.DOCUMENT
+                                 thing_content["file_path"] = f_path
+                             else:
+                                 # Fallback to TEXT if no file path provided, even for PDF format
+                                 thing_type = ThingType.TEXT
+                    else:
+                        # Fallback if no format selected: Default to Text
+                        thing_type = ThingType.TEXT
+                        
+                    # Extract Text/Markdown Content (Default or if explicit TEXT)
+                    if thing_type == ThingType.TEXT:
+                         if isinstance(current_output, dict):
+                            raw = current_output
+                            final_text = (
+                                raw.get("generated_markdown") or 
+                                raw.get("text") or 
+                                raw.get("content") or
+                                raw.get("filled_body") or
+                                raw.get("_raw") or 
+                                raw.get(current_node_params.get("output_variable") or "converted_document") or
+                                str(raw)
+                            )
+                            thing_content = {"text": final_text, "markdown": final_text}
+                         else:
+                            val = str(current_output or "")
+                            thing_content = {"text": val, "markdown": val}
+
+                    # If valid content to persist
+                    if thing_content:
+
+                        try:
+                            # 1. Create Result Node
+                            # Imports are global now
+                            
+                            new_node = CanvasThing(
+                                canvas_id=request.canvas_id,
+                                type=thing_type,
+                                title=thing_title,
+                                content=thing_content,
+                                position_x=100.0, # TODO: Better placement strategy
+                                position_y=100.0,
+                                width=400.0,
+                                height=400.0
+                            )
+                            db.add(new_node)
+                            db.flush() # Get ID
+                            
+                            # 2. Link Inputs to Result
+                            for t in things:
+                                link = CanvasLink(
+                                    canvas_id=request.canvas_id,
+                                    source_id=t.id,
+                                    target_id=new_node.id,
+                                    type="related", # The user requested "Related" type
+                                    label="analyzed_in"
+                                )
+                                db.add(link)
+                            
+                            db.commit()
+                            db.refresh(new_node)
+                            
+                            print(f"[SmartTemplate] Created result node {new_node.id}")
+                            
+                            # 3. Notify Frontend
+                            yield {
+                                "type": "node_created",
+                                "node": {
+                                    "id": new_node.id,
+                                    "title": new_node.title,
+                                    "type": new_node.type.value,
+                                    "content": new_node.content,
+                                    "position_x": new_node.position_x,
+                                    "position_y": new_node.position_y,
+                                    # Frontend store might expect specific shape, but let's send model shape.
+                                    # Actually, let's also send x/y for compatibility if frontend needs it,
+                                    # but based on store it uses position_x/y
+                                    "x": new_node.position_x,
+                                    "y": new_node.position_y
+                                }
+                            }
+                        except Exception as persistence_error:
+                            print(f"[SmartTemplate] Failed to persist result: {persistence_error}")
+                            db.rollback()
+                            yield {"type": "error", "content": f"Execution finished but failed to save result: {persistence_error}"}
+                
+        except Exception as e:
+            print(f"[SmartTemplate] Execution error: {e}")
+            yield {"type": "error", "content": str(e)}
 
     def delete_output_format(self, db: Session, item_id: str) -> bool:
         db_item = db.query(models.SmartOutputFormat).filter(models.SmartOutputFormat.id == item_id).first()

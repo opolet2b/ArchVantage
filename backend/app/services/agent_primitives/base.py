@@ -92,18 +92,35 @@ class BasePrimitive(ABC):
         print(f"[DEBUG resolve_variables] Template: {template[:100]}...")
         print(f"[DEBUG resolve_variables] Variables keys: {list(variables.keys())[:10]}...")  # First 10 keys
         
+        
+        # Determine root for resolution
+        # If the path explicitly accesses "variables", we should resolve from state options
+        # But for backward compatibility we also want direct access to variables
+        
+        # Robust Context Construction
+        # We can't really merge state and variables blindly if there are conflicts.
+        # But our resolve logic uses a specific "root" object.
+        
         def replace_var(match):
             var_path = match.group(1).strip()
             print(f"[DEBUG resolve_variables] Resolving variable: {var_path}")
+            
+            # Determine Context
+            if var_path.startswith("variables") or var_path.startswith("inputs") or var_path.startswith("secrets"):
+                 root = state
+            else:
+                 root = state.get("variables", {})
+            
             # Support nested access like "data.items[0].name"
             try:
-                # Search in variables dict, not the root state
-                value = self._get_nested_value(variables, var_path)
-                print(f"[DEBUG resolve_variables] Resolved '{var_path}' -> '{value}'")
+                # Search in appropriate root
+                value = self._get_nested_value(root, var_path)
+                print(f"[DEBUG resolve_variables] Resolved '{var_path}' -> '{str(value)[:50]}...'")
                 return str(value) if value is not None else ""
             except (KeyError, IndexError, TypeError) as e:
                 print(f"[DEBUG resolve_variables] Failed to resolve '{var_path}': {e}")
-                print(f"[DEBUG resolve_variables] Available keys in variables: {list(variables.keys())}")
+                # print(f"[DEBUG resolve_variables] Available keys: {list(root.keys())}") 
+                # (Commented out to avoid log spam if root is huge)
                 return match.group(0)  # Keep original if not found
         
         pattern = r'\{\{([^}]+)\}\}'
@@ -166,8 +183,14 @@ class BasePrimitive(ABC):
         
         # 2. Fuzzy match: normalize both and compare
         # This handles call_tool_ID vs call-tool-ID vs call_tool-ID
-        normalized_key = re.sub(r'[_\-]', '', key).lower()
+        if not key: return None
+        normalized_key = re.sub(r'[_\-]', '', str(key)).lower()
+        
         for dict_key in data.keys():
+            # Skip non-string keys to avoid TypeError in regex
+            if not isinstance(dict_key, str):
+                continue
+                
             if re.sub(r'[_\-]', '', dict_key).lower() == normalized_key:
                 return data[dict_key]
         

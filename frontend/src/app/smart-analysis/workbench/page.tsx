@@ -3,7 +3,7 @@
 import { useSearchParams } from "next/navigation";
 
 import React, { useState, useEffect } from "react";
-import { StudioSidebar, ModuleItem } from "@/components/studio/studio-sidebar";
+// Removed StudioSidebar and ModuleItem import
 import { StudioCanvas, PipelineStep } from "@/components/studio/studio-canvas";
 import { StudioConfigPanel } from "@/components/studio/studio-config-panel";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,18 @@ import Link from "next/link";
 import { API_URL } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 
+// Fixed Pipeline Steps Definition
+const FIXED_STEPS: PipelineStep[] = [
+    { id: "step_extractor", moduleId: "mod_extractor", type: "extractor", name: "Data Extractor", config: {}, description: "Extract specific sections or data points." },
+    { id: "step_agent", moduleId: "mod_agent", type: "agent", name: "AI Agent", config: {}, description: "Analyze content using a Persona and Framework." },
+    { id: "step_visualizer", moduleId: "mod_visualizer", type: "visualizer", name: "Visualizer", config: {}, description: "Generate structural visualizations (Graphs, Tables)." },
+    { id: "step_formatter", moduleId: "mod_formatter", type: "formatter", name: "Output Fmt", config: {}, description: "Format the analysis results (JSON, Markdown)." },
+];
+
 export default function StudioPage() {
     const { toast } = useToast();
-    const [steps, setSteps] = useState<PipelineStep[]>([]);
+    // Initialize with FIXED_STEPS by default
+    const [steps, setSteps] = useState<PipelineStep[]>(FIXED_STEPS);
     const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [templateMeta, setTemplateMeta] = useState({
@@ -69,7 +78,25 @@ export default function StudioPage() {
 
                         // Set Steps
                         if (templateData.pipeline_config && templateData.pipeline_config.steps) {
-                            setSteps(templateData.pipeline_config.steps);
+                            // OPTIONAL: Merge config into fixed steps instead of replacing? 
+                            // For now, to ensure compatibility with "Fundamentally useless" existing pipelines comments from user,
+                            // we might want to FORCE the fixed structure but load the config.
+                            // BUT, let's assume if it's an existing template, we load it as is for now, 
+                            // OR we overwrite it. The user said "The pipeline will always be the same".
+                            // Let's safe-guard: if the loaded steps don't look like our fixed steps, we might have issues.
+                            // Decision: Load the steps from DB, but if they are missing descriptions, we might want to add them.
+                            // Ideally, we should migrate existing templates.
+                            // For this task, let's just use what's in DB, but map descriptions if missing.
+                            const loadedSteps = templateData.pipeline_config.steps.map((s: any) => {
+                                const fixedMatch = FIXED_STEPS.find(fs => fs.type === s.type);
+                                return {
+                                    ...s,
+                                    description: s.description || fixedMatch?.description || ""
+                                };
+                            });
+                            setSteps(loadedSteps);
+                        } else {
+                            setSteps(FIXED_STEPS);
                         }
 
                         // Set Taxonomy
@@ -92,25 +119,6 @@ export default function StudioPage() {
         fetchData();
     }, [templateId]);
 
-    const handleAddModule = (module: ModuleItem) => {
-        const newStep: PipelineStep = {
-            id: crypto.randomUUID(),
-            moduleId: module.id,
-            type: module.type,
-            name: module.name,
-            config: {}
-        };
-        setSteps([...steps, newStep]);
-        setSelectedStepId(newStep.id);
-    };
-
-    const handleDeleteStep = (id: string) => {
-        setSteps(steps.filter(s => s.id !== id));
-        if (selectedStepId === id) {
-            setSelectedStepId(null);
-        }
-    };
-
     const handleUpdateStep = (id: string, updates: Partial<PipelineStep>) => {
         setSteps(steps.map(s => s.id === id ? { ...s, ...updates } : s));
     };
@@ -125,13 +133,46 @@ export default function StudioPage() {
         if (!selectedTaxonomy) return;
 
         try {
+            // Convert linear steps to Graph format (nodes + edges) for Runtime
+            const nodes: any[] = [];
+            const edges: any[] = [];
+
+            steps.forEach((step, index) => {
+                // Create Node
+                nodes.push({
+                    ...step, // Copy base properties first
+                    data: {
+                        // Standard Canvas Node structure
+                        label: step.name,
+                        // Merge existing config into params
+                        params: { ...step.config }
+                    },
+                    position: { x: 250, y: index * 150 + 100 } // Vertical layout
+                });
+
+                // Create Edge
+                if (index > 0) {
+                    const prevId = steps[index - 1].id;
+                    edges.push({
+                        id: `edge_${prevId}_${step.id}`,
+                        source: prevId,
+                        target: step.id,
+                        type: "default"
+                    });
+                }
+            });
+
             const payload = {
                 name: templateMeta.name,
                 category_name: selectedTaxonomy.category_name, // Enforce taxonomy category
                 activity_type: selectedTaxonomy.activity_type,
                 description: templateMeta.description,
                 steps_count: steps.length,
-                pipeline_config: { steps }
+                pipeline_config: {
+                    steps, // Keep steps for Studio UI re-hydration
+                    nodes, // Add Nodes for Canvas/Runtime compatibility
+                    edges
+                }
             };
 
             const url = templateId
@@ -230,9 +271,6 @@ export default function StudioPage() {
                                         value={selectedTaxonomyId}
                                         onValueChange={(val) => {
                                             setSelectedTaxonomyId(val);
-                                            // Optional: auto-fill description if empty?
-                                            // const tax = taxonomies.find(t => t.id === val);
-                                            // if (tax && !templateMeta.description) setTemplateMeta(prev => ({ ...prev, description: tax.description || "" }));
                                         }}
                                     >
                                         <SelectTrigger id="taxonomy">
@@ -268,13 +306,12 @@ export default function StudioPage() {
 
             {/* Main Content */}
             <div className="flex-1 flex overflow-hidden">
-                <StudioSidebar onAddModule={handleAddModule} />
+                {/* Removed StudioSidebar */}
                 <StudioCanvas
                     steps={steps}
                     selectedStepId={selectedStepId}
                     onSelectStep={setSelectedStepId}
-                    onDeleteStep={handleDeleteStep}
-                    onAddModule={handleAddModule}
+                // Removed onDeleteStep and onAddModule
                 />
                 <StudioConfigPanel
                     selectedStep={selectedStep}

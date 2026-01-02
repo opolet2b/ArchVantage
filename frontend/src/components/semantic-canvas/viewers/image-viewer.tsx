@@ -59,6 +59,7 @@ export function ImageViewer({
 
     // Effect: Load image with Auth if it's a backend asset
     React.useEffect(() => {
+        if (!src) return;
         if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
 
         if (src.startsWith("blob:") || src.startsWith("http")) {

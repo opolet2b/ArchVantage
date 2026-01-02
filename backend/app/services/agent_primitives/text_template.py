@@ -131,12 +131,64 @@ class TextTemplatePrimitive(BasePrimitive):
             finally:
                 db.close()
         
+        # Resolve Rendering Type to Template if provided (and no direct template content)
+        rendering_type_id = params.get("renderingType")
+        if rendering_type_id and not template_content:
+            try:
+                from app.models.smart_template import SmartRenderingType
+                from app.core.database import SessionLocal
+                
+                db = SessionLocal()
+                try:
+                    rt = db.query(SmartRenderingType).filter(SmartRenderingType.id == rendering_type_id).first()
+                    if rt:
+                        print(f"[TextTemplate] Resolved Rendering Type: {rt.name}")
+                        if "Executive Summary" in rt.name:
+                            template_content = (
+                                "## Executive Summary\n\n"
+                                "<!-- INSTRUCTION: Provide a high-level executive summary of the analyzed content. Focus on key strategic insights, risks, and opportunities. Keep it concise and professional. -->\n\n"
+                                "### Key Findings\n"
+                                "{{ findings | default('No findings generated.') }}\n\n"
+                                "### Recommendations\n"
+                                "{{ recommendations | default('No recommendations provided.') }}\n"
+                            )
+                            # Update params with resolved content
+                            params["template_content"] = template_content
+                        elif "Detailed Report" in rt.name:
+                            template_content = (
+                                "## Detailed Analysis Report\n\n"
+                                "### Overview\n<!-- INSTRUCTION: Provide a comprehensive overview of the document. -->\n\n"
+                                "### In-Depth Analysis\n<!-- INSTRUCTION: Analyze the content in detail, breaking it down by themes or sections. -->\n\n"
+                                "### Conclusion\n<!-- INSTRUCTION: Summarize the main conclusions and implications. -->"
+                            )
+                        elif "Bullet Points" in rt.name or "List" in rt.name:
+                            template_content = (
+                                "## Key Points\n\n"
+                                "<!-- INSTRUCTION: Extract and list the main points from the text as a bulleted list. -->"
+                            )
+                        else:
+                            # Generic fallback for known rendering type but unknown template
+                            template_content = (
+                                f"## {rt.name}\n\n"
+                                f"<!-- INSTRUCTION: Format the content as a {rt.name}. -->"
+                            )
+                        # Construct a mock frontmatter if needed or just use content
+                        params["template_content"] = template_content
+                finally:
+                    db.close()
+            except Exception as e:
+                print(f"[TextTemplate] Error resolving rendering type: {e}")
+
         # Validate that a template is provided
         if not template_content:
-            return PrimitiveResult(
-                success=False,
-                error="No template selected. Please select a template from the Template selector in the node configuration."
+            print("[TextTemplate] Warning: No template content provided. Using fallback generic template.")
+            template_content = (
+                "## Analysis Report\n\n"
+                "The following content was generated based on the input:\n\n"
+                "<!-- INSTRUCTION: Summarize the input text and present the key findings in a clear, structured format. -->"
             )
+            # Update params so _execute_semantic can use it
+            params["template_content"] = template_content
         
         # Determine execution mode
         mode = params.get("mode", "semantic")
@@ -254,13 +306,81 @@ class TextTemplatePrimitive(BasePrimitive):
                             if auto_input:
                                 break
                 
+                # If still not found, check current_output from previous node
+                if not auto_input:
+                    current_output = state.get("current_output")
+                    if current_output:
+                        if isinstance(current_output, dict):
+                            # Smart Extraction: Look for content keys
+                            priority_keys = [
+                                "combined_context", "text", "content", "result", "output", 
+                                "llm_output", "generated_markdown", "report", "summary"
+                            ]
+                            found_content = None
+                            for key in priority_keys:
+                                if key in current_output and isinstance(current_output[key], str) and current_output[key].strip():
+                                    found_content = current_output[key]
+                                    break
+                            
+                            if found_content:
+                                auto_input = found_content
+                            else:
+                                # Fallback to string dump of dict
+                                auto_input = str(current_output)
+                        else:
+                            # It's a primitive value (str, etc)
+                            auto_input = current_output
+
                 if auto_input:
                     source_text = auto_input if isinstance(auto_input, str) else str(auto_input)
                 else:
                     source_text = ""
+
             else:
                 # Normal variable resolution for {{variable}} syntax
                 source_text = self.resolve_variables(source_text_raw, state)
+
+            # Resolve Rendering Type to Template if provided
+            rendering_type_id = params.get("renderingType")
+            if rendering_type_id and not template_content:
+                try:
+                    from app.models.smart_template import SmartRenderingType
+                    from app.core.database import SessionLocal
+                    
+                    db = SessionLocal()
+                    try:
+                        rt = db.query(SmartRenderingType).filter(SmartRenderingType.id == rendering_type_id).first()
+                        if rt:
+                            print(f"[TextTemplate] Resolved Rendering Type: {rt.name}")
+                            if "Executive Summary" in rt.name:
+                                template_content = (
+                                    "## Executive Summary\n\n"
+                                    "<!-- INSTRUCTION: Provide a high-level executive summary of the analyzed content. Focus on key strategic insights, risks, and opportunities. Keep it concise and professional. -->\n\n"
+                                    "### Key Findings\n"
+                                    "<!-- INSTRUCTION: List the top 3-5 most critical findings. -->"
+                                )
+                            elif "Detailed Report" in rt.name:
+                                template_content = (
+                                    "## Detailed Analysis Report\n\n"
+                                    "### Overview\n<!-- INSTRUCTION: Provide a comprehensive overview of the document. -->\n\n"
+                                    "### In-Depth Analysis\n<!-- INSTRUCTION: Analyze the content in detail, breaking it down by themes or sections. -->\n\n"
+                                    "### Conclusion\n<!-- INSTRUCTION: Summarize the main conclusions and implications. -->"
+                                )
+                            elif "Bullet Points" in rt.name or "List" in rt.name:
+                                template_content = (
+                                    "## Key Points\n\n"
+                                    "<!-- INSTRUCTION: Extract and list the main points from the text as a bulleted list. -->"
+                                )
+                            else:
+                                # Generic fallback for known rendering type but unknown template
+                                template_content = (
+                                    f"## {rt.name}\n\n"
+                                    f"<!-- INSTRUCTION: Format the content as a {rt.name}. -->"
+                                )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    print(f"[TextTemplate] Error resolving rendering type: {e}")
             
             # Validate: Empty input check
             if not source_text.strip():
@@ -276,46 +396,202 @@ class TextTemplatePrimitive(BasePrimitive):
                     error="InvalidTemplate: Template content cannot be empty"
                 )
             
+            # STRICT CONTRACT MODE
+            # Check if we have 'agent_output' from previous node
+            variables = state.get("variables", {})
+            agent_out = variables.get("agent_output")
+            
+            print(f"[TextTemplate] Debug: checking for agent_output. Keys in variables: {list(variables.keys())}")
+            if agent_out:
+                print(f"[TextTemplate] Found agent_output. Type: {type(agent_out)}")
+                if isinstance(agent_out, dict):
+                     print(f"[TextTemplate] agent_output keys: {list(agent_out.keys())}")
+            else:
+                print(f"[TextTemplate] agent_output NOT found in variables.")
+                
+            if agent_out:
+                try:
+                    from app.schemas.smart_contracts import VisualizerOutput, VisualPayload
+                    print(f"[TextTemplate] Strict Mode detected. Using VisualizerOutput schema.")
+                    
+                    # 0. Pre-render Template with Jinja2 if variables map nicely
+                    # This allows {{ findings }} to be resolved from agent_output directly
+                    try:
+                        from jinja2 import Environment, BaseLoader
+                        env = Environment(loader=BaseLoader(), autoescape=False) # Markdown safe
+                        tmpl = env.from_string(template_content)
+                        
+                        # Flatten agent_output for template context
+                        # exposing 'findings', 'recommendations' etc directly
+                        if isinstance(agent_out, dict):
+                             render_context = {**state.get("variables", {}), **agent_out}
+                        else:
+                             # If output is string (fallback), exposes it as 'agent_output'
+                             render_context = {**state.get("variables", {}), "agent_output": agent_out}
+                        
+                        # Attempt render
+                        # We use a broad context so {{ findings }} works if findings is in agent_out
+                        pre_rendered_content = tmpl.render(**render_context)
+                        
+                        # Use the pre-rendered content as the instruction/template
+                        # This ensures the LLM sees the populated data, not just the tags
+                        template_for_prompt = pre_rendered_content
+                        print(f"[TextTemplate] Pre-rendered template with agent data.")
+                    except Exception as jinja_error:
+                         print(f"[TextTemplate] Jinja pre-render failed: {jinja_error}. Using raw template.")
+                         template_for_prompt = template_content
+
+                    # Construct System Prompt with Output Schema
+                    schema_str = json.dumps(VisualizerOutput.model_json_schema(), indent=2)
+                    
+                    system_prompt = f"""You are a data visualization assistant.
+Your task is to transform the provided Analysis Results into a visual structure (Markdown, Mermaid, or Table).
+
+Output Schema:
+{schema_str}
+
+Instructions:
+1. 'structure_type' should be 'markdown' for reports, 'mermaid' for diagrams.
+2. 'content' must contain the actual string payload (e.g. the full markdown text or mermaid code).
+3. Do not omit any findings from the analysis.
+"""
+                    user_message_content = f"Analysis Results:\n{json.dumps(agent_out, indent=2)}\n\nTemplate/Instructions:\n{template_for_prompt}"
+                    
+                    messages = [
+                        Message(role="system", content=system_prompt),
+                        Message(role="user", content=user_message_content)
+                    ]
+                    
+                    response_text = await llm_service.chat(
+                        messages=messages, 
+                        model_name=llm_model,
+                        response_format={"type": "json_object"}
+                    )
+                    
+                    viz_output_data = json.loads(response_text)
+                    
+                    # Validate content presence
+                    if "visual_payload" not in viz_output_data or "content" not in viz_output_data["visual_payload"]:
+                         # Fallback/Fix
+                         if "content" in viz_output_data:
+                             viz_output_data = {"visual_payload": {"structure_type": "markdown", "content": viz_output_data["content"]}}
+                    
+                    # Store strictly
+                    if "variables" not in state: state["variables"] = {}
+                    state["variables"]["visualizer_output"] = viz_output_data
+                    
+                    # Update output_var to be the CONTENT string (for backward compatibility with tools expecting string)
+                    # BUT we also store strict object
+                    content_str = viz_output_data["visual_payload"]["content"]
+                    
+                    return PrimitiveResult(
+                        success=True,
+                        output={
+                            output_var: content_str, # Legacy: String
+                            "visualizer_output": viz_output_data, # Strict: Object
+                            "_raw": content_str # Legacy: String (binding usually looks here)
+                        }
+                    )
+                except Exception as e:
+                    print(f"[TextTemplate] Strict mode failed: {e}. Falling back to standard generation.")
+
             # Step 1: Parse template - separate YAML frontmatter from body
             frontmatter, body_template = self._parse_template(template_content)
             
+            # Helper: Format input info valid text to avoid "JSON Mimicry" by LLM
+            def format_input(data: Any) -> str:
+                if isinstance(data, dict) or isinstance(data, list):
+                    try:
+                        import yaml
+                        # Convert JSON/Dict to YAML for cleaner LLM consumption
+                        return yaml.dump(data, sort_keys=False, default_flow_style=False)
+                    except ImportError:
+                        # Fallback if yaml not installed
+                        return json.dumps(data, indent=2)
+                return str(data)
+
+            formatted_source = format_input(source_text) if (isinstance(source_text, (dict, list)) or (isinstance(source_text, str) and source_text.strip().startswith("{"))) else source_text
+
             # Step 2: Construct LLM prompt
             system_prompt = """You are a document restructuring assistant.
 Your task is to replace the <!-- INSTRUCTION: --> blocks in the provided 
 markdown structure with content derived from the Input Text.
 
 Rules:
-1. Keep all standard markdown formatting (#, -, >, |) exactly as they appear.
-2. Replace each <!-- INSTRUCTION: ... --> block with appropriate content.
-3. If no data is available for a section, insert "[No data available for this section]".
-4. If the input contains image URLs, place them using ![Alt Text](URL) where relevant.
-5. Format tabular data using standard markdown tables.
-6. DO NOT modify or output any YAML frontmatter - only work with the markdown body."""
+1. Output ONLY valid Markdown. Do NOT output JSON.
+2. Keep all standard markdown formatting (#, -, >, |) exactly as they appear.
+3. Replace each <!-- INSTRUCTION: ... --> block with appropriate content.
+4. If no data is available for a section, insert "[No data available for this section]".
+5. If the input contains image URLs, place them using ![Alt Text](URL) where relevant.
+6. Format tabular data using standard markdown tables.
+7. DO NOT modify or output any YAML frontmatter - only work with the markdown body."""
             
             user_message = (
                 f"## Markdown Template:\n{body_template}\n\n"
-                f"## Input Text:\n{source_text}"
+                f"## Input Text:\n{formatted_source}"
             )
             
-            # Check for potential context window issues (rough estimate)
+            # Step 3: Handle Context Window Limits
+            # Import config service to check dynamic window setting
+            from app.services.config_service import config_service
+            
+            preset_config = config_service.get_preset_config(llm_model)
+            token_limit = 4096 # Default safe fallback
+            
+            # Priority 1: User Config
+            if preset_config and "context_window" in preset_config and preset_config["context_window"]:
+                token_limit = int(preset_config["context_window"])
+            else:
+                # Priority 2: Intelligent Defaults based on Model Name
+                model_lower = llm_model.lower()
+                if any(x in model_lower for x in ["gpt-4", "claude-3", "gemini", "gpt-4-turbo", "o1-"]):
+                    token_limit = 128000
+                elif "16k" in model_lower:
+                    token_limit = 16000
+                elif "32k" in model_lower:
+                    token_limit = 32000
+                elif any(x in model_lower for x in ["gpt-3.5", "llama"]):
+                    # Older standard
+                    token_limit = 4096 
+                
+                print(f"[TextTemplate] No explicit context window found for {llm_model}. Using default: {token_limit}")
+                
+            MAX_SAFE_CHARS = int(token_limit * 3) # Approx 75% of window in chars (4 chars/token)
+            
+            filled_body = ""
+            
             total_chars = len(system_prompt) + len(user_message)
-            # Approximate 4 chars per token, 8000 token limit as safety margin
-            if total_chars > 32000:
-                return PrimitiveResult(
-                    success=False,
-                    error=(
-                        "InputTooLarge: Combined input exceeds safe context "
-                        "window. Please reduce source text or template size."
-                    )
+            
+            if total_chars > MAX_SAFE_CHARS:
+                print(f"[TextTemplate] Input ({total_chars} chars) exceeds context limit ({MAX_SAFE_CHARS} chars / {token_limit} tokens). Switching to Chunked Processing.")
+                
+                # 3a. Summarize Source Text in Chunks
+                # We need to reduce source_text to something manageable.
+                # Pass token_limit to helper. Use formatted_source for better splitting safety.
+                summarized_context = await self._summarize_in_chunks(formatted_source, llm_model, token_limit)
+                
+                print(f"[TextTemplate] Chunked processing complete. Reduced context to {len(summarized_context)} chars.")
+                
+                # Re-construct message with summarized context
+                user_message = (
+                    f"## Markdown Template:\n{body_template}\n\n"
+                    f"## Input Text (Summarized):\n{summarized_context}"
                 )
-            
-            # Step 3: Call LLM
-            messages = [
-                Message(role="system", content=system_prompt),
-                Message(role="user", content=user_message)
-            ]
-            
-            filled_body = await llm_service.chat(messages, model_name=llm_model)
+                
+                # Recalculate prompt
+                messages = [
+                    Message(role="system", content=system_prompt),
+                    Message(role="user", content=user_message)
+                ]
+                filled_body = await llm_service.chat(messages, model_name=llm_model)
+                
+            else:
+                # 3b. Direct Execution
+                messages = [
+                    Message(role="system", content=system_prompt),
+                    Message(role="user", content=user_message)
+                ]
+                filled_body = await llm_service.chat(messages, model_name=llm_model)
             
             # Strip any reasoning/thinking tags from LLM response
             # Some LLMs include <think>...</think> blocks for reasoning
@@ -349,6 +625,40 @@ Rules:
                 error=f"Markdown generation failed: {str(e)}"
             )
     
+    async def _summarize_in_chunks(self, text: str, model_name: str, token_limit: int = 4096) -> str:
+        """
+        Split text into chunks and summarize each to reduce context side.
+        """
+        from app.services.llm_service import llm_service
+        from app.models.chat import Message
+        
+        # Calculate safe chunk size (approx 60% of context window in chars)
+        CHUNK_SIZE = int(token_limit * 2.5) 
+        if CHUNK_SIZE < 1000: CHUNK_SIZE = 1000 # Minimum sanity
+        
+        chunks = [text[i:i+CHUNK_SIZE] for i in range(0, len(text), CHUNK_SIZE)]
+        
+        summaries = []
+        for i, chunk in enumerate(chunks):
+            print(f"[TextTemplate] Summarizing chunk {i+1}/{len(chunks)}...")
+            prompt = (
+                "Summarize the following text segment, preserving key facts, dates, and names. "
+                "Do not add interpretation, just compress the information:\n\n"
+                f"{chunk}"
+            )
+            try:
+                messages = [
+                    Message(role="system", content="You are a precise summarizer."),
+                    Message(role="user", content=prompt)
+                ]
+                summary = await llm_service.chat(messages, model_name=model_name)
+                summaries.append(summary)
+            except Exception as e:
+                print(f"[TextTemplate] Error summarizing chunk {i}: {e}")
+                summaries.append(f"[Error summarizing chunk {i}]")
+        
+        return "\n\n".join(summaries)
+        
     def _parse_template(self, template: str) -> Tuple[str, str]:
         """
         Separate YAML frontmatter from markdown body.

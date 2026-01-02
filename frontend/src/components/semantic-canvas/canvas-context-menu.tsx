@@ -27,6 +27,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
+import { API_URL } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
 
 // =============================================================================
@@ -37,9 +38,7 @@ export type AnalysisAction =
     | "discover_links"
     | "summary_analysis"
     | "identify_purpose"
-    | "benchmark"
-    | "swot"
-    | "comparison";
+    | string;
 
 interface CanvasContextMenuProps {
     /** Whether the menu is open */
@@ -73,6 +72,28 @@ export function CanvasContextMenu({
     const selectedModel = useCanvasStore((state) => state.selectedModel);
     const selectedThingIds = useCanvasStore((state) => state.selectedThingIds);
     const selectedDomainIds = useCanvasStore((state) => state.selectedDomainIds);
+
+    // Fetch available templates
+    const [templates, setTemplates] = React.useState<any[]>([]);
+
+    React.useEffect(() => {
+        if (isOpen) {
+            fetch(`${API_URL}/smart-templates/templates`)
+                .then(res => res.json())
+                .then(data => setTemplates(data))
+                .catch(err => console.error("Failed to fetch templates", err));
+        }
+    }, [isOpen]);
+
+    const groupedTemplates = React.useMemo(() => {
+        const groups: Record<string, any[]> = {};
+        for (const t of templates) {
+            const cat = t.category_name || "Uncategorized";
+            if (!groups[cat]) groups[cat] = [];
+            groups[cat].push(t);
+        }
+        return groups;
+    }, [templates]);
 
     // Calculate item count based on context:
     // - Canvas: things NOT in any domain + domains count
@@ -206,19 +227,29 @@ export function CanvasContextMenu({
                         <MoreHorizontal className="mr-2 h-4 w-4" />
                         <span>Other Analyses</span>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                        <DropdownMenuItem onClick={() => handleAction("benchmark")}>
-                            <TrendingUp className="mr-2 h-4 w-4" />
-                            <span>Benchmark</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleAction("swot")}>
-                            <Grid3X3 className="mr-2 h-4 w-4" />
-                            <span>SWOT</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleAction("comparison")}>
-                            <GitCompare className="mr-2 h-4 w-4" />
-                            <span>Comparison</span>
-                        </DropdownMenuItem>
+                    <DropdownMenuSubContent className="max-h-[300px] overflow-y-auto">
+                        {Object.entries(groupedTemplates).map(([category, items], idx) => (
+                            <React.Fragment key={category}>
+                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50">
+                                    {category}
+                                </div>
+                                {items.map((t: any) => (
+                                    <DropdownMenuItem
+                                        key={t.id}
+                                        onClick={() => handleAction(`execute_template:${t.id}`)}
+                                    >
+                                        <TrendingUp className="mr-2 h-4 w-4" />
+                                        <span>{t.name}</span>
+                                    </DropdownMenuItem>
+                                ))}
+                                {idx < Object.keys(groupedTemplates).length - 1 && <DropdownMenuSeparator />}
+                            </React.Fragment>
+                        ))}
+                        {templates.length === 0 && (
+                            <div className="px-2 py-2 text-xs text-muted-foreground text-center">
+                                No templates available
+                            </div>
+                        )}
                     </DropdownMenuSubContent>
                 </DropdownMenuSub>
             </DropdownMenuContent>

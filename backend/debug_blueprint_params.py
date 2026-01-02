@@ -12,10 +12,7 @@ from app.core.database import Base
 from app.models.user import User  # Required for relationships
 from app.models.agent_blueprint import AgentBlueprint, AgentExecution
 
-# Assume SQLALCHEMY_DATABASE_URL matches app/core/database.py
-SQLALCHEMY_DATABASE_URL = "sqlite:///./data/sql_app.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+from app.core.database import SessionLocal, engine
 db = SessionLocal()
 
 def inspect_latest_execution():

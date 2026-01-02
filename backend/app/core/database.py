@@ -11,19 +11,31 @@ if not os.path.exists("db"):
 if not os.path.exists("data"):
     os.makedirs("data")
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./db/sql_app.db"
-# For PostgreSQL, use:
-# SQLALCHEMY_DATABASE_URL = "postgresql://user:password@postgresserver/db"
+from app.core.config import settings
+
+SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
+
+# Connect args (needed for SQLite)
+connect_args = {}
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    connect_args = {
+        "check_same_thread": False,
+        "timeout": 30
+    }
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    connect_args={
-        "check_same_thread": False,
-        "timeout": 30  # SQLite lock timeout in seconds
-    },
+    connect_args=connect_args,
     pool_pre_ping=True,  # Verify connections before use
     pool_recycle=3600,  # Recycle connections after 1 hour
 )
+
+def get_db_path():
+    """Extract file path from SQLite URL for direct connections."""
+    if SQLALCHEMY_DATABASE_URL.startswith("sqlite:///"):
+        # Remove sqlite:/// prefix
+        return SQLALCHEMY_DATABASE_URL.replace("sqlite:///", "")
+    return None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
