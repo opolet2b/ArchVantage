@@ -53,6 +53,7 @@ class Asset(Base):
     # Path relative to the storage root (e.g., "2023/12/21/<uuid>.pdf")
     file_path = Column(String(512), nullable=False)
     
+    
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     

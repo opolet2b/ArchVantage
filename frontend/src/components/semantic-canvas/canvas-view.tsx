@@ -44,7 +44,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Brain, Loader2, Eye, FolderOpen, Layout } from "lucide-react";
+import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
 import { SelectionProvider } from "./viewers/selection-context";
 import { useToast } from "@/components/ui/use-toast";
@@ -890,10 +890,18 @@ function CanvasViewInner() {
     const [isDraggingFile, setIsDraggingFile] = React.useState(false);
 
     // Handle file drag over
+    // Handle file drag over
     const handleDragOver = React.useCallback((e: React.DragEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        if (e.dataTransfer.types.includes("Files") || e.dataTransfer.types.includes("application/semantic-canvas-tool")) {
+
+        if (e.dataTransfer.types.includes("application/semantic-canvas-tool")) {
+            e.dataTransfer.dropEffect = "copy";
+            // Do NOT show file overlay for tools
+            return;
+        }
+
+        if (e.dataTransfer.types.includes("Files")) {
             e.dataTransfer.dropEffect = "copy";
             setIsDraggingFile(true);
         }
@@ -1001,6 +1009,8 @@ function CanvasViewInner() {
 
         // Check for Tool Drop (from Palette)
         const toolType = event.dataTransfer.getData("application/semantic-canvas-tool");
+        console.log("[CanvasView] Drop Event. ToolType:", toolType);
+        const color = event.dataTransfer.getData("application/semantic-canvas-color") || undefined;
         if (toolType) {
             const { clientX, clientY } = event;
             const position = screenToFlowPosition({ x: clientX, y: clientY });
@@ -1010,12 +1020,15 @@ function CanvasViewInner() {
 
             switch (toolType) {
                 case "text":
+                    setPendingDropPos(position);
                     setShowTextDialog(true);
                     break;
                 case "url":
+                    setPendingDropPos(position);
                     setShowUrlDialog(true);
                     break;
                 case "domain":
+                    setPendingDropPos(position);
                     setShowDomainDialog(true);
                     break;
                 case "conversation":
@@ -1053,18 +1066,22 @@ function CanvasViewInner() {
                         }
                     }
 
-                    await handleNewConversation(position, dropTargets);
+                    await handleNewConversation(position, dropTargets, color);
                     break;
                 case "import_conversation":
+                    // TODO: Pass color to import dialog if needed, or just let it use default
+                    setPendingDropPos(position);
                     setShowConversationDialog(true);
                     break;
                 case "image":
+                    // File picker uses center, which is fine.
                     imageInputRef.current?.click();
                     break;
                 case "document":
                     documentInputRef.current?.click();
                     break;
                 case "slideshow":
+                    setPendingDropPos(position);
                     setShowImageSlidesDialog(true);
                     break;
             }
@@ -1089,6 +1106,7 @@ function CanvasViewInner() {
                             filename: file.name,
                             file_path: upload.url,
                             asset_id: upload.id,
+                            file_hash: upload.file_hash,
                         },
                         position, // Use drop position
                         file.name
@@ -1119,6 +1137,7 @@ function CanvasViewInner() {
                                 filename: file.name,
                                 file_path: upload.url,
                                 asset_id: upload.id,
+                                file_hash: upload.file_hash,
                                 file_type: file.type,
                                 file_size: file.size,
                             },
@@ -1145,10 +1164,19 @@ function CanvasViewInner() {
                 dIds = [...selectedDomainIds];
             } else if (context === "domain" && domainId) {
                 dIds = [domainId];
+            } else if (context === "canvas") {
+                const { things, domains } = useCanvasStore.getState();
+                tIds = things.filter(t => !t.domain_id).map(t => t.id);
+                dIds = domains.map(d => d.id);
             }
 
             if (tIds.length === 0 && dIds.length === 0) {
                 console.warn("No items selected for discovery");
+                toast({
+                    title: "Nothing to Analyze",
+                    description: "No items present to discover links.",
+                    variant: "default"
+                });
                 return;
             }
 
@@ -1315,11 +1343,15 @@ function CanvasViewInner() {
     const { setViewMode } = useViewMode();
 
     // Dialog states
+    // Modals
     const [showTextDialog, setShowTextDialog] = React.useState(false);
     const [showDomainDialog, setShowDomainDialog] = React.useState(false);
     const [showUrlDialog, setShowUrlDialog] = React.useState(false);
     const [showConversationDialog, setShowConversationDialog] = React.useState(false);
     const [showImageSlidesDialog, setShowImageSlidesDialog] = React.useState(false);
+
+    // Track drop position for dialog-based creation
+    const [pendingDropPos, setPendingDropPos] = React.useState<{ x: number, y: number } | null>(null);
 
     // Form states
     const [textContent, setTextContent] = React.useState("");
@@ -1346,12 +1378,17 @@ function CanvasViewInner() {
         await addThing(
             "text",
             { text: textContent },
-            getCenterPosition(),
-            textContent.slice(0, 30)
+            pendingDropPos || getCenterPosition(),
+            textContent.slice(0, 30),
+            undefined, // width
+            undefined, // height
+            undefined, // domainId
+            undefined  // color
         );
 
         setTextContent("");
         setShowTextDialog(false);
+        setPendingDropPos(null);
     };
 
     // Add URL
@@ -1361,12 +1398,13 @@ function CanvasViewInner() {
         await addThing(
             "url",
             { url: urlContent },
-            getCenterPosition(),
+            pendingDropPos || getCenterPosition(),
             urlContent.slice(0, 50)
         );
 
         setUrlContent("");
         setShowUrlDialog(false);
+        setPendingDropPos(null);
     };
 
     // Add domain
@@ -1376,16 +1414,17 @@ function CanvasViewInner() {
         await addDomain(
             domainName,
             domainDescription,
-            getCenterPosition()
+            pendingDropPos || getCenterPosition()
         );
 
         setDomainName("");
         setDomainDescription("");
         setShowDomainDialog(false);
+        setPendingDropPos(null);
     };
 
     // Create new conversation and add to canvas
-    const handleNewConversation = async (position?: { x: number; y: number }, autoLinkTargets: Array<{ id: string; type: string }> = []) => {
+    const handleNewConversation = async (position?: { x: number; y: number }, autoLinkTargets: Array<{ id: string; type: string }> = [], color?: string) => {
         const newConvId = await createNewConversation();
         if (newConvId) {
             const pos = position || getCenterPosition();
@@ -1404,7 +1443,8 @@ function CanvasViewInner() {
                 "New Conversation",
                 undefined, // width
                 undefined, // height
-                undefined // domainId (No containment, just linking)
+                undefined, // domainId (No containment, just linking)
+                color
             );
 
             if (newThing) {
@@ -1435,12 +1475,13 @@ function CanvasViewInner() {
                 conversation_id: conversation.id,
                 messages: conversation.messages || [],
             },
-            getCenterPosition(),
+            pendingDropPos || getCenterPosition(),
             conversation.title || "Conversation"
         );
 
         setSelectedConversationId(null);
         setShowConversationDialog(false);
+        setPendingDropPos(null);
     };
 
     // Handle file selection from file picker
@@ -1457,7 +1498,7 @@ function CanvasViewInner() {
     };
 
     // Helper to upload file (from Toolbar migration)
-    const uploadFile = async (file: File): Promise<{ id: string; url: string } | null> => {
+    const uploadFile = async (file: File): Promise<{ id: string; url: string; file_hash?: string } | null> => {
         try {
             const formData = new FormData();
             formData.append("file", file);
@@ -1477,7 +1518,7 @@ function CanvasViewInner() {
             if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
 
             const data = await response.json();
-            return { id: data.id, url: data.url };
+            return { id: data.id, url: data.url, file_hash: data.file_hash };
         } catch (error) {
             console.error("Failed to upload file:", error);
             return null;
@@ -1599,12 +1640,13 @@ function CanvasViewInner() {
                     total_slides: uploadedSlides.length,
                     slides: uploadedSlides
                 },
-                getCenterPosition(),
+                pendingDropPos || getCenterPosition(),
                 "Image Slideshow"
             );
         }
 
         setShowImageSlidesDialog(false);
+        setPendingDropPos(null);
         if (e.target) e.target.value = "";
     };
 
@@ -1612,68 +1654,120 @@ function CanvasViewInner() {
         <div className="h-full w-full flex flex-col relative">
             {/* Canvas Header with Model Selector */}
             <div className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Brain className="h-4 w-4" />
-                    <span>Model:</span>
-                    {isLoadingModels ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Select
-                            value={selectedModel || ""}
-                            onValueChange={setSelectedModel}
-                        >
-                            <SelectTrigger className="w-[200px] h-8 text-sm">
-                                <SelectValue placeholder="Select model..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {models.map((model) => (
-                                    <SelectItem key={model.name} value={model.name}>
-                                        <div className="flex items-center gap-2">
-                                            <span>{model.name}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                                ({model.type})
-                                            </span>
+                <div className="flex items-center">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Brain className="h-4 w-4" />
+                        <span>Model:</span>
+                        {isLoadingModels ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Select
+                                value={selectedModel || ""}
+                                onValueChange={(value) => {
+                                    setSelectedModel(value);
+                                    useCanvasStore.getState().updateCanvasSettings({ model: value });
+                                }}
+                            >
+                                <SelectTrigger className="w-[200px] h-8 text-sm">
+                                    <SelectValue placeholder="Select model..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {models.map((model) => (
+                                        <SelectItem key={model.name} value={model.name}>
+                                            <div className="flex items-center gap-2">
+                                                <span>{model.name}</span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    ({model.type})
+                                                </span>
+                                            </div>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        )}
+                    </div>
+
+                    {/* Vision Model Selector */}
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 ml-4">
+                        <Eye className="h-4 w-4" />
+                        <span>Vision:</span>
+                        {isLoadingModels ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Select
+                                value={visionModel || ""}
+                                onValueChange={(value) => {
+                                    setVisionModel(value);
+                                    useCanvasStore.getState().updateCanvasSettings({ vision_model: value });
+                                }}
+                            >
+                                <SelectTrigger className="w-[200px] h-8 text-sm">
+                                    <SelectValue placeholder="Select vision model..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {models.filter(m => m.is_vision).map((model) => (
+                                        <SelectItem key={model.name} value={model.name}>
+                                            <div className="flex items-center gap-2">
+                                                <span>{model.name}</span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    ({model.type})
+                                                </span>
+                                            </div>
+                                        </SelectItem>
+                                    ))}
+                                    {models.filter(m => m.is_vision).length === 0 && (
+                                        <div className="p-2 text-xs text-muted-foreground">
+                                            No vision models configured
                                         </div>
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    )}
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        )}
+                    </div>
                 </div>
 
-                {/* Vision Model Selector */}
-                <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 ml-4">
-                    <Eye className="h-4 w-4" />
-                    <span>Vision:</span>
-                    {isLoadingModels ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Select
-                            value={visionModel || ""}
-                            onValueChange={setVisionModel}
-                        >
-                            <SelectTrigger className="w-[200px] h-8 text-sm">
-                                <SelectValue placeholder="Select vision model..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {models.filter(m => m.is_vision).map((model) => (
-                                    <SelectItem key={model.name} value={model.name}>
-                                        <div className="flex items-center gap-2">
-                                            <span>{model.name}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                                ({model.type})
-                                            </span>
-                                        </div>
-                                    </SelectItem>
-                                ))}
-                                {models.filter(m => m.is_vision).length === 0 && (
-                                    <div className="p-2 text-xs text-muted-foreground">
-                                        No vision models configured
-                                    </div>
-                                )}
-                            </SelectContent>
-                        </Select>
-                    )}
+                {/* Sync All Button */}
+                <div className="flex items-center gap-2 border-l pl-4 ml-4">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-slate-500 hover:text-green-600"
+                        onClick={async () => {
+                            const confirmed = window.confirm(
+                                "Sync All Files?\n\n" +
+                                "This will check all file-based items on the canvas for changes and re-ingest them if necessary.\n" +
+                                "This process may take some time."
+                            );
+                            if (confirmed) {
+                                toast({
+                                    title: "Syncing All Items",
+                                    description: "Checking and updating all files...",
+                                    duration: 3000,
+                                });
+                                try {
+                                    // @ts-ignore - syncAllThings is dynamic
+                                    await useCanvasStore.getState().syncAllThings();
+                                    toast({
+                                        title: "Sync Complete",
+                                        description: "All items have been synced.",
+                                        duration: 3000,
+                                    });
+                                    // Refresh the list to reflect status
+                                    useCanvasStore.getState().refreshThings();
+                                } catch (error) {
+                                    toast({
+                                        title: "Sync Failed",
+                                        description: "An error occurred while syncing items.",
+                                        variant: "destructive",
+                                    });
+                                }
+                            }
+                        }}
+                        title="Sync All Files"
+                    >
+                        <RefreshCcw className="h-4 w-4 mr-2" />
+                        Sync All
+                    </Button>
                 </div>
             </div>
 
@@ -1940,7 +2034,7 @@ function CanvasViewInner() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </div >
     );
 }
 

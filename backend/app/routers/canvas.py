@@ -74,6 +74,7 @@ def create_canvas(
 
 @router.get("/canvases", response_model=List[CanvasResponse])
 def list_canvases(
+    archived: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -81,13 +82,19 @@ def list_canvases(
     # Get user's role IDs
     user_role_ids = [role.id for role in current_user.roles]
     
-    canvases = db.query(Canvas).filter(
+    query = db.query(Canvas).filter(
         or_(
             Canvas.owner_id == current_user.id,
             Canvas.allowed_users.any(id=current_user.id),
             Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
         )
-    ).all()
+    )
+    
+    # Filter by archived status
+    # Note: is_archived defaults to False, so this handles legacy rows too if default was set correctly
+    query = query.filter(Canvas.is_archived == archived)
+    
+    canvases = query.all()
     return canvases
 
 
@@ -155,6 +162,10 @@ def update_canvas(
         canvas.description = request.description
     if request.viewport is not None:
         canvas.viewport = request.viewport.model_dump()
+
+    if request.owner_config is not None:
+        canvas.owner_config = request.owner_config
+        flag_modified(canvas, "owner_config")
         
     # Update Permissions (Only Owner can change permissions?)
     # Let's say yes, only owner can manage permissions.
@@ -200,6 +211,250 @@ def delete_canvas(
     return {"message": "Canvas deleted"}
 
 
+@router.patch("/canvases/{canvas_id}/archive")
+def archive_canvas(
+    canvas_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Archive a canvas."""
+    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+    if not canvas:
+        raise HTTPException(status_code=404, detail="Canvas not found")
+        
+    # Permission check (only owner can archive for now)
+    if canvas.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    canvas.is_archived = True
+    db.commit()
+    return {"status": "success"}
+
+
+@router.patch("/canvases/{canvas_id}/restore")
+def restore_canvas(
+    canvas_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Restore an archived canvas."""
+    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+    if not canvas:
+        raise HTTPException(status_code=404, detail="Canvas not found")
+        
+    if canvas.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    canvas.is_archived = False
+    db.commit()
+    return {"status": "success"}
+
+
+@router.get("/canvases/{canvas_id}/export")
+def export_canvas(
+    canvas_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Export a canvas and all its contents as JSON."""
+    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+    if not canvas:
+        raise HTTPException(status_code=404, detail="Canvas not found")
+        
+    # Permission check
+    user_role_ids = [r.id for r in current_user.roles]
+    has_access = (
+        canvas.owner_id == current_user.id or
+        current_user.id in canvas.allowed_user_ids or
+        any(rid in canvas.allowed_role_ids for rid in user_role_ids)
+    )
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Not authorized")
+        
+    # Construct export data
+    # Recursively dump data
+    
+    # Things
+    things_data = []
+    for t in canvas.things:
+        thing_dict = {
+            "id": t.id, # Keep existing ID for re-linking within export, but import should map new IDs
+            "type": t.type.value,
+            "content": t.content,
+            "position_x": t.position_x,
+            "position_y": t.position_y,
+            "width": t.width,
+            "height": t.height,
+            "domain_id": t.domain_id,
+            "summaries": t.summaries,
+            "title": t.title,
+            "collapsed": t.collapsed,
+            "iconified": t.iconified,
+            "pre_iconify_size": t.pre_iconify_size,
+            "rag_status": t.rag_status
+        }
+        things_data.append(thing_dict)
+        
+    # Links
+    links_data = []
+    for l in canvas.links:
+        link_dict = {
+            "source_id": l.source_id,
+            "target_id": l.target_id,
+            "type": l.type.value,
+            "label": l.label,
+            "source_fragment": l.source_fragment,
+            "target_fragment": l.target_fragment
+        }
+        links_data.append(link_dict)
+        
+    # Domains
+    domains_data = []
+    for d in canvas.domains:
+        domain_dict = {
+            "id": d.id,
+            "parent_id": d.parent_id,
+            "name": d.name,
+            "description": d.description,
+            "color": d.color,
+            "position_x": d.position_x,
+            "position_y": d.position_y,
+            "width": d.width,
+            "height": d.height
+        }
+        domains_data.append(domain_dict)
+        
+    export_payload = {
+        "schema_version": "1.0",
+        "canvas": {
+            "name": canvas.name,
+            "description": canvas.description,
+            "viewport": canvas.viewport
+        },
+        "things": things_data,
+        "links": links_data,
+        "domains": domains_data
+    }
+    
+    return export_payload
+
+
+@router.post("/canvases/import")
+def import_canvas(
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Import a canvas from JSON export data."""
+    try:
+        # 1. Create Canvas
+        canvas_info = data.get("canvas", {})
+        new_canvas = Canvas(
+            owner_id=current_user.id,
+            name=f"{canvas_info.get('name', 'Imported Canvas')} (Imported)",
+            description=canvas_info.get("description"),
+            viewport=canvas_info.get("viewport", {"x": 0, "y": 0, "zoom": 1.0}),
+            is_archived=False
+        )
+        db.add(new_canvas)
+        db.flush() # Generate ID
+        
+        # Maps for ID translation (Old -> New)
+        id_map = {} # Generic map for things and domains
+        
+        # 2. Key for re-mapping domain IDs first since things depend on them
+        domains_data = data.get("domains", [])
+        # Simple topological sort not needed if we insert parents first or just update parents later.
+        # But domains can be nested. SQLAlchemy handles FK checks.
+        # Safest: Insert all Domains with Null parent, then update parents.
+        new_domains = []
+        old_domain_parent_map = {}
+        
+        for d_data in domains_data:
+            old_id = d_data.get("id")
+            new_domain = Domain(
+                canvas_id=new_canvas.id,
+                name=d_data.get("name"),
+                description=d_data.get("description"),
+                color=d_data.get("color"),
+                position_x=d_data.get("position_x"),
+                position_y=d_data.get("position_y"),
+                width=d_data.get("width"),
+                height=d_data.get("height"),
+                parent_id=None # Set later
+            )
+            db.add(new_domain)
+            db.flush()
+            if old_id:
+                id_map[old_id] = new_domain.id
+                if d_data.get("parent_id"):
+                    old_domain_parent_map[new_domain.id] = d_data.get("parent_id")
+                    
+        # Update Domain parents
+        for new_dom_id, old_parent_id in old_domain_parent_map.items():
+            if old_parent_id in id_map:
+                dom = db.query(Domain).filter(Domain.id == new_dom_id).first()
+                dom.parent_id = id_map[old_parent_id]
+        
+        # 3. Create Things
+        things_data = data.get("things", [])
+        for t_data in things_data:
+            old_id = t_data.get("id")
+            old_domain_id = t_data.get("domain_id")
+            
+            # Map domain ID
+            new_domain_id = id_map.get(old_domain_id) if old_domain_id else None
+            
+            new_thing = CanvasThing(
+                canvas_id=new_canvas.id,
+                type=ModelThingType(t_data.get("type")),
+                content=t_data.get("content", {}),
+                position_x=t_data.get("position_x"),
+                position_y=t_data.get("position_y"),
+                width=t_data.get("width"),
+                height=t_data.get("height"),
+                domain_id=new_domain_id,
+                summaries=t_data.get("summaries", {}),
+                title=t_data.get("title"),
+                collapsed=t_data.get("collapsed", False),
+                iconified=t_data.get("iconified", False),
+                pre_iconify_size=t_data.get("pre_iconify_size"),
+                rag_status=t_data.get("rag_status", "none")
+            )
+            db.add(new_thing)
+            db.flush()
+            if old_id:
+                id_map[old_id] = new_thing.id
+                
+        # 4. Create Links
+        links_data = data.get("links", [])
+        for l_data in links_data:
+            s_old = l_data.get("source_id")
+            t_old = l_data.get("target_id")
+            
+            if s_old in id_map and t_old in id_map:
+                new_link = CanvasLink(
+                    canvas_id=new_canvas.id,
+                    source_id=id_map[s_old],
+                    target_id=id_map[t_old],
+                    type=ModelLinkType(l_data.get("type", "related")),
+                    label=l_data.get("label"),
+                    source_fragment=l_data.get("source_fragment"),
+                    target_fragment=l_data.get("target_fragment")
+                )
+                db.add(new_link)
+                
+        db.commit()
+        db.refresh(new_canvas)
+        return {"status": "success", "id": new_canvas.id}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Import failed: {e}")
+        # traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
+
+
 # =============================================================================
 # Things CRUD
 # =============================================================================
@@ -238,7 +493,8 @@ async def create_thing(
             width=request.size.width if request.size else None,
             height=request.size.height if request.size else None,
             domain_id=request.domain_id if request.domain_id else None,
-            title=request.title
+            title=request.title,
+            color=request.color
         )
         print(f"[CanvasRouter] Adding thing to DB: {thing}")
         db.add(thing)
@@ -422,6 +678,8 @@ def update_thing(
         thing.domain_id = request.domain_id if request.domain_id else None
     if request.title is not None:
         thing.title = request.title
+    if request.color is not None:
+        thing.color = request.color
     if request.collapsed is not None:
         thing.collapsed = request.collapsed
     # Iconify feature fields
@@ -471,6 +729,259 @@ def delete_thing(
     db.delete(thing)
     db.commit()
     return {"message": "Thing deleted"}
+
+
+# =============================================================================
+# Sync / Re-ingestion Logic
+# =============================================================================
+from app.models.asset_models import Asset
+from app.services.asset_service import AssetService
+import os
+import uuid
+import datetime
+from typing import Optional
+from fastapi import UploadFile, File, Form, BackgroundTasks
+
+@router.post("/canvases/{canvas_id}/things/{thing_id}/sync/check")
+def check_sync_status(
+    canvas_id: str,
+    thing_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Check if the thing's source file has changed.
+    Uses 'source_path' from the underlying Assert and SHA256 hash detection.
+    """
+    thing = db.query(CanvasThing).join(Canvas).filter(
+        CanvasThing.id == thing_id,
+        CanvasThing.canvas_id == canvas_id
+    ).first()
+    
+    if not thing:
+        raise HTTPException(status_code=404, detail="Thing not found")
+
+    content = thing.content or {}
+    asset_id = content.get("asset_id")
+    
+    if not asset_id:
+         return {"status": "no_asset"}
+         
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        return {"status": "asset_missing"}
+        
+    # Retrieve source path from Thing content (not Asset table)
+    source_path = content.get("source_path")
+    stored_hash = content.get("file_hash")
+
+    if not source_path:
+        # If no source path known, we can't check disk.
+        # But if we have a file_hash, maybe we assume "synced" until user manually updates?
+        # NO, user wants to know if source is missing.
+        # If we don't know the source, we return 'missing_source' which triggers manual select dialog
+        return {"status": "missing_source", "reason": "no_source_path"}
+        
+    if not os.path.exists(source_path):
+        return {"status": "missing_source", "path": source_path}
+        
+    # Checksum verification
+    try:
+        current_hash = AssetService.calculate_file_hash(source_path)
+        
+        # If no stored hash (old thing), update it? or assume changed?
+        if not stored_hash:
+             return {"status": "changed", "reason": "no_stored_hash"}
+             
+        if current_hash != stored_hash:
+            return {"status": "changed", "current_hash": current_hash, "stored_hash": stored_hash}
+            
+        return {"status": "synced", "last_checked": str(datetime.datetime.utcnow())}
+        
+    except Exception as e:
+        print(f"[SyncCheck] Error calculating hash: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/canvases/{canvas_id}/things/{thing_id}/sync/update")
+async def perform_sync_update(
+    canvas_id: str,
+    thing_id: str,
+    file: Optional[UploadFile] = File(None),
+    use_source_path: bool = Form(False),
+    background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Perform the sync update.
+    Two-Phase: Ingest New -> Delete Old.
+    """
+    thing = db.query(CanvasThing).join(Canvas).filter(
+        CanvasThing.id == thing_id,
+        CanvasThing.canvas_id == canvas_id
+    ).first()
+    
+    if not thing:
+        raise HTTPException(status_code=404, detail="Thing not found")
+        
+    content = thing.content or {}
+    old_asset_id = content.get("asset_id")
+    
+    new_asset = None
+    new_file_hash = None
+    source_path_used = None
+    
+    # 1. Acquire New Data (File Upload OR Read from Source)
+    if file:
+        # Case A: User selected a new file manually
+        print(f"[SyncUpdate] Updating from uploaded file: {file.filename}")
+        # Unpack tuple (Asset, file_hash)
+        new_asset, new_file_hash = await AssetService.create_asset(db, file, current_user.id)
+        
+    elif use_source_path:
+        # Case B: Sync from existing source path (stored in content)
+        source_path = content.get("source_path")
+        
+        if not source_path:
+             raise HTTPException(status_code=400, detail="No source path available in thing content.")
+             
+        if not os.path.exists(source_path):
+             raise HTTPException(status_code=404, detail=f"Source file not found: {source_path}")
+             
+        print(f"[SyncUpdate] Updating from source path: {source_path}")
+        source_path_used = source_path
+        
+        # Manually Create Asset from Path to track logic history
+        try:
+             import mimetypes
+             import shutil
+             from pathlib import Path
+             
+             filename = os.path.basename(source_path)
+             mime_type, _ = mimetypes.guess_type(source_path)
+             
+             AssetService.ensure_storage_dir()
+             today = datetime.datetime.now()
+             date_path = Path(f"{today.year}/{today.month:02d}/{today.day:02d}")
+             full_dir = AssetService.STORAGE_ROOT / date_path
+             full_dir.mkdir(parents=True, exist_ok=True)
+             
+             file_uuid = str(uuid.uuid4())
+             safe_filename = "".join(x for x in filename if x.isalnum() or x in "._- ")
+             disk_filename = f"{file_uuid}_{safe_filename}"
+             relative_path = str(date_path / disk_filename)
+             dest_path = full_dir / disk_filename
+             
+             shutil.copy2(source_path, dest_path)
+             
+             file_size = dest_path.stat().st_size
+             new_file_hash = AssetService.calculate_file_hash(dest_path)
+             
+             # Create Asset without source_path/file_hash columns
+             new_asset = Asset(
+                 owner_id=current_user.id,
+                 original_name=filename,
+                 mime_type=mime_type or "application/octet-stream",
+                 size_bytes=file_size,
+                 file_path=relative_path,
+                 # source_path/file_hash removed from model
+             )
+             db.add(new_asset)
+             db.commit()
+             db.refresh(new_asset)
+        except Exception as e:
+            print(f"[SyncUpdate] Error copying file from source: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to copy file from source: {e}")
+
+    else:
+        raise HTTPException(status_code=400, detail="Must provide file or set use_source_path=True")
+        
+    if not new_asset:
+        raise HTTPException(status_code=500, detail="Failed to create new asset")
+        
+    # 2. Update Thing Content
+    new_content = dict(thing.content or {})
+    
+    # Check if content matches (Hash Comparison)
+    # We compare the NEW hash with the OLD hash stored in content
+    old_hash = new_content.get("file_hash")
+    is_same_content = new_file_hash and old_hash and new_file_hash == old_hash
+    
+    new_content["asset_id"] = new_asset.id
+    # FIX: Store Valid Access URL, not disk path
+    new_content["file_path"] = f"/api/v1/assets/{new_asset.id}"
+    
+    # Store explicit sync metadata in content
+    if new_file_hash:
+        new_content["file_hash"] = new_file_hash
+    if source_path_used:
+        new_content["source_path"] = source_path_used
+        
+    thing.content = new_content
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(thing, "content")
+    db.commit()
+    
+    # 3. Trigger 2-Phase Worker (Only if content changed)
+    batch_id = str(uuid.uuid4())
+    
+    if not is_same_content:
+        print(f"[SyncUpdate] Triggering worker for {thing_id} with Batch ID: {batch_id}")
+        background_tasks.add_task(
+            handle_async_vectorization,
+            thing_id=thing.id,
+            # FIX: Pass Asset object, not string path
+            file_path=str(AssetService.get_storage_path(new_asset)), 
+            canvas_id=canvas_id,
+            mode="sync",
+            active_batch_id=batch_id
+        )
+    else:
+        print(f"[SyncUpdate] Content identical. Skipping re-ingestion for {thing_id}.")
+
+    status_code = "sync_same_content" if is_same_content else "sync_started"
+    return {"status": status_code, "batch_id": batch_id, "new_asset_id": new_asset.id}
+
+@router.post("/canvases/{canvas_id}/sync_all")
+def sync_all_things(
+    canvas_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Return status for all syncable things.
+    """
+    things = db.query(CanvasThing).filter(
+        CanvasThing.canvas_id == canvas_id,
+        CanvasThing.type.in_([ModelThingType.document, ModelThingType.image, ModelThingType.slideshow])
+    ).all()
+    
+    results = []
+    for t in things:
+        cont = t.content or {}
+        aid = cont.get("asset_id")
+        status_res = "unknown"
+        
+        if aid:
+            a = db.query(Asset).filter(Asset.id == aid).first()
+            if a and a.source_path:
+                if os.path.exists(a.source_path):
+                    status_res = "has_source"
+                    # Optional: Check hash?
+                else:
+                    status_res = "missing_source"
+            else:
+                status_res = "no_path"
+        
+        results.append({
+            "thing_id": t.id,
+            "title": t.title,
+            "status": status_res
+        })
+        
+    return results
 
 
 # =============================================================================
@@ -1004,9 +1515,12 @@ async def analyze_selection(
             content_str = str(request.fragment.content)
             if "base64," in content_str[:100] or (len(content_str) > 5000 and not " " in content_str[:100]):
                  # Assume it's an image if it has base64 header or is a long string without spaces (raw base64)
-                 # Note: raw base64 usually doesn't have spaces.
-                 image_payload = request.fragment.content
-                 print(f"[Analyze] Detected base64 content in fragment type '{request.fragment.type}'")
+                 # EXCEPTION: If it starts with '{' or '[', it is likely JSON metadata, not image
+                 if not content_str.strip().startswith("{") and not content_str.strip().startswith("["):
+                     image_payload = request.fragment.content
+                     print(f"[Analyze] Detected base64 content in fragment type '{request.fragment.type}'")
+                 else:
+                     print(f"[Analyze] Ignoring JSON-like content from image detection (len={len(content_str)})")
 
         if image_payload:
             # Vision capabilities

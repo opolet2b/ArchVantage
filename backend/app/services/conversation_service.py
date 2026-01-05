@@ -41,16 +41,23 @@ class ConversationService:
             "title": "New Conversation",
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
+            "archived": False,
             "messages": []
         }
         conversations[conv_id] = new_conv
         self._save_conversations(conversations)
         return new_conv
 
-    def get_conversations(self) -> List[Dict[str, Any]]:
+    def get_conversations(self, archived: bool = False) -> List[Dict[str, Any]]:
         conversations = self._get_all()
+        # Filter by archived status
+        # Handle backward compatibility where "archived" key might be missing (treat as False)
+        filtered = [
+            c for c in conversations.values() 
+            if c.get("archived", False) == archived
+        ]
         # Return list sorted by updated_at desc
-        return sorted(conversations.values(), key=lambda x: x["updated_at"], reverse=True)
+        return sorted(filtered, key=lambda x: x["updated_at"], reverse=True)
 
     def get_conversation(self, conv_id: str) -> Optional[Dict[str, Any]]:
         conversations = self._get_all()
@@ -89,7 +96,61 @@ class ConversationService:
                 print(f"Error deleting files for {conv_id}: {e}")
                 
             return True
+            return True
         return False
+
+    def archive_conversation(self, conv_id: str) -> bool:
+        conversations = self._get_all()
+        if conv_id in conversations:
+            conversations[conv_id]["archived"] = True
+            conversations[conv_id]["updated_at"] = datetime.now().isoformat()
+            self._save_conversations(conversations)
+            return True
+        return False
+
+    def restore_conversation(self, conv_id: str) -> bool:
+        conversations = self._get_all()
+        if conv_id in conversations:
+            conversations[conv_id]["archived"] = False
+            conversations[conv_id]["updated_at"] = datetime.now().isoformat()
+            self._save_conversations(conversations)
+            return True
+        return False
+
+    def import_conversations(self, data_list: List[Dict[str, Any]]) -> int:
+        """
+        Import a list of conversations. 
+        Generates new IDs to avoid collisions.
+        Returns the number of successfully imported conversations.
+        """
+        conversations = self._get_all()
+        count = 0
+        
+        for item in data_list:
+            try:
+                # Basic validation
+                if "messages" not in item:
+                    continue
+                    
+                new_id = str(uuid.uuid4())
+                new_conv = {
+                    "id": new_id,
+                    "title": item.get("title", "Imported Conversation"),
+                    "created_at": item.get("created_at", datetime.now().isoformat()),
+                    "updated_at": datetime.now().isoformat(), # touched on import
+                    "archived": False, # Import as active by default
+                    "messages": item.get("messages", [])
+                }
+                conversations[new_id] = new_conv
+                count += 1
+            except Exception as e:
+                print(f"Error importing item: {e}")
+                continue
+                
+        if count > 0:
+            self._save_conversations(conversations)
+            
+        return count
 
     async def add_message(self, conv_id: str, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         conversations = self._get_all()

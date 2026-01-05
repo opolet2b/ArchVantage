@@ -170,8 +170,29 @@ export function ImageViewer({
                 if (action === 'delete') onOverlayDelete?.(id);
                 if (action === 'resize') onOverlayResize?.(id, data.x, data.y, data.width, data.height);
                 if (action === 'click') {
+                    // Reconstruct fragment and call onSelect to trigger toolbar
                     const ov = overlays.find(o => o.id === id);
-                    if (ov) onOverlayClick?.(ov);
+                    if (ov && onSelect) {
+                        const fragment: RegionFragment = {
+                            id: ov.id,
+                            type: "region",
+                            x: ov.x,
+                            y: ov.y,
+                            width: ov.width,
+                            height: ov.height,
+                            content: (ov as any).content || ""
+                        };
+
+                        // Calculate screen position for toolbar
+                        if (imageRef.current) {
+                            const img = imageRef.current;
+                            const rect = img.getBoundingClientRect();
+                            const x = rect.left + (ov.x / 100) * rect.width + (ov.width / 100) * rect.width / 2;
+                            const y = rect.top + (ov.y / 100) * rect.height + (ov.height / 100) * rect.height;
+                            onSelect(fragment, { x, y });
+                        }
+                    }
+                    if (ov) onOverlayClick?.(ov); // Keep prop if needed for other things, but onSelect is primary
                 }
             }}
         >

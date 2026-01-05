@@ -8,6 +8,7 @@ interface Conversation {
     title: string
     created_at: string
     updated_at: string
+    archived: boolean
     messages: any[]
 }
 
@@ -19,6 +20,11 @@ interface ConversationContextType {
     createNewConversation: () => Promise<string>
     deleteConversation: (id: string) => Promise<void>
     updateConversationTitle: (id: string, title: string) => Promise<void>
+    viewMode: 'active' | 'archived'
+    setViewMode: (mode: 'active' | 'archived') => void
+    archiveConversation: (id: string) => Promise<void>
+    restoreConversation: (id: string) => Promise<void>
+    importConversations: (data: any[]) => Promise<void>
 }
 
 const ConversationContext = createContext<ConversationContextType | undefined>(undefined)
@@ -26,11 +32,12 @@ const ConversationContext = createContext<ConversationContextType | undefined>(u
 export function ConversationProvider({ children }: { children: React.ReactNode }) {
     const [conversations, setConversations] = useState<Conversation[]>([])
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
+    const [viewMode, setViewMode] = useState<'active' | 'archived'>('active')
 
     const refreshConversations = useCallback(async () => {
         try {
             const token = localStorage.getItem("token")
-            const res = await fetch(`${API_URL}/conversations`, {
+            const res = await fetch(`${API_URL}/conversations?archived=${viewMode === 'archived'}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             if (res.ok) {
@@ -40,7 +47,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
         } catch (error) {
             console.error("Failed to fetch conversations", error)
         }
-    }, [])
+    }, [viewMode])
 
     useEffect(() => {
         refreshConversations()
@@ -97,8 +104,60 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
             if (res.ok) {
                 await refreshConversations()
             }
+
         } catch (error) {
             console.error("Failed to update conversation title", error)
+        }
+    }
+    const archiveConversation = async (id: string) => {
+        try {
+            const token = localStorage.getItem("token")
+            const res = await fetch(`${API_URL}/conversations/${id}/archive`, {
+                method: "PATCH",
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (res.ok) {
+                await refreshConversations()
+                if (activeConversationId === id) {
+                    setActiveConversationId(null)
+                }
+            }
+        } catch (error) {
+            console.error("Failed to archive conversation", error)
+        }
+    }
+
+    const restoreConversation = async (id: string) => {
+        try {
+            const token = localStorage.getItem("token")
+            const res = await fetch(`${API_URL}/conversations/${id}/restore`, {
+                method: "PATCH",
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            if (res.ok) {
+                await refreshConversations()
+            }
+        } catch (error) {
+            console.error("Failed to restore conversation", error)
+        }
+    }
+
+    const importConversations = async (data: any[]) => {
+        try {
+            const token = localStorage.getItem("token")
+            const res = await fetch(`${API_URL}/conversations/import`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify(data),
+            })
+            if (res.ok) {
+                await refreshConversations()
+            }
+        } catch (error) {
+            console.error("Failed to import conversations", error)
         }
     }
 
@@ -112,6 +171,11 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
                 createNewConversation,
                 deleteConversation,
                 updateConversationTitle,
+                viewMode,
+                setViewMode,
+                archiveConversation,
+                restoreConversation,
+                importConversations,
             }}
         >
             {children}

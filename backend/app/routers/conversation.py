@@ -10,6 +10,7 @@ class Conversation(BaseModel):
     title: str
     created_at: str
     updated_at: str
+    archived: Optional[bool] = False
     messages: List[Dict[str, Any]]
 
 class CreateConversationResponse(BaseModel):
@@ -31,8 +32,8 @@ def create_conversation():
     return conversation_service.create_conversation()
 
 @router.get("/conversations", response_model=List[Conversation])
-def get_conversations():
-    return conversation_service.get_conversations()
+def get_conversations(archived: bool = False):
+    return conversation_service.get_conversations(archived=archived)
 
 @router.get("/conversations/{conv_id}", response_model=Conversation)
 def get_conversation(conv_id: str):
@@ -55,6 +56,25 @@ def delete_conversation(conv_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "success"}
+
+@router.patch("/conversations/{conv_id}/archive")
+def archive_conversation(conv_id: str):
+    success = conversation_service.archive_conversation(conv_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "success"}
+
+@router.patch("/conversations/{conv_id}/restore")
+def restore_conversation(conv_id: str):
+    success = conversation_service.restore_conversation(conv_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "success"}
+
+@router.post("/conversations/import")
+def import_conversations(conversations: List[Dict[str, Any]]):
+    count = conversation_service.import_conversations(conversations)
+    return {"status": "success", "imported_count": count}
 
 @router.post("/conversations/{conv_id}/messages", response_model=Conversation)
 async def add_message(conv_id: str, request: AddMessageRequest):

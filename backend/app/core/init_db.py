@@ -145,6 +145,93 @@ def run_migrations(db: Session) -> None:
     except Exception as e:
         print(f"smart_analysis_templates migration check failed: {e}")
 
+    # Migration for canvas_things color column
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='canvas_things'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+        
+        if table_exists:
+            try:
+                result = db.execute(
+                    text("SELECT color FROM canvas_things LIMIT 1")
+                )
+                result.close()
+                print("Migration check: color column already exists in canvas_things.")
+            except Exception:
+                print("Adding 'color' column to canvas_things table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE canvas_things ADD COLUMN color VARCHAR(20)")
+                    )
+                    db.commit()
+                    print("Added 'color' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add color column: {alter_error}")
+                    db.rollback()
+    except Exception as e:
+        print(f"canvas_things color migration check failed: {e}")
+
+    # Migration for canvases is_archived
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='canvases'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            try:
+                result = db.execute(
+                    text("SELECT is_archived FROM canvases LIMIT 1")
+                )
+                result.close()
+                print("Migration check: is_archived column already exists in canvases.")
+            except Exception:
+                print("Adding 'is_archived' column to canvases table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE canvases ADD COLUMN is_archived BOOLEAN DEFAULT 0")
+                    )
+                    db.commit()
+                    print("Added 'is_archived' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add is_archived column: {alter_error}")
+                    db.rollback()
+    except Exception as e:
+        print(f"canvases migration check failed: {e}")
+
+    # Migration for canvases owner_config
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='canvases'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            try:
+                result = db.execute(
+                    text("SELECT owner_config FROM canvases LIMIT 1")
+                )
+                result.close()
+                print("Migration check: owner_config column already exists in canvases.")
+            except Exception:
+                print("Adding 'owner_config' column to canvases table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE canvases ADD COLUMN owner_config JSON")
+                    )
+                    db.commit()
+                    print("Added 'owner_config' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add owner_config column: {alter_error}")
+                    db.rollback()
+    except Exception as e:
+        print(f"canvases owner_config migration check failed: {e}")
+
 def init_db(db: Session) -> None:
     # 1. Create Default Roles
     roles = ["Admin", "User"]

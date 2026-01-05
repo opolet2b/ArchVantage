@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useConversation } from "@/lib/conversation-context"
-import { MessageSquare, MoreVertical, Trash2, Edit2, Download, FileText } from "lucide-react"
+import { MessageSquare, MoreVertical, Trash2, Edit2, Download, FileText, CheckSquare, X, ListChecks, Archive, Upload, RotateCcw } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -23,14 +24,23 @@ export function ConversationList() {
         activeConversationId,
         setActiveConversationId,
         deleteConversation,
-        updateConversationTitle
+        updateConversationTitle,
+        viewMode,
+        setViewMode,
+        archiveConversation,
+        restoreConversation,
+        importConversations
     } = useConversation()
 
     const [editingId, setEditingId] = useState<string | null>(null)
     const [editTitle, setEditTitle] = useState("")
     const [deleteId, setDeleteId] = useState<string | null>(null)
     const [manageDocsId, setManageDocsId] = useState<string | null>(null)
+    const [isSelectionMode, setIsSelectionMode] = useState(false)
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
         if (editingId && inputRef.current) {
@@ -71,17 +81,215 @@ export function ConversationList() {
         URL.revokeObjectURL(url)
     }
 
+    const toggleSelectionMode = () => {
+        setIsSelectionMode(!isSelectionMode)
+        setSelectedIds(new Set())
+    }
+
+    const toggleSelection = (id: string) => {
+        const next = new Set(selectedIds)
+        if (next.has(id)) {
+            next.delete(id)
+        } else {
+            next.add(id)
+        }
+        setSelectedIds(next)
+    }
+
+    const handleSelectAll = () => {
+        if (selectedIds.size === conversations.length) {
+            setSelectedIds(new Set())
+        } else {
+            setSelectedIds(new Set(conversations.map(c => c.id)))
+        }
+    }
+
     const confirmDelete = async () => {
-        if (deleteId) {
+        if (showBatchDeleteConfirm) {
+            const ids = Array.from(selectedIds)
+            await Promise.all(ids.map(id => deleteConversation(id)))
+            setSelectedIds(new Set())
+            setIsSelectionMode(false)
+            setShowBatchDeleteConfirm(false)
+        } else if (deleteId) {
             await deleteConversation(deleteId)
             setDeleteId(null)
+        }
+    }
+
+    const handleBatchExport = () => {
+        const selectedConvs = conversations.filter(c => selectedIds.has(c.id))
+        if (selectedConvs.length === 0) return
+
+        const dataStr = JSON.stringify(selectedConvs, null, 2)
+        const blob = new Blob([dataStr], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `conversations_export_${new Date().toISOString().slice(0, 10)}.json`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        setIsSelectionMode(false)
+        setSelectedIds(new Set())
+    }
+
+    const handleBatchArchive = async () => {
+        const ids = Array.from(selectedIds)
+        await Promise.all(ids.map(id => archiveConversation(id)))
+        setIsSelectionMode(false)
+        setSelectedIds(new Set())
+    }
+
+    const handleBatchRestore = async () => {
+        const ids = Array.from(selectedIds)
+        await Promise.all(ids.map(id => restoreConversation(id)))
+        setIsSelectionMode(false)
+        setSelectedIds(new Set())
+    }
+
+    const handleImportClick = () => {
+        fileInputRef.current?.click()
+    }
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        const reader = new FileReader()
+        reader.onload = async (event) => {
+            try {
+                const data = JSON.parse(event.target?.result as string)
+                if (Array.isArray(data)) {
+                    await importConversations(data)
+                } else {
+                    // Handle single conversation object
+                    await importConversations([data])
+                }
+            } catch (err) {
+                console.error("Failed to parse import file", err)
+            }
+        }
+        reader.readAsText(file)
+        if (fileInputRef.current) {
+            fileInputRef.current.value = ""
         }
     }
 
     return (
         <>
             <div className="flex flex-col gap-2 px-2 py-4 w-full">
-                <div className="text-xs font-semibold text-muted-foreground px-2 mb-2">History</div>
+
+                <div className="flex items-center justify-between px-2 mb-2">
+                    <div className="text-xs font-semibold text-muted-foreground">History</div>
+                    <div className="flex gap-1 items-center">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-6 w-6", viewMode === 'archived' && "bg-accent text-accent-foreground")}
+                            onClick={() => setViewMode(viewMode === 'active' ? 'archived' : 'active')}
+                            title={viewMode === 'active' ? "Show Archived" : "Show Active"}
+                        >
+                            <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                        {!isSelectionMode ? (
+                            <>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={handleImportClick}
+                                    title="Import Conversations"
+                                >
+                                    <Upload className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={toggleSelectionMode}
+                                    title="Select conversations"
+                                >
+                                    <ListChecks className="h-3.5 w-3.5" />
+                                </Button>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".json"
+                                    className="hidden"
+                                    onChange={handleFileChange}
+                                />
+                            </>
+                        ) : (
+                            <div className="flex items-center gap-1">
+                                {viewMode === 'active' ? (
+                                    <>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={handleBatchExport}
+                                            disabled={selectedIds.size === 0}
+                                            title="Export selected"
+                                        >
+                                            <Download className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={handleBatchArchive}
+                                            disabled={selectedIds.size === 0}
+                                            title="Archive selected"
+                                        >
+                                            <Archive className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={handleBatchRestore}
+                                        disabled={selectedIds.size === 0}
+                                        title="Restore selected"
+                                    >
+                                        <RotateCcw className="h-3.5 w-3.5" />
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                    onClick={() => selectedIds.size > 0 && setShowBatchDeleteConfirm(true)}
+                                    disabled={selectedIds.size === 0}
+                                    title="Delete selected"
+                                >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={toggleSelectionMode}
+                                    title="Cancel selection"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+                {isSelectionMode && conversations.length > 0 && (
+                    <div className="px-2 mb-2 flex items-center gap-2">
+                        <Checkbox
+                            checked={selectedIds.size === conversations.length && conversations.length > 0}
+                            onCheckedChange={handleSelectAll}
+                        />
+                        <span className="text-xs text-muted-foreground">Select All ({selectedIds.size}/{conversations.length})</span>
+                    </div>
+                )}
                 <div className="flex flex-col gap-1">
                     {conversations.map((conv) => (
                         <div
@@ -95,6 +303,14 @@ export function ConversationList() {
                                 router.push("/")
                             }}
                         >
+                            {isSelectionMode && (
+                                <Checkbox
+                                    checked={selectedIds.has(conv.id)}
+                                    onCheckedChange={() => toggleSelection(conv.id)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="mr-2"
+                                />
+                            )}
                             <MessageSquare className="h-4 w-4 shrink-0" />
                             {editingId === conv.id ? (
                                 <Input
@@ -152,12 +368,30 @@ export function ConversationList() {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This action cannot be undone. This will permanently delete the conversation.
+                            {showBatchDeleteConfirm
+                                ? `This action cannot be undone. This will permanently delete ${selectedIds.size} conversations.`
+                                : "This action cannot be undone. This will permanently delete the conversation."
+                            }
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={showBatchDeleteConfirm} onOpenChange={(open) => !open && setShowBatchDeleteConfirm(false)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete {selectedIds.size} conversations?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. These conversations will be permanently deleted.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">Delete All</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>

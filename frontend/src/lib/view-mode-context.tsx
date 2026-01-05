@@ -34,7 +34,7 @@ const ViewModeContext = React.createContext<ViewModeContextType | undefined>(
 // =============================================================================
 
 export function ViewModeProvider({ children }: { children: React.ReactNode }) {
-    const [viewMode, setViewMode] = React.useState<ViewMode>("chat");
+    const [viewMode, setViewMode] = React.useState<ViewMode>("canvas");
 
     return (
         <ViewModeContext.Provider value={{ viewMode, setViewMode }}>

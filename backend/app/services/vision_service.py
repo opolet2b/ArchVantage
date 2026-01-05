@@ -21,7 +21,10 @@ class VisionProvider(ABC):
         image_data: str, 
         prompt: str, 
         system_prompt: Optional[str] = None,
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_kwargs: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Analyze an image (Base64) with a text prompt.
@@ -31,6 +34,9 @@ class VisionProvider(ABC):
             prompt: Human query or instruction.
             system_prompt: System context/persona.
             model_name: Specific model to use (e.g. gpt-4o).
+            api_key: Optional API key override.
+            base_url: Optional Base URL override.
+            model_kwargs: Optional extra arguments (e.g., sort strategy).
             
         Returns:
             Text response from the model.
@@ -48,16 +54,24 @@ class OpenAIVisionProvider(VisionProvider):
         image_data: str, 
         prompt: str, 
         system_prompt: Optional[str] = None,
-        model_name: Optional[str] = "gpt-4o"
+        model_name: Optional[str] = "gpt-4o",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_kwargs: Optional[Dict[str, Any]] = None
     ) -> str:
-        if not self.api_key:
+        # Use provided key or fallback to env or self.api_key
+        final_api_key = api_key or self.api_key
+        
+        if not final_api_key:
             return "Error: OpenAI API key not configured."
             
         # Initialize model
         chat = ChatOpenAI(
             model=model_name, 
-            openai_api_key=self.api_key,
-            max_tokens=1024
+            openai_api_key=final_api_key,
+            openai_api_base=base_url,
+            max_tokens=1024,
+            model_kwargs=model_kwargs or {}
         )
         
         messages: List[BaseMessage] = []
@@ -107,7 +121,10 @@ class OllamaVisionProvider(VisionProvider):
         image_data: str, 
         prompt: str, 
         system_prompt: Optional[str] = None,
-        model_name: Optional[str] = "llama3.2-vision"
+        model_name: Optional[str] = "llama3.2-vision",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None, # Used if provided, else self.base_url
+        model_kwargs: Optional[Dict[str, Any]] = None
     ) -> str:
 
         
@@ -115,13 +132,13 @@ class OllamaVisionProvider(VisionProvider):
         img_b64 = image_data
         if "base64," in image_data:
             img_b64 = image_data.split("base64,")[1]
-
-        # Validation: Check if image_data looks like JSON/Text metadata
-        if len(img_b64) < 1000 and ("{" in img_b64 or "File:" in img_b64):
-             print(f"[OllamaVisionProvider] ERROR: Image data appears to be text metadata, not base64! Content: {img_b64}")
-             return "Error: Internal image fetch failed. The system received file metadata instead of image content."
+        
+        # Clean up whitespace (fix for "illegal base64 data at input byte 0")
+        img_b64 = img_b64.strip()
 
         print(f"[OllamaVisionProvider] Analyzing with {model_name} via Direct API...")
+        print(f"[OllamaVisionProvider] Input Preview (first 50): {image_data[:50]}")
+        print(f"[OllamaVisionProvider] Base64 Preview (first 50): {img_b64[:50]}")
         print(f"[OllamaVisionProvider] Image Size: {len(img_b64)} chars")
 
         # Construct raw payload for Ollama /api/chat
@@ -260,6 +277,11 @@ class VisionService:
         provider = None
         actual_model_tag = model_name # Fallback: assume input was a raw tag
         
+        # Params for Remote API
+        api_key = None
+        base_url = None
+        model_kwargs = {}
+        
         if target_preset:
             print(f"[VisionService] Resolved '{model_name}' to preset '{target_preset['name']}'")
             if target_preset.get("type") == "local":
@@ -268,14 +290,28 @@ class VisionService:
             else:
                 provider = self._providers["openai"]
                 # For remote, if the preset has a specific model_name, use it, else default
-                # ModelConfig currently might not save 'model_name' for remote types, 
-                # but if we want to support it we can check.
                 actual_model_tag = target_preset.get("model_name") or "gpt-4o"
+                api_key = target_preset.get("service_api_key")
+                base_url = target_preset.get("api_url")
+                
+                # Add sort strategy if present
+                sort_strategy = target_preset.get("sort")
+                if sort_strategy:
+                    model_kwargs["extra_body"] = {
+                        "provider": {
+                            "sort": sort_strategy
+                        }
+                    }
         else:
             # No preset found. Use heuristic or legacy logic.
             print(f"[VisionService] No preset found for '{model_name}'. Treating as raw tag.")
             provider = self._get_provider(model_name)
             actual_model_tag = model_name
+            
+            # Check if this raw tag matches the format of a remote model but wasn't in presets? 
+            # Or assume OpenAI env vars if no preset.
+            if provider == self._providers["openai"]:
+                api_key = os.getenv("OPENAI_API_KEY") # explicit fallback to be safe
 
         provider_name = "Ollama" if isinstance(provider, OllamaVisionProvider) else "OpenAI"
         print(f"[VisionService] Routing to provider: {provider_name} with tag: '{actual_model_tag}'")
@@ -288,7 +324,10 @@ class VisionService:
             image_data=image_data, 
             prompt=prompt, 
             system_prompt=system_prompt, 
-            model_name=actual_model_tag
+            model_name=actual_model_tag,
+            api_key=api_key,
+            base_url=base_url,
+            model_kwargs=model_kwargs
         )
 
 # Singleton instance

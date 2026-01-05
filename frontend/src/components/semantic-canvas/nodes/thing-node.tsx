@@ -32,7 +32,10 @@ import {
     Lightbulb,
     Eye,
     EyeOff,
-    Copy
+    Copy,
+    RefreshCcw,
+    FileWarning,
+    FolderOpen
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -66,7 +69,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createPortal } from "react-dom";
-import { LinkTypeDialog } from "../link-type-dialog"; // Import LinkTypeDialog
+import { LinkTypeDialog } from "../link-type-dialog";
+import { useToast } from "@/components/ui/use-toast";
+
+// ... (Existing icons/themes code unchanged) ...
+
 
 // =============================================================================
 // Icon Mapping
@@ -206,32 +213,101 @@ interface ThingNodeData {
     onResizeEnd?: (thingId: string, width: number, height: number) => void;
 }
 
-// =============================================================================
-// Thing Node Component
-// =============================================================================
+export function ThingNode(props: NodeProps<ThingNodeData>) {
+    const { id, data, selected: isSelected } = props;
+    const { toast } = useToast();
 
-export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData>) => {
-    // Canvas context
-    // Canvas context
-    const canvasId = useCanvasStore(state => state.canvasId);
-    const updateThing = useCanvasStore(state => state.updateThing);
-
-    // Get props from data
+    // Destructure data from React Flow
     const {
         thing: initialThing,
-        zoomLevel,
-        isSelected,
         onOpenConversation,
-        onToggleIconify,
-        onDelete,
+        onToggleIconify: onToggleIconifyProp,
+        onDelete: onDeleteProp,
         onResizeEnd
     } = data;
 
-    // Get latest thing state from store to ensure reactivity (bypass potential ReactFlow prop lag)
-    const freshThing = useCanvasStore(state => state.things.find(t => t.id === initialThing.id));
-    // Fallback to initialThing if freshThing not found (though unexpected)
-    const thing = freshThing || initialThing;
-    const currentThing = thing; // Alias
+    // Use initial thing for reference, but prefer store state
+    const thing = initialThing;
+    const canvasId = useCanvasStore((state) => state.canvasId);
+
+    // Ensure we are working with the latest thing state from store if possible, 
+    // or fallback to props.data (which comes from ReactFlow).
+    // The store 'things' array is the source of truth for content updates.
+    const storeThing = useCanvasStore(state => state.things.find(t => t.id === thing.id));
+    const currentThing = storeThing || thing;
+
+    // If not in store yet (initial render race), use prop.
+    const zoomLevel = useCanvasStore((state) => state.zoomLevel);
+    const updateThing = useCanvasStore((state) => state.updateThing);
+    const deleteThing = useCanvasStore((state) => state.deleteThing);
+    const onToggleIconify = useCanvasStore((state) => state.toggleIconify);
+    const onDelete = useCanvasStore((state) => state.deleteThing);
+    const checkSyncStatus = useCanvasStore((state) => state.checkSyncStatus);
+    const performSyncUpdate = useCanvasStore((state) => state.performSyncUpdate);
+    const canvasSettings = useCanvasStore((state) => state.canvasSettings);
+
+    // ... (Existing state: selected, editing, double click, etc) ...
+    // REUSE ALL EXISTING STATE LOGIC FROM LINES ~230-496 (skipping for brevity in prompt but must exist)
+    const [selected, setSelected] = React.useState(isSelected);
+
+    // Sync State
+    const [syncDialogOpen, setSyncDialogOpen] = React.useState(false);
+    const [syncStatus, setSyncStatus] = React.useState<'idle' | 'checking' | 'ready' | 'syncing' | 'complete' | 'error'>('idle');
+    const [syncCheckResult, setSyncCheckResult] = React.useState<{ status: string, message?: string, diff?: string } | null>(null);
+    const [syncSourcePath, setSyncSourcePath] = React.useState<string>("");
+
+    const handleInitSync = async () => {
+        if (!thing.content?.asset_id) return;
+        setSyncDialogOpen(true);
+        setSyncStatus('checking');
+        setSyncCheckResult(null);
+
+        try {
+            const result = await checkSyncStatus(thing.id);
+            setSyncCheckResult(result);
+            setSyncStatus('ready');
+
+            // If we have a source path from the check result (if backend returns it) or thing content
+            // For now, we assume the backend check might give us hints, or we just rely on user re-selecting if needed.
+            if (result.status === 'missing_source') {
+                // The user will need to pick a file
+            }
+        } catch (error) {
+            console.error("Sync check failed", error);
+            setSyncStatus('error');
+        }
+    };
+
+    const handlePerformSync = async (file?: File) => {
+        setSyncStatus('syncing');
+        try {
+            const result = await performSyncUpdate(thing.id, file);
+
+            if (result === "sync_same_content") {
+                toast({
+                    title: "Sync Verified: No Changes",
+                    description: "The source file content is identical to the current version.",
+                    duration: 3000,
+                    variant: "default",
+                });
+            } else if (result === "sync_started") {
+                // Optional: Toast for started
+            }
+
+            setSyncStatus('complete');
+            setTimeout(() => {
+                setSyncDialogOpen(false);
+                setSyncStatus('idle');
+            }, 1500);
+        } catch (error) {
+            console.error("Sync failed", error);
+            setSyncStatus('error');
+        }
+    };
+
+
+
+
 
     const Icon = thingIcons[currentThing.type] || FileText;
 
@@ -265,6 +341,11 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
         }
         setIsEditingTitle(false);
     };
+
+    // Sync local selection state when prop changes (for React Flow interaction)
+    React.useEffect(() => {
+        setSelected(isSelected);
+    }, [isSelected]);
 
     // Sync local status when prop changes
     React.useEffect(() => {
@@ -579,7 +660,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
 
         // Prevent duplication: If ID exists in current regions, it's an existing region selection
         if (currentRegions.some(r => String(r.id) === String(regionId))) {
-            console.log("[ThingNode] Region already exists, skipping creation:", regionId);
+            // Region already exists, just return. (Re-selection handled by onSelect -> setSelection)
             return;
         }
 
@@ -797,15 +878,17 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                         finalFragment = {
                             ...fragment,
                             content: base64, // Inject base64 image data
-                            // We might want to change type to "image" or "region" but backend logic
-                            // primarily looks for image_data in AnalyzeRequest.
-                            // However, analyze_selection endpoint checks:
-                            // image_data = request.image_data or request.fragment.content
-                            // So just putting it in content works.
                         };
                     }
                 }
-                // If it is already a region, it has content.
+            } else if (thing.type === "document") {
+                // Documents should default to LLM (selectedModel)
+                modelToUse = selectedModel;
+
+                // ONLY use Vision if it is explicitly a visual region selection
+                if (fragment.type === "region") {
+                    modelToUse = visionModel || selectedModel;
+                }
             }
 
             // If it's a region fragment (from ImageViewer), use vision model
@@ -1046,29 +1129,32 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
         switch (thing.type) {
             case "text":
                 return (
-                    <SelectableContent thingId={thing.id}>
-                        <div className="flex flex-col h-full overflow-hidden">
-                            {/* Thinking Block */}
-                            {hasThinking && isThinkingVisible && (
-                                <div className="flex-none mb-3 p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-md border border-amber-100 dark:border-amber-900/30 text-sm text-slate-600 dark:text-slate-400 italic overflow-y-auto max-h-[150px]">
-                                    <div className="flex items-center gap-2 font-semibold text-xs mb-1 not-italic text-amber-600 dark:text-amber-500 opacity-80">
-                                        <BrainCircuit className="w-3 h-3" />
-                                        Thinking Process
-                                    </div>
-                                    <MarkdownViewer content={thinkingContent || ""} className="text-sm prose-sm dark:prose-invert leading-relaxed" />
+                    <div className="flex flex-col h-full overflow-hidden">
+                        {/* Thinking Block */}
+                        {hasThinking && isThinkingVisible && (
+                            <div className="flex-none mb-3 p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-md border border-amber-100 dark:border-amber-900/30 text-sm text-slate-600 dark:text-slate-400 italic overflow-y-auto max-h-[150px]">
+                                <div className="flex items-center gap-2 font-semibold text-xs mb-1 not-italic text-amber-600 dark:text-amber-500 opacity-80">
+                                    <BrainCircuit className="w-3 h-3" />
+                                    Thinking Process
                                 </div>
-                            )}
+                                <SelectableContent thingId={thing.id}>
+                                    <MarkdownViewer content={thinkingContent || ""} className="text-sm prose-sm dark:prose-invert leading-relaxed" />
+                                </SelectableContent>
+                            </div>
+                        )}
 
-                            {/* Main Content */}
-                            <div className="flex-1 min-h-0 overflow-y-auto">
+                        {/* Main Content */}
+                        <div className="flex-1 min-h-0 overflow-y-auto">
+                            <SelectableContent thingId={thing.id}>
                                 <TextViewer
                                     content={cleanContent || (content.text as string) || ""} // Fallback
                                     className="h-full"
                                     highlight={highlight}
+                                    onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                                 />
-                            </div>
+                            </SelectableContent>
                         </div>
-                    </SelectableContent>
+                    </div>
                 );
 
             case "conversation":
@@ -1133,7 +1219,16 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                                     className="h-full"
                                     overlays={imageOverlays}
                                     onOverlayResize={handleOverlayResize}
-                                    onSelect={handleRegionCreate}
+                                    onSelect={(fragment, position) => {
+                                        if (fragment.type === "region") {
+                                            handleRegionCreate(fragment, position);
+                                            // Force toolbar show for re-selection
+                                            setSelection(thing.id, fragment, position);
+                                        } else {
+                                            // Text selection - show toolbar immediately
+                                            setSelection(thing.id, fragment, position);
+                                        }
+                                    }}
                                     onOverlayDelete={handleOverlayDelete}
                                 />
                             </SelectableContent>
@@ -1148,6 +1243,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                             <MarkdownViewer
                                 content={textContent || ""}
                                 className="max-h-[200px] overflow-y-auto"
+                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                             />
                         </SelectableContent>
                     );
@@ -1183,7 +1279,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                             <MarkdownViewer
                                 content={content.text_content as string}
                                 className="h-full overflow-y-auto px-4"
-                                onSelect={() => { }} // Optional: Can implement selection if needed
+                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                                 selectionEnabled={true}
                             />
                         </SelectableContent>
@@ -1197,6 +1293,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                             content={textContent || `File: ${filename || "Unknown"}`}
                             className="h-full overflow-y-auto"
                             highlight={highlight}
+                            onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                         />
                     </SelectableContent>
                 );
@@ -1210,32 +1307,11 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                             className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                             overlays={imageOverlays}
                             onOverlayResize={handleOverlayResize}
-                            onSelect={handleRegionCreate} // Drawing creates a region
-                            onOverlayDelete={handleOverlayDelete}
-                            onOverlayClick={(overlay, e?: React.MouseEvent) => {
-                                // When a region/overlay is clicked, we might want to open the toolbox
-                                // The ImageViewer manages visual selection ("active" state)
-                                // We need to tell the global SelectionContext about it
-                                // Construct a fragment from the overlay
-                                const fragment: RegionFragment = {
-                                    id: overlay.id,
-                                    type: "region",
-                                    x: overlay.x,
-                                    y: overlay.y,
-                                    width: overlay.width,
-                                    height: overlay.height,
-                                    // If we stored content in the region, use it, otherwise might need to fetch/crop again?
-                                    // For now, assume it's attached or we don't strictly need base64 for just showing toolbox options unless action taken.
-                                    content: (overlay as any).content || ""
-                                };
-
-                                // Calculate position for toolbar (absolute screen coords or relative?)
-                                // SelectionContext usually expects clientX/Y for fixed positioning or canvas coords?
-                                // Let's pass the mouse event coordinates if available.
-                                const position = e ? { x: e.clientX, y: e.clientY } : undefined;
-
+                            onSelect={(fragment, position) => {
+                                handleRegionCreate(fragment, position);
                                 setSelection(thing.id, fragment, position);
                             }}
+                            onOverlayDelete={handleOverlayDelete}
                         />
                     </SelectableContent>
                 );
@@ -1335,6 +1411,8 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
     };
 
 
+
+
     // =============================================================================
     // Iconified Mode - compact icon representation
     // =============================================================================
@@ -1350,13 +1428,17 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                         : "border-slate-200 dark:border-slate-700 hover:border-slate-300"
                 )}
                 title={thing.title || getDefaultTitle()}
+                style={{
+                    backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
+                    borderColor: (canvasSettings?.tool_colors?.[thing.type] || thing.color) ? 'rgba(0,0,0,0.1)' : undefined
+                }}
                 onDoubleClick={handleDoubleClick}
             >
                 {/* Main type icon - colored by type */}
                 <Icon className={cn("h-6 w-6", colorTheme.iconColor)} />
 
                 {/* Restore button - shown when selected */}
-                {(isSelected || selected) && onToggleIconify && (
+                {(isSelected || selected) && (
                     <button
                         onClick={handleToggleIconify}
                         className={cn(
@@ -1466,7 +1548,12 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                     "flex items-center gap-2 px-3 py-2 border-b rounded-t-lg",
                     colorTheme.headerBg,
                     colorTheme.headerBgDark
-                )}>
+                )}
+                    style={{
+                        backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
+                        backgroundImage: (canvasSettings?.tool_colors?.[thing.type] || thing.color) ? 'none' : undefined
+                    }}
+                >
                     <Icon className={cn("h-4 w-4 flex-shrink-0", colorTheme.iconColor)} />
                     {zoomLevel !== "summary" && (
                         isEditingTitle ? (
@@ -1516,50 +1603,42 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                     )}
 
                     {/* RAG Status Indicator */}
-                    {localStatus && localStatus !== "none" && (() => {
-                        // Cast content to any to avoid strict type checks if fields are missing in type def
-                        const c = thing.content as any;
-                        const hasDesc = !!c.description;
-                        const hasGenDesc = !!c.generated_description;
-                        const isCompleted = localStatus === "completed";
-                        const isSlideshow = thing.type === 'slideshow';
-                        const isDocument = thing.type === 'document';
-                        const isFailed = localStatus === "failed";
-                        const isClickable = ((hasDesc || hasGenDesc) || isSlideshow || isDocument) && isCompleted || isFailed;
+                    {/* RAG Status Indicator */}
+                    {localStatus && localStatus !== "none" && (
+                        <div
+                            className={cn("flex items-center", (((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") && "cursor-pointer hover:opacity-80")}
+                            title={(localStatus as string) === "failed" ? "Ingestion Failed (Click for logs)" : `Vectorization: ${localStatus}${(((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") ? " (Click to view content)" : ""}`}
+                            onClick={(e) => {
+                                const c = thing.content as any;
+                                const isClickable = ((!!c.description || !!c.generated_description) || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed";
 
-                        return (
-                            <div
-                                className={cn("flex items-center", isClickable && "cursor-pointer hover:opacity-80")}
-                                title={isFailed ? "Ingestion Failed (Click for logs)" : `Vectorization: ${localStatus}${isClickable ? " (Click to view content)" : ""}`}
-                                onClick={(e) => {
-                                    if (isClickable) {
-                                        e.stopPropagation();
+                                if (isClickable) {
+                                    e.stopPropagation();
 
-                                        if (isFailed) {
-                                            const errorMsg = c.last_error || "Unknown error occurred during ingestion.";
-                                            setPreviewContent({
-                                                title: "Ingestion Error",
-                                                content: errorMsg,
-                                                type: "text"
-                                            });
-                                            setPreviewDialogOpen(true);
-                                            return;
-                                        }
-
-                                        handleOpenPreview();
+                                    if ((localStatus as string) === "failed") {
+                                        const errorMsg = String(c.last_error || "Unknown error occurred during ingestion.");
+                                        setPreviewContent({
+                                            title: "Ingestion Error",
+                                            content: errorMsg,
+                                            type: "text"
+                                        });
+                                        setPreviewDialogOpen(true);
+                                        return;
                                     }
-                                }}
-                            >
-                                {localStatus === "pending" || localStatus === "processing" ? (
-                                    <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                                ) : localStatus === "completed" ? (
-                                    <BrainCircuit className="h-4 w-4 text-green-500" />
-                                ) : localStatus === "failed" ? (
-                                    <AlertCircle className="h-4 w-4 text-red-500" />
-                                ) : null}
-                            </div>
-                        );
-                    })()}
+
+                                    handleOpenPreview();
+                                }
+                            }}
+                        >
+                            {localStatus === "pending" || localStatus === "processing" ? (
+                                <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+                            ) : localStatus === "completed" ? (
+                                <BrainCircuit className="h-4 w-4 text-green-500" />
+                            ) : localStatus === "failed" ? (
+                                <AlertCircle className="h-4 w-4 text-red-500" />
+                            ) : null}
+                        </div>
+                    )}
 
                     {/* Copy Content Button */}
                     <button
@@ -1570,9 +1649,6 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                                     JSON.stringify(thing.content, null, 2);
 
                             navigator.clipboard.writeText(textToCopy);
-
-                            // Visual feedback (temporary checkmark) could be added here with state
-                            // For now, simpler consistent button style
                         }}
                         className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
                         title="Copy content to clipboard"
@@ -1580,8 +1656,22 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                         <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                     </button>
 
+                    {/* Sync Button (if asset exists) */}
+                    {thing.content?.asset_id && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleInitSync();
+                            }}
+                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                            title="Sync with source file"
+                        >
+                            <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                        </button>
+                    )}
+
                     {/* Iconify button - shown when selected */}
-                    {(isSelected || selected) && onToggleIconify && (
+                    {(isSelected || selected) && (
                         <button
                             onClick={handleToggleIconify}
                             className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
@@ -1591,7 +1681,7 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                         </button>
                     )}
                     {/* Delete button - shown when selected */}
-                    {(isSelected || selected) && onDelete && (
+                    {(isSelected || selected) && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1625,10 +1715,11 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                     position={Position.Right}
                     className={cn("!w-3 !h-3", colorTheme.handleColor)}
                 />
-            </div>
+            </div >
 
             {/* Custom Prompt Dialog */}
-            <Dialog open={askDialogOpen} onOpenChange={(open) => !isLoading && setAskDialogOpen(open)}>
+            < Dialog open={askDialogOpen} onOpenChange={(open) => !isLoading && setAskDialogOpen(open)
+            }>
                 <DialogContent className="sm:max-w-md nodrag cursor-default">
                     <DialogHeader>
                         <DialogTitle>Ask about this content</DialogTitle>
@@ -1672,10 +1763,10 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
 
             {/* Link Target Selection Dialog */}
-            <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+            < Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen} >
                 <DialogContent className="sm:max-w-lg nodrag cursor-default">
                     <DialogHeader>
                         <DialogTitle>Link to another node</DialogTitle>
@@ -1718,9 +1809,9 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
             {/* Cascading Deletion Confirmation Dialog */}
-            <Dialog open={deleteRegionDialogOpen} onOpenChange={setDeleteRegionDialogOpen}>
+            < Dialog open={deleteRegionDialogOpen} onOpenChange={setDeleteRegionDialogOpen} >
                 <DialogContent className="sm:max-w-md nodrag cursor-default">
                     <DialogHeader>
                         <DialogTitle className="text-red-600 flex items-center gap-2">
@@ -1740,11 +1831,11 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
                         </Button>
                     </DialogFooter>
                 </DialogContent>
-            </Dialog>
+            </Dialog >
 
 
             {/* Link Type Selection Dialog - Interjected before actual creation */}
-            <LinkTypeDialog
+            < LinkTypeDialog
                 isOpen={linkTypeDialogOpen}
                 onClose={() => {
                     setLinkTypeDialogOpen(false);
@@ -1756,15 +1847,133 @@ export const ThingNode = React.memo(({ data, selected }: NodeProps<ThingNodeData
             />
 
             {/* Content Preview Dialog */}
-            <VectorizationPreviewDialog
+            < VectorizationPreviewDialog
                 open={previewDialogOpen}
                 onOpenChange={setPreviewDialogOpen}
                 title={previewContent.title}
                 content={previewContent.content}
                 type={previewContent.type}
             />
+
+            {/* Sync Dialog */}
+            < Dialog open={syncDialogOpen} onOpenChange={setSyncDialogOpen} >
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Sync Content</DialogTitle>
+                        <DialogDescription>
+                            Check for updates from the original source file.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="py-4 space-y-4">
+                        {syncStatus === 'checking' && (
+                            <div className="flex items-center gap-2 text-slate-500">
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <span>Checking source file...</span>
+                            </div>
+                        )}
+
+                        {syncStatus === 'error' && (
+                            <div className="flex items-start gap-2 text-red-600 bg-red-50 p-3 rounded-md">
+                                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                                <div className="text-sm">
+                                    <p className="font-semibold">Sync Error</p>
+                                    <p>Could not verify source file status. It might be inaccessible.</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {syncStatus === 'ready' && syncCheckResult && (
+                            <div className="space-y-4">
+                                <div className={cn(
+                                    "p-3 rounded-md text-sm border",
+                                    syncCheckResult.status === 'synced' ? "bg-green-50 border-green-200 text-green-700" :
+                                        syncCheckResult.status === 'changed' ? "bg-amber-50 border-amber-200 text-amber-700" :
+                                            "bg-red-50 border-red-200 text-red-700"
+                                )}>
+                                    <div className="flex items-center gap-2 font-semibold">
+                                        {syncCheckResult.status === 'synced' ? <CheckCircle2 className="h-4 w-4" /> :
+                                            syncCheckResult.status === 'changed' ? <RefreshCcw className="h-4 w-4" /> :
+                                                <FileWarning className="h-4 w-4" />}
+                                        <span>
+                                            {syncCheckResult.status === 'synced' ? "File is up to date" :
+                                                syncCheckResult.status === 'changed' ? "Changes detected in source file" :
+                                                    "Source file not found or inaccessible"}
+                                        </span>
+                                    </div>
+                                    <p className="mt-1 opacity-90">
+                                        {syncCheckResult.status === 'synced' ? "The content on the canvas matches the source file." :
+                                            syncCheckResult.status === 'changed' ? "The source file has been modified since it was added to the canvas." :
+                                                "The original file could not be found at its source path."}
+                                    </p>
+                                </div>
+
+                                {(syncCheckResult.status === 'changed' || syncCheckResult.status === 'synced') && (
+                                    <div className="bg-slate-50 p-3 rounded-md text-sm text-slate-600">
+                                        <p className="font-medium text-slate-900 mb-1">Warning</p>
+                                        <p>Syncing will re-ingest the content and <strong>regenerate all embeddings</strong>.
+                                            Any existing links or specific references to text segments might be invalidated.</p>
+                                    </div>
+                                )}
+
+                                {syncCheckResult.status === 'missing_source' && (
+                                    <div className="space-y-2">
+                                        <Label>Select New Source File</Label>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                type="file"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) handlePerformSync(file);
+                                                }}
+                                            />
+                                        </div>
+                                        <p className="text-xs text-slate-500">
+                                            Since the original file is missing, you must upload the file again to sync changes.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {syncStatus === 'syncing' && (
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-blue-600">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <span className="font-medium">Syncing content...</span>
+                                </div>
+                                <p className="text-sm text-slate-500">
+                                    Re-ingesting file and updating embeddings. This may take a moment.
+                                </p>
+                            </div>
+                        )}
+
+                        {syncStatus === 'complete' && (
+                            <div className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-md">
+                                <CheckCircle2 className="h-5 w-5" />
+                                <span className="font-medium">Sync Complete!</span>
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        {syncStatus !== 'syncing' && syncStatus !== 'complete' && (
+                            <Button variant="outline" onClick={() => setSyncDialogOpen(false)}>
+                                Cancel
+                            </Button>
+                        )}
+
+                        {syncStatus === 'ready' && (syncCheckResult?.status === 'changed' || syncCheckResult?.status === 'synced') && (
+                            <Button onClick={() => handlePerformSync()}>
+                                <RefreshCcw className="h-4 w-4 mr-2" />
+                                Sync Now
+                            </Button>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog >
         </>
     );
-});
+}
 
 

@@ -21,6 +21,7 @@ interface Preset {
     model_api_key?: string
     is_vision?: boolean
     context_window?: number
+    sort?: "price" | "throughput" | "latency"
 }
 
 export function ModelConfig({ onSave }: ModelConfigProps) {
@@ -28,6 +29,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [name, setName] = useState("")
     const [localModel, setLocalModel] = useState("")
     const [remoteUrl, setRemoteUrl] = useState("")
+    const [remoteModelName, setRemoteModelName] = useState("")
+    const [remoteSort, setRemoteSort] = useState<"price" | "throughput" | "latency">("price")
     const [serviceKey, setServiceKey] = useState("")
     const [modelKey, setModelKey] = useState("")
     const [isVision, setIsVision] = useState(false)
@@ -97,6 +100,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 setLocalModel(preset.model_name || "")
             } else {
                 setRemoteUrl(preset.api_url || "")
+                setRemoteModelName(preset.model_name || "")
+                setRemoteSort(preset.sort || "price")
                 setModelKey(preset.model_api_key || "")
             }
             setIsVision(!!preset.is_vision)
@@ -116,8 +121,9 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             const payload = {
                 name,
                 type,
-                model_name: type === "local" ? localModel : undefined,
+                model_name: type === "local" ? localModel : remoteModelName,
                 api_url: type === "remote" ? remoteUrl : undefined,
+                sort: type === "remote" ? remoteSort : undefined,
                 service_api_key: type === "remote" ? serviceKey : undefined,
                 model_api_key: type === "remote" ? modelKey : undefined,
                 is_vision: isVision,
@@ -386,6 +392,35 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                 value={remoteUrl}
                                 onChange={(e) => setRemoteUrl(e.target.value)}
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium flex items-center gap-2">
+                                Model Name
+                                <HelpTooltip contentPath="settings/remote_model_name" />
+                            </label>
+                            <Input
+                                placeholder="e.g. gpt-4, anthropic/claude-3-opus"
+                                value={remoteModelName}
+                                onChange={(e) => setRemoteModelName(e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium flex items-center gap-2">
+                                Sort Strategy
+                                <HelpTooltip contentPath="settings/remote_sort" />
+                            </label>
+                            <select
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={remoteSort}
+                                onChange={(e) => setRemoteSort(e.target.value as any)}
+                            >
+                                <option value="price">Price (Cheapest)</option>
+                                <option value="throughput">Throughput (Fastest)</option>
+                                <option value="latency">Latency (Lowest Ping)</option>
+                            </select>
+                            <p className="text-xs text-muted-foreground">
+                                For OpenRouter/Aggregators: prioritizes providers based on this logic.
+                            </p>
                         </div>
                         <div className="space-y-2">
                             <label className="text-sm font-medium flex items-center gap-2">

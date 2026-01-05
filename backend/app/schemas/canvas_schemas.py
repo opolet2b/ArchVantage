@@ -61,7 +61,9 @@ class CanvasCreate(BaseModel):
     name: str = "My Canvas"
     description: Optional[str] = None
     allowed_user_ids: List[int] = []
+    allowed_user_ids: List[int] = []
     allowed_role_ids: List[int] = []
+    owner_config: Optional[Dict[str, Any]] = None
 
 
 
@@ -71,7 +73,9 @@ class CanvasUpdate(BaseModel):
     description: Optional[str] = None
     viewport: Optional[ViewportState] = None
     allowed_user_ids: Optional[List[int]] = None
+    allowed_user_ids: Optional[List[int]] = None
     allowed_role_ids: Optional[List[int]] = None
+    owner_config: Optional[Dict[str, Any]] = None
 
 
 
@@ -83,7 +87,10 @@ class CanvasResponse(BaseModel):
     description: Optional[str]
     viewport: ViewportState
     allowed_user_ids: List[int] = [] # Computed field, needs resolver
+    viewport: ViewportState
+    allowed_user_ids: List[int] = [] # Computed field, needs resolver
     allowed_role_ids: List[int] = [] # Computed field, needs resolver
+    owner_config: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: Optional[datetime]
 
@@ -125,6 +132,7 @@ class ThingCreate(BaseModel):
     size: Optional[Size] = None
     domain_id: Optional[str] = None
     title: Optional[str] = None
+    color: Optional[str] = None
 
 
 class ThingUpdate(BaseModel):
@@ -134,6 +142,7 @@ class ThingUpdate(BaseModel):
     size: Optional[Size] = None
     domain_id: Optional[str] = None
     title: Optional[str] = None
+    color: Optional[str] = None
     collapsed: Optional[bool] = None
     # Iconify feature fields
     iconified: Optional[bool] = None
@@ -152,7 +161,9 @@ class ThingResponse(BaseModel):
     height: Optional[float]
     domain_id: Optional[str]
     summaries: Dict[str, str]
+    summaries: Dict[str, str]
     title: Optional[str]
+    color: Optional[str] = None
     collapsed: bool
     rag_status: str = "none"
     # Iconify feature fields

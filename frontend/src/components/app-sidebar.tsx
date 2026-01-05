@@ -66,15 +66,6 @@ export function AppSidebar() {
             <div className="px-2">
                 <div className="flex gap-1 bg-slate-200 dark:bg-slate-800 rounded-lg p-1">
                     <Button
-                        variant={viewMode === "chat" ? "default" : "ghost"}
-                        size="sm"
-                        className="flex-1 gap-2"
-                        onClick={handleSwitchToChat}
-                    >
-                        <MessageSquare className="h-4 w-4" />
-                        Chat
-                    </Button>
-                    <Button
                         variant={viewMode === "canvas" ? "default" : "ghost"}
                         size="sm"
                         className="flex-1 gap-2"
@@ -82,6 +73,15 @@ export function AppSidebar() {
                     >
                         <Map className="h-4 w-4" />
                         Canvas
+                    </Button>
+                    <Button
+                        variant={viewMode === "chat" ? "default" : "ghost"}
+                        size="sm"
+                        className="flex-1 gap-2"
+                        onClick={handleSwitchToChat}
+                    >
+                        <MessageSquare className="h-4 w-4" />
+                        Chat
                     </Button>
                 </div>
             </div>

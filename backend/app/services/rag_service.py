@@ -271,17 +271,7 @@ class RAGService:
 
     # ... (skipping _configure_ollama)
 
-    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
-        print(f"[RAGService] Starting ingestion for: {file_path}")
-        try:
-             # Check magic bytes... (omitted for brevity, assume unchanged or I need to keep it?)
-             # I'm replacing the method? No, replacing CHUNKS.
-             # I'll stick to targeted edits.
-             pass
-        except: pass
-        
-    # Wait, I need to target specific chunks. This replacement is messy if I don't see the full file.
-    # I'll use separate replace calls.
+
 
     def ingest_folder(self, folder_path: str, chunk_size: int = 1000, chunk_overlap: int = 200, metadata: Optional[dict] = None):
         """
@@ -468,6 +458,27 @@ class RAGService:
             return True
         except Exception as e:
             print(f"Error deleting embeddings for file {filename}: {e}")
+            return False
+
+    def delete_legacy_embeddings(self, thing_id: str, active_batch_id: str):
+        """
+        Deletes all embeddings for a given thing_id that do NOT match the active_batch_id.
+        Used for 2-phase sync where new data is ingested with a new batch_id before old data is removed.
+        """
+        try:
+            print(f"[RAGService] Cleaning up legacy embeddings for {thing_id} (keeping batch {active_batch_id})")
+            # Note: logical operators in ChromaDB 'where' clause usually support $ne
+            self.chroma_collection.delete(
+                where={
+                    "$and": [
+                        {"thing_id": thing_id},
+                        {"ingestion_batch_id": {"$ne": active_batch_id}}
+                    ]
+                }
+            )
+            return True
+        except Exception as e:
+            print(f"[RAGService] Error cleaning legacy embeddings: {e}")
             return False
 
     def reset_db(self):

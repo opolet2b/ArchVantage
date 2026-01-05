@@ -74,6 +74,7 @@ export interface CanvasThing {
     domain_id: string | null;
     summaries: Record<string, string>;
     title: string | null;
+    color: string | null;
     collapsed: boolean;
     rag_status: RAGStatus;
     // Iconify feature fields
@@ -129,6 +130,7 @@ export interface Canvas {
     things: CanvasThing[];
     links: CanvasLink[];
     domains: Domain[];
+    owner_config: Record<string, any> | null;
     created_at: string;
     updated_at: string | null;
 }
@@ -159,6 +161,7 @@ interface CanvasState {
     things: CanvasThing[];
     links: CanvasLink[];
     domains: Domain[];
+    canvasSettings: Record<string, any> | null;
 
     // Viewport
     viewport: Viewport;
@@ -191,6 +194,7 @@ interface CanvasState {
     createCanvas: (name: string) => Promise<string | null>;
     updateViewport: (viewport: Viewport) => void;
     saveViewport: () => Promise<void>;
+    updateCanvasSettings: (settings: Record<string, any>) => Promise<void>;
 
     // Refresh data silently
     refreshThings: () => Promise<void>;
@@ -203,7 +207,8 @@ interface CanvasState {
         title?: string,
         width?: number,
         height?: number,
-        domainId?: string
+        domainId?: string,
+        color?: string
     ) => Promise<CanvasThing | null>;
     updateThing: (
         thingId: string,
@@ -266,6 +271,11 @@ interface CanvasState {
 
     // Smart Analysis Template Execution
     executeAnalysisTemplate: (templateId: string, thingIds: string[], domainIds: string[]) => Promise<any>;
+
+    // Sync Features
+    checkSyncStatus: (thingId: string) => Promise<{ status: "synced" | "changed" | "missing_source" | "no_path" | "error"; current_hash?: string; reason?: string }>;
+    performSyncUpdate: (thingId: string, file?: File | null, useSourcePath?: boolean) => Promise<boolean | string>;
+    syncAllThings: () => Promise<any[]>;
 }
 
 /**
@@ -287,6 +297,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     things: [],
     links: [],
     domains: [],
+    canvasSettings: null,
     viewport: { x: 0, y: 0, zoom: 1.0 },
     zoomLevel: "full",
     selectedThingIds: [],
@@ -326,12 +337,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             const canvas: Canvas = await res.json();
 
+            const config = canvas.owner_config || {};
+
             set({
                 canvasId: canvas.id,
                 canvasName: canvas.name,
                 things: canvas.things,
                 links: canvas.links,
                 domains: canvas.domains,
+                canvasSettings: config,
+                selectedModel: config.model || null,
+                visionModel: config.vision_model || null,
                 viewport: canvas.viewport,
                 zoomLevel: getZoomLevel(canvas.viewport.zoom),
                 isLoading: false,
@@ -432,8 +448,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
     },
 
+    // Update canvas settings
+    updateCanvasSettings: async (settings) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return;
+
+        // Optimistic update
+        set({ canvasSettings: settings });
+
+        try {
+            await fetch(`${API_URL}/canvases/${canvasId}`, {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ owner_config: settings }),
+            });
+            // Should update local state if we had it.
+        } catch (err) {
+            console.error("Failed to save canvas settings:", err);
+        }
+    },
+
     // Add thing to canvas
-    addThing: async (type, content, position, title, width, height, domainId) => {
+    addThing: async (type, content, position, title, width, height, domainId, color) => {
         const { canvasId } = get();
         const token = getAuthToken();
         console.log(`[Store] addThing called. Type: ${type}, CanvasId: ${canvasId}`);
@@ -456,6 +496,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     position: { x: position.x, y: position.y },
                     size: { width: width ?? 400, height: height ?? 400 },
                     title,
+                    color,
                     domain_id: domainId,
                 }),
             });
@@ -505,6 +546,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     width: updates.width ?? t.width,
                     height: updates.height ?? t.height,
                     title: updates.title ?? t.title,
+                    color: updates.color ?? t.color,
                     collapsed: updates.collapsed ?? t.collapsed,
                     iconified: updates.iconified ?? t.iconified,
                     pre_iconify_size: updates.pre_iconify_size ?? t.pre_iconify_size,
@@ -532,6 +574,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                             ? { width: updates.width, height: updates.height }
                             : undefined,
                         title: updates.title,
+                        color: updates.color,
                         collapsed: updates.collapsed,
                         iconified: updates.iconified,
                         pre_iconify_size: updates.pre_iconify_size,
@@ -1080,6 +1123,101 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             console.error("Template execution failed", e);
             set({ isLoading: false, error: e instanceof Error ? e.message : String(e) });
             return null;
+        }
+    },
+
+    // =========================================================================
+    // Sync Features
+    // =========================================================================
+
+    checkSyncStatus: async (thingId: string) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return { status: "error", reason: "No auth/canvas" };
+
+        try {
+            const res = await fetch(
+                `${API_URL}/canvases/${canvasId}/things/${thingId}/sync/check`,
+                {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+
+            if (!res.ok) {
+                const txt = await res.text();
+                throw new Error(txt);
+            }
+            return await res.json();
+        } catch (e) {
+            console.error("Sync Check failed", e);
+            return { status: "error", reason: e instanceof Error ? e.message : String(e) };
+        }
+    },
+
+    performSyncUpdate: async (thingId: string, file?: File | null, useSourcePath?: boolean) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return false;
+
+        const formData = new FormData();
+        if (useSourcePath) {
+            formData.append("use_source_path", "true");
+        } else if (file) {
+            formData.append("file", file);
+        } else {
+            return false;
+        }
+
+        try {
+            const res = await fetch(
+                `${API_URL}/canvases/${canvasId}/things/${thingId}/sync/update`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        // Content-Type is auto-set for FormData
+                    },
+                    body: formData
+                }
+            );
+
+            if (!res.ok) throw new Error(await res.text());
+
+            const data = await res.json();
+
+            // Optimistic update of status
+            if (data.status === "sync_same_content") {
+                get().updateThing(thingId, { rag_status: "completed" });
+            } else {
+                get().updateThing(thingId, { rag_status: "processing" });
+            }
+
+            return data.status || true;
+        } catch (e) {
+            console.error("Sync Update failed", e);
+            get().updateThing(thingId, { rag_status: "failed" });
+            return false;
+        }
+    },
+
+    syncAllThings: async () => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return [];
+
+        try {
+            const res = await fetch(
+                `${API_URL}/canvases/${canvasId}/sync_all`,
+                {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+            return await res.json();
+        } catch (e) {
+            console.error("Sync All failed", e);
+            return [];
         }
     }
 }));

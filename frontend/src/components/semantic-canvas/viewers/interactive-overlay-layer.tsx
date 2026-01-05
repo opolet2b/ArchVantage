@@ -148,12 +148,35 @@ export function InteractiveOverlayLayer({
 
     // --- Render ---
 
+    // Measure container dimensions for children
+    const [containerDims, setContainerDims] = React.useState<{ w: number, h: number } | null>(null);
+
+    React.useEffect(() => {
+        const updateDims = () => {
+            if (containerRef.current) {
+                setContainerDims({
+                    w: containerRef.current.offsetWidth,
+                    h: containerRef.current.offsetHeight
+                });
+            }
+        };
+
+        // Initial setup
+        updateDims();
+
+        // Resize observer for robustness
+        const ro = new ResizeObserver(updateDims);
+        if (containerRef.current) ro.observe(containerRef.current);
+
+        return () => ro.disconnect();
+    }, [containerRef]);
+
     return (
         <div
             ref={containerRef}
             className={cn(
-                "relative select-none",
-                selectionEnabled ? "cursor-crosshair" : "cursor-default",
+                "relative overlay-container",
+                selectionEnabled ? "cursor-crosshair" : "cursor-default select-text",
                 className
             )}
             onMouseDown={handleMouseDown}
@@ -182,6 +205,7 @@ export function InteractiveOverlayLayer({
                 <OverlayItem
                     key={overlay.id}
                     overlay={overlay}
+                    containerDims={containerDims}
                     isActive={activeId === overlay.id}
                     onAction={(action, data) => {
                         if (onOverlayAction) onOverlayAction(action, overlay.id as string, data);
@@ -198,10 +222,11 @@ export function InteractiveOverlayLayer({
 interface OverlayItemProps {
     overlay: RegionFragment;
     isActive: boolean;
+    containerDims: { w: number, h: number } | null;
     onAction: (action: 'resize' | 'delete' | 'click', data?: any) => void;
 }
 
-function OverlayItem({ overlay, isActive, onAction }: OverlayItemProps) {
+function OverlayItem({ overlay, isActive, containerDims, onAction }: OverlayItemProps) {
     // Local state for smooth resizing
     const [local, setLocal] = React.useState(overlay);
 
@@ -220,6 +245,14 @@ function OverlayItem({ overlay, isActive, onAction }: OverlayItemProps) {
     const handleResizeStart = (e: React.MouseEvent, handle: string) => {
         e.stopPropagation();
         e.preventDefault();
+
+        if (!containerDims) {
+            // console.warn("[OverlayItem] Resize aborted: Missing containerDims");
+            return;
+        }
+
+        // console.log("[OverlayItem] Resize Start", { handle, dims: containerDims, local });
+
         handleRef.current = handle;
         startPosRef.current = { x: local.x, y: local.y, w: local.width, h: local.height };
         mouseStartRef.current = { x: e.clientX, y: e.clientY };
@@ -229,45 +262,14 @@ function OverlayItem({ overlay, isActive, onAction }: OverlayItemProps) {
     };
 
     const handleResizeMove = (e: MouseEvent) => {
-        if (!handleRef.current || !startPosRef.current || !mouseStartRef.current) return;
-
-        // We need parent dimensions to calculate % delta.
-        // We can't access ref here easily without passing it down or query selector.
-        // Quick hack: look up closest relative parent.
-        // Or better: Pass a "scale getter" from parent? 
-        // Let's assume standard CSS stacking context for now.
-
-        // NOTE: We used standard clientX delta logic previously.
-        // To be simpler and robust in this separated component, let's use pixel deltas
-        // heavily dependent on the container size.
-
-        // ISSUE: We don't have container size here inside the global listener.
-        // We need to capture container size at START.
-        // But `e.target` at start was the handle.
-        // Let's rely on `offsetParent`.
-
-        // Since we can't easily get offsetParent inside this global listener without a closure over a Ref to the element,
-        // let's rely on the parent logic to solve this? No, OverlayItem should be self-contained for interaction.
-        // We will capture it at MouseDown.
+        if (moveListenerRef.current) moveListenerRef.current(e);
     };
-
-    // We need to capture container dims at MouseDown to use in MouseMove
-    const containerDimsRef = React.useRef<{ w: number, h: number } | null>(null);
-
-    const handleMouseDownWrapper = (e: React.MouseEvent, handle: string) => {
-        const domEl = e.currentTarget as HTMLElement;
-        const container = domEl.closest('.relative') as HTMLElement; // Heuristic
-        if (container) {
-            containerDimsRef.current = { w: container.offsetWidth, h: container.offsetHeight };
-        }
-        handleResizeStart(e, handle);
-    }
 
     // Updated Move Logic
     const handleResizeMoveImpl = (e: MouseEvent) => {
-        if (!handleRef.current || !startPosRef.current || !mouseStartRef.current || !containerDimsRef.current) return;
+        if (!handleRef.current || !startPosRef.current || !mouseStartRef.current || !containerDims) return;
 
-        const { w: containerW, h: containerH } = containerDimsRef.current;
+        const { w: containerW, h: containerH } = containerDims;
         if (containerW === 0 || containerH === 0) return;
 
         // Calculate delta %
@@ -297,22 +299,17 @@ function OverlayItem({ overlay, isActive, onAction }: OverlayItemProps) {
         setLocal(prev => ({ ...prev, x, y, width, height }));
     };
 
-    // Replace the listener ref
-    React.useEffect(() => {
-        // Just bind the implementation to the name expected by addEventListener
-        // But we need to define it outside or use a ref to hold the function
-    }, []);
-
-    // Ref-based listener to avoid closure staleness (though we use refs for state mostly)
+    // Keep listener fresh in ref
     const moveListenerRef = React.useRef(handleResizeMoveImpl);
     moveListenerRef.current = handleResizeMoveImpl;
 
     const handleResizeEnd = () => {
-        document.removeEventListener('mousemove', moveListenerRef.current);
+        document.removeEventListener('mousemove', handleResizeMove);
         document.removeEventListener('mouseup', handleResizeEnd);
 
         // Commit
         const final = latestLocalRef.current;
+        // console.log("[OverlayItem] Resize End. Committing:", final);
         onAction('resize', { x: final.x, y: final.y, width: final.width, height: final.height });
     };
 
@@ -320,7 +317,7 @@ function OverlayItem({ overlay, isActive, onAction }: OverlayItemProps) {
         <div
             className={cn(
                 "absolute border-2 pointer-events-auto group transition-colors cursor-pointer",
-                isActive ? "border-green-400 z-50 bg-green-500/10" : "border-green-600/50 z-40 hover:border-green-500"
+                isActive ? "border-green-400 z-50 bg-green-500/10" : "border-green-600/50 z-40 hover:border-green-500 bg-transparent"
             )}
             style={{
                 left: `${local.x}%`,
@@ -328,18 +325,21 @@ function OverlayItem({ overlay, isActive, onAction }: OverlayItemProps) {
                 width: `${local.width}%`,
                 height: `${local.height}%`,
             }}
-            onMouseDown={(e) => {
+            onClick={(e) => {
                 e.stopPropagation();
-                onAction('click', e);
+                // Only trigger click (select) if the body itself was clicked, not a handle
+                if (e.target === e.currentTarget) {
+                    onAction('click', e);
+                }
+            }}
+            onMouseDown={(e) => {
+                // IMPORTANT: Stop propagation to prevent "Creation Point" / Drawing mode from triggering on background
+                e.stopPropagation();
+                console.log("[OverlayItem] MouseDown (Stopping Prop)");
             }}
         >
             {isActive && (
                 <>
-                    {/* Label (only show when active or always? User said "displayed on top", implying visibility) 
-                        Let's show it always if it exists, but maybe style it differently when active.
-                        Actually, let's put it outside the isActive check to verify visibility.
-                    */}
-
                     {/* Delete */}
                     <button
                         className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full p-1 shadow-sm hover:bg-red-600 z-50"
@@ -356,13 +356,13 @@ function OverlayItem({ overlay, isActive, onAction }: OverlayItemProps) {
                         <div
                             key={h}
                             className={cn(
-                                "absolute w-3 h-3 bg-white border border-green-600 z-40",
+                                "absolute w-3 h-3 bg-white border border-green-600 z-50",
                                 h === 'nw' ? "-top-1 -left-1 cursor-nw-resize" : "",
                                 h === 'ne' ? "-top-1 -right-1 cursor-ne-resize" : "",
                                 h === 'sw' ? "-bottom-1 -left-1 cursor-sw-resize" : "",
                                 h === 'se' ? "-bottom-1 -right-1 cursor-se-resize" : ""
                             )}
-                            onMouseDown={(e) => handleMouseDownWrapper(e, h)}
+                            onMouseDown={(e) => handleResizeStart(e, h)}
                         />
                     ))}
                 </>

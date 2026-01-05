@@ -2,10 +2,20 @@
 from app.models.canvas_models import CanvasThing, RAGStatus
 from app.services.rag_service import rag_service
 
-async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: str):
+async def handle_async_vectorization(
+    thing_id: str, 
+    file_path: str, 
+    canvas_id: str, 
+    mode: str = "initial", 
+    active_batch_id: str = None
+):
     """
     Wrapper for RAG ingestion that updates Thing status.
     Runs in background task.
+    
+    Args:
+        mode: "initial" or "sync". Sync triggers 2-phase cleanup.
+        active_batch_id: Unique ID for this specific ingestion batch, used for cleanup.
     """
     # Create a new DB session for the background task
     from app.core.database import SessionLocal
@@ -20,11 +30,15 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
         thing.rag_status = RAGStatus.PROCESSING
         db.commit()
         
-        print(f"[CanvasWorker] Processing vectorization for thing {thing_id}...")
+        print(f"[CanvasWorker] Processing vectorization for thing {thing_id} (Mode: {mode})...")
         
-        # Branch based on type
-        # For Documents: Ingest file directly
-        # For Images: Use VLM to generate description, then ingest text
+        # Base metadata for all RAG items
+        base_metadata = {
+            "canvas_id": canvas_id, 
+            "thing_id": thing_id
+        }
+        if active_batch_id:
+            base_metadata["ingestion_batch_id"] = active_batch_id
         
         result = None
         
@@ -86,9 +100,12 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                  db.refresh(thing)
                  
                  # 5. Ingest Description into RAG
+                 meta = base_metadata.copy()
+                 meta.update({"type": "image_description", "source_image": file_path})
+                 
                  result = rag_service.ingest_text(
                      description,
-                     metadata={"canvas_id": canvas_id, "thing_id": thing_id, "type": "image_description", "source_image": file_path}
+                     metadata=meta
                  )
                  
              except Exception as ve:
@@ -96,6 +113,9 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                  thing.rag_status = RAGStatus.FAILED
                  db.commit()
                  return
+
+
+
 
         elif thing.type.value == "slideshow":
             print(f"[CanvasWorker] Processing Slideshow... ThingID={thing_id}")
@@ -258,9 +278,11 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                  db.commit()
                  
                  print(f"[CanvasWorker] Ingesting VLM Slideshow Text into RAG...")
+                 meta = base_metadata.copy()
+                 meta.update({"type": "slideshow_images"})
                  result = rag_service.ingest_text(
                      combined_text,
-                     metadata={"canvas_id": canvas_id, "thing_id": thing_id, "type": "slideshow_images"}
+                     metadata=meta
                  )
                  print(f"[CanvasWorker] Image Slideshow Processing COMPLETE.")
 
@@ -391,21 +413,25 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                 print(f"[CanvasWorker] Ingesting Slideshow into RAG...")
                 
                 # Metadata: Include canvas_id and thing_id to fix RAG Search filtering.
+                meta = base_metadata.copy()
+                meta.update({"asset_id": thing.content.get("asset_id")})
+                
                 # CRITICAL: Run in threadpool to prevent blocking the async event loop!
                 from starlette.concurrency import run_in_threadpool
                 
                 result = await run_in_threadpool(
                     rag_service.ingest_slideshow,
                     file_path,
-                    metadata={"canvas_id": canvas_id, "thing_id": thing_id, "asset_id": thing.content.get("asset_id")},
+                    metadata=meta,
                     progress_callback=update_progress
                 )
 
         else:
             # Default Document Ingestion
+            meta = base_metadata.copy()
             result = rag_service.ingest_file(
                 file_path, 
-                metadata={"canvas_id": canvas_id, "thing_id": thing_id},
+                metadata=meta,
                 progress_callback=update_progress
             )
             
@@ -497,9 +523,11 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
                          print(f"[CanvasWorker] Scanned PDF content committed. Keys: {new_content.keys()}")
                          
                          # 3. Re-ingest as text (Appending to index)
+                         meta = base_metadata.copy()
+                         meta.update({"type": "scanned_pdf_transcription", "source": file_path})
                          result = rag_service.ingest_text(
                              combined_text,
-                             metadata={"canvas_id": canvas_id, "thing_id": thing_id, "type": "scanned_pdf_transcription", "source": file_path}
+                             metadata=meta
                          )
                          
                      except Exception as se:
@@ -516,6 +544,20 @@ async def handle_async_vectorization(thing_id: str, file_path: str, canvas_id: s
         if result and result.get("status") == "success":
             thing.rag_status = RAGStatus.COMPLETED
             print(f"[CanvasWorker] Vectorization COMPLETED for thing {thing_id}")
+            
+            # 2-Phase Sync Cleanup
+            if mode == "sync" and active_batch_id:
+                print(f"[CanvasWorker] Sync Mode: Cleaning up legacy embeddings (Active Batch: {active_batch_id})...")
+                deleted = rag_service.delete_legacy_embeddings(thing_id, active_batch_id)
+                if deleted:
+                    print(f"[CanvasWorker] Legacy cleanup successful.")
+                    # Optionally update content to track current batch
+                    new_content = dict(thing.content)
+                    new_content["ingestion_batch_id"] = active_batch_id
+                    thing.content = new_content
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(thing, "content")
+                    db.commit()
         else:
             # Check if it was "no_documents_found" or error
             thing.rag_status = RAGStatus.FAILED

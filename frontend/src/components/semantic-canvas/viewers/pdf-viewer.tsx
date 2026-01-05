@@ -30,8 +30,9 @@ if (typeof Promise.withResolvers === "undefined") {
 
 // Only set worker if not already set to avoid race conditions/resets
 if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-    console.log("[PDFViewer] Setting PDF.js worker source:", pdfjs.version);
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+    console.log("[PDFViewer] Setting PDF.js worker source (Local)");
+    // Use local worker copied to public folder to ensure version match and avoid UNPKG issues
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 }
 
 // =============================================================================

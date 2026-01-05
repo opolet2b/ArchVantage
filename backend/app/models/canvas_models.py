@@ -110,9 +110,15 @@ class Canvas(Base):
     # Format: {"x": float, "y": float, "zoom": float}
     viewport = Column(JSON, default={"x": 0, "y": 0, "zoom": 1.0})
     
+    # Store arbitrary owner settings for this canvas (e.g. tool colors)
+    owner_config = Column(JSON, nullable=True)
+    
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    
+    # Archiving
+    is_archived = Column(Boolean, default=False)
     
     # Relationships
     things = relationship(
@@ -209,6 +215,7 @@ class CanvasThing(Base):
     
     # Display settings
     title = Column(String(255), nullable=True)
+    color = Column(String(20), nullable=True)  # Custom header color
     collapsed = Column(Boolean, default=False)
 
     # Iconify feature - reduce thing to icon representation

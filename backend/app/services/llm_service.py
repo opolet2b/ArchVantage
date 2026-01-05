@@ -33,10 +33,21 @@ class LLMService:
                 return ChatOllama(model=preset["model_name"], base_url="http://localhost:11434")
             elif preset["type"] == "remote":
                 # Generic OpenAI-compatible client
+                model_kwargs = {}
+                sort_strategy = preset.get("sort")
+                if sort_strategy:
+                    # OpenRouter specific: pass provider sort strategy in extra_body
+                    model_kwargs["extra_body"] = {
+                        "provider": {
+                            "sort": sort_strategy
+                        }
+                    }
+
                 return ChatOpenAI(
-                    model="gpt-3.5-turbo", # Default or from config if added
+                    model=preset.get("model_name") or "gpt-3.5-turbo", 
                     openai_api_key=preset.get("service_api_key"),
                     openai_api_base=preset.get("api_url"),
+                    model_kwargs=model_kwargs
                 )
 
         if model_name.startswith("gpt"):

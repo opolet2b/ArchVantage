@@ -37,13 +37,25 @@ class AssetService:
         return STORAGE_ROOT / asset.file_path
 
     @staticmethod
+    def calculate_file_hash(file_path: Path) -> str:
+        """Calculate SHA256 hash of a file."""
+        import hashlib
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            # Read and update hash string value in blocks of 4K
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+
+    @staticmethod
     async def create_asset(
         db: Session,
         file: UploadFile,
         user_id: int
-    ) -> Asset:
+    ) -> tuple[Asset, str]:
         """
         Save an uploaded file and create an asset record.
+        Returns (Asset, file_hash).
         """
         print(f"[AssetService] Starting creation for {file.filename}")
         AssetService.ensure_storage_dir()
@@ -56,6 +68,8 @@ class AssetService:
         full_dir.mkdir(parents=True, exist_ok=True)
         
         import uuid
+        import hashlib
+        
         file_uuid = str(uuid.uuid4())
         safe_filename = "".join(x for x in file.filename if x.isalnum() or x in "._- ") if file.filename else "file"
         disk_filename = f"{file_uuid}_{safe_filename}"
@@ -65,16 +79,18 @@ class AssetService:
         
         print(f"[AssetService] Writing to {destination_path}")
 
-        # 2. Stream content to disk (Async)
+        # 2. Stream content to disk (Async) AND Compute Hash
+        sha256_hash = hashlib.sha256()
+        
         try:
             # We use standard open() but write chunks from await file.read()
-            # This is "good enough" async without needing aiofiles dependency if not present
             with open(destination_path, "wb") as buffer:
                 while True:
                     chunk = await file.read(1024 * 1024) # 1MB chunks
                     if not chunk:
                         break
                     buffer.write(chunk)
+                    sha256_hash.update(chunk)
             print(f"[AssetService] File write complete")
         except Exception as e:
             print(f"[AssetService] Write failed: {e}")
@@ -88,6 +104,7 @@ class AssetService:
         # 3. Create DB Record
         print(f"[AssetService] Creating DB record")
         file_size = destination_path.stat().st_size
+        file_hash = sha256_hash.hexdigest()
         
         new_asset = Asset(
             owner_id=user_id,
@@ -101,13 +118,13 @@ class AssetService:
         try:
             db.commit()
             db.refresh(new_asset)
-            print(f"[AssetService] Asset created: {new_asset.id}")
+            print(f"[AssetService] Asset created: {new_asset.id} (Hash: {file_hash[:8]}...)")
         except Exception as e:
             print(f"[AssetService] DB Commit failed: {e}")
             db.rollback()
             raise e
         
-        return new_asset
+        return new_asset, file_hash
 
     @staticmethod
     def get_asset_stream(

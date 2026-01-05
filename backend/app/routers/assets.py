@@ -35,7 +35,7 @@ class AssetUploadResponse(BaseModel):
     url: str
     mime_type: str
     size: int
-
+    file_hash: str | None = None
 
 # =============================================================================
 # Endpoints
@@ -59,7 +59,7 @@ async def upload_asset(
         )
 
     # Use service to handle storage logic
-    asset = await asset_service.create_asset(db, file, current_user.id)
+    asset, file_hash = await asset_service.create_asset(db, file, current_user.id)
     
     # Check for PowerPoint
     filename = asset.original_name.lower()
@@ -99,19 +99,15 @@ async def upload_asset(
             print(f"[AssetRouter] Failed to process PPTX: {e}")
             # Don't fail the upload, just log error
 
-    
-    # Construct access URL
-    # Assuming standard API prefix /api/v1
-    # URL will be relative for frontend use: /api/v1/assets/{id}
-    access_url = f"/api/v1/assets/{asset.id}"
-    
     return AssetUploadResponse(
-        id=asset.id,
+        id=str(asset.id),
         filename=asset.original_name,
-        url=access_url,
+        url=f"/api/v1/assets/{asset.id}",
         mime_type=asset.mime_type,
-        size=asset.size_bytes
+        size=asset.size_bytes,
+        file_hash=file_hash
     )
+
 
 
 @router.get("/sidecar/{asset_id}")

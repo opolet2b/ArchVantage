@@ -9,7 +9,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Map, MoreVertical, Trash2, Edit2, Plus, Lock } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CanvasPermissionsDialog } from "../semantic-canvas/canvas-permissions-dialog";
@@ -57,7 +59,14 @@ export function CanvasList() {
     const [editName, setEditName] = useState("");
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+    const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
     const inputRef = useRef<HTMLInputElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const router = useRouter();
+    const pathname = usePathname();
 
     // Permissions dialog state
     const [permissionsOpen, setPermissionsOpen] = useState(false);
@@ -94,7 +103,7 @@ export function CanvasList() {
         if (!token) return;
 
         try {
-            const res = await fetch(`${API_URL}/canvases`, {
+            const res = await fetch(`${API_URL}/canvases?archived=${viewMode === 'archived'}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
 
@@ -116,6 +125,11 @@ export function CanvasList() {
             setIsLoading(false);
         }
     };
+
+    // Re-fetch when view mode changes
+    useEffect(() => {
+        fetchCanvases();
+    }, [viewMode]);
 
     // Create new canvas
     const handleNewCanvas = async () => {
@@ -191,8 +205,66 @@ export function CanvasList() {
         }
     };
 
+    // Selection helpers
+    const toggleSelectionMode = () => {
+        setIsSelectionMode(!isSelectionMode);
+        setSelectedIds(new Set());
+    };
+
+    const toggleSelection = (id: string) => {
+        const next = new Set(selectedIds);
+        if (next.has(id)) {
+            next.delete(id);
+        } else {
+            next.add(id);
+        }
+        setSelectedIds(next);
+    };
+
+    const handleSelectAll = () => {
+        if (selectedIds.size === canvases.length) {
+            setSelectedIds(new Set());
+        } else {
+            setSelectedIds(new Set(canvases.map((c) => c.id)));
+        }
+    };
+
     // Confirm delete canvas
     const confirmDelete = async () => {
+        if (showBatchDeleteConfirm) {
+            // Batch delete
+            const token = getToken();
+            if (!token) return;
+
+            try {
+                const ids = Array.from(selectedIds);
+                await Promise.all(
+                    ids.map((id) =>
+                        fetch(`${API_URL}/canvases/${id}`, {
+                            method: "DELETE",
+                            headers: { Authorization: `Bearer ${token}` },
+                        })
+                    )
+                );
+
+                setCanvases((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+
+                // If the active canvas was deleted, switch to another or null
+                if (activeCanvasId && selectedIds.has(activeCanvasId)) {
+                    const remaining = canvases.filter(c => !selectedIds.has(c.id));
+                    setActiveCanvasId(remaining.length > 0 ? remaining[0].id : null);
+                }
+
+                setIsSelectionMode(false);
+                setSelectedIds(new Set());
+            } catch (err) {
+                console.error("Failed to batch delete canvases:", err);
+            } finally {
+                setShowBatchDeleteConfirm(false);
+            }
+            return;
+        }
+
         if (!deleteId) return;
 
         const token = getToken();
@@ -256,13 +328,125 @@ export function CanvasList() {
         }
     };
 
+    const handleBatchArchive = async () => {
+        const token = getToken();
+        if (!token) return;
+
+        const ids = Array.from(selectedIds);
+        await Promise.all(
+            ids.map((id) =>
+                fetch(`${API_URL}/canvases/${id}/archive`, {
+                    method: "PATCH",
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+            )
+        );
+        fetchCanvases();
+        setIsSelectionMode(false);
+        setSelectedIds(new Set());
+    };
+
+    const handleBatchRestore = async () => {
+        const token = getToken();
+        if (!token) return;
+
+        const ids = Array.from(selectedIds);
+        await Promise.all(
+            ids.map((id) =>
+                fetch(`${API_URL}/canvases/${id}/restore`, {
+                    method: "PATCH",
+                    headers: { Authorization: `Bearer ${token}` },
+                })
+            )
+        );
+        fetchCanvases();
+        setIsSelectionMode(false);
+        setSelectedIds(new Set());
+    };
+
+    const handleBatchExport = async () => {
+        const token = getToken();
+        if (!token) return;
+
+        const ids = Array.from(selectedIds);
+
+        // Export individually for now as implementing bulk zip is complex on client without lib
+        for (const id of ids) {
+            try {
+                const res = await fetch(`${API_URL}/canvases/${id}/export`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `canvas_export_${data.canvas.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
+            } catch (err) {
+                console.error(`Failed to export canvas ${id}`, err);
+            }
+        }
+
+        setIsSelectionMode(false);
+        setSelectedIds(new Set());
+    };
+
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const token = getToken();
+        if (!token) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const data = JSON.parse(event.target?.result as string);
+                const res = await fetch(`${API_URL}/canvases/import`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    fetchCanvases();
+                }
+            } catch (err) {
+                console.error("Failed to parse import file", err);
+            }
+        };
+        reader.readAsText(file);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+    };
+
     // Select a canvas
     const handleSelectCanvas = (id: string) => {
         setActiveCanvasId(id);
+
         // Dispatch custom event so CanvasView can react
         window.dispatchEvent(
             new CustomEvent("canvas-select", { detail: { canvasId: id } })
         );
+
+        // If not on home page, navigate there
+        if (pathname !== "/") {
+            router.push("/");
+        }
     };
 
     if (isLoading) {
@@ -285,16 +469,130 @@ export function CanvasList() {
                     <div className="text-xs font-semibold text-muted-foreground">
                         Canvases
                     </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5"
-                        onClick={handleNewCanvas}
-                        title="New Canvas"
-                    >
-                        <Plus className="h-3 w-3" />
-                    </Button>
+                    <div className="flex gap-1 items-center">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-6 w-6", viewMode === 'archived' && "bg-accent text-accent-foreground")}
+                            onClick={() => setViewMode(viewMode === 'active' ? 'archived' : 'active')}
+                            title={viewMode === 'active' ? "Show Archived" : "Show Active"}
+                        >
+                            <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                        {!isSelectionMode ? (
+                            <>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5"
+                                    onClick={handleImportClick}
+                                    title="Import Canvas"
+                                >
+                                    <Upload className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5"
+                                    onClick={toggleSelectionMode}
+                                    title="Select canvases"
+                                >
+                                    <ListChecks className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5"
+                                    onClick={handleNewCanvas}
+                                    title="New Canvas"
+                                >
+                                    <Plus className="h-3 w-3" />
+                                </Button>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept=".json"
+                                    className="hidden"
+                                    onChange={handleFileChange}
+                                />
+                            </>
+                        ) : (
+                            <div className="flex items-center gap-1">
+                                {viewMode === 'active' ? (
+                                    <>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={handleBatchExport}
+                                            disabled={selectedIds.size === 0}
+                                            title="Export selected"
+                                        >
+                                            <Download className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={handleBatchArchive}
+                                            disabled={selectedIds.size === 0}
+                                            title="Archive selected"
+                                        >
+                                            <Archive className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={handleBatchRestore}
+                                        disabled={selectedIds.size === 0}
+                                        title="Restore selected"
+                                    >
+                                        <RotateCcw className="h-3.5 w-3.5" />
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                    onClick={() =>
+                                        selectedIds.size > 0 &&
+                                        setShowBatchDeleteConfirm(true)
+                                    }
+                                    disabled={selectedIds.size === 0}
+                                    title="Delete selected"
+                                >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={toggleSelectionMode}
+                                    title="Cancel selection"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 </div>
+                {isSelectionMode && canvases.length > 0 && (
+                    <div className="px-2 mb-2 flex items-center gap-2">
+                        <Checkbox
+                            checked={
+                                selectedIds.size === canvases.length &&
+                                canvases.length > 0
+                            }
+                            onCheckedChange={handleSelectAll}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                            Select All ({selectedIds.size}/{canvases.length})
+                        </span>
+                    </div>
+                )}
 
                 <div className="flex flex-col gap-1">
                     {canvases.length === 0 ? (
@@ -318,6 +616,16 @@ export function CanvasList() {
                                 )}
                                 onClick={() => handleSelectCanvas(canvas.id)}
                             >
+                                {isSelectionMode && (
+                                    <Checkbox
+                                        checked={selectedIds.has(canvas.id)}
+                                        onCheckedChange={() =>
+                                            toggleSelection(canvas.id)
+                                        }
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="mr-2"
+                                    />
+                                )}
                                 <Map className="h-4 w-4 shrink-0" />
                                 {editingId === canvas.id ? (
                                     <Input
@@ -412,6 +720,33 @@ export function CanvasList() {
                 </AlertDialogContent>
             </AlertDialog>
 
+            <AlertDialog
+                open={showBatchDeleteConfirm}
+                onOpenChange={(open) =>
+                    !open && setShowBatchDeleteConfirm(false)
+                }
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            Delete {selectedIds.size} canvases?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. These canvases and all their contents will be permanently deleted.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDelete}
+                            className="bg-red-600 hover:bg-red-700"
+                        >
+                            Delete All
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             {permissionTarget && (
                 <CanvasPermissionsDialog
                     open={permissionsOpen}
@@ -425,4 +760,5 @@ export function CanvasList() {
             )}
         </>
     );
+
 }
