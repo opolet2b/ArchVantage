@@ -11,7 +11,8 @@ import {
     Import,
     Presentation,
     Layout,
-    Palette
+    Palette,
+    Server
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
@@ -35,7 +36,8 @@ export type ToolType =
     | "slideshow"
     | "domain"
     | "conversation"
-    | "import_conversation";
+    | "import_conversation"
+    | "mcp_tool";
 
 export interface CanvasTool {
     id: ToolType;
@@ -97,6 +99,12 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         icon: <FolderOpen className="h-4 w-4" />,
         description: "Group items together"
     },
+    {
+        id: "mcp_tool",
+        name: "MCP Tool",
+        icon: <Server className="h-4 w-4" />,
+        description: "Connect to external tools"
+    },
 
 ];
 
@@ -130,7 +138,10 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     url: "#f0f9ff",
 
     // Domain - Indigo
-    domain: "#e0e7ff"
+    domain: "#e0e7ff",
+
+    // MCP - Orange/Amber
+    mcp_tool: "#ffedd5"
 };
 
 

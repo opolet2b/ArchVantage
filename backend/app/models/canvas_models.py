@@ -56,6 +56,7 @@ class ThingType(str, Enum):
     AGENT_RESULT = "agent_result"
     URL = "url"
     SLIDESHOW = "slideshow"
+    MCP_TOOL = "mcp_tool"
 
 
 class RAGStatus(str, Enum):

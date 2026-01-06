@@ -35,7 +35,11 @@ import {
     Copy,
     RefreshCcw,
     FileWarning,
-    FolderOpen
+    FolderOpen,
+    Download,
+    Pencil,
+    Save,
+    X
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -44,6 +48,7 @@ import {
     MarkdownViewer,
     SpreadsheetViewer,
     ImageViewer,
+    MCPToolViewer,
     PDFViewer,
     ConversationViewer,
     TextViewer,
@@ -67,10 +72,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { createPortal } from "react-dom";
 import { LinkTypeDialog } from "../link-type-dialog";
 import { useToast } from "@/components/ui/use-toast";
+import { ExportDialog } from "../export-dialog";
 
 // ... (Existing icons/themes code unchanged) ...
 
@@ -250,6 +257,10 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     // REUSE ALL EXISTING STATE LOGIC FROM LINES ~230-496 (skipping for brevity in prompt but must exist)
     const [selected, setSelected] = React.useState(isSelected);
 
+    // Content Editing State
+    const [isEditingContent, setIsEditingContent] = React.useState(false);
+    const [editedContent, setEditedContent] = React.useState("");
+
     // Sync State
     const [syncDialogOpen, setSyncDialogOpen] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<'idle' | 'checking' | 'ready' | 'syncing' | 'complete' | 'error'>('idle');
@@ -396,6 +407,9 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     // Ask dialog state
     const [askDialogOpen, setAskDialogOpen] = React.useState(false);
     const [customPrompt, setCustomPrompt] = React.useState("");
+
+    // Export Dialog State
+    const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
 
     // Thinking Visibility State
     const [isThinkingVisible, setIsThinkingVisible] = React.useState(false);
@@ -854,6 +868,34 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         }
     }, []);
 
+    const handleContentSave = async () => {
+        if (!editedContent && editedContent !== "") return;
+
+        // Determine field to update based on current content structure
+        const updates: any = {};
+        if (typeof thing.content.text === "string") {
+            updates.text = editedContent;
+        } else if (typeof thing.content.content === "string") {
+            updates.content = editedContent;
+        } else {
+            // Fallback default
+            updates.text = editedContent;
+        }
+
+        await updateThing(thing.id, {
+            content: {
+                ...thing.content,
+                ...updates
+            }
+        });
+        setIsEditingContent(false);
+        toast({
+            title: "Changes Saved",
+            description: "Text content updated successfully.",
+            duration: 2000,
+        });
+    };
+
     // Handle LLM action
     const handleAction = React.useCallback(
         async (action: LLMAction, fragment: Fragment) => {
@@ -1120,14 +1162,56 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         return "";
     };
 
+    // Helper to detect markdown
+    const isMarkdown = (text: string) => {
+        if (!text) return false;
+        // Check for common markdown patterns: headers, lists, code blocks, bold/italic, links, tables
+        const patterns = [
+            /^#+\s/m,                   // Headers
+            /^[-*]\s/m,                 // Bullet lists
+            /^\d+\.\s/m,                // Numbered lists
+            /```/,                      // Code blocks
+            /\*\*.+\*\*/,               // Bold
+            /\[.+\]\(.+\)/,             // Links
+            /^>/m,                      // Blockquotes
+            /\|.+\|.+\|/m               // Tables
+        ];
+        return patterns.some(p => p.test(text));
+    };
+
     // Render full content based on type using appropriate viewer
-    // All viewers are wrapped with SelectableContent for selection toolbar
+    // All viewers are wrapped with eContent for selection toolbar
     const renderFullContent = () => {
         const content = thing.content;
         const filename = content.filename as string | undefined;
 
         switch (thing.type) {
+            case "mcp_tool":
+                return <MCPToolViewer thing={thing} />;
+
             case "text":
+            case "agent_result": // Treat agent results as text, utilizing markdown viewer if applicable
+                const textVal = cleanContent || (content.text as string) || (content.content as string) || "";
+
+                if (isEditingContent && thing.type === "text") {
+                    return (
+                        <div className="flex flex-col h-full overflow-hidden p-1">
+                            <Textarea
+                                value={editedContent}
+                                onChange={(e) => setEditedContent(e.target.value)}
+                                className="flex-1 min-h-0 font-mono text-sm resize-none bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus-visible:ring-1"
+                                placeholder="Enter text content..."
+                                autoFocus
+                            />
+                            <div className="text-xs text-muted-foreground mt-1 px-1">
+                                Markdown supported. Press Save icon in header to apply.
+                            </div>
+                        </div>
+                    )
+                }
+
+                const showAsMarkdown = thing.type === "agent_result" || (isMarkdown(textVal) && !highlight);
+
                 return (
                     <div className="flex flex-col h-full overflow-hidden">
                         {/* Thinking Block */}
@@ -1144,14 +1228,22 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                         )}
 
                         {/* Main Content */}
-                        <div className="flex-1 min-h-0 overflow-y-auto">
+                        <div className="flex-1 min-h-0 overflow-y-auto px-1">
                             <SelectableContent thingId={thing.id}>
-                                <TextViewer
-                                    content={cleanContent || (content.text as string) || ""} // Fallback
-                                    className="h-full"
-                                    highlight={highlight}
-                                    onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
-                                />
+                                {showAsMarkdown ? (
+                                    <MarkdownViewer
+                                        content={textVal}
+                                        className="h-full prose-sm dark:prose-invert"
+                                        onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                    />
+                                ) : (
+                                    <TextViewer
+                                        content={textVal}
+                                        className="h-full"
+                                        highlight={highlight}
+                                        onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                    />
+                                )}
                             </SelectableContent>
                         </div>
                     </div>
@@ -1640,6 +1732,50 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                         </div>
                     )}
 
+                    {/* Edit Content Button (Text Only) */}
+                    {thing.type === "text" && (
+                        <>
+                            {isEditingContent ? (
+                                <>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleContentSave();
+                                        }}
+                                        className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
+                                        title="Save Changes"
+                                    >
+                                        <Save className="h-4 w-4 text-green-600" />
+                                    </button>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setIsEditingContent(false);
+                                        }}
+                                        className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
+                                        title="Cancel Editing"
+                                    >
+                                        <X className="h-4 w-4 text-red-500" />
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditedContent((thing.content.text as string) || (thing.content.content as string) || "");
+                                        setIsEditingContent(true);
+                                    }}
+                                    className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                    title="Edit Content"
+                                >
+                                    <Pencil className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                                </button>
+                            )}
+                            {/* Separator */}
+                            <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1" />
+                        </>
+                    )}
+
                     {/* Copy Content Button */}
                     <button
                         onClick={(e) => {
@@ -1669,6 +1805,18 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
                         </button>
                     )}
+
+                    {/* Export Button */}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setExportDialogOpen(true);
+                        }}
+                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                        title="Export content"
+                    >
+                        <Download className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                    </button>
 
                     {/* Iconify button - shown when selected */}
                     {(isSelected || selected) && (
@@ -1972,6 +2120,12 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog >
+
+            <ExportDialog
+                open={exportDialogOpen}
+                onOpenChange={setExportDialogOpen}
+                thing={currentThing}
+            />
         </>
     );
 }

@@ -28,6 +28,7 @@ class ThingType(str, Enum):
     AGENT_RESULT = "agent_result"
     URL = "url"
     SLIDESHOW = "slideshow"
+    MCP_TOOL = "mcp_tool"
 
 
 class LinkType(str, Enum):
@@ -285,6 +286,15 @@ class AnalyzeAction(str, Enum):
     EXPLAIN = "explain"
     EXTRACT_POINTS = "extract_points"
     ASK = "ask"
+    IDENTIFY_PURPOSE = "identify_purpose"
+
+
+class BatchAnalyzeRequest(BaseModel):
+    """Request to analyze multiple things at once."""
+    thing_ids: List[str]
+    action: AnalyzeAction
+    custom_prompt: Optional[str] = None
+    model: Optional[str] = None
 
 
 class FragmentData(BaseModel):

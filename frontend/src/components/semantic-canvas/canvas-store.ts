@@ -27,7 +27,8 @@ export type ThingType =
     | "table"
     | "agent_result"
     | "url"
-    | "slideshow";
+    | "slideshow"
+    | "mcp_tool";
 
 /**
  * Types of relationships between things.
@@ -265,6 +266,9 @@ interface CanvasState {
 
     // Iconify feature
     toggleIconify: (thingId: string) => Promise<void>;
+
+    // Batch Analysis Action
+    analyzeBatch: (thingIds: string[], action: "summarize" | "identify_purpose", model?: string) => Promise<string | null>;
 
     // Semantic Discovery
     discoverLinks: (thingIds: string[], domainIds: string[]) => Promise<{ links_created: number; domains_updated: number; details: any[] } | null>;
@@ -583,9 +587,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             );
 
             if (!res.ok) {
+                const errText = await res.text();
+                console.error("Update failed:", res.status, errText);
                 // Revert on failure
                 set({ things: currentThings });
-                throw new Error("Failed to update thing");
+                throw new Error(`Failed to update thing: ${res.status} ${errText}`);
             }
 
             const serverUpdated: CanvasThing = await res.json();
@@ -994,8 +1000,44 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         set({ selectedThingIds: thingIds, selectedDomainIds: domainIds });
     },
 
+    // Clear selection
     clearSelection: () => {
         set({ selectedThingIds: [], selectedDomainIds: [] });
+    },
+
+    // Batch Analysis
+    analyzeBatch: async (thingIds: string[], action: "summarize" | "identify_purpose", model?: string) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId || thingIds.length === 0) return null;
+
+        try {
+            console.log(`[CanvasStore] Analyzing batch: ${thingIds.length} items. Action: ${action}. Model: ${model}`);
+            const response = await fetch(`${API_URL}/canvases/${canvasId}/analyze-batch`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    thing_ids: thingIds,
+                    action: action,
+                    model: model
+                }),
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                console.error("Batch analysis failed:", errText);
+                return null;
+            }
+
+            const data = await response.json();
+            return data.result;
+        } catch (error) {
+            console.error("Batch analysis error:", error);
+            return null;
+        }
     },
 
     // Iconify feature - toggle thing between full and icon mode

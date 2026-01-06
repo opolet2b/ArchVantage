@@ -12,6 +12,7 @@ export { ImageViewer } from "./image-viewer";
 export { PDFViewer } from "./pdf-viewer";
 export { ConversationViewer } from "./conversation-viewer";
 export { TextViewer } from "./text-viewer";
+export { MCPToolViewer } from "./mcp-tool-viewer";
 export { SelectionProvider, useSelection } from "./selection-context";
 export { SelectionToolbar } from "./selection-toolbar";
 export { SelectableContent } from "./selectable-content";

@@ -275,7 +275,11 @@ class TextTemplatePrimitive(BasePrimitive):
             # Get parameters
             source_text_raw = params.get("source_text", "")
             template_content = params.get("template_content", "")
-            llm_model = params.get("llm_model", "default")
+            # Retrieve model preference (Global > Param > Default)
+            variables = state.get("variables", {})
+            llm_model = variables.get("model") or params.get("llm_model", "default")
+            
+            print(f"[TextTemplate] Using Model: {llm_model}")
             output_var = params.get("output_variable", "generated_markdown")
             
             # Auto-detect input if source_text is empty

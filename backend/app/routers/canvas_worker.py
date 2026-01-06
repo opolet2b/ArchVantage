@@ -1,5 +1,4 @@
-
-from app.models.canvas_models import CanvasThing, RAGStatus
+from app.models.canvas_models import CanvasThing, Canvas, RAGStatus
 from app.services.rag_service import rag_service
 
 async def handle_async_vectorization(
@@ -26,6 +25,21 @@ async def handle_async_vectorization(
         if not thing:
             print(f"[CanvasWorker] Thing {thing_id} not found during async vectorization.")
             return
+
+        # Resolve Canvas Configuration (Model)
+        canvas_model = "default"
+        try:
+            canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+            if canvas and canvas.owner_config:
+                 # Check common keys for model selection
+                 canvas_model = (
+                     canvas.owner_config.get("selectedModel") or 
+                     canvas.owner_config.get("model") or 
+                     "default"
+                 )
+            print(f"[CanvasWorker] Using Canvas Model: {canvas_model}")
+        except Exception as e:
+            print(f"[CanvasWorker] Warning: Failed to resolve canvas model: {e}")
 
         thing.rag_status = RAGStatus.PROCESSING
         db.commit()
@@ -365,7 +379,7 @@ async def handle_async_vectorization(
                                 try:
                                     print(f"[CanvasWorker] Requesting AI analysis for Slide {i+1}...")
                                     response = await asyncio.wait_for(
-                                        llm_service.chat([Message(role="user", content=prompt)], model_name="default"),
+                                        llm_service.chat([Message(role="user", content=prompt)], model_name=canvas_model),
                                         timeout=120.0
                                     )
                                     slide["ai_description"] = response.strip()
@@ -432,7 +446,8 @@ async def handle_async_vectorization(
             result = rag_service.ingest_file(
                 file_path, 
                 metadata=meta,
-                progress_callback=update_progress
+                progress_callback=update_progress,
+                model_name=canvas_model
             )
             
             if result.get("status") == "success":

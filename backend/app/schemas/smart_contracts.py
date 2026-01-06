@@ -51,8 +51,8 @@ class AgentInput(BaseModel):
 
 class AnalyzedSection(BaseModel):
     title: str
-    findings: List[str]
-    supporting_evidence: List[str] = Field(description="List of source_ids")
+    findings: List[str] = Field(default_factory=list)
+    supporting_evidence: List[str] = Field(default_factory=list, description="List of source_ids")
 
 class AnalysisResults(BaseModel):
     summary: str

@@ -98,7 +98,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
 
             if (res.ok) {
                 const data = await res.json();
-                const targetField = intentMode === "extractor" ? "additionalInstructions" : "objective";
+                const targetField = intentMode === "extractor" ? "instructions" : "objective";
                 handleUpdateConfig(targetField, data.suggestion);
             } else {
                 alert("Failed to generate suggestion. Check backend logs.");
@@ -189,8 +189,8 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                             <div className="flex bg-slate-100 rounded-lg p-1">
                                 <button
                                     className={`flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-all ${selectedStep.config?.asset_scope !== 'multiple'
-                                            ? "bg-white text-blue-600 shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground"
+                                        ? "bg-white text-blue-600 shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground"
                                         }`}
                                     onClick={() => handleUpdateConfig("asset_scope", "single")}
                                 >
@@ -198,8 +198,8 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                 </button>
                                 <button
                                     className={`flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-all ${selectedStep.config?.asset_scope === 'multiple'
-                                            ? "bg-white text-blue-600 shadow-sm"
-                                            : "text-muted-foreground hover:text-foreground"
+                                        ? "bg-white text-blue-600 shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground"
                                         }`}
                                     onClick={() => handleUpdateConfig("asset_scope", "multiple")}
                                 >

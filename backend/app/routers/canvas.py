@@ -27,7 +27,7 @@ from app.schemas.canvas_schemas import (
     LinkCreate, LinkUpdate, LinkResponse,
     DomainCreate, DomainUpdate, DomainResponse,
     SummarizeRequest, SummarizeResponse,
-    AnalyzeRequest, AnalyzeResponse, AnalyzeAction,
+    AnalyzeRequest, AnalyzeResponse, AnalyzeAction, BatchAnalyzeRequest,
     DiscoverLinksRequest, DiscoverLinksResponse,
     ExecuteTemplateRequest, ExecuteTemplateResponse
 )
@@ -634,16 +634,23 @@ def update_thing(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update a thing's properties."""
+    user_role_ids = [role.id for role in current_user.roles]
+    
+    # Allow owner OR shared access
     thing = db.query(CanvasThing).join(Canvas).filter(
         CanvasThing.id == thing_id,
         CanvasThing.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
     ).first()
     
     if not thing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Thing not found"
+            detail="Thing not found or access denied"
         )
     
     from sqlalchemy.orm.attributes import flag_modified
@@ -1583,8 +1590,137 @@ async def analyze_selection(
             thing_id=request.thing_id,
             action=request.action,
             result=response,
-            created_thing_id=None 
+            created_thing_id=None
         )
+    except Exception as e:
+        print(f"[Analyze] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/canvases/{canvas_id}/analyze-batch",
+    response_model=AnalyzeResponse
+)
+async def analyze_batch(
+    canvas_id: str,
+    request: BatchAnalyzeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Analyze multiple things at once (e.g. Summarize, Identify Purpose).
+    Aggregates content and sends a single prompt to LLM.
+    """
+    # 1. Verify canvas access
+    from app.models.canvas_models import Canvas, CanvasThing
+    from app.services.llm_service import llm_service
+    from app.models.chat import Message
+    
+    user_role_ids = [role.id for role in current_user.roles]
+
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
+    ).first()
+    
+    if not canvas:
+        raise HTTPException(status_code=404, detail="Canvas not found")
+
+    # 2. Fetch all things
+    things = db.query(CanvasThing).filter(
+        CanvasThing.id.in_(request.thing_ids),
+        CanvasThing.canvas_id == canvas_id
+    ).all()
+    
+    if not things:
+        raise HTTPException(status_code=404, detail="No valid things found to analyze")
+
+    # 3. Aggregate Content
+    aggregated_text = ""
+    for thing in things:
+        content_text = ""
+        # Extract text based on type
+        if thing.type.value == "text":
+            content_text = thing.content.get("text", "")
+        elif thing.type.value == "document":
+            content_text = thing.content.get("content", "")
+            if not content_text and thing.content.get("summary"):
+                 content_text = f"Summary: {thing.content.get('summary')}"
+        elif thing.type.value == "url":
+             content_text = f"URL: {thing.content.get('url')} - {thing.content.get('title', '')}"
+        elif thing.type.value == "message":
+             content_text = thing.content.get("content", "")
+        elif thing.type.value == "table":
+             # Tables usually store data in 'data' key or 'csv'
+             import json
+             data = thing.content.get("data")
+             if data:
+                 content_text = f"Table Data: {json.dumps(data)}"
+        elif thing.type.value == "image":
+             # For images, we can't do full VLM batching yet easily, check for captions/descriptions
+             desc = thing.content.get("description") or thing.content.get("caption") or thing.content.get("extracted_text")
+             if desc:
+                 content_text = f"Image Description/Text: {desc}"
+             else:
+                 content_text = f"Image (No text description available). Title: {thing.content.get('title', 'Untitled')}"
+        else:
+             # Fallback: Try to dump content
+             try:
+                 import json
+                 content_text = f"Item Data: {json.dumps(thing.content)}"
+             except:
+                 content_text = str(thing.content)
+        
+        if content_text:
+            aggregated_text += f"\n--- Item: {thing.type.value} ---\n{content_text[:4000]}\n" # Limit per item context
+
+    if not aggregated_text.strip():
+        raise HTTPException(status_code=400, detail="Selected items contain no analyzable text.")
+
+    # 4. Construct Prompt based on Action
+    system_prompt = "You are an expert analyst assistant."
+    user_prompt = ""
+
+    if request.action == AnalyzeAction.SUMMARIZE or request.action.value == "summarize":
+        user_prompt = (
+            f"Please provide a comprehensive summary of the following collection of items.\n"
+            f"Identify common themes, contradictions, and key takeaways.\n\n"
+            f"Content:\n{aggregated_text}"
+        )
+    elif request.action == AnalyzeAction.IDENTIFY_PURPOSE or request.action.value == "identify_purpose":
+        user_prompt = (
+            f"Analyze the following items and identify the underlying shared purpose or goal.\n"
+            f"Why were these items grouped together? What problem are they trying to solve?\n\n"
+            f"Content:\n{aggregated_text}"
+        )
+    else:
+        # Generic
+        user_prompt = f"Analyze the following content:\n{aggregated_text}"
+
+    # 5. Call LLM
+    try:
+        response_text = await llm_service.chat(
+            messages=[
+                Message(role="system", content=system_prompt),
+                Message(role="user", content=user_prompt)
+            ],
+            model_name=request.model or "default"
+        )
+        
+        return AnalyzeResponse(
+            thing_id="batch_result",
+            action=request.action,
+            result=response_text,
+            created_thing_id=None
+        )
+
+    except Exception as e:
+        print(f"Batch Analysis Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
         print(f"[Analyze] Error: {e}")

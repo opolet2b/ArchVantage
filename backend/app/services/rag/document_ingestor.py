@@ -12,11 +12,14 @@ class DocumentIngestor:
     def __init__(self):
         pass
 
-    def ingest_document(self, file_path: str, index: VectorStoreIndex, storage_context: StorageContext, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
+    def ingest_document(self, file_path: str, index: VectorStoreIndex, storage_context: StorageContext, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, llm=None):
         """
         Ingest a document file.
         Supports .docx specific handling via MarkItDown.
+        Args:
+            llm: Optional LlamaIndex LLM instance for metadata extraction.
         """
+        # ... (Start of function remains same, handled by context match) ...
         print(f"[DocumentIngestor] Starting ingestion for: {file_path}")
         
         is_docx = file_path.lower().endswith('.docx')
@@ -100,15 +103,18 @@ class DocumentIngestor:
                     from llama_index.core.extractors import TitleExtractor, SummaryExtractor
                     
                     # Ensure LLM is available for extraction
-                    if not Settings.llm:
+                    # Priority: Explicit LLM > Global Settings.llm
+                    active_llm = llm or Settings.llm
+                    
+                    if not active_llm:
                          print("[DocumentIngestor] Warning: Metadata extraction requested but no LLM configured. Skipping extraction.")
                          nodes = Settings.node_parser.get_nodes_from_documents(documents)
                     else:
                         pipeline = IngestionPipeline(
                             transformations=[
                                 Settings.node_parser,
-                                TitleExtractor(nodes=5),
-                                SummaryExtractor(summaries=["prev", "self", "next"]),
+                                TitleExtractor(nodes=5, llm=active_llm),
+                                SummaryExtractor(summaries=["prev", "self", "next"], llm=active_llm),
                             ]
                         )
                         nodes = pipeline.run(documents=documents)

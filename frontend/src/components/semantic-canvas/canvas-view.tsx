@@ -35,6 +35,7 @@ import { CustomEdge } from "./edges/custom-edge";
 import { useCanvasStore, getZoomLevel, LinkType, CanvasLink } from "./canvas-store";
 
 import { LinkTypeDialog } from "./link-type-dialog";
+import { MCPToolConfigDialog, MCPToolConfig } from "./mcp-tool-config-dialog";
 import { cn, API_URL } from "@/lib/utils";
 import {
     Select,
@@ -1084,6 +1085,10 @@ function CanvasViewInner() {
                     setPendingDropPos(position);
                     setShowImageSlidesDialog(true);
                     break;
+                case "mcp_tool":
+                    setPendingDropPos(position);
+                    setShowMCPToolDialog(true);
+                    break;
             }
             return;
         }
@@ -1152,6 +1157,8 @@ function CanvasViewInner() {
 
     // Handle Context Menu Actions
     const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string) => {
+        console.log(`[CanvasView] handleContextMenuAction: ${action}, context: ${context}`);
+        toast({ title: "Debug Action", description: action });
         console.log(`[CanvasView] Context Menu Action: ${action} in context ${context}`);
 
         if (action === "discover_links") {
@@ -1185,6 +1192,69 @@ function CanvasViewInner() {
             if (result) {
                 console.log(`[DiscoverLinks] Created ${result.links_created} links.`);
             }
+        } else if (action === "summary_analysis" || action === "identify_purpose") {
+            const { selectedThingIds, selectedDomainIds, analyzeBatch, addThing, addLink, selectedModel } = useCanvasStore.getState();
+            let tIds: string[] = [];
+
+            if (context === "selection") {
+                tIds = [...selectedThingIds];
+                // Include things in domains if needed, but analyzeBatch expects thingIds
+                // Let's grab things from domains too
+                const { things } = useCanvasStore.getState();
+                const thingsInDomains = things.filter(t => t.domain_id && selectedDomainIds.includes(t.domain_id)).map(t => t.id);
+                tIds = [...new Set([...tIds, ...thingsInDomains])];
+            } else if (context === "domain" && domainId) {
+                const { things } = useCanvasStore.getState();
+                tIds = things.filter(t => t.domain_id === domainId).map(t => t.id);
+            } else if (context === "canvas") {
+                const { things } = useCanvasStore.getState();
+                tIds = things.filter(t => !t.domain_id).map(t => t.id);
+            }
+
+            if (tIds.length === 0) {
+                toast({ title: "Nothing to analyze", description: "No items selected." });
+                return;
+            }
+
+            toast({ title: "Analyzing...", description: "Processing selected items..." });
+
+            // Map UI action to Backend API enum
+            const apiAction = action === "summary_analysis" ? "summarize" : action;
+
+            const result = await analyzeBatch(tIds, apiAction as "summarize" | "identify_purpose", selectedModel || undefined);
+
+            if (result) {
+                console.log("[SummaryAnalysis] Result received:", result.slice(0, 100) + "...");
+                // Create a text note with the result
+                // Calculate position relative to selection or center
+                let pos = getCenterPosition();
+                console.log("[SummaryAnalysis] Adding thing at:", pos);
+
+                const newThing = await addThing(
+                    "text",
+                    { text: `**${action === "identify_purpose" ? "Purposes" : "Summary"} Analysis**\n\n${result}` },
+                    pos,
+                    `${action === "identify_purpose" ? "Purpose" : "Summary"} Analysis`
+                );
+
+                if (newThing) {
+                    console.log(`[SummaryAnalysis] Created thing ${newThing.id}. Linking to ${tIds.length} sources...`);
+                    // Link new thing to all source things
+                    for (const sourceId of tIds) {
+                        await addLink(
+                            newThing.id,
+                            sourceId,
+                            "derived_from" as any // Use derived_from relationship. 'newThing' is derived from 'source'
+                        );
+                    }
+                }
+
+                toast({ title: "Analysis Complete", description: "Result added to canvas." });
+            } else {
+                console.error("[SummaryAnalysis] Result was empty or null.");
+                toast({ title: "Analysis Failed", variant: "destructive" });
+            }
+
         } else if (action.startsWith("execute_template:")) {
             const templateId = action.split(":")[1];
             const { selectedThingIds, selectedDomainIds, things, domains } = useCanvasStore.getState();
@@ -1215,6 +1285,9 @@ function CanvasViewInner() {
                 description: "Initializing pipeline...",
                 duration: 1000000, // Keep open
             });
+
+            console.log(`[ExecuteTemplateStream] Template: ${templateId}, Model: ${selectedModel}`);
+            updateToast({ id: toastId, description: `Starting pipeline (Model: ${selectedModel || 'Default'})...` });
 
             try {
                 const token = localStorage.getItem("token");
@@ -1349,6 +1422,7 @@ function CanvasViewInner() {
     const [showUrlDialog, setShowUrlDialog] = React.useState(false);
     const [showConversationDialog, setShowConversationDialog] = React.useState(false);
     const [showImageSlidesDialog, setShowImageSlidesDialog] = React.useState(false);
+    const [showMCPToolDialog, setShowMCPToolDialog] = React.useState(false);
 
     // Track drop position for dialog-based creation
     const [pendingDropPos, setPendingDropPos] = React.useState<{ x: number, y: number } | null>(null);
@@ -1359,6 +1433,26 @@ function CanvasViewInner() {
     const [domainDescription, setDomainDescription] = React.useState("");
     const [urlContent, setUrlContent] = React.useState("");
     const [selectedConversationId, setSelectedConversationId] = React.useState<string | null>(null);
+
+    // MCP Tool Creation Handler
+    const handleAddMCPTool = async (config: MCPToolConfig) => {
+        await addThing(
+            "mcp_tool",
+            {
+                server_id: config.server_id,
+                server_name: config.server_name,
+                tool_name: config.tool_name,
+                tool_description: config.tool_description,
+                arguments: config.arguments,
+                inputSchema: config.inputSchema,
+                status: "ready"
+            },
+            pendingDropPos || getCenterPosition(),
+            config.tool_name
+        );
+        setShowMCPToolDialog(false);
+        setPendingDropPos(null);
+    };
 
     // File input refs
     const imageInputRef = React.useRef<HTMLInputElement>(null);
@@ -2009,6 +2103,13 @@ function CanvasViewInner() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            {/* MCP Tool Dialog */}
+            <MCPToolConfigDialog
+                open={showMCPToolDialog}
+                onOpenChange={setShowMCPToolDialog}
+                onConfirm={handleAddMCPTool}
+            />
 
             <Dialog open={showImageSlidesDialog} onOpenChange={setShowImageSlidesDialog}>
                 <DialogContent>

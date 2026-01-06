@@ -47,8 +47,8 @@ class RAGService:
             provider = rag_config.get("embedding_provider", "ollama")
             model = rag_config.get("embedding_model", "nomic-embed-text")
             parsing_strategy = rag_config.get("parsing_strategy", "recursive")
-            chunk_size = int(rag_config.get("chunk_size", 1000))
-            chunk_overlap = int(rag_config.get("chunk_overlap", 200))
+            chunk_size = int(rag_config.get("chunk_size", 512)) # Lower default to 512
+            chunk_overlap = int(rag_config.get("chunk_overlap", 50))
             self.enable_metadata = rag_config.get("enable_metadata", False)
             
             print(f"[RAGService] Initializing with Provider={provider}, Model={model}, Strategy={parsing_strategy}")
@@ -76,29 +76,6 @@ class RAGService:
                  # Default to Ollama
                  self._configure_ollama(model)
 
-            # 1.5. Configure LLM (for Metadata Extraction / Ingestion Pipeline)
-            # We use the system's default LLM preset for this.
-            default_llm = self.config_service.get_default_llm_preset()
-            if default_llm:
-                try:
-                    llm_model_name = default_llm.get("model_name", "llama3")
-                    if default_llm.get("type") == "remote":
-                        # remote/OpenAI
-                        api_key = default_llm.get("service_api_key") or default_llm.get("model_api_key")
-                        Settings.llm = OpenAI(model=llm_model_name, api_key=api_key)
-                        print(f"[RAGService] Configured LLM (OpenAI): {llm_model_name}")
-                    else:
-                        # local/Ollama
-                        Settings.llm = Ollama(model=llm_model_name, base_url="http://localhost:11434")
-                        print(f"[RAGService] Configured LLM (Ollama): {llm_model_name}")
-                except Exception as e:
-                    print(f"[RAGService] Error configuring LLM for RAG: {e}")
-                    Settings.llm = None
-            else:
-                print("[RAGService] No default LLM preset found. Metadata extraction may fail or use defaults.")
-                Settings.llm = None
-
-            # 2. Configure Text Splitter / Node Parser
             # 2. Configure Text Splitter / Node Parser
             if parsing_strategy == "window":
                 from llama_index.core.node_parser import SentenceWindowNodeParser
@@ -187,18 +164,56 @@ class RAGService:
     def _configure_ollama(self, model_name):
         print(f"[RAGService] Connecting to Ollama for Embeddings (model: {model_name})...")
         try:
+            # Conservative settings to prevent "cannot decode batches" and infinite retries
+            # 1. Very small batch size (1) means we send one chunk at a time. Slower but stable.
+            Settings.embed_batch_size = 1
+            
             Settings.embed_model = OllamaEmbedding(
                 model_name=model_name,
                 base_url="http://localhost:11434",
-                ollama_additional_kwargs={"mirostat": 0}
+                embed_batch_size=1,
+                request_timeout=120.0,
+                ollama_additional_kwargs={
+                    "num_ctx": 8192, # Ensure context is large enough for chunks
+                    "num_thread": 4  # Limit threads to prevent CPU starvation
+                } 
             )
         except Exception as e:
             print(f"[RAGService] Failed to configure Ollama: {e}")
             # Fallback to local default?
 
 
-    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
-        print(f"[RAGService] Starting ingestion for: {file_path}")
+    def create_llm_instance(self, model_name: str):
+        """Create a LlamaIndex LLM instance for a specific model name."""
+        try:
+             if not model_name or model_name == "default":
+                 return Settings.llm
+
+             if "gpt" in model_name or "o1-" in model_name or "claude" in model_name:
+                 # TODO: Better API Key handling for Anthropic/Others if needed
+                 if OpenAI:
+                     # Access config for key
+                     config = self.config_service.get_config()
+                     llm_config = config.get("llm_config", {})
+                     api_key = llm_config.get("openai_api_key")
+                     
+                     # Map claude to OpenAI client? No, need Anthropic.
+                     # For now, support OpenAI models + Ollama.
+                     
+                     return OpenAI(model=model_name, api_key=api_key)
+            
+             if "ollama" in model_name or "llama" in model_name or "mistral" in model_name:
+                 if Ollama:
+                      clean_name = model_name.replace("ollama/", "")
+                      return Ollama(model=clean_name, base_url="http://localhost:11434")
+
+             return Settings.llm
+        except Exception as e:
+            print(f"[RAGService] Error creating LLM instance for {model_name}: {e}")
+            return Settings.llm
+
+    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None):
+        print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name})")
         try:
             # Check magic bytes for legacy OLE files first
             with open(file_path, 'rb') as f:
@@ -212,13 +227,17 @@ class RAGService:
             # Delegate to DocumentIngestor
             from app.services.rag.document_ingestor import document_ingestor
             
+            # Resolve LLM
+            llm_instance = self.create_llm_instance(model_name)
+            
             return document_ingestor.ingest_document(
                 file_path=file_path,
                 index=self.index,
                 storage_context=self.storage_context,
                 conversation_id=conversation_id,
                 metadata=metadata,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                llm=llm_instance
             )
 
         except Exception as e:

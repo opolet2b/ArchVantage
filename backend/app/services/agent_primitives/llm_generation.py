@@ -65,7 +65,15 @@ class LLMGenerationPrimitive(BasePrimitive):
             from app.services.llm_service import llm_service
             from app.models.chat import Message
             
-            model = params.get("model", "default")
+            # Resolve variables first
+            variables = state.get("variables", {})
+            
+            # Prioritize global model override from inputs (e.g. Canvas selection)
+            global_model = variables.get("model")
+            param_model = params.get("model", "default")
+            model = global_model or param_model
+            
+            print(f"[LLM_PRIM] Resolved Model: {model} (Global: {global_model}, Param: {param_model})")
             instruction = params.get("instruction", "")
             input_context_var = params.get("input_context", "")
             send_context_to_llm = params.get("send_context_to_llm", True)

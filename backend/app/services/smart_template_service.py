@@ -439,9 +439,9 @@ class SmartTemplateService:
             result = await runtime.execute(inputs)
             
             status_msg = "completed" if result["status"] == "completed" else "failed"
-            message = "Execution completed successfully."
+            message = f"Execution completed successfully. (Model: {request.model})"
             if result["status"] == "failed":
-                message = f"Execution failed: {result.get('error')}"
+                message = f"Execution failed: {result.get('error')} (Model: {request.model})"
                 
             return canvas_schemas.ExecuteTemplateResponse(
                 execution_id="temp_execution_id", # TODO: Persist execution
@@ -600,6 +600,17 @@ class SmartTemplateService:
             "canvas_id": request.canvas_id,
             "model": request.model
         }
+        
+        # Debug Logging to File
+        try:
+            with open("c:/Users/opole/.gemini/antigravity/brain/5682f1e1-88d7-441b-9713-8db9f498f08a/backend_debug.txt", "a") as f:
+                f.write(f"\n[STREAM] {datetime.utcnow()} - Request Model: '{request.model}' (Type: {type(request.model)})\n")
+                f.write(f"[STREAM] Inputs Model: '{inputs.get('model')}'\n")
+        except Exception as e:
+            print(f"Log Error: {e}")
+            
+        print(f"[SmartTemplate] Request Model: {request.model}")
+        print(f"[SmartTemplate] Inputs Model: {inputs.get('model')}")
         
         # 4. Execute
         blueprint_mock = {
@@ -797,13 +808,24 @@ class SmartTemplateService:
                             # 1. Create Result Node
                             # Imports are global now
                             
+                            # Calculate Centroid Position from Input Things
+                            pos_x, pos_y = 400.0, 300.0 # Default fallback
+                            if things:
+                                count = len(things)
+                                # Ensure we handle None values just in case
+                                valid_things = [t for t in things if t.position_x is not None and t.position_y is not None]
+                                if valid_things:
+                                    count = len(valid_things)
+                                    pos_x = sum([t.position_x for t in valid_things]) / count
+                                    pos_y = sum([t.position_y for t in valid_things]) / count
+                                    
                             new_node = CanvasThing(
                                 canvas_id=request.canvas_id,
                                 type=thing_type,
                                 title=thing_title,
                                 content=thing_content,
-                                position_x=100.0, # TODO: Better placement strategy
-                                position_y=100.0,
+                                position_x=pos_x,
+                                position_y=pos_y,
                                 width=400.0,
                                 height=400.0
                             )

@@ -69,7 +69,7 @@ class ExtractorPrimitive(BasePrimitive):
         instruction = self.resolve_variables(params.get("instruction", ""), state)
         schema = params.get("schema", {})
         target_variable = params.get("target_variable")
-        model = params.get("model", "gpt-4o") # Use a smart model by default for extraction
+        model = variables.get("model") or params.get("model", "gpt-4o") # Use a smart model by default for extraction
         
         # Fallback: Implicit Context (Pipeline Mode)
         if not source_text:

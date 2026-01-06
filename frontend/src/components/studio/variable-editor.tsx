@@ -154,12 +154,9 @@ export function VariableEditor({ variables = [], onChange, selectedPreset }: Var
                 )}
                 {variables.map(v => (
                     <Card key={v.id} className="p-2 flex items-center justify-between group">
-                        <div className="flex flex-col gap-1 overflow-hidden">
-                            <div className="flex items-center gap-2">
-                                <span className="font-semibold text-sm truncate">{v.name}</span>
-                                <Badge variant="outline" className="text-[10px] h-4 px-1">{v.type}</Badge>
-                            </div>
-                            <span className="text-xs text-muted-foreground truncate">{v.description}</span>
+                        <div className="flex items-center gap-2 overflow-hidden">
+                            <span className="font-semibold text-sm truncate">{v.name}</span>
+                            <Badge variant="outline" className="text-[10px] h-4 px-1">{v.type}</Badge>
                         </div>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openForEdit(v)}>
@@ -174,11 +171,11 @@ export function VariableEditor({ variables = [], onChange, selectedPreset }: Var
             </div>
 
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
+                <DialogContent className="sm:max-w-[425px] max-h-[85vh] flex flex-col p-0 gap-0">
+                    <DialogHeader className="p-6 pb-2">
                         <DialogTitle>{editingVar ? "Edit Variable" : "Add Variable"}</DialogTitle>
                     </DialogHeader>
-                    <div className="grid gap-4 py-4">
+                    <div className="grid gap-4 p-6 pt-2 overflow-y-auto min-h-0">
                         <div className="space-y-2">
                             <Label>Type</Label>
                             <Select
@@ -269,7 +266,7 @@ export function VariableEditor({ variables = [], onChange, selectedPreset }: Var
                             </div>
                         )}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="p-6 pt-2">
                         <Button onClick={handleSave}>Save Variable</Button>
                     </DialogFooter>
                 </DialogContent>
