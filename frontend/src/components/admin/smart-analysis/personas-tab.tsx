@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Check, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, Sparkles, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSortableData } from "@/hooks/use-sortable-data";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -153,6 +154,15 @@ export function PersonasTab({ selectedPreset }: PersonasTabProps) {
         }
     };
 
+    // Sorting
+    const { items: sortedItems, requestSort, sortConfig } = useSortableData(items);
+
+    const getSortIcon = (key: string) => {
+        if (sortConfig.key !== key) return <ArrowUpDown className="ml-2 h-4 w-4" />;
+        if (sortConfig.direction === 'ascending') return <ArrowUp className="ml-2 h-4 w-4" />;
+        return <ArrowDown className="ml-2 h-4 w-4" />;
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -240,18 +250,33 @@ export function PersonasTab({ selectedPreset }: PersonasTabProps) {
                 </Dialog>
             </div>
 
-            <div className="border rounded-md">
-                <Table>
-                    <TableHeader>
+            <div className="border rounded-md max-h-[600px] overflow-auto relative">
+                <Table containerClassName="overflow-visible">
+                    <TableHeader className="sticky top-0 bg-secondary z-10">
                         <TableRow>
-                            <TableHead>Role</TableHead>
-                            <TableHead>Tone</TableHead>
-                            <TableHead>Description</TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('role')}>
+                                <div className="flex items-center">
+                                    Role
+                                    {getSortIcon('role')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('tone')}>
+                                <div className="flex items-center">
+                                    Tone
+                                    {getSortIcon('tone')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('description')}>
+                                <div className="flex items-center">
+                                    Description
+                                    {getSortIcon('description')}
+                                </div>
+                            </TableHead>
                             <TableHead className="w-[100px]">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {items.map((item) => (
+                        {sortedItems.map((item) => (
                             <TableRow key={item.id}>
                                 <TableCell className="font-medium">{item.role}</TableCell>
                                 <TableCell>{item.tone}</TableCell>

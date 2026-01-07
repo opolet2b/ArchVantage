@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, LayoutTemplate, ArrowRight, Trash2 } from "lucide-react";
+import { Plus, LayoutTemplate, ArrowRight, Trash2, Download } from "lucide-react";
 import Link from "next/link";
 import { API_URL } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +56,22 @@ export default function TemplateLibraryPage() {
         }
     };
 
+    const handleDownload = (template: any) => {
+        if (!template.pipeline_config) return;
+
+        try {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(template.pipeline_config, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", `${template.name.replace(/\s+/g, '_').toLowerCase()}_config.json`);
+            document.body.appendChild(downloadAnchorNode); // required for firefox
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        } catch (e) {
+            console.error("Download failed", e);
+        }
+    };
+
     return (
         <div className="h-full w-full p-6 flex flex-col space-y-6">
             <div className="flex items-center justify-between">
@@ -92,19 +108,34 @@ export default function TemplateLibraryPage() {
                                                 {template.activity_type || "Analysis"}
                                             </Badge>
                                         </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity absolute top-4 right-4"
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                setDeleteId(template.id);
-                                            }}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
+                                        <div className="flex gap-1 absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                                title="Download JSON"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    handleDownload(template);
+                                                }}
+                                            >
+                                                <Download className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                title="Delete Template"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    setDeleteId(template.id);
+                                                }}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
                                     </div>
-                                    <CardTitle className="leading-tight pr-6">{template.name}</CardTitle>
+                                    <CardTitle className="leading-tight pr-12">{template.name}</CardTitle>
                                     <CardDescription className="line-clamp-2 min-h-[2.5rem]">
                                         {template.description || "No description provided."}
                                     </CardDescription>

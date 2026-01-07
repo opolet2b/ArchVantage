@@ -239,6 +239,20 @@ async def suggest_objective(request: SuggestObjectiveRequest):
             f"4. Handle missing data appropriately.\n\n"
             f"Output ONLY the prompt text, no conversational filler."
         )
+    elif request.mode == "extractor-focus":
+        user_prompt = (
+            f"Context: The user wants to define the Extraction Focus for an AI.\n"
+            f"User's Goal: {intent_text}\n"
+            f"Task: Write a concise list or description of the specific elements, topics, or data points the AI should focus on extracting.\n"
+            f"Output ONLY the focus description."
+        )
+    elif request.mode == "extractor-exclude":
+        user_prompt = (
+            f"Context: The user wants to define Exclusion Patterns for an AI extraction task.\n"
+            f"User's Intent: {intent_text}\n"
+            f"Task: Write a clear list of patterns, sections, or types of content that should be strictly IGNORED during extraction (e.g., standard disclaimers, page headers, navigation menus).\n"
+            f"Output ONLY the exclusion rules."
+        )
     else: # Agent Mode
         user_prompt = (
             f"Context: The user wants to configure an AI Agent for analysis.\n"

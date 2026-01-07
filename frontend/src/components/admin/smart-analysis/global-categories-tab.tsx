@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSortableData } from "@/hooks/use-sortable-data";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ interface GlobalCategoryItem {
     name: string;
     context: string;
     active: boolean;
+    description?: string;
 }
 
 export function GlobalCategoriesTab() {
@@ -117,66 +119,80 @@ export function GlobalCategoriesTab() {
         }
     };
 
+    const resetForm = () => {
+        setNewItem({ name: "", context: "Taxonomy", active: true, description: "" });
+        setEditingId(null);
+    };
+
+    // Sorting
+    const { items: sortedItems, requestSort, sortConfig } = useSortableData(items);
+
+    const getSortIcon = (key: string) => {
+        if (sortConfig.key !== key) return <ArrowUpDown className="ml-2 h-4 w-4" />;
+        if (sortConfig.direction === 'ascending') return <ArrowUp className="ml-2 h-4 w-4" />;
+        return <ArrowDown className="ml-2 h-4 w-4" />;
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                <div className="text-sm text-muted-foreground">
-                    {items.length} categories defined.
-                </div>
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                    <Button onClick={handleOpenAdd} className="bg-[#4F46E5] hover:bg-[#4338CA] text-white">
-                        <Plus className="mr-2 h-4 w-4" /> Add Category
-                    </Button>
-                    <DialogContent className="sm:max-w-[425px] max-h-[85vh] flex flex-col">
+                <div className="text-sm text-muted-foreground">{items.length} categories defined.</div>
+                <Dialog open={isDialogOpen} onOpenChange={(open) => {
+                    setIsDialogOpen(open);
+                    if (!open) resetForm();
+                }}>
+                    <DialogTrigger asChild>
+                        <Button onClick={handleOpenAdd} className="bg-[#4F46E5] hover:bg-[#4338CA] text-white">
+                            <Plus className="mr-2 h-4 w-4" /> Add Category
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
                         <DialogHeader>
-                            <DialogTitle className="text-xl font-bold">{editingId ? "Edit Global Category" : "Add Global Category"}</DialogTitle>
+                            <DialogTitle className="text-xl font-bold">{editingId ? "Edit Category" : "Add New Category"}</DialogTitle>
                             <DialogDescription className="uppercase text-xs font-semibold tracking-wider text-muted-foreground">
-                                CONFIGURE CATEGORY PARAMETERS
+                                MANAGE GLOBAL ANALYSIS CATEGORIES
                             </DialogDescription>
                         </DialogHeader>
-                        <div className="grid gap-6 py-4 flex-1 overflow-y-auto px-1">
+                        <div className="grid gap-4 py-4">
                             <div className="space-y-2">
                                 <Label htmlFor="name" className="text-xs font-semibold text-muted-foreground uppercase">CATEGORY NAME</Label>
                                 <Input
                                     id="name"
+                                    placeholder="e.g. Risk Analysis"
                                     value={newItem.name}
-                                    placeholder="e.g. Legal"
                                     onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="context" className="text-xs font-semibold text-muted-foreground uppercase">CONTEXT</Label>
                                 <Select value={newItem.context} onValueChange={(val) => setNewItem({ ...newItem, context: val })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select context" />
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Select Context" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="Taxonomy">Taxonomy</SelectItem>
-                                        <SelectItem value="Document Sections">Document Sections</SelectItem>
-                                        <SelectItem value="Frameworks">Frameworks</SelectItem>
-                                        <SelectItem value="AI Personas">AI Personas</SelectItem>
+                                        <SelectItem value="Document Section">Document Section</SelectItem>
+                                        <SelectItem value="Rendering Type">Rendering Type</SelectItem>
+                                        <SelectItem value="Framework">Framework</SelectItem>
+                                        <SelectItem value="Thesaurus">Thesaurus</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="active" className="text-xs font-semibold text-muted-foreground uppercase">ACTIVE STATUS</Label>
-                                <div className="flex items-center gap-2">
-                                    <Switch
-                                        id="active"
-                                        checked={newItem.active}
-                                        onCheckedChange={(checked) => setNewItem({ ...newItem, active: checked })}
-                                    />
-                                    <Label htmlFor="active" className="text-sm text-muted-foreground font-normal">
-                                        {newItem.active ? "Category is active" : "Category is inactive"}
-                                    </Label>
-                                </div>
+                                <Label htmlFor="desc" className="text-xs font-semibold text-muted-foreground uppercase">DESCRIPTION</Label>
+                                <Input
+                                    id="desc"
+                                    placeholder="Brief description of the category..."
+                                    value={newItem.description}
+                                    onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                                />
                             </div>
                         </div>
-                        <DialogFooter className="flex sm:justify-between w-full gap-2">
+                        <DialogFooter className="flex justify-between w-full">
                             <DialogClose asChild>
-                                <Button variant="outline" className="flex-1">Cancel</Button>
+                                <Button variant="outline">Cancel</Button>
                             </DialogClose>
-                            <Button onClick={handleSave} className="flex-1 bg-[#4F46E5] hover:bg-[#4338CA] text-white">
+                            <Button onClick={handleSave} className="bg-[#4F46E5] hover:bg-[#4338CA] text-white">
                                 <Check className="mr-2 h-4 w-4" /> {editingId ? "Update Category" : "Save Category"}
                             </Button>
                         </DialogFooter>
@@ -184,23 +200,38 @@ export function GlobalCategoriesTab() {
                 </Dialog>
             </div>
 
-            <div className="border rounded-md">
-                <Table>
-                    <TableHeader>
+            <div className="border rounded-md max-h-[600px] overflow-auto relative">
+                <Table containerClassName="overflow-visible">
+                    <TableHeader className="sticky top-0 bg-secondary z-10">
                         <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Context</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('name')}>
+                                <div className="flex items-center">
+                                    Name
+                                    {getSortIcon('name')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('context')}>
+                                <div className="flex items-center">
+                                    Context
+                                    {getSortIcon('context')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('active')}>
+                                <div className="flex items-center">
+                                    Status
+                                    {getSortIcon('active')}
+                                </div>
+                            </TableHead>
                             <TableHead className="w-[100px]">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {items.length === 0 && (
+                        {sortedItems.length === 0 && (
                             <TableRow>
                                 <TableCell colSpan={4} className="text-center text-muted-foreground">No categories found.</TableCell>
                             </TableRow>
                         )}
-                        {items.map((item) => (
+                        {sortedItems.map((item) => (
                             <TableRow key={item.id}>
                                 <TableCell className="font-medium">{item.name}</TableCell>
                                 <TableCell>{item.context}</TableCell>

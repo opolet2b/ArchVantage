@@ -13,6 +13,7 @@ from llama_index.core import SimpleDirectoryReader
 from typing import Dict, Any
 import json
 import os
+from datetime import datetime
 from app.schemas.smart_contracts import AssetRef, ExtractorInput, ExtractionInstructions
 
 class SmartTemplateService:
@@ -304,11 +305,11 @@ class SmartTemplateService:
         if thing.type.value == "document":
             file_path = content.get("file_path")
             
-            # 0. Resolve Path from Asset ID if missing (Fix for uploaded files)
-            if not file_path and content.get("asset_id"):
+            # 0. Resolve Path from Asset ID (Always prioritize this as content file_path might be a URL)
+            if content.get("asset_id"):
                 try:
                     asset_id = content.get("asset_id")
-                    print(f"[ContentResolution] Missing file_path. Looking up Asset ID: {asset_id}")
+                    # print(f"[ContentResolution] Resolving real path for Asset ID: {asset_id}")
                     asset = db.query(Asset).filter(Asset.id == asset_id).first()
                     if asset:
                         # Resolve absolute path using AssetService helper
@@ -541,12 +542,25 @@ class SmartTemplateService:
             return
 
         # 2. Collect Entities
-        things = []
-        if request.thing_ids:
-            things = db.query(CanvasThing).filter(
-                CanvasThing.id.in_(request.thing_ids),
-                CanvasThing.canvas_id == request.canvas_id
-            ).all()
+        # RELAXED LOOKUP: Query by ID first to ensure we find the thing even if canvas_id parameter is mismatched
+        things = db.query(CanvasThing).filter(
+            CanvasThing.id.in_(request.thing_ids)
+        ).all()
+
+        # Validation / Filtering
+        valid_things = []
+        for t in things:
+             if str(t.canvas_id) != str(request.canvas_id):
+                 print(f"[SmartTemplate] WARNING: Thing {t.id} belongs to canvas {t.canvas_id}, but request is for {request.canvas_id}. Allowing execution but this indicates a state mismatch.")
+                 # We allow it to proceed because the User explicitly selected it.
+             valid_things.append(t)
+        things = valid_things
+
+        # Log if we still missed something
+        if request.thing_ids and not things:
+             print(f"[SmartTemplate] CRITICAL: Requested thing_ids {request.thing_ids} NOT FOUND in DB (Global Search).")
+            
+
         
         # 3. Construct Strictly Typed Inputs (Pydantic)
         assets = []
@@ -581,11 +595,74 @@ class SmartTemplateService:
             for s in steps:
                 if s.get("type") == "extractor":
                     config = s.get("config", {})
+                    try:
+                        with open("app_debug.log", "a") as f:
+                             f.write(f"\n[TEMPLATE DEBUG] Config Keys: {list(config.keys())}\n")
+                             f.write(f"[TEMPLATE DEBUG] Additional Instr: {config.get('additionalInstructions')[:50] if config.get('additionalInstructions') else 'None'}\n")
+                    except: pass
+
                     # Map config to instructions
                     focus = config.get("focus") or config.get("entitiesOfInterest") or "General content"
                     exclude = config.get("exclude")
+                    additional_instr = config.get("additionalInstructions")
+                    
                     mode = "default"
-                    extraction_instructions = ExtractionInstructions(focus=focus, exclude=exclude, mode=mode)
+                    extraction_instructions = ExtractionInstructions(
+                        focus=focus,
+                        exclude=exclude,
+                        additional_instructions=additional_instr,
+                        mode=mode
+                    )
+                    
+                    # Resolve Additional Assets (defined in Template Config)
+                    source_ids = config.get("sourceSections", [])
+                    print(f"[SmartTemplate] Fallback checking sourceSections: {source_ids}")
+                    if source_ids:
+                           # CanvasThing is already globally imported
+                           # FIX: Ensure we ONLY pick up sourceSections if they belong to THIS canvas.
+                           # This prevents the template from running on "Ghost" documents from other canvases.
+                           extra_things = db.query(CanvasThing).filter(
+                               CanvasThing.id.in_(source_ids),
+                               CanvasThing.canvas_id == request.canvas_id 
+                           ).all()
+                           print(f"[SmartTemplate] Found {len(extra_things)} things in DB for sourceSections")
+                           for t in extra_things:
+                               if any(a.id == t.id for a in assets):
+                                   print(f"[SmartTemplate] Skipping duplicate asset {t.id}")
+                                   continue
+                               content_summary = await self._resolve_thing_content(db, t)
+                               print(f"[SmartTemplate] Resolved content for {t.id}: Len {len(str(content_summary))}")
+                               if content_summary:
+                                   assets.append(AssetRef(
+                                      id=t.id,
+                                      type=t.type.value,
+                                      url=None,
+                                      content=content_summary
+                                   ))
+
+                            
+                    # Final Fallback: If still no assets, use ALL valid things on the canvas
+                    if not assets:
+                        print("[SmartTemplate] No selection and no sourceSections. Fallback: Loading ALL things from canvas.")
+                        try:
+                             all_things = db.query(CanvasThing).filter(
+                                 CanvasThing.canvas_id == request.canvas_id, 
+                                 CanvasThing.type.in_([ThingType.DOCUMENT, ThingType.TEXT, ThingType.URL])
+                             ).limit(5).all()
+                             
+                             for t in all_things:
+                                 content_summary = await self._resolve_thing_content(db, t)
+                                 if content_summary:
+                                     assets.append(AssetRef(
+                                        id=t.id,
+                                        type=t.type.value,
+                                        url=None,
+                                        content=content_summary
+                                     ))
+                             print(f"[SmartTemplate] Loaded {len(assets)} fallback assets from canvas.")
+                        except Exception as e:
+                            print(f"[SmartTemplate] Default Canvas Fallback failed: {e}")
+
                     break
              
         extractor_input = ExtractorInput(
@@ -767,9 +844,44 @@ class SmartTemplateService:
                         elif "csv" in str(fmt_ext) or "json" in str(fmt_ext) or "table" in str(_p_type):
                              thing_type = ThingType.TABLE
                              # Try to find table data
-                             if isinstance(current_output, list):
+                             if isinstance(current_output, dict) and "visualizer_output" in current_output:
+                                 viz_out = current_output["visualizer_output"]
+                                 if "visual_payload" in viz_out:
+                                     payload = viz_out["visual_payload"]
+                                     content = payload.get("content")
+                                     if isinstance(content, list):
+                                         thing_content["data"] = content
+                                     else:
+                                         # If content is string (e.g. Markdown Table), might need to store as text/markdown
+                                         # But we are in TABLE block. Let's provide it as 'markdown' key if strict Table component can't handle it
+                                         thing_content["markdown"] = str(content)
+                                         thing_content["data"] = [] # Empty data for safety
+                             elif isinstance(current_output, list):
                                  thing_content["data"] = current_output
+                             
+                             # Fallback: If we wanted a TABLE but got no data, check if we have text/markdown
+                             if "data" not in thing_content and not thing_content.get("markdown"):
+                                 # We failed to get structured table data.
+                                 # Check if we have standard text output (fallback from TextTemplate)
+                                 # OR if we have Agent's formatted_output (SWOT table)
+                                 raw_text = None
+                                 if isinstance(current_output, dict):
+                                      raw_text = (
+                                          current_output.get("analysis_results", {}).get("formatted_output") or
+                                          current_output.get("generated_markdown") or 
+                                          current_output.get("_raw")
+                                      )
+                                 elif isinstance(current_output, str):
+                                      raw_text = current_output
                                  
+                                 if raw_text:
+                                      print(f"[SmartTemplate] Table extraction failed, falling back to TEXT node with content (Len: {len(raw_text)}).")
+                                      thing_type = ThingType.TEXT
+                                      # The text extraction block below will handle populating logic
+                                      # BUT we must ensure current_output is passed correctly or handled 
+                                      # Actually, the block below 'if thing_type == ThingType.TEXT' re-reads current_output.
+                                      # We just need to make sure it finds the formatted_output there too. (We fixed that in Step 1396)
+                                  
                         # Text/Document (Default)
                         else:
                              f_path = outputs.get("file_path", "")
@@ -784,10 +896,14 @@ class SmartTemplateService:
                         thing_type = ThingType.TEXT
                         
                     # Extract Text/Markdown Content (Default or if explicit TEXT)
+                    # Extract Text/Markdown Content (Default or if explicit TEXT)
                     if thing_type == ThingType.TEXT:
                          if isinstance(current_output, dict):
                             raw = current_output
+                            # Check for specific 'formatted_output' (SWOT table etc) from Agent
+                            # Or standard fields
                             final_text = (
+                                raw.get("analysis_results", {}).get("formatted_output") or 
                                 raw.get("generated_markdown") or 
                                 raw.get("text") or 
                                 raw.get("content") or

@@ -31,7 +31,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
     // --- AI Suggestion Logic ---
     const [isSuggesting, setIsSuggesting] = useState(false);
     const [intentDialogOpen, setIntentDialogOpen] = useState(false);
-    const [intentMode, setIntentMode] = useState<"extractor" | "agent">("extractor");
+    const [intentMode, setIntentMode] = useState<"extractor" | "agent" | "extractor-focus" | "extractor-exclude">("extractor");
 
     // Filter rendering types based on selected category (safely handle null selectedStep)
     const synthesisCategories = Array.from(new Set(renderingTypes.map((rt: any) => rt.category)));
@@ -54,7 +54,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
         });
     };
 
-    const handleSuggestObjective = (mode: "extractor" | "agent") => {
+    const handleSuggestObjective = (mode: "extractor" | "agent" | "extractor-focus" | "extractor-exclude") => {
         if (!props.selectedPreset) {
             alert("Please select an LLM Configuration in the header first.");
             return;
@@ -98,7 +98,12 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
 
             if (res.ok) {
                 const data = await res.json();
-                const targetField = intentMode === "extractor" ? "instructions" : "objective";
+                let targetField = "";
+                if (intentMode === 'extractor') targetField = "instructions";
+                else if (intentMode === 'extractor-focus') targetField = "focus";
+                else if (intentMode === 'extractor-exclude') targetField = "exclude";
+                else targetField = "objective"; // agent
+
                 handleUpdateConfig(targetField, data.suggestion);
             } else {
                 alert("Failed to generate suggestion. Check backend logs.");
@@ -229,7 +234,19 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <Label className="text-xs font-bold text-muted-foreground uppercase">Extraction Focus</Label>
-                                <HelpTooltip contentPath="smart-analysis/focus" />
+                                <div className="flex items-center gap-2">
+                                    <HelpTooltip contentPath="smart-analysis/focus" />
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 text-[10px] px-2 gap-1 text-blue-600 hover:text-blue-700 border-blue-200 hover:bg-blue-50"
+                                        onClick={() => handleSuggestObjective("extractor-focus")}
+                                        disabled={isSuggesting}
+                                    >
+                                        {isSuggesting && intentMode === "extractor-focus" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                                        Suggest
+                                    </Button>
+                                </div>
                             </div>
                             <Textarea
                                 placeholder="What main elements or topics should be extracted?"
@@ -242,7 +259,19 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <Label className="text-xs font-bold text-muted-foreground uppercase">Exclude Patterns</Label>
-                                <HelpTooltip contentPath="smart-analysis/exclude" />
+                                <div className="flex items-center gap-2">
+                                    <HelpTooltip contentPath="smart-analysis/exclude" />
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-6 text-[10px] px-2 gap-1 text-blue-600 hover:text-blue-700 border-blue-200 hover:bg-blue-50"
+                                        onClick={() => handleSuggestObjective("extractor-exclude")}
+                                        disabled={isSuggesting}
+                                    >
+                                        {isSuggesting && intentMode === "extractor-exclude" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                                        Suggest
+                                    </Button>
+                                </div>
                             </div>
                             <Textarea
                                 placeholder="What should be strictly ignored? (e.g. boilerplate, headers)"
@@ -505,10 +534,18 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                 onClose={() => setIntentDialogOpen(false)}
                 onSubmit={handleDialogSubmit}
                 isLoading={isSuggesting}
-                title={intentMode === 'extractor' ? "Suggest Extraction Objective" : "Suggest Agent Objective"}
-                description={intentMode === 'extractor'
-                    ? "Briefly describe what data you want to extract from the document."
-                    : "Briefly describe the goal of the analysis you want the agent to perform."}
+                title={
+                    intentMode === 'agent' ? "Suggest Agent Objective" :
+                        intentMode === 'extractor-focus' ? "Suggest Extraction Focus" :
+                            intentMode === 'extractor-exclude' ? "Suggest Exclusion Patterns" :
+                                "Suggest Additional Instructions"
+                }
+                description={
+                    intentMode === 'agent' ? "Briefly describe the goal of the analysis you want the agent to perform." :
+                        intentMode === 'extractor-focus' ? "Describe what specific data points or topics you want to capture." :
+                            intentMode === 'extractor-exclude' ? "Describe what kind of content should be ignored (e.g. headers, footers)." :
+                                "Briefly describe how you want the data to be processed or formatted."
+                }
             />
 
             <div className="p-4 border-t bg-slate-50">

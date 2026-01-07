@@ -5,6 +5,7 @@ Uses an LLM to extract structured data from text based on a provided schema.
 """
 from typing import Any, Dict, Optional
 import json
+import re
 
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
 from app.services.llm_service import llm_service
@@ -65,35 +66,56 @@ class ExtractorPrimitive(BasePrimitive):
         variables = state.get("variables", {})
         
         # 2. Resolve parameters
-        source_text = self.resolve_variables(params.get("source_text", ""), state)
         instruction = self.resolve_variables(params.get("instruction", ""), state)
-        schema = params.get("schema", {})
         target_variable = params.get("target_variable")
-        model = variables.get("model") or params.get("model", "gpt-4o") # Use a smart model by default for extraction
+        schema = params.get("schema", {})
+        model = variables.get("model") or params.get("model", "gpt-4o")
+
+        # 3. Resolve Source Text
+        source_text = params.get("source_text")
         
-        # Fallback: Implicit Context (Pipeline Mode)
+        # Debug Log
+        try:
+            with open("execution_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"\n[EXTRACTOR DEBUG] Initial source_text from params: '{str(source_text)[:50]}...'\n")
+        except: pass
+
         if not source_text:
-            current_out = state.get("current_output")
-            if current_out:
-                if isinstance(current_out, dict):
-                    # Smart Extraction: Look for content keys
-                    priority_keys = ["combined_context", "text", "content", "output", "result", "markdown", "report"]
-                    found_content = None
-                    for key in priority_keys:
-                        if key in current_out and isinstance(current_out[key], str) and current_out[key].strip():
-                            found_content = current_out[key]
-                            break
-                    
-                    if found_content:
-                         source_text = found_content
-                         print(f"[EXTRACTOR] Implicit context: Extracted content from key '{key}'")
-                    else:
-                         source_text = json.dumps(current_out, indent=2)
-                elif isinstance(current_out, list):
-                    source_text = json.dumps(current_out, indent=2)
-                else:
-                    source_text = str(current_out)
-                print(f"[EXTRACTOR] Using implicit previous context.")
+            # Try getting from previous step output in state
+            source_text = state.get("current_output")
+            try:
+                with open("execution_debug.log", "a", encoding="utf-8") as f:
+                     f.write(f"[EXTRACTOR DEBUG] source_text from current_output: '{str(source_text)[:50]}...'\n")
+            except: pass
+
+        if not source_text:
+             # Try specific variable keys (convention)
+             variables = state.get("variables", {})
+             # Check 'extractor_input' which might be a dict with assets/content
+             extractor_input = variables.get("extractor_input")
+             
+             try:
+                with open("execution_debug.log", "a", encoding="utf-8") as f:
+                     f.write(f"[EXTRACTOR DEBUG] extractor_input variable: {str(extractor_input)[:200]}\n")
+             except: pass
+
+             if isinstance(extractor_input, dict):
+                 # Handle assets list
+                 if "assets" in extractor_input and isinstance(extractor_input["assets"], list):
+                     texts = []
+                     for asset in extractor_input["assets"]:
+                         if "content" in asset and asset["content"]:
+                             texts.append(asset["content"])
+                     if texts:
+                         source_text = "\n\n".join(texts)
+                 
+                 # Handle direct content
+                 elif "content" in extractor_input:
+                     source_text = extractor_input["content"]
+                     
+             # Fallback to combined_context or text
+             if not source_text:
+                 source_text = variables.get("combined_context") or variables.get("text")
         
         # Smart Template Fix: If still no source text, check global state variables
         # This handles the case where this is the FIRST node and needed input is in 'inputs'/'variables'
@@ -135,6 +157,8 @@ class ExtractorPrimitive(BasePrimitive):
                      if not instruction and "extraction_instructions" in ext_input:
                          instr_obj = ext_input["extraction_instructions"]
                          instruction = f"Focus: {instr_obj.get('focus')}\nExclude: {instr_obj.get('exclude')}"
+                         if instr_obj.get("additional_instructions"):
+                             instruction += f"\n\nAdditional Instructions:\n{instr_obj.get('additional_instructions')}"
             
             # Legacy support
             elif "combined_context" in variables:
@@ -161,6 +185,10 @@ class ExtractorPrimitive(BasePrimitive):
             # Enhanced System Prompt for Strict Mode
             system_prompt = f"""You are a precise data extraction assistant.
 You have been provided with multiple source assets, each marked with an ID.
+The Source Assets may be in any language. You MUST analyze them in their original language and extract the requested information. 
+If the Output Schema keys are in English, you must TRANSLATE the extracted information concepts to match the schema's structure and intent. 
+Do NOT return empty results just because the language differs.
+
 Your task is to extract information according to the user's focus and the required Output Schema.
 
 Output Schema:
@@ -176,10 +204,20 @@ CRITICAL INSTRUCTIONS:
             if instruction:
                 user_content += f"\n\nExtraction Instructions:\n{instruction}"
                 
+            # FORCE INSTRUCTION REINFORCEMENT
+            user_content += "\n\nIMPORTANT: If the source text is in a different language than the schema keys (English), you MUST TRANSLATE the concepts. For example, if looking for 'Strengths', extract 'Forces' or positive aspects from the text and map them to 'Strengths'."
+            user_content += "\n\nCRITICAL OUTPUT RULE: You MUST ONLY return a JSON object with the key 'extracted_elements'. Do NOT create keys like 'generated_markdown', 'report', or 'summary'. Put all your findings into the 'data' field of an extracted element."
+                
             messages = [
                 ChatMessage(role="system", content=system_prompt),
                 ChatMessage(role="user", content=user_content)
             ]
+            
+            # Debug Log: Dump the full messages (STRICT MODE)
+            try:
+                with open("execution_debug.log", "a", encoding="utf-8") as f:
+                    f.write(f"\n[EXTRACTOR PROMPT DEBUG-STRICT]\nSYSTEM: {messages[0].content}\nUSER: {messages[1].content[:500]}...\n")
+            except: pass
              
             # Call LLM with JSON mode
             response_text = await llm_service.chat(
@@ -188,30 +226,123 @@ CRITICAL INSTRUCTIONS:
                 response_format={"type": "json_object"}
             )
             
+            # Debug Log: Final Response
             try:
-                extracted_data = json.loads(response_text)
+                with open("execution_debug.log", "a", encoding="utf-8") as f:
+                    f.write(f"\n[EXTRACTOR RESPONSE DEBUG]\n{response_text[:3000]}\n")
+            except: pass
+            
+            try:
+                try:
+                    extracted_data = json.loads(response_text)
+                except json.JSONDecodeError:
+                    # Fallback 1: Regex text search
+                    match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                    if match:
+                        try:
+                            extracted_data = json.loads(match.group(0))
+                        except:
+                            # Fallback 2: ast.literal_eval (Handles single quotes/Python dicts)
+                            import ast
+                            extracted_data = ast.literal_eval(match.group(0))
+                    else:
+                        raise ValueError("No JSON block found")
+
                 # Verify it matches ExtractorOutput structure (loose validation)
                 if "extracted_elements" not in extracted_data:
-                     # Attempt auto-fix if LLM returned just the list or inner data
-                     extracted_data = {"extracted_elements": []} 
-                     # (In production we might want to retry, but for now just fail safe or accept it)
+                     # CRITICAL FIX: If LLM returns flat JSON (ignoring schema), wrap it instead of discarding
+                     # Find first asset ID to attribute to
+                     first_asset_id = extractor_input["assets"][0]["id"] if extractor_input.get("assets") else "unknown"
+                     extracted_data = {
+                         "extracted_elements": [
+                             {
+                                 "source_id": first_asset_id,
+                                 "content_type": "json",
+                                 "data": extracted_data,
+                                 "metadata": {"generated_by": "fallback_wrapper"}
+                             }
+                         ]
+                     } 
                      
                 state["variables"][target_variable] = extracted_data
-                # Also store strictly as extractor_output for next node
                 state["variables"]["extractor_output"] = extracted_data
                 
                 return PrimitiveResult(success=True, output=extracted_data)
             except Exception as e:
-                return PrimitiveResult(success=False, error=f"Strict Extraction failed: {str(e)}")
+                # Log the bad response for debugging
+                error_msg = f"Strict Extraction failed: {str(e)}. Response start: {response_text[:200]}"
+                print(f"[EXTRACTOR] ERROR: {error_msg}")
+                return PrimitiveResult(success=False, error=error_msg)
 
         # LEGACY/GENERIC MODE
+        
+        # Branch: Text Extraction vs JSON Extraction
+        if not schema:
+            # TEXT-ONLY MODE (User's "Agnostic" Extractor)
+            print(f"[EXTRACTOR] No ID/Schema provided. Running in TEXT extraction mode.")
+            system_prompt = f"""You are a precise data extraction and filtering assistant.
+The Source Assets may be in any language. You MUST analyze them in their original language.
+            
+Your task is to EXTRACT precise, relevant content from the provided text based on the instructions.
+- Remove irrelevant "garbage" (headers, footers, ads, unrelated sections).
+- Keep only content that matches the user's instructions or focus.
+- Do NOT summarize unless asked. Quote or extract the text segments directly.
+- Preserve the original meaning and context.
+"""
+            user_content = f"Source Text:\n{source_text}"
+            if instruction:
+                user_content += f"\n\nExtraction Instructions:\n{instruction}"
+            
+            messages = [
+                ChatMessage(role="system", content=system_prompt),
+                ChatMessage(role="user", content=user_content)
+            ]
+            
+            try:
+                # Call LLM (Standard Text Mode)
+                response_text = await llm_service.chat(
+                    messages=messages,
+                    model_name=model
+                    # No response_format="json_object"
+                )
+                
+                # Store result
+                if "variables" not in state:
+                    state["variables"] = {}
+                
+                # If target_variable is set, store it there. 
+                # Also store as 'extractor_output' (as a dict for consistency? Or just text?)
+                # To support Agent downstream, strict pipeline expects key 'data' or similar if it looks for it.
+                # But generic agent just grabs 'current_output'.
+                
+                final_output = response_text
+                
+                if target_variable:
+                     state["variables"][target_variable] = final_output
+                
+                # Also set as current output implicitly via result
+                return PrimitiveResult(
+                    success=True,
+                    output=final_output
+                )
+                
+            except Exception as e:
+                return PrimitiveResult(
+                    success=False,
+                    error=f"Text Extraction failed: {str(e)}"
+                )
+
+        # JSON / SCHEMA MODE (Existing Logic)
         try:
             schema_str = json.dumps(schema, indent=2)
         except Exception as e:
-            # ... (keep existing error handling)
             schema_str = str(schema)
 
         system_prompt = f"""You are a precise data extraction assistant.
+The Source Assets may be in any language. You MUST analyze them in their original language and extract the requested information. 
+If the Output Schema keys are in English, you must TRANSLATE the extracted information concepts to match the schema's structure and intent.
+Do NOT return empty results just because the language differs.
+
 Extract information from the provided text according to the following JSON schema.
 Return ONLY valid JSON matching the schema.
 
@@ -223,10 +354,19 @@ Schema:
         if instruction:
             user_content += f"\n\nAdditional Instructions:\n{instruction}"
             
+        # FORCE INSTRUCTION REINFORCEMENT
+        user_content += "\n\nIMPORTANT: If the source text is in a different language than the schema keys (English), you MUST TRANSLATE the concepts. For example, if looking for 'Strengths', extract 'Forces' or positive aspects from the text and map them to 'Strengths'."
+            
         messages = [
             ChatMessage(role="system", content=system_prompt),
             ChatMessage(role="user", content=user_content)
         ]
+        
+        # Debug Log: Dump the full messages
+        try:
+            with open("execution_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"\n[EXTRACTOR PROMPT DEBUG]\nSYSTEM: {messages[0].content}\nUSER: {messages[1].content[:500]}...\n")
+        except: pass
         
         # 3. Call LLM
         try:
@@ -254,10 +394,8 @@ Schema:
             # 5. Store result
             if "variables" not in state:
                 state["variables"] = {}
-            state["variables"][target_variable] = extracted_data
-            
-            # For strict pipeline compatibility, we might want to fake an extractor_output here?
-            # But let's assume legacy mode is legacy.
+            if target_variable:
+                state["variables"][target_variable] = extracted_data
             
             return PrimitiveResult(
                 success=True,

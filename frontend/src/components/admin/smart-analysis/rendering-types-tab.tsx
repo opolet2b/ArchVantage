@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Check, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, Sparkles, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSortableData } from "@/hooks/use-sortable-data";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,15 @@ interface RenderingTypeItem {
     category: string;
     name: string;
     description: string;
+    react_component?: string;
+    config_schema?: any;
+}
+
+interface GlobalCategoryItem {
+    id: string;
+    name: string;
+    context: string;
+    active: boolean;
 }
 
 interface RenderingTypesTabProps {
@@ -26,21 +36,37 @@ interface RenderingTypesTabProps {
 export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
     // State for data
     const [items, setItems] = useState<RenderingTypeItem[]>([]);
+    const [categories, setCategories] = useState<GlobalCategoryItem[]>([]);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [isSuggesting, setIsSuggesting] = useState(false);
 
     // Form state
     const [newItem, setNewItem] = useState<Partial<RenderingTypeItem>>({
-        category: "TEXT",
+        category: "",
         name: "",
         description: "",
+        react_component: "",
+        config_schema: "",
     });
 
     // Fetch data
     useEffect(() => {
         fetchRenderingTypes();
+        fetchCategories();
     }, []);
+
+    const fetchCategories = async () => {
+        try {
+            const res = await fetch(`${API_URL}/smart-templates/categories?context=Rendering Type`);
+            if (res.ok) {
+                const data = await res.json();
+                setCategories(data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch categories:", error);
+        }
+    };
 
     const fetchRenderingTypes = async () => {
         try {
@@ -133,8 +159,12 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
     };
 
     const resetForm = () => {
-        setNewItem({ category: "TEXT", name: "", description: "" });
+        setNewItem({ category: "", name: "", description: "" });
         setEditingId(null);
+    };
+
+    const handleSuggestSchema = () => {
+        alert("Schema suggestion is not yet implemented.");
     };
 
     const handleDelete = async (id: string) => {
@@ -150,6 +180,15 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
         }
     };
 
+    // Sorting
+    const { items: sortedItems, requestSort, sortConfig } = useSortableData(items);
+
+    const getSortIcon = (key: string) => {
+        if (sortConfig.key !== key) return <ArrowUpDown className="ml-2 h-4 w-4" />;
+        if (sortConfig.direction === 'ascending') return <ArrowUp className="ml-2 h-4 w-4" />;
+        return <ArrowDown className="ml-2 h-4 w-4" />;
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -162,30 +201,17 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                 }}>
                     <DialogTrigger asChild>
                         <Button className="bg-[#4F46E5] hover:bg-[#4338CA] text-white">
-                            <Plus className="mr-2 h-4 w-4" /> Add Type
+                            <Plus className="mr-2 h-4 w-4" /> Add Rendering Type
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[500px]">
+                    <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col">
                         <DialogHeader>
                             <DialogTitle className="text-xl font-bold">{editingId ? "Edit Rendering Type" : "Add Rendering Type"}</DialogTitle>
                             <DialogDescription className="uppercase text-xs font-semibold tracking-wider text-muted-foreground">
-                                CONFIGURE OUTPUT VISUALIZATION
+                                CONFIGURE VISUAL OUTPUT
                             </DialogDescription>
                         </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="category" className="text-xs font-semibold text-muted-foreground uppercase">CATEGORY</Label>
-                                <Select value={newItem.category} onValueChange={(val) => setNewItem({ ...newItem, category: val })}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Category" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="TEXT">TEXT</SelectItem>
-                                        <SelectItem value="GRAPHIC">GRAPHIC</SelectItem>
-                                        <SelectItem value="DATA">DATA</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                        <div className="grid gap-6 py-4 flex-1 overflow-y-auto px-1">
                             <div className="space-y-2">
                                 <Label htmlFor="name" className="text-xs font-semibold text-muted-foreground uppercase">NAME</Label>
                                 <Input
@@ -196,13 +222,44 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                                 />
                             </div>
                             <div className="space-y-2">
+                                <Label htmlFor="category" className="text-xs font-semibold text-muted-foreground uppercase">CATEGORY</Label>
+                                <Select value={newItem.category} onValueChange={(val) => setNewItem({ ...newItem, category: val })}>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Select Category" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {categories.map((cat) => (
+                                            <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="component" className="text-xs font-semibold text-muted-foreground uppercase">REACT COMPONENT NAME</Label>
+                                <Input
+                                    id="component"
+                                    placeholder="e.g. TableViewer"
+                                    value={newItem.react_component || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, react_component: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="desc" className="text-xs font-semibold text-muted-foreground uppercase">DESCRIPTION</Label>
+                                <Textarea
+                                    id="desc"
+                                    placeholder="Describe when to use this rendering type..."
+                                    value={newItem.description}
+                                    onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <Label htmlFor="description" className="text-xs font-semibold text-muted-foreground uppercase">DESCRIPTION</Label>
+                                    <Label htmlFor="config" className="text-xs font-semibold text-muted-foreground uppercase">CONFIGURATION SCHEMA (JSON)</Label>
                                     <Button
                                         size="sm"
                                         variant="ghost"
                                         className="h-5 px-2 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                        onClick={handleSuggestDescription}
+                                        onClick={handleSuggestSchema} // This function is not defined in the original code.
                                         disabled={isSuggesting}
                                     >
                                         {isSuggesting ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Sparkles className="h-3 w-3 mr-1" />}
@@ -210,11 +267,11 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                                     </Button>
                                 </div>
                                 <Textarea
-                                    id="description"
-                                    placeholder="Explanation of how this type renders..."
-                                    value={newItem.description}
-                                    onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                                    className="min-h-[100px]"
+                                    id="config"
+                                    placeholder={'{\n  "columns": ["col1", "col2"]\n}'}
+                                    value={typeof newItem.config_schema === 'string' ? newItem.config_schema : JSON.stringify(newItem.config_schema, null, 2)}
+                                    onChange={(e) => setNewItem({ ...newItem, config_schema: e.target.value })}
+                                    className="min-h-[150px] font-mono text-xs"
                                 />
                             </div>
                         </div>
@@ -223,29 +280,44 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                                 <Button variant="outline" className="flex-1">Cancel</Button>
                             </DialogClose>
                             <Button onClick={handleSave} className="flex-1 bg-[#4F46E5] hover:bg-[#4338CA] text-white">
-                                <Check className="mr-2 h-4 w-4" /> Save Type
+                                <Check className="mr-2 h-4 w-4" /> Save Resource
                             </Button>
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
             </div>
 
-            <div className="border rounded-md">
-                <Table>
-                    <TableHeader>
+            <div className="border rounded-md max-h-[600px] overflow-auto relative">
+                <Table containerClassName="overflow-visible">
+                    <TableHeader className="sticky top-0 bg-secondary z-10">
                         <TableRow>
-                            <TableHead>Category</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Description</TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('category')}>
+                                <div className="flex items-center">
+                                    Category
+                                    {getSortIcon('category')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('name')}>
+                                <div className="flex items-center">
+                                    Name
+                                    {getSortIcon('name')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('react_component')}>
+                                <div className="flex items-center">
+                                    Component
+                                    {getSortIcon('react_component')}
+                                </div>
+                            </TableHead>
                             <TableHead className="w-[100px]">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {items.map((item) => (
+                        {sortedItems.map((item) => (
                             <TableRow key={item.id}>
                                 <TableCell><span className="bg-slate-100 px-2 py-1 rounded-full text-xs">{item.category}</span></TableCell>
                                 <TableCell className="font-medium">{item.name}</TableCell>
-                                <TableCell className="max-w-[300px] truncate" title={item.description}>{item.description}</TableCell>
+                                <TableCell className="font-mono text-xs">{item.react_component || "-"}</TableCell>
                                 <TableCell>
                                     <div className="flex items-center gap-2">
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(item)}><Pencil className="h-4 w-4" /></Button>

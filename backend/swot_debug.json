@@ -1,0 +1,236 @@
+{
+  "steps": [
+    {
+      "id": "step_extractor",
+      "moduleId": "mod_extractor",
+      "type": "extractor",
+      "name": "Data Extractor",
+      "config": {
+        "additionalInstructions": "Analyze the entire document to identify and extract all mentions of Strengths, Weaknesses, Opportunities, and Threats. Scan each section systematically, flagging content directly related to these categories. For each entity, compile concise points, ensuring clarity and relevance. If no information exists for a category, explicitly note \"No data found\" for transparency. Organize extracted points into distinct, labeled groups (Strengths, Weaknesses, etc.) without additional commentary.",
+        "instructions": "Analyze the entire document to identify and extract all points related to Strengths, Weaknesses, Opportunities, and Threats. Focus exclusively on the specified sections and extract entities explicitly mentioned or implied in these categories. If no relevant information is found for any category, document this as \"No data available.\" Structure the output by listing each category followed by its corresponding points, ensuring clarity and separation between entries. Avoid adding interpretations or external assumptions.",
+        "sourceSections": [
+          "1bf43b9a-801c-4a29-bc21-4f6588ec2931"
+        ],
+        "focus": "**Extraction Focus:**  \n\n- Main topics, themes, and subject headings of the document.  \n- Explicit or implicit statements that describe **Strengths** (advantages, assets, positive capabilities).  \n- Explicit or implicit statements that describe **Weaknesses** (limitations, gaps, internal challenges).  \n- Explicit or implicit statements that describe **Opportunities** (external prospects, growth potentials, favorable trends).  \n- Explicit or implicit statements that describe **Threats** (risks, competition, adverse conditions).  \n- Any headings, sub\u2011headings, or labeled sections that directly reference SWOT elements.  \n- Supporting evidence or examples that illustrate each identified strength, weakness, opportunity, or threat.  \n- Contextual cues (e.g., stakeholder perspectives, market conditions) that help categorize the extracted information within the SWOT framework.",
+        "exclude": "- **Header and Footer Elements**  \n  - Page titles, site logos, navigation bars, breadcrumb trails, and footer links (e.g., \u201cContact Us\u201d, \u201cPrivacy Policy\u201d, \u201cTerms of Service\u201d).  \n\n- **Standard Disclaimers and Legal Notices**  \n  - Boilerplate text such as \u201c\u00a9\u202f[Year] All rights reserved\u201d, \u201cThis content is for informational purposes only\u201d, and any liability or copyright statements.  \n\n- **Navigation Menus and Sidebars**  \n  - Lists of links, dropdown menus, \u201cRelated Articles\u201d, \u201cPopular Posts\u201d, \u201cMost Read\u201d, and any site-wide navigation widgets.  \n\n- **Advertisement Blocks**  \n  - Sponsored content, banner ads, promotional calls\u2011to\u2011action, \u201cBuy now\u201d, \u201cClick here\u201d, and any marketing copy.  \n\n- **User Interface Elements**  \n  - Buttons, icons, tooltips, search boxes, pagination controls, \u201cLoad more\u201d, \u201cNext page\u201d, \u201cPrevious\u201d, and form fields.  \n\n- **Meta Information**  \n  - Publication dates, author bios, timestamps, article IDs, version numbers, and revision histories.  \n\n- **Social Media Widgets**  \n  - Share buttons, \u201cFollow us\u201d prompts, comment sections, and embedded tweet/Instagram/YouTube feeds.  \n\n- **Table of Contents and Indexes**  \n  - Auto\u2011generated lists of headings, page numbers, or alphabetical indexes that summarize the document structure.  \n\n- **Citation and Reference Lists**  \n  - Bibliographies, footnotes, endnotes, and \u201cReferences\u201d sections that are not part of the core content.  \n\n- **Code Snippets and Formatting Markers**  \n  - Syntax highlighting tags, line numbers, \u201cCopy to clipboard\u201d buttons, and any non\u2011textual code display elements.  \n\n- **Empty or Placeholder Sections**  \n  - \u201cComing soon\u201d, \u201cUnder construction\u201d, \u201cTBD\u201d, or any sections that contain no substantive content.  \n\n- **Repeated Boilerplate Sections**  \n  - Standard opening/closing statements that appear on every page (e.g., \u201cWelcome to [Site Name]\u201d, \u201cThank you for visiting\u201d)."
+      },
+      "description": "Extract specific sections or data points."
+    },
+    {
+      "id": "step_agent",
+      "moduleId": "mod_agent",
+      "type": "agent",
+      "name": "AI Agent",
+      "config": {
+        "personaId": "2cd55056-a678-4521-9f4e-468cffc2daf3",
+        "variables": [
+          {
+            "id": "2440c852-0fc3-48d0-8ba9-c1a8384d9584",
+            "type": "date",
+            "name": "Start Date",
+            "description": "Defines the Start date of the ",
+            "options": []
+          },
+          {
+            "id": "a3d7bd60-8c73-4137-b04c-6b2f09f7c2c2",
+            "type": "select_single",
+            "name": "Authors",
+            "description": "**Variable Name:** Authors  \n**Variable Type:** select_single  \n\n**Description:**  \nThe **Authors** variable captures the name of the single individual who created or contributed the primary content for a given record (e.g., a research paper, article, report, dataset, or code module). It is used to identify and attribute the source of the information being analyzed, enabling the AI to:\n\n- Filter or group data by specific authors when performing comparative or trend analyses.  \n- Attribute findings, insights, or summary statements to the correct creator, preserving proper provenance.  \n- Resolve ambiguities in datasets where multiple contributors exist by selecting the primary author designated for the record.  \n\n**Purpose in Data Analysis:**  \nIncluding the **Authors** variable allows analysts and the AI to examine patterns related to authorship\u2014such as productivity, thematic focus, citation impact, or bias\u2014across the dataset. It also supports downstream tasks like generating author\u2011specific reports, attributing predictions, and ensuring transparent, reproducible results. When the AI encounters this variable, it should treat it as a categorical identifier, using the selected author\u2019s name to segment, filter, or annotate the analysis as required.",
+            "options": [
+              "Dupont",
+              "Durand",
+              "Schmid"
+            ]
+          }
+        ],
+        "objective": "You are a specialized analyst tasked with creating a concise, actionable SWOT analysis for the specified subject (company, project, product, or initiative).  \n\n**Objective**  \n- Generate a 2\u202f\u00d7\u202f2 matrix that clearly lists **Strengths**, **Weaknesses**, **Opportunities**, and **Threats**.  \n- Each quadrant must contain bullet\u2011point items (3\u20117 per quadrant) that are specific, evidence\u2011based, and directly relevant to the subject.  \n\n**Analytical Process**  \n1. **Gather Context**  \n   - Identify the subject\u2019s core mission, market, resources, competitors, and recent performance data.  \n   - Distinguish between **internal** factors (strengths, weaknesses) and **external** factors (opportunities, threats).  \n\n2. **Identify Strengths (Internal, Positive)**  \n   - Look for unique capabilities, competitive advantages, financial health, brand equity, technology, talent, and operational efficiencies.  \n\n3. **Identify Weaknesses (Internal, Negative)**  \n   - Highlight resource gaps, skill deficits, cost disadvantages, process inefficiencies, regulatory compliance issues, or any factors limiting performance.  \n\n4. **Identify Opportunities (External, Positive)**  \n   - Scan market trends, emerging customer needs, regulatory changes, technological advancements, partnership possibilities, and geographic expansions that could be leveraged.  \n\n5. **Identify Threats (External, Negative)**  \n   - Assess competitive pressures, economic downturns, disruptive technologies, supply\u2011chain vulnerabilities, legal risks, and shifting consumer preferences that could harm the subject.  \n\n6. **Validate & Prioritize**  \n   - Ensure each item is supported by factual evidence or logical inference.  \n   - Prioritize items by impact and likelihood, placing the most critical points at the top of each list.  \n\n**Desired Output**  \n- Present the results as a markdown table with four clearly labeled columns: **Strengths**, **Weaknesses**, **Opportunities**, **Threats**.  \n- Within each cell, list the bullet points.  \n- Optionally, include a one\u2011sentence justification after each bullet (in parentheses) to explain why it belongs in that quadrant.  \n\n**Example Format**\n\n| Strengths | Weaknesses | Opportunities | Threats |\n|-----------|------------|----------------|----------|\n| \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) |\n| \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) |\n| \u2026 | \u2026 | \u2026 | \u2026 |\n\nProduce the completed SWOT matrix following the guidelines above."
+      },
+      "description": "Analyze content using a Persona and Framework."
+    },
+    {
+      "id": "step_visualizer",
+      "moduleId": "mod_visualizer",
+      "type": "visualizer",
+      "name": "Visualizer",
+      "config": {
+        "synthesisCategory": "Table",
+        "renderingType": "0026e656-93c5-484e-bdb8-cbc4079a1ca7"
+      },
+      "description": "Generate structural visualizations (Graphs, Tables)."
+    },
+    {
+      "id": "step_formatter",
+      "moduleId": "mod_formatter",
+      "type": "formatter",
+      "name": "Output Fmt",
+      "config": {
+        "graphicsFormatId": "78f1df85-7d00-4277-95db-0bf95f33ecee",
+        "textFormatId": "0d9658f2-5710-4b2e-b4ea-d785e8a83503",
+        "dataFormatId": "e0125f20-9fd6-4619-bde7-38a7097e26f9"
+      },
+      "description": "Format the analysis results (JSON, Markdown)."
+    }
+  ],
+  "nodes": [
+    {
+      "id": "step_extractor",
+      "moduleId": "mod_extractor",
+      "type": "extractor",
+      "name": "Data Extractor",
+      "config": {
+        "additionalInstructions": "Analyze the entire document to identify and extract all mentions of Strengths, Weaknesses, Opportunities, and Threats. Scan each section systematically, flagging content directly related to these categories. For each entity, compile concise points, ensuring clarity and relevance. If no information exists for a category, explicitly note \"No data found\" for transparency. Organize extracted points into distinct, labeled groups (Strengths, Weaknesses, etc.) without additional commentary.",
+        "instructions": "Analyze the entire document to identify and extract all points related to Strengths, Weaknesses, Opportunities, and Threats. Focus exclusively on the specified sections and extract entities explicitly mentioned or implied in these categories. If no relevant information is found for any category, document this as \"No data available.\" Structure the output by listing each category followed by its corresponding points, ensuring clarity and separation between entries. Avoid adding interpretations or external assumptions.",
+        "sourceSections": [
+          "1bf43b9a-801c-4a29-bc21-4f6588ec2931"
+        ],
+        "focus": "**Extraction Focus:**  \n\n- Main topics, themes, and subject headings of the document.  \n- Explicit or implicit statements that describe **Strengths** (advantages, assets, positive capabilities).  \n- Explicit or implicit statements that describe **Weaknesses** (limitations, gaps, internal challenges).  \n- Explicit or implicit statements that describe **Opportunities** (external prospects, growth potentials, favorable trends).  \n- Explicit or implicit statements that describe **Threats** (risks, competition, adverse conditions).  \n- Any headings, sub\u2011headings, or labeled sections that directly reference SWOT elements.  \n- Supporting evidence or examples that illustrate each identified strength, weakness, opportunity, or threat.  \n- Contextual cues (e.g., stakeholder perspectives, market conditions) that help categorize the extracted information within the SWOT framework.",
+        "exclude": "- **Header and Footer Elements**  \n  - Page titles, site logos, navigation bars, breadcrumb trails, and footer links (e.g., \u201cContact Us\u201d, \u201cPrivacy Policy\u201d, \u201cTerms of Service\u201d).  \n\n- **Standard Disclaimers and Legal Notices**  \n  - Boilerplate text such as \u201c\u00a9\u202f[Year] All rights reserved\u201d, \u201cThis content is for informational purposes only\u201d, and any liability or copyright statements.  \n\n- **Navigation Menus and Sidebars**  \n  - Lists of links, dropdown menus, \u201cRelated Articles\u201d, \u201cPopular Posts\u201d, \u201cMost Read\u201d, and any site-wide navigation widgets.  \n\n- **Advertisement Blocks**  \n  - Sponsored content, banner ads, promotional calls\u2011to\u2011action, \u201cBuy now\u201d, \u201cClick here\u201d, and any marketing copy.  \n\n- **User Interface Elements**  \n  - Buttons, icons, tooltips, search boxes, pagination controls, \u201cLoad more\u201d, \u201cNext page\u201d, \u201cPrevious\u201d, and form fields.  \n\n- **Meta Information**  \n  - Publication dates, author bios, timestamps, article IDs, version numbers, and revision histories.  \n\n- **Social Media Widgets**  \n  - Share buttons, \u201cFollow us\u201d prompts, comment sections, and embedded tweet/Instagram/YouTube feeds.  \n\n- **Table of Contents and Indexes**  \n  - Auto\u2011generated lists of headings, page numbers, or alphabetical indexes that summarize the document structure.  \n\n- **Citation and Reference Lists**  \n  - Bibliographies, footnotes, endnotes, and \u201cReferences\u201d sections that are not part of the core content.  \n\n- **Code Snippets and Formatting Markers**  \n  - Syntax highlighting tags, line numbers, \u201cCopy to clipboard\u201d buttons, and any non\u2011textual code display elements.  \n\n- **Empty or Placeholder Sections**  \n  - \u201cComing soon\u201d, \u201cUnder construction\u201d, \u201cTBD\u201d, or any sections that contain no substantive content.  \n\n- **Repeated Boilerplate Sections**  \n  - Standard opening/closing statements that appear on every page (e.g., \u201cWelcome to [Site Name]\u201d, \u201cThank you for visiting\u201d)."
+      },
+      "description": "Extract specific sections or data points.",
+      "data": {
+        "label": "Data Extractor",
+        "params": {
+          "additionalInstructions": "Analyze the entire document to identify and extract all mentions of Strengths, Weaknesses, Opportunities, and Threats. Scan each section systematically, flagging content directly related to these categories. For each entity, compile concise points, ensuring clarity and relevance. If no information exists for a category, explicitly note \"No data found\" for transparency. Organize extracted points into distinct, labeled groups (Strengths, Weaknesses, etc.) without additional commentary.",
+          "instructions": "Analyze the entire document to identify and extract all points related to Strengths, Weaknesses, Opportunities, and Threats. Focus exclusively on the specified sections and extract entities explicitly mentioned or implied in these categories. If no relevant information is found for any category, document this as \"No data available.\" Structure the output by listing each category followed by its corresponding points, ensuring clarity and separation between entries. Avoid adding interpretations or external assumptions.",
+          "sourceSections": [
+            "1bf43b9a-801c-4a29-bc21-4f6588ec2931"
+          ],
+          "focus": "**Extraction Focus:**  \n\n- Main topics, themes, and subject headings of the document.  \n- Explicit or implicit statements that describe **Strengths** (advantages, assets, positive capabilities).  \n- Explicit or implicit statements that describe **Weaknesses** (limitations, gaps, internal challenges).  \n- Explicit or implicit statements that describe **Opportunities** (external prospects, growth potentials, favorable trends).  \n- Explicit or implicit statements that describe **Threats** (risks, competition, adverse conditions).  \n- Any headings, sub\u2011headings, or labeled sections that directly reference SWOT elements.  \n- Supporting evidence or examples that illustrate each identified strength, weakness, opportunity, or threat.  \n- Contextual cues (e.g., stakeholder perspectives, market conditions) that help categorize the extracted information within the SWOT framework.",
+          "exclude": "- **Header and Footer Elements**  \n  - Page titles, site logos, navigation bars, breadcrumb trails, and footer links (e.g., \u201cContact Us\u201d, \u201cPrivacy Policy\u201d, \u201cTerms of Service\u201d).  \n\n- **Standard Disclaimers and Legal Notices**  \n  - Boilerplate text such as \u201c\u00a9\u202f[Year] All rights reserved\u201d, \u201cThis content is for informational purposes only\u201d, and any liability or copyright statements.  \n\n- **Navigation Menus and Sidebars**  \n  - Lists of links, dropdown menus, \u201cRelated Articles\u201d, \u201cPopular Posts\u201d, \u201cMost Read\u201d, and any site-wide navigation widgets.  \n\n- **Advertisement Blocks**  \n  - Sponsored content, banner ads, promotional calls\u2011to\u2011action, \u201cBuy now\u201d, \u201cClick here\u201d, and any marketing copy.  \n\n- **User Interface Elements**  \n  - Buttons, icons, tooltips, search boxes, pagination controls, \u201cLoad more\u201d, \u201cNext page\u201d, \u201cPrevious\u201d, and form fields.  \n\n- **Meta Information**  \n  - Publication dates, author bios, timestamps, article IDs, version numbers, and revision histories.  \n\n- **Social Media Widgets**  \n  - Share buttons, \u201cFollow us\u201d prompts, comment sections, and embedded tweet/Instagram/YouTube feeds.  \n\n- **Table of Contents and Indexes**  \n  - Auto\u2011generated lists of headings, page numbers, or alphabetical indexes that summarize the document structure.  \n\n- **Citation and Reference Lists**  \n  - Bibliographies, footnotes, endnotes, and \u201cReferences\u201d sections that are not part of the core content.  \n\n- **Code Snippets and Formatting Markers**  \n  - Syntax highlighting tags, line numbers, \u201cCopy to clipboard\u201d buttons, and any non\u2011textual code display elements.  \n\n- **Empty or Placeholder Sections**  \n  - \u201cComing soon\u201d, \u201cUnder construction\u201d, \u201cTBD\u201d, or any sections that contain no substantive content.  \n\n- **Repeated Boilerplate Sections**  \n  - Standard opening/closing statements that appear on every page (e.g., \u201cWelcome to [Site Name]\u201d, \u201cThank you for visiting\u201d)."
+        }
+      },
+      "position": {
+        "x": 250,
+        "y": 100
+      }
+    },
+    {
+      "id": "step_agent",
+      "moduleId": "mod_agent",
+      "type": "agent",
+      "name": "AI Agent",
+      "config": {
+        "personaId": "2cd55056-a678-4521-9f4e-468cffc2daf3",
+        "variables": [
+          {
+            "id": "2440c852-0fc3-48d0-8ba9-c1a8384d9584",
+            "type": "date",
+            "name": "Start Date",
+            "description": "Defines the Start date of the ",
+            "options": []
+          },
+          {
+            "id": "a3d7bd60-8c73-4137-b04c-6b2f09f7c2c2",
+            "type": "select_single",
+            "name": "Authors",
+            "description": "**Variable Name:** Authors  \n**Variable Type:** select_single  \n\n**Description:**  \nThe **Authors** variable captures the name of the single individual who created or contributed the primary content for a given record (e.g., a research paper, article, report, dataset, or code module). It is used to identify and attribute the source of the information being analyzed, enabling the AI to:\n\n- Filter or group data by specific authors when performing comparative or trend analyses.  \n- Attribute findings, insights, or summary statements to the correct creator, preserving proper provenance.  \n- Resolve ambiguities in datasets where multiple contributors exist by selecting the primary author designated for the record.  \n\n**Purpose in Data Analysis:**  \nIncluding the **Authors** variable allows analysts and the AI to examine patterns related to authorship\u2014such as productivity, thematic focus, citation impact, or bias\u2014across the dataset. It also supports downstream tasks like generating author\u2011specific reports, attributing predictions, and ensuring transparent, reproducible results. When the AI encounters this variable, it should treat it as a categorical identifier, using the selected author\u2019s name to segment, filter, or annotate the analysis as required.",
+            "options": [
+              "Dupont",
+              "Durand",
+              "Schmid"
+            ]
+          }
+        ],
+        "objective": "You are a specialized analyst tasked with creating a concise, actionable SWOT analysis for the specified subject (company, project, product, or initiative).  \n\n**Objective**  \n- Generate a 2\u202f\u00d7\u202f2 matrix that clearly lists **Strengths**, **Weaknesses**, **Opportunities**, and **Threats**.  \n- Each quadrant must contain bullet\u2011point items (3\u20117 per quadrant) that are specific, evidence\u2011based, and directly relevant to the subject.  \n\n**Analytical Process**  \n1. **Gather Context**  \n   - Identify the subject\u2019s core mission, market, resources, competitors, and recent performance data.  \n   - Distinguish between **internal** factors (strengths, weaknesses) and **external** factors (opportunities, threats).  \n\n2. **Identify Strengths (Internal, Positive)**  \n   - Look for unique capabilities, competitive advantages, financial health, brand equity, technology, talent, and operational efficiencies.  \n\n3. **Identify Weaknesses (Internal, Negative)**  \n   - Highlight resource gaps, skill deficits, cost disadvantages, process inefficiencies, regulatory compliance issues, or any factors limiting performance.  \n\n4. **Identify Opportunities (External, Positive)**  \n   - Scan market trends, emerging customer needs, regulatory changes, technological advancements, partnership possibilities, and geographic expansions that could be leveraged.  \n\n5. **Identify Threats (External, Negative)**  \n   - Assess competitive pressures, economic downturns, disruptive technologies, supply\u2011chain vulnerabilities, legal risks, and shifting consumer preferences that could harm the subject.  \n\n6. **Validate & Prioritize**  \n   - Ensure each item is supported by factual evidence or logical inference.  \n   - Prioritize items by impact and likelihood, placing the most critical points at the top of each list.  \n\n**Desired Output**  \n- Present the results as a markdown table with four clearly labeled columns: **Strengths**, **Weaknesses**, **Opportunities**, **Threats**.  \n- Within each cell, list the bullet points.  \n- Optionally, include a one\u2011sentence justification after each bullet (in parentheses) to explain why it belongs in that quadrant.  \n\n**Example Format**\n\n| Strengths | Weaknesses | Opportunities | Threats |\n|-----------|------------|----------------|----------|\n| \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) |\n| \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) |\n| \u2026 | \u2026 | \u2026 | \u2026 |\n\nProduce the completed SWOT matrix following the guidelines above."
+      },
+      "description": "Analyze content using a Persona and Framework.",
+      "data": {
+        "label": "AI Agent",
+        "params": {
+          "personaId": "2cd55056-a678-4521-9f4e-468cffc2daf3",
+          "variables": [
+            {
+              "id": "2440c852-0fc3-48d0-8ba9-c1a8384d9584",
+              "type": "date",
+              "name": "Start Date",
+              "description": "Defines the Start date of the ",
+              "options": []
+            },
+            {
+              "id": "a3d7bd60-8c73-4137-b04c-6b2f09f7c2c2",
+              "type": "select_single",
+              "name": "Authors",
+              "description": "**Variable Name:** Authors  \n**Variable Type:** select_single  \n\n**Description:**  \nThe **Authors** variable captures the name of the single individual who created or contributed the primary content for a given record (e.g., a research paper, article, report, dataset, or code module). It is used to identify and attribute the source of the information being analyzed, enabling the AI to:\n\n- Filter or group data by specific authors when performing comparative or trend analyses.  \n- Attribute findings, insights, or summary statements to the correct creator, preserving proper provenance.  \n- Resolve ambiguities in datasets where multiple contributors exist by selecting the primary author designated for the record.  \n\n**Purpose in Data Analysis:**  \nIncluding the **Authors** variable allows analysts and the AI to examine patterns related to authorship\u2014such as productivity, thematic focus, citation impact, or bias\u2014across the dataset. It also supports downstream tasks like generating author\u2011specific reports, attributing predictions, and ensuring transparent, reproducible results. When the AI encounters this variable, it should treat it as a categorical identifier, using the selected author\u2019s name to segment, filter, or annotate the analysis as required.",
+              "options": [
+                "Dupont",
+                "Durand",
+                "Schmid"
+              ]
+            }
+          ],
+          "objective": "You are a specialized analyst tasked with creating a concise, actionable SWOT analysis for the specified subject (company, project, product, or initiative).  \n\n**Objective**  \n- Generate a 2\u202f\u00d7\u202f2 matrix that clearly lists **Strengths**, **Weaknesses**, **Opportunities**, and **Threats**.  \n- Each quadrant must contain bullet\u2011point items (3\u20117 per quadrant) that are specific, evidence\u2011based, and directly relevant to the subject.  \n\n**Analytical Process**  \n1. **Gather Context**  \n   - Identify the subject\u2019s core mission, market, resources, competitors, and recent performance data.  \n   - Distinguish between **internal** factors (strengths, weaknesses) and **external** factors (opportunities, threats).  \n\n2. **Identify Strengths (Internal, Positive)**  \n   - Look for unique capabilities, competitive advantages, financial health, brand equity, technology, talent, and operational efficiencies.  \n\n3. **Identify Weaknesses (Internal, Negative)**  \n   - Highlight resource gaps, skill deficits, cost disadvantages, process inefficiencies, regulatory compliance issues, or any factors limiting performance.  \n\n4. **Identify Opportunities (External, Positive)**  \n   - Scan market trends, emerging customer needs, regulatory changes, technological advancements, partnership possibilities, and geographic expansions that could be leveraged.  \n\n5. **Identify Threats (External, Negative)**  \n   - Assess competitive pressures, economic downturns, disruptive technologies, supply\u2011chain vulnerabilities, legal risks, and shifting consumer preferences that could harm the subject.  \n\n6. **Validate & Prioritize**  \n   - Ensure each item is supported by factual evidence or logical inference.  \n   - Prioritize items by impact and likelihood, placing the most critical points at the top of each list.  \n\n**Desired Output**  \n- Present the results as a markdown table with four clearly labeled columns: **Strengths**, **Weaknesses**, **Opportunities**, **Threats**.  \n- Within each cell, list the bullet points.  \n- Optionally, include a one\u2011sentence justification after each bullet (in parentheses) to explain why it belongs in that quadrant.  \n\n**Example Format**\n\n| Strengths | Weaknesses | Opportunities | Threats |\n|-----------|------------|----------------|----------|\n| \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) | \u2022 Bullet 1 (justification) |\n| \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) | \u2022 Bullet 2 (justification) |\n| \u2026 | \u2026 | \u2026 | \u2026 |\n\nProduce the completed SWOT matrix following the guidelines above."
+        }
+      },
+      "position": {
+        "x": 250,
+        "y": 250
+      }
+    },
+    {
+      "id": "step_visualizer",
+      "moduleId": "mod_visualizer",
+      "type": "visualizer",
+      "name": "Visualizer",
+      "config": {
+        "synthesisCategory": "Table",
+        "renderingType": "0026e656-93c5-484e-bdb8-cbc4079a1ca7"
+      },
+      "description": "Generate structural visualizations (Graphs, Tables).",
+      "data": {
+        "label": "Visualizer",
+        "params": {
+          "synthesisCategory": "Table",
+          "renderingType": "0026e656-93c5-484e-bdb8-cbc4079a1ca7"
+        }
+      },
+      "position": {
+        "x": 250,
+        "y": 400
+      }
+    },
+    {
+      "id": "step_formatter",
+      "moduleId": "mod_formatter",
+      "type": "formatter",
+      "name": "Output Fmt",
+      "config": {
+        "graphicsFormatId": "78f1df85-7d00-4277-95db-0bf95f33ecee",
+        "textFormatId": "0d9658f2-5710-4b2e-b4ea-d785e8a83503",
+        "dataFormatId": "e0125f20-9fd6-4619-bde7-38a7097e26f9"
+      },
+      "description": "Format the analysis results (JSON, Markdown).",
+      "data": {
+        "label": "Output Fmt",
+        "params": {
+          "graphicsFormatId": "78f1df85-7d00-4277-95db-0bf95f33ecee",
+          "textFormatId": "0d9658f2-5710-4b2e-b4ea-d785e8a83503",
+          "dataFormatId": "e0125f20-9fd6-4619-bde7-38a7097e26f9"
+        }
+      },
+      "position": {
+        "x": 250,
+        "y": 550
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge_step_extractor_step_agent",
+      "source": "step_extractor",
+      "target": "step_agent",
+      "type": "default"
+    },
+    {
+      "id": "edge_step_agent_step_visualizer",
+      "source": "step_agent",
+      "target": "step_visualizer",
+      "type": "default"
+    },
+    {
+      "id": "edge_step_visualizer_step_formatter",
+      "source": "step_visualizer",
+      "target": "step_formatter",
+      "type": "default"
+    }
+  ]
+}

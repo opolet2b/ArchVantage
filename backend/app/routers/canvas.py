@@ -2147,6 +2147,7 @@ async def execute_template_stream_endpoint(
     async def event_generator():
         try:
             print(f"[Stream] Starting template execution for {request.template_id}")
+            print(f"[Stream] Request thing_ids: {request.thing_ids}, canvas_id: {request.canvas_id}")
             async for event in smart_template_service.execute_template_stream(db, request):
                 yield json.dumps(event, cls=SafeJSONEncoder) + "\n"
         except Exception as e:

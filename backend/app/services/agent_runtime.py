@@ -389,6 +389,16 @@ class AgentRuntime:
             steps_run += 1
             state["current_node"] = current_node
             
+            # --- LOGGING HELPER ---
+            def _log_execution(title, data):
+                try:
+                    with open("execution_debug.log", "a", encoding="utf-8") as f:
+                        f.write(f"\n[{datetime.utcnow().isoformat()}] == {title} ==\n")
+                        f.write(f"{str(data)}\n")
+                        f.write("="*50 + "\n")
+                except Exception as e:
+                    print(f"Logging failed: {e}")
+
             # --- START EXECUTE STREAM CHANGE ---
             # Yield Step Start
             yield {
@@ -402,8 +412,21 @@ class AgentRuntime:
             }
             # --- END EXECUTE STREAM CHANGE ---
 
+            # Log Node Start
+            _log_execution(f"NODE START: {current_node}", {
+                "params": self.nodes.get(current_node, {}).get("params"),
+                "state_variables_keys": list(state.get("variables", {}).keys())
+            })
+
             # Execute node
             result = await self._execute_node(current_node, state)
+            
+            # Log Node Result
+            _log_execution(f"NODE END: {current_node}", {
+                "success": result.success,
+                "output_preview": str(result.output)[:500] if result.success else None,
+                "error": result.error
+            })
             
             # Update state with output
             if result.success and result.output is not None:

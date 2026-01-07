@@ -21,6 +21,7 @@ class AssetRef(BaseModel):
 class ExtractionInstructions(BaseModel):
     focus: str = Field(..., description="Main topic or elements to focus on during extraction")
     exclude: Optional[str] = Field(None, description="Elements or topics to explicitly ignore")
+    additional_instructions: Optional[str] = Field(None, description="Detailed instructions for the extraction")
     mode: str = Field("default", description="Extraction mode: default, structured, image_only, etc.")
 
 class ExtractorInput(BaseModel):
@@ -58,6 +59,7 @@ class AnalysisResults(BaseModel):
     summary: str
     sections: List[AnalyzedSection]
     raw_data_points: Dict[str, Any] = Field(default_factory=dict)
+    formatted_output: Optional[str] = Field(None, description="Use this for requested specific formats like Markdown tables, code blocks, or matrices.")
 
 class AgentOutput(BaseModel):
     analysis_results: AnalysisResults

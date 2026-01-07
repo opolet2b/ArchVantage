@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Check, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, Sparkles, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSortableData } from "@/hooks/use-sortable-data";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -176,6 +177,15 @@ export function TaxonomyTab({ selectedPreset }: TaxonomyTabProps) {
         }
     };
 
+    // Sorting
+    const { items: sortedItems, requestSort, sortConfig } = useSortableData(items);
+
+    const getSortIcon = (key: string) => {
+        if (sortConfig.key !== key) return <ArrowUpDown className="ml-2 h-4 w-4" />;
+        if (sortConfig.direction === 'ascending') return <ArrowUp className="ml-2 h-4 w-4" />;
+        return <ArrowDown className="ml-2 h-4 w-4" />;
+    };
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
@@ -279,19 +289,39 @@ export function TaxonomyTab({ selectedPreset }: TaxonomyTabProps) {
                 </Dialog>
             </div>
 
-            <div className="border rounded-md">
-                <Table>
-                    <TableHeader>
+            <div className="border rounded-md max-h-[600px] overflow-auto relative">
+                <Table containerClassName="overflow-visible">
+                    <TableHeader className="sticky top-0 bg-secondary z-10">
                         <TableRow>
-                            <TableHead>Category</TableHead>
-                            <TableHead>Activity Type</TableHead>
-                            <TableHead>Input Mode</TableHead>
-                            <TableHead>Description</TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('category_name')}>
+                                <div className="flex items-center">
+                                    Category
+                                    {getSortIcon('category_name')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('activity_type')}>
+                                <div className="flex items-center">
+                                    Activity Type
+                                    {getSortIcon('activity_type')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('input_mode')}>
+                                <div className="flex items-center">
+                                    Input Mode
+                                    {getSortIcon('input_mode')}
+                                </div>
+                            </TableHead>
+                            <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => requestSort('description')}>
+                                <div className="flex items-center">
+                                    Description
+                                    {getSortIcon('description')}
+                                </div>
+                            </TableHead>
                             <TableHead className="w-[100px]">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {items.map((item) => (
+                        {sortedItems.map((item) => (
                             <TableRow key={item.id}>
                                 <TableCell className="font-medium">{item.category_name}</TableCell>
                                 <TableCell>{item.activity_type}</TableCell>

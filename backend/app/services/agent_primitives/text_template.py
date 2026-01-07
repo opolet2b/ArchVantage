@@ -11,6 +11,8 @@ Features:
 """
 from typing import Any, Dict, Tuple
 import re
+import json
+from datetime import datetime
 from jinja2 import Environment, BaseLoader, UndefinedError
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
 
@@ -457,7 +459,8 @@ Output Schema:
 Instructions:
 1. 'structure_type' should be 'markdown' for reports, 'mermaid' for diagrams.
 2. 'content' must contain the actual string payload (e.g. the full markdown text or mermaid code).
-3. Do not omit any findings from the analysis.
+4. If 'formatted_output' is present in the analysis results, it contains the pre-formatted text (e.g. Markdown Table or List). You MUST use this as the 'content'.
+5. Do not omit any findings from the analysis.
 """
                     user_message_content = f"Analysis Results:\n{json.dumps(agent_out, indent=2)}\n\nTemplate/Instructions:\n{template_for_prompt}"
                     
@@ -472,7 +475,21 @@ Instructions:
                         response_format={"type": "json_object"}
                     )
                     
-                    viz_output_data = json.loads(response_text)
+                    try:
+                        viz_output_data = json.loads(response_text)
+                    except json.JSONDecodeError:
+                        # Fallback 1: Regex text search
+                        # re is imported globally
+                        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        if match:
+                            try:
+                                viz_output_data = json.loads(match.group(0))
+                            except:
+                                # Fallback 2: ast.literal_eval (Handles single quotes/Python dicts)
+                                import ast
+                                viz_output_data = ast.literal_eval(match.group(0))
+                        else:
+                            raise ValueError(f"No JSON block found in visualization response. Response start: {response_text[:100]}")
                     
                     # Validate content presence
                     if "visual_payload" not in viz_output_data or "content" not in viz_output_data["visual_payload"]:

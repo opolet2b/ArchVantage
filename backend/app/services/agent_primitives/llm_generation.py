@@ -196,6 +196,9 @@ ANALYSIS INSTRUCTIONS:
 OUTPUT REQUIREMENT:
 Do not write a standard text report. Capture your analysis findings, summary, and sections into the following JSON schema.
 
+CRITICAL: The instructions likely ask for a specific visual format (e.g. "Desired Output: Markdown Table").
+You MUST place this formatted text (Markdown Table, List, etc.) into the 'formatted_output' field. Do NOT leave it null.
+
 Example of valid output:
 {{
   "analysis_results": {{
@@ -207,6 +210,7 @@ Example of valid output:
         "supporting_evidence": ["source-id-1"]
       }}
     ],
+    "formatted_output": "| Strengths | Weaknesses |\\n|-----------|------------|\\n| ...       | ...        |",
     "raw_data_points": {{}}
   }}
 }}
@@ -264,6 +268,11 @@ Schema:
                     if "variables" not in state: state["variables"] = {}
                     state["variables"]["agent_output"] = agent_output_data
                     state["variables"][output_var] = agent_output_data
+                    
+                    try:
+                        with open("execution_debug.log", "a", encoding="utf-8") as f:
+                            f.write(f"\n[AGENT OUTPUT DEBUG]\n{json.dumps(agent_output_data, indent=2)}\n")
+                    except: pass
                     
                     print(f"[LLM_PRIM] Saved 'agent_output' to variables. Type: {type(state['variables']['agent_output'])}")
                     
