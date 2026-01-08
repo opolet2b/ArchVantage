@@ -469,6 +469,18 @@ Instructions:
                         Message(role="user", content=user_message_content)
                     ]
                     
+                    # --- DEBUG LOGGING ---
+                    try:
+                        with open("execution_debug.log", "a", encoding="utf-8") as f:
+                            from datetime import datetime
+                            f.write(f"\n[{datetime.utcnow().isoformat()}] [TEXT_TEMPLATE VISUALIZER PROMPT]\n")
+                            for m in messages:
+                                f.write(f"ROLE: {m.role}\nCONTENT:\n{m.content}\n---\n")
+                            f.write("="*50 + "\n")
+                    except Exception as log_e:
+                         print(f"Logging failed: {log_e}")
+                    # ---------------------
+
                     response_text = await llm_service.chat(
                         messages=messages, 
                         model_name=llm_model,
@@ -604,6 +616,19 @@ Rules:
                     Message(role="system", content=system_prompt),
                     Message(role="user", content=user_message)
                 ]
+                
+                # --- DEBUG LOGGING ---
+                try:
+                    with open("execution_debug.log", "a", encoding="utf-8") as f:
+                        from datetime import datetime
+                        f.write(f"\n[{datetime.utcnow().isoformat()}] [TEXT_TEMPLATE CHUNK PROMPT]\n")
+                        for m in messages:
+                            f.write(f"ROLE: {m.role}\nCONTENT:\n{m.content}\n---\n")
+                        f.write("="*50 + "\n")
+                except Exception as log_e:
+                     print(f"Logging failed: {log_e}")
+                # ---------------------
+                
                 filled_body = await llm_service.chat(messages, model_name=llm_model)
                 
             else:
@@ -612,6 +637,19 @@ Rules:
                     Message(role="system", content=system_prompt),
                     Message(role="user", content=user_message)
                 ]
+                
+                # --- DEBUG LOGGING ---
+                try:
+                    with open("execution_debug.log", "a", encoding="utf-8") as f:
+                        from datetime import datetime
+                        f.write(f"\n[{datetime.utcnow().isoformat()}] [TEXT_TEMPLATE DIRECT PROMPT]\n")
+                        for m in messages:
+                            f.write(f"ROLE: {m.role}\nCONTENT:\n{m.content}\n---\n")
+                        f.write("="*50 + "\n")
+                except Exception as log_e:
+                     print(f"Logging failed: {log_e}")
+                # ---------------------
+                
                 filled_body = await llm_service.chat(messages, model_name=llm_model)
             
             # Strip any reasoning/thinking tags from LLM response

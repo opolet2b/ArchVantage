@@ -473,53 +473,52 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                         </div>
 
                         <div className="space-y-4">
-                            {/* Text Format */}
+                            {/* Format Category */}
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <Label className="text-xs font-bold text-muted-foreground uppercase">Text Format</Label>
-                                    <HelpTooltip contentPath="smart-analysis/output_format" />
+                                    <Label className="text-xs font-bold text-muted-foreground uppercase">Format Category</Label>
+                                    <HelpTooltip contentPath="smart-analysis/format_category" />
                                 </div>
                                 <Select
-                                    value={selectedStep.config?.textFormatId}
-                                    onValueChange={(val) => handleUpdateConfig("textFormatId", val)}
+                                    value={selectedStep.config?.formatCategory}
+                                    onValueChange={(val) => {
+                                        onUpdateStep(selectedStep.id, {
+                                            config: {
+                                                ...selectedStep.config,
+                                                formatCategory: val,
+                                                outputFormatId: undefined, // Reset specific format
+                                                // Clear legacy fields
+                                                textFormatId: undefined,
+                                                graphicsFormatId: undefined,
+                                                dataFormatId: undefined
+                                            }
+                                        });
+                                    }}
                                 >
-                                    <SelectTrigger><SelectValue placeholder="Select text format..." /></SelectTrigger>
+                                    <SelectTrigger><SelectValue placeholder="Select category..." /></SelectTrigger>
                                     <SelectContent>
-                                        {outputFormats.filter(f => f.type === "Text").map(of => (
-                                            <SelectItem key={of.id} value={of.id}>{of.name}</SelectItem>
+                                        {Array.from(new Set(outputFormats.map(f => f.type))).map((cat: any) => (
+                                            <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             </div>
 
-                            {/* Graphics Format */}
+                            {/* Output Format */}
                             <div className="space-y-2">
-                                <Label className="text-xs font-bold text-muted-foreground uppercase">Graphics Format</Label>
+                                <Label className="text-xs font-bold text-muted-foreground uppercase">Output Format</Label>
                                 <Select
-                                    value={selectedStep.config?.graphicsFormatId}
-                                    onValueChange={(val) => handleUpdateConfig("graphicsFormatId", val)}
+                                    value={selectedStep.config?.outputFormatId}
+                                    onValueChange={(val) => handleUpdateConfig("outputFormatId", val)}
+                                    disabled={!selectedStep.config?.formatCategory}
                                 >
-                                    <SelectTrigger><SelectValue placeholder="Select graphics format..." /></SelectTrigger>
+                                    <SelectTrigger><SelectValue placeholder="Select format..." /></SelectTrigger>
                                     <SelectContent>
-                                        {outputFormats.filter(f => f.type === "Graphics").map(of => (
-                                            <SelectItem key={of.id} value={of.id}>{of.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            {/* Data Format */}
-                            <div className="space-y-2">
-                                <Label className="text-xs font-bold text-muted-foreground uppercase">Data Format</Label>
-                                <Select
-                                    value={selectedStep.config?.dataFormatId}
-                                    onValueChange={(val) => handleUpdateConfig("dataFormatId", val)}
-                                >
-                                    <SelectTrigger><SelectValue placeholder="Select data format..." /></SelectTrigger>
-                                    <SelectContent>
-                                        {outputFormats.filter(f => f.type === "Data").map(of => (
-                                            <SelectItem key={of.id} value={of.id}>{of.name}</SelectItem>
-                                        ))}
+                                        {outputFormats
+                                            .filter(f => f.type === selectedStep.config?.formatCategory)
+                                            .map(of => (
+                                                <SelectItem key={of.id} value={of.id}>{of.name}</SelectItem>
+                                            ))}
                                     </SelectContent>
                                 </Select>
                             </div>

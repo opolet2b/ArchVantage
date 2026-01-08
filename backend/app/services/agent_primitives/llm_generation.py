@@ -228,6 +228,19 @@ Schema:
                     for attempt in range(2):
                         # 4. Call LLM with JSON mode
                         print(f"[LLM_PRIM] Strict Gen Attempt {attempt+1}")
+                        
+                        # --- DEBUG LOGGING ---
+                        try:
+                            with open("execution_debug.log", "a", encoding="utf-8") as f:
+                                from datetime import datetime
+                                f.write(f"\n[{datetime.utcnow().isoformat()}] [LLM_GENERATION STRICT PROMPT]\n")
+                                for m in messages:
+                                    f.write(f"ROLE: {m.role}\nCONTENT:\n{m.content}\n---\n")
+                                f.write("="*50 + "\n")
+                        except Exception as log_e:
+                            print(f"Logging failed: {log_e}")
+                        # ---------------------
+
                         response_text = await llm_service.chat(
                             messages=messages, 
                             model_name=model,
@@ -242,6 +255,17 @@ Schema:
                             
                             # Validation
                             from pydantic import ValidationError
+                            
+                            # ROBUSTNESS FIX: Check for wrapped responses (common with some LLMs)
+                            # e.g. {"final": {"analysis_results": ...}}
+                            if "analysis_results" not in agent_output_data:
+                                for key in ["final", "result", "output", "json", "answer"]:
+                                    if key in agent_output_data and isinstance(agent_output_data[key], dict):
+                                        if "analysis_results" in agent_output_data[key]:
+                                            print(f"[LLM_PRIM] Unwrap detected. Found 'analysis_results' inside '{key}'")
+                                            agent_output_data = agent_output_data[key]
+                                            break
+                            
                             AgentOutput(**agent_output_data)
                             
                             # Additional empty check
@@ -290,7 +314,21 @@ Schema:
                     # Fallback proceeds to standard code below
             
             # Call LLM
+            # Call LLM
             # Basic generation (non-reasoning/non-json mode unless specified in future)
+            
+            # --- DEBUG LOGGING ---
+            try:
+                with open("execution_debug.log", "a", encoding="utf-8") as f:
+                    from datetime import datetime
+                    f.write(f"\n[{datetime.utcnow().isoformat()}] [LLM_GENERATION STANDARD PROMPT]\n")
+                    for m in messages:
+                        f.write(f"ROLE: {m.role}\nCONTENT:\n{m.content}\n---\n")
+                    f.write("="*50 + "\n")
+            except Exception as log_e:
+                print(f"Logging failed: {log_e}")
+            # ---------------------
+            
             response = await llm_service.chat(messages, model_name=model)
             
             return PrimitiveResult(

@@ -169,9 +169,11 @@ class SmartRenderingTypeResponse(SmartRenderingTypeBase):
 # --- Output Formats ---
 
 class SmartOutputFormatBase(BaseModel):
-    type: str # Text, Graphics, Data
+    type: str # Global Category context="Output Format"
     name: str
     extension: str
+    content_type: Optional[str] = None
+    structure_template: Optional[Any] = None
 
 class SmartOutputFormatCreate(SmartOutputFormatBase):
     pass
@@ -180,6 +182,8 @@ class SmartOutputFormatUpdate(BaseModel):
     type: Optional[str] = None
     name: Optional[str] = None
     extension: Optional[str] = None
+    content_type: Optional[str] = None
+    structure_template: Optional[Any] = None
 
 class SmartOutputFormatResponse(SmartOutputFormatBase):
     id: str

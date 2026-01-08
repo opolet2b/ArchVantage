@@ -114,7 +114,36 @@ class AgentRuntime:
         steps = self.graph_def.steps if hasattr(self.graph_def, 'steps') else self.graph_def.get('steps', [])
         
         edges = []
-        if not nodes and steps:
+        
+        # Debug Logging to File
+        try:
+            with open("execution_debug.log", "a", encoding="utf-8") as f:
+                ts = datetime.utcnow().isoformat()
+                n_count = len(nodes) if nodes else 0
+                s_count = len(steps) if steps else 0
+                f.write(f"\n[{ts}] [RUNTIME INIT] Nodes: {n_count}, Steps: {s_count}\n")
+                if n_count > 0:
+                    f.write(f"[{ts}] [RUNTIME INIT] First Node Params: {nodes[0].get('params')}\n")
+        except Exception: pass
+
+        # Check if we need to rebuild from steps
+        # Trigger if: 
+        # 1. No nodes
+        # 2. Nodes exist but seem unconfigured (no params) while steps are available
+        should_rebuild = False
+        if not nodes:
+            should_rebuild = True
+        elif steps and len(nodes) > 0 and not nodes[0].get("params"):
+             # Only rebuild if params are truly empty/None
+             should_rebuild = True
+             try:
+                 with open("execution_debug.log", "a") as f: f.write(f"[{datetime.utcnow().isoformat()}] [RUNTIME] FORCE REBUILD: Nodes lack params.\n")
+             except: pass
+
+        if should_rebuild and steps:
+            try:
+                with open("execution_debug.log", "a") as f: f.write(f"[{datetime.utcnow().isoformat()}] [RUNTIME] Converting steps to graph...\n")
+            except: pass
             print("[RUNTIME] Detected linear 'steps' format. Converting to graph.")
             nodes = []
             
@@ -132,8 +161,9 @@ class AgentRuntime:
                     merged_params = {**config, **params}
                     
                     step_type = step.get('type', '').lower()
+                    print(f"[RUNTIME DEBUG] Processing step: {step_type}, Config Instructions: {config.get('additionalInstructions')}, Params Instructions: {params.get('instruction')}")
                     
-                    if step_type == "agent":
+                    if "agent" in step_type:
                         if "objective" in merged_params:
                              merged_params["instruction"] = merged_params.pop("objective")
                         if "reasoningDepth" in merged_params:
@@ -150,10 +180,25 @@ class AgentRuntime:
                                  if f:
                                      merged_params["framework"] = f.name
                             
-                    elif step_type == "extractor":
+                    elif "extractor" in step_type:
+                        # Combine fields into a single instruction
+                        instructions_parts = []
+                        if "sourceSections" in merged_params:
+                            instructions_parts.append(f"Source Sections: {merged_params.pop('sourceSections')}")
+                        if "focus" in merged_params:
+                            instructions_parts.append(f"Focus: {merged_params.pop('focus')}")
+                        if "exclude" in merged_params:
+                            instructions_parts.append(f"Exclude: {merged_params.pop('exclude')}")
                         if "additionalInstructions" in merged_params:
-                            merged_params["instruction"] = merged_params.pop("additionalInstructions")
-                            
+                            instructions_parts.append(f"Instructions: {merged_params.pop('additionalInstructions')}")
+                        
+                        if instructions_parts:
+                            merged_params["instruction"] = "\n".join(instructions_parts)
+
+                    elif "visualizer" in step_type:
+                        # Ensure specific visualizer fields are passed (renderingType is usually enough)
+                        pass
+
                     step['params'] = merged_params
                 
                 # Handle Formatter Steps - Convert to DOCUMENT_CONVERTER
@@ -164,8 +209,9 @@ class AgentRuntime:
                     selected_params = step['params']
                     
                     # Resolve Format ID to Extension using DB
-                    # Check textFormatId, graphicsFormatId, dataFormatId
-                    fmt_id = config.get("textFormatId") or config.get("graphicsFormatId") or config.get("dataFormatId")
+                    # Prioritize new unified 'outputFormatId'
+                    fmt_id = config.get("outputFormatId") or config.get("textFormatId") or config.get("graphicsFormatId") or config.get("dataFormatId")
+                    
                     if fmt_id and self.db:
                         fmt = self.db.query(SmartOutputFormat).filter(SmartOutputFormat.id == fmt_id).first()
                         if fmt:

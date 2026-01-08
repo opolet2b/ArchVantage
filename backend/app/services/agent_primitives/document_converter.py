@@ -62,7 +62,7 @@ class DocumentConverterPrimitive(BasePrimitive):
                 },
                 "output_format": {
                     "type": "string",
-                    "enum": ["pdf", "html", "markdown", "md", "rtf", "txt"],
+                    "enum": ["pdf", "html", "markdown", "md", "rtf", "txt", "csv"],
                     "description": "Target format (REQUIRED)"
                 },
                 "output_path": {
@@ -379,7 +379,8 @@ class DocumentConverterPrimitive(BasePrimitive):
             ('html', 'pdf'), ('html', 'markdown'), ('html', 'rtf'), ('html', 'txt'),
             ('pdf', 'txt'), ('pdf', 'html'), ('pdf', 'markdown'),
             ('rtf', 'txt'), ('rtf', 'html'), ('rtf', 'markdown'), ('rtf', 'pdf'),
-            ('txt', 'html'), ('txt', 'markdown'), ('txt', 'pdf'), ('txt', 'rtf')
+            ('txt', 'html'), ('txt', 'markdown'), ('txt', 'pdf'), ('txt', 'rtf'), ('txt', 'csv'),
+            ('markdown', 'csv')
         }
         
         return (from_fmt, to_fmt) in supported
@@ -465,6 +466,125 @@ class DocumentConverterPrimitive(BasePrimitive):
             html_parts.append('</body></html>')
             return '\\n'.join(html_parts)
         
+        import csv
+        from io import StringIO
+        import re
+
+        def md_to_csv(md: str) -> str:
+            """
+            Convert Markdown content to CSV.
+            Smart Logic:
+            1. Table Detection:
+               - If simple data table -> Standard CSV.
+               - If 'Layout Table' (cells with bullets/newlines) -> Flatten to 'Category, Content'.
+            2. List Detection: Flatten to 'Section, Content'.
+            3. Fallback: Text.
+            """
+            # 1. Table Detection & Parsing
+            table_rows = []
+            lines = md.split('\n')
+            in_table = False
+            
+            for line in lines:
+                if line.strip().startswith('|'):
+                    if re.match(r'\|\s*:?-+:?\s*\|', line):
+                        continue
+                    cells = [c.strip() for c in line.strip().split('|')]
+                    if line.strip().startswith('|') and line.strip().endswith('|'):
+                        cells = cells[1:-1]
+                    table_rows.append(cells)
+                    in_table = True
+                elif in_table:
+                    break
+            
+            if len(table_rows) > 1:
+                # Check for "Rich Content" (Lists/Newlines) to decide strategy
+                has_rich_content = any(
+                    ('<br>' in cell or '- ' in cell or len(cell) > 100) 
+                    for row in table_rows for cell in row
+                )
+                
+                if not has_rich_content:
+                    # Simple Data Table -> Return as-is
+                    output = StringIO()
+                    writer = csv.writer(output)
+                    writer.writerows(table_rows)
+                    return output.getvalue()
+                
+                # Complex Layout Table -> Flatten to "Category, Item"
+                # Heuristic: Short rows are Headers, Long rows are Content
+                flat_rows = [["Category", "Content"]]
+                current_headers = ["Column " + str(i+1) for i in range(len(table_rows[0]))]
+                
+                for row in table_rows:
+                    # Is this a Header Row? (All cells short, no bullets)
+                    is_header_row = all(len(cell) < 50 and not '<br>' in cell and not '- ' in cell for cell in row)
+                    
+                    if is_header_row:
+                        current_headers = row
+                        # Normalize headers to match column count
+                        if len(current_headers) < len(row):
+                             current_headers.extend(["Col"] * (len(row) - len(current_headers)))
+                        continue
+                        
+                    # Process Content Row
+                    for i, cell in enumerate(row):
+                        if i >= len(current_headers): break
+                        category = current_headers[i]
+                        
+                        # Clean and Split content
+                        # Replace <br> with newlines, then split by newline
+                        clean_cell = cell.replace('<br>', '\n').replace('<br/>', '\n')
+                        items = clean_cell.split('\n')
+                        
+                        for item in items:
+                            item = item.strip()
+                            # Remove bullet points
+                            if item.startswith('- ') or item.startswith('* '):
+                                item = item[2:].strip()
+                            elif re.match(r'^\d+\.', item):
+                                item = re.sub(r'^\d+\.\s*', '', item)
+                            
+                            if item:
+                                flat_rows.append([category, item])
+                                
+                output = StringIO()
+                writer = csv.writer(output)
+                writer.writerows(flat_rows)
+                return output.getvalue()
+            
+            # 2. Section + List Detection (SAME AS BEFORE)
+            csv_rows = [["Section", "Content"]]
+            current_section = "General"
+            has_structured_data = False
+            
+            for line in lines:
+                line = line.strip()
+                if not line: continue
+                if line.startswith('#'):
+                    current_section = line.lstrip('#').strip()
+                elif line.startswith('**') and line.endswith('**'):
+                    current_section = line[2:-2].strip()
+                elif line.startswith('- ') or line.startswith('* '):
+                    content = line[2:].strip()
+                    csv_rows.append([current_section, content])
+                    has_structured_data = True
+                elif re.match(r'\d+\.', line):
+                    parts = line.split('.', 1)
+                    if len(parts) > 1:
+                        content = parts[1].strip()
+                        csv_rows.append([current_section, content])
+                        has_structured_data = True
+            
+            if has_structured_data:
+                output = StringIO()
+                writer = csv.writer(output)
+                writer.writerows(csv_rows)
+                return output.getvalue()
+
+            # 3. Fallback
+            return f'"Content"\n"{md.replace(chr(34), "")}"'
+
         # Conversion matrix using multi-step paths
         # Direct conversions
         if (from_fmt, to_fmt) == ('markdown', 'html'):
@@ -488,6 +608,8 @@ class DocumentConverterPrimitive(BasePrimitive):
                 return html_to_pdf(html)
             elif to_fmt == 'txt':
                 return html_to_md(html)  # MD → HTML → MD strips formatting
+            elif to_fmt == 'csv':
+                return md_to_csv(content)
             else:  # rtf
                 return html  # Return HTML (RTF generation complex, return HTML as fallback)
         
@@ -516,6 +638,8 @@ class DocumentConverterPrimitive(BasePrimitive):
                 return html_to_pdf(html)
             elif to_fmt == 'markdown':
                 return content  # Plain text is valid markdown
+            elif to_fmt == 'csv':
+                return md_to_csv(content)
             elif to_fmt == 'rtf':
                 return html  # Return HTML as fallback
         
@@ -524,6 +648,10 @@ class DocumentConverterPrimitive(BasePrimitive):
                 return html_to_md(content)  # MD converter produces clean text
             elif to_fmt == 'rtf':
                 return content  # Return HTML as fallback
+            elif to_fmt == 'csv':
+                # Convert HTML to MD first, then to CSV
+                return md_to_csv(html_to_md(content))
+
         
         # Fallback
         return content

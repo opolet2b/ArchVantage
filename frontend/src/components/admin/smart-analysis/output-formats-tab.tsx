@@ -23,11 +23,12 @@ interface OutputFormatItem {
 
 export function OutputFormatsTab() {
     const [items, setItems] = useState<OutputFormatItem[]>([]);
+    const [categories, setCategories] = useState<any[]>([]); // For dropdown
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
 
     const [newItem, setNewItem] = useState<Partial<OutputFormatItem>>({
-        type: "Text",
+        type: "",
         name: "",
         extension: "",
         content_type: "",
@@ -36,7 +37,22 @@ export function OutputFormatsTab() {
 
     useEffect(() => {
         fetchItems();
+        fetchCategories();
     }, []);
+
+    const fetchCategories = async () => {
+        try {
+            const res = await fetch(`${API_URL}/smart-templates/categories`);
+            if (res.ok) {
+                const data = await res.json();
+                // Filter for Output Format context
+                const outputCats = data.filter((c: any) => c.context === "Output Format");
+                setCategories(outputCats);
+            }
+        } catch (error) {
+            console.error("Failed to fetch categories:", error);
+        }
+    };
 
     const fetchItems = async () => {
         try {
@@ -58,6 +74,26 @@ export function OutputFormatsTab() {
 
     const handleSave = async () => {
         try {
+            if (!newItem.type) {
+                alert("Please select a Format Type (Category).");
+                return;
+            }
+
+            // Prepare payload
+            const payload = { ...newItem };
+
+            // Parse structure template if string
+            if (typeof payload.structure_template === 'string' && payload.structure_template.trim() !== "") {
+                try {
+                    payload.structure_template = JSON.parse(payload.structure_template);
+                } catch (e) {
+                    alert("Structure Template must be valid JSON");
+                    return;
+                }
+            } else if (payload.structure_template === "") {
+                payload.structure_template = null;
+            }
+
             const url = editingId
                 ? `${API_URL}/smart-templates/output-formats/${editingId}`
                 : `${API_URL}/smart-templates/output-formats`;
@@ -66,7 +102,7 @@ export function OutputFormatsTab() {
             const res = await fetch(url, {
                 method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newItem),
+                body: JSON.stringify(payload),
             });
 
             if (res.ok) {
@@ -78,9 +114,13 @@ export function OutputFormatsTab() {
                 }
                 setIsDialogOpen(false);
                 resetForm();
+            } else {
+                console.error("Save failed:", res.statusText);
+                alert(`Failed to save: ${res.statusText}`);
             }
         } catch (error) {
             console.error("Failed to save output format:", error);
+            alert("Error saving output format");
         }
     };
 
@@ -89,6 +129,8 @@ export function OutputFormatsTab() {
             type: item.type,
             name: item.name,
             extension: item.extension,
+            content_type: item.content_type || "",
+            structure_template: item.structure_template || "",
         });
         setEditingId(item.id);
         setIsDialogOpen(true);
@@ -139,13 +181,20 @@ export function OutputFormatsTab() {
                         </DialogHeader>
                         <div className="grid gap-6 py-4 flex-1 overflow-y-auto px-1">
                             <div className="space-y-2">
-                                <Label htmlFor="type" className="text-xs font-semibold text-muted-foreground uppercase">FORMAT TYPE (EXTENSION)</Label>
-                                <Input
-                                    id="type"
-                                    placeholder="e.g. DOCX, PDF, JSON"
+                                <Label htmlFor="type" className="text-xs font-semibold text-muted-foreground uppercase">FORMAT TYPE (CATEGORY) *</Label>
+                                <Select
                                     value={newItem.type}
-                                    onChange={(e) => setNewItem({ ...newItem, type: e.target.value })}
-                                />
+                                    onValueChange={(val) => setNewItem({ ...newItem, type: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select Category" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {categories.map((c) => (
+                                            <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="name" className="text-xs font-semibold text-muted-foreground uppercase">FRIENDLY NAME</Label>
@@ -157,23 +206,33 @@ export function OutputFormatsTab() {
                                 />
                             </div>
                             <div className="space-y-2">
+                                <Label htmlFor="extension" className="text-xs font-semibold text-muted-foreground uppercase">FILE EXTENSION</Label>
+                                <Input
+                                    id="extension"
+                                    placeholder="e.g. pdf (no dot)"
+                                    value={newItem.extension}
+                                    onChange={(e) => setNewItem({ ...newItem, extension: e.target.value })}
+                                />
+                            </div>
+                            <div className="space-y-2">
                                 <Label htmlFor="content" className="text-xs font-semibold text-muted-foreground uppercase">CONTENT TYPE (MIME)</Label>
                                 <Input
                                     id="content"
-                                    placeholder="e.g. application/vnd.openxmlformats-officedocument..."
+                                    placeholder="e.g. application/pdf"
                                     value={newItem.content_type || ""}
                                     onChange={(e) => setNewItem({ ...newItem, content_type: e.target.value })}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="structure" className="text-xs font-semibold text-muted-foreground uppercase">STRUCTURE TEMPLATE (OPTIONAL)</Label>
+                                <Label htmlFor="structure" className="text-xs font-semibold text-muted-foreground uppercase">STRUCTURE TEMPLATE (JSON)</Label>
                                 <Textarea
                                     id="structure"
-                                    placeholder="Define structure template..."
+                                    placeholder="{ ... }"
                                     value={typeof newItem.structure_template === 'string' ? newItem.structure_template : JSON.stringify(newItem.structure_template, null, 2)}
                                     onChange={(e) => setNewItem({ ...newItem, structure_template: e.target.value })}
                                     className="min-h-[150px] font-mono text-xs"
                                 />
+                                <p className="text-[10px] text-muted-foreground">Must be valid JSON</p>
                             </div>
                         </div>
                         <DialogFooter className="flex sm:justify-between w-full gap-2">

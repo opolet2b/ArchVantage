@@ -175,6 +175,7 @@ export function GlobalCategoriesTab() {
                                         <SelectItem value="Rendering Type">Rendering Type</SelectItem>
                                         <SelectItem value="Framework">Framework</SelectItem>
                                         <SelectItem value="Thesaurus">Thesaurus</SelectItem>
+                                        <SelectItem value="Output Format">Output Format</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>

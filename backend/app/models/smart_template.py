@@ -96,6 +96,8 @@ class SmartOutputFormat(Base):
     type = Column(String, nullable=False) # Text, Graphics, Data
     name = Column(String, nullable=False) # e.g. ".pdf", "Mermaid Code"
     extension = Column(String, nullable=False) # e.g. "pdf"
+    content_type = Column(String, nullable=True)
+    structure_template = Column(JSON, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

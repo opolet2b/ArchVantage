@@ -56,7 +56,7 @@ export function SelectableContent({
     const visionModel = useCanvasStore((state) => state.visionModel);
     // Remove direct subscription to prevent infinite render loops
     // const things = useCanvasStore((state) => state.things);
-    const { analyze, isLoading } = useAnalyze();
+    const { analyze, isLoading, error } = useAnalyze();
 
     // Helper to fetch image as base64
     const fetchImageAsBase64 = React.useCallback(async (url: string): Promise<string | null> => {
@@ -98,18 +98,35 @@ export function SelectableContent({
             const thing = store.things.find(t => t.id === thingId);
             const regionFrag = fragment as any;
 
+            let imageUrl: string | undefined;
+
+            const content = thing?.content as any;
+
+            // Handle Image Things
+            if (thing && thing.type === "image" && content?.file_path) {
+                imageUrl = content.file_path;
+            }
+            // Handle Slideshow Things
+            else if (thing && thing.type === "slideshow" && content?.slides) {
+                const slideIndex = (fragment as any).slideIndex || 0;
+                const slide = content.slides[slideIndex];
+                if (slide && slide.file_path) {
+                    imageUrl = slide.file_path;
+                    console.log(`[SelectableContent] Target is Slideshow. Slide Index: ${slideIndex}, Path: ${imageUrl}`);
+                }
+            }
+
             console.log("[SelectableContent] Debugging thing:", {
                 found: !!thing,
                 id: thing?.id,
                 type: thing?.type,
-                contentType: typeof thing?.content,
-                filePath: thing?.content?.file_path,
-                isImage: thing?.type === "image"
+                imageUrl: imageUrl,
+                isImageOrSlideshow: !!imageUrl
             });
 
-            if (thing && thing.type === "image" && thing.content.file_path) {
+            if (imageUrl) {
                 console.log("[SelectableContent] Fetching full image for cropping...");
-                const base64Full = await fetchImageAsBase64(thing.content.file_path as string);
+                const base64Full = await fetchImageAsBase64(imageUrl);
 
                 if (base64Full) {
                     try {
@@ -265,6 +282,8 @@ export function SelectableContent({
     const handleAction = React.useCallback(
         async (action: LLMAction, fragment: Fragment) => {
             if (action === "ask") {
+                // FIX: Save the fragment immediately so it doesn't get lost if 'selection' state is cleared
+                setAnalysisSourceFragment(fragment);
                 setAskDialogOpen(true);
                 return;
             }
@@ -301,8 +320,12 @@ export function SelectableContent({
 
         console.log("[SelectableContent] handleAskSubmit called");
 
-        if (!selection || !canvasId || !customPrompt.trim()) {
-            console.warn("[SelectableContent] Ask submit aborted: missing selection or prompt");
+        // Use saved fragment if selection is lost
+        const effectiveFragment = selection?.fragment || analysisSourceFragment;
+
+        if (!effectiveFragment || !canvasId || !customPrompt.trim()) {
+            console.warn(`[SelectableContent] Ask submit aborted. EffectiveFragment: ${!!effectiveFragment}, Prompt Len: ${customPrompt.length}, CanvasId: ${canvasId}`);
+            if (!effectiveFragment) console.warn("[SelectableContent] No valid fragment source found");
             return;
         }
 
@@ -310,8 +333,9 @@ export function SelectableContent({
 
         // 2. Start analysis (Selection remains for toolbar loading state)
         try {
-            const fragmentToAnalyze = await prepareFragmentForAnalysis(selection.fragment);
-            setAnalysisSourceFragment(selection.fragment);
+            const fragmentToAnalyze = await prepareFragmentForAnalysis(effectiveFragment);
+            // Ensure we keep it saved
+            if (!analysisSourceFragment) setAnalysisSourceFragment(effectiveFragment);
 
             console.log("[SelectableContent] Calling analyze...");
             const result = await analyze({
@@ -326,20 +350,25 @@ export function SelectableContent({
             console.log("[SelectableContent] Analyze result:", !!result);
 
             if (result && result.result) {
-                await createNodeAndLink(result.result, selection.fragment);
+                await createNodeAndLink(result.result, effectiveFragment);
+                // Only close on success
+                setAskDialogOpen(false);
+                setCustomPrompt("");
+                setAnalysisSourceFragment(null);
+
+                // Clearing selection only on success to effectively close the flow
+                console.log("[SelectableContent] Clearing selection");
+                clearSelection();
+            } else {
+                console.warn("[SelectableContent] Analysis failed or returned empty result");
+                // Do NOT close dialog, user can retry
             }
 
-            // Only close on success/completion
-            setAskDialogOpen(false);
-            setCustomPrompt("");
         } catch (err) {
             console.error("[SelectableContent] Ask failed:", err);
-        } finally {
-            // 3. Cleanup
-            console.log("[SelectableContent] Clearing selection");
-            clearSelection();
+            // Do NOT clear selection here, let user see error in dialog
         }
-    }, [canvasId, thingId, selection, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis]);
+    }, [canvasId, thingId, selection, analysisSourceFragment, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis]);
 
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {
@@ -491,6 +520,12 @@ export function SelectableContent({
                         </div>
                     ) : (
                         <div className="space-y-4 py-4">
+                            {error && (
+                                <div className="p-3 bg-red-50 text-red-600 text-sm rounded border border-red-100 flex flex-col gap-1">
+                                    <span className="font-semibold">Analysis Failed</span>
+                                    <span>{error}</span>
+                                </div>
+                            )}
                             <div className="space-y-2">
                                 <Label htmlFor="prompt">Your question</Label>
                                 <Input
@@ -504,10 +539,23 @@ export function SelectableContent({
                             </div>
                             {selection?.fragment.content && (
                                 <div className="space-y-2">
-                                    <Label>Selected text</Label>
-                                    <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded text-sm max-h-20 overflow-auto">
-                                        {selection.fragment.content.slice(0, 200)}
-                                        {selection.fragment.content.length > 200 && "..."}
+                                    <Label>Selected Content</Label>
+                                    <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded text-sm max-h-32 overflow-auto break-all">
+                                        {selection.fragment.content.startsWith("data:image") ? (
+                                            <div className="flex flex-col items-start gap-2">
+                                                <span className="text-xs text-muted-foreground italic">[Image Fragment]</span>
+                                                <img
+                                                    src={selection.fragment.content}
+                                                    alt="Selected fragment"
+                                                    className="max-h-24 rounded border border-slate-200 dark:border-slate-700 object-contain"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {selection.fragment.content.slice(0, 500)}
+                                                {selection.fragment.content.length > 500 && "..."}
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             )}

@@ -1185,7 +1185,10 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         const content = thing.content;
         const filename = content.filename as string | undefined;
 
-        switch (thing.type) {
+        // Normalize type to handle backend Enum casing differences (e.g. "TABLE" vs "table")
+        const type = (thing.type || "").toLowerCase();
+
+        switch (type) {
             case "mcp_tool":
                 return <MCPToolViewer thing={thing} />;
 
@@ -1404,6 +1407,23 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                 setSelection(thing.id, fragment, position);
                             }}
                             onOverlayDelete={handleOverlayDelete}
+                        />
+                    </SelectableContent>
+                );
+
+            case "table":
+                // Handle direct data (from backend parser) or fallback to file/csv
+                const tableData = (content.data as any[][]) || [];
+                const tableContent = (content.csv as string) || (content.markdown as string) || "";
+
+                return (
+                    <SelectableContent thingId={thing.id}>
+                        <SpreadsheetViewer
+                            content={tableContent}
+                            initialData={tableData}
+                            filename={filename || thing.title || "Table"}
+                            className={cn(thing.height ? "h-full" : "max-h-[200px]")}
+                            highlight={highlight}
                         />
                     </SelectableContent>
                 );

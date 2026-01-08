@@ -3,7 +3,8 @@ Extractor Primitive
 
 Uses an LLM to extract structured data from text based on a provided schema.
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+import logging
 import json
 import re
 

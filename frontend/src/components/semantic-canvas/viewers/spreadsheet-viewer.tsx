@@ -30,6 +30,8 @@ interface SpreadsheetViewerProps {
     selectionEnabled?: boolean;
     /** Optional highlight fragment */
     highlight?: { range?: string } | null;
+    /** Direct data array injection (bypasses parsing) */
+    initialData?: any[][];
 }
 
 // =============================================================================
@@ -43,8 +45,9 @@ export function SpreadsheetViewer({
     className,
     selectionEnabled = true,
     highlight,
+    initialData,
 }: SpreadsheetViewerProps) {
-    const [data, setData] = React.useState<any[][]>([]);
+    const [data, setData] = React.useState<any[][]>(initialData || []);
     const [headers, setHeaders] = React.useState<string[]>([]);
     const [sheets, setSheets] = React.useState<string[]>([]);
     const [activeSheet, setActiveSheet] = React.useState<string>("");
@@ -60,23 +63,28 @@ export function SpreadsheetViewer({
     // Reset page when loading new content
     React.useEffect(() => {
         setPage(0);
-    }, [content]);
+    }, [content, initialData]);
 
     // Manual load handler
     const handleLoad = React.useCallback(async () => {
+        // If we have initial data (direct injection), skip loading from content URL/String
+        if (initialData && initialData.length > 0) {
+            setSheets(["Data"]);
+            setActiveSheet("Data");
+            setIsLoaded(true);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
 
         try {
             let workbook: XLSX.WorkBook;
+            // ... (rest of logic same) ...
 
             // Check if content is a valid URL (blob, absolute http, or relative api path)
             if (content.startsWith("blob:") || content.startsWith("http") || content.startsWith("/")) {
-                // Determine response type based on file extension if possible, or just arraybuffer
-                // If it's an API URL, we might need auth headers if it's protected?
-                // The /api/v1/assets/{id} endpoint relies on cookies or we might need the token.
-                // Standard fetch here might miss the token if it's in localStorage.
-
+                // ... fetch logic ...
                 const token = typeof localStorage !== 'undefined' ? localStorage.getItem("token") : null;
                 const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
 
@@ -106,7 +114,7 @@ export function SpreadsheetViewer({
         } finally {
             setIsLoading(false);
         }
-    }, [content]);
+    }, [content, initialData]);
 
     // Auto-load effect
     React.useEffect(() => {
@@ -115,7 +123,22 @@ export function SpreadsheetViewer({
 
     // Effect to load data when active sheet changes
     React.useEffect(() => {
-        if (!activeSheet || !workbookRef.current) return;
+        if (!activeSheet) return;
+
+        // Handle initialData case
+        if (initialData && activeSheet === "Data") {
+            if (initialData.length > 0) {
+                setHeaders(initialData[0] as string[]);
+                setData(initialData.slice(1) as any[][]);
+            } else {
+                setHeaders([]);
+                setData([]);
+            }
+            setPage(0);
+            return;
+        }
+
+        if (!workbookRef.current) return;
 
         try {
             const sheet = workbookRef.current.Sheets[activeSheet];
@@ -134,7 +157,7 @@ export function SpreadsheetViewer({
         } catch (e) {
             console.error("Error loading sheet:", e);
         }
-    }, [activeSheet]);
+    }, [activeSheet, initialData]);
 
     // State for multi-selection tracking
     const lastSelectedRowRef = React.useRef<number | null>(null);

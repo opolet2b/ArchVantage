@@ -531,6 +531,7 @@ class SmartTemplateService:
             setattr(db_item, key, value)
         db.commit()
         db.refresh(db_item)
+        return db_item
     async def execute_template_stream(self, db: Session, request: canvas_schemas.ExecuteTemplateRequest):
         """
         Execute a template and yield progress events.
@@ -593,7 +594,8 @@ class SmartTemplateService:
         if template.pipeline_config:
             steps = template.pipeline_config.get("steps", [])
             for s in steps:
-                if s.get("type") == "extractor":
+                s_type = s.get("type", "").lower()
+                if "extractor" in s_type:
                     config = s.get("config", {})
                     try:
                         with open("app_debug.log", "a") as f:
@@ -786,7 +788,6 @@ class SmartTemplateService:
 
                     # 3. Parameter-Based Type Resolution
                     
-                    # Resolve values checking both formats
                     # 3. Deterministic Category Resolution (Visualizer -> Formatter)
                     target_format_id = None
                     resolved_category = "text" # Default
@@ -807,20 +808,54 @@ class SmartTemplateService:
                             resolved_category = r_type_obj.category.lower()
                             print(f"[SmartTemplate] Found Visualizer Category: {resolved_category}")
                     
-                    # C. Select the appropriate Format ID based on Category
-                    # "Text", "Table", "Picture", "Diagram", "Combination"
-                    if "text" in resolved_category or "summary" in resolved_category:
-                        target_format_id = current_node_params.get("text_format") or current_node_params.get("textFormatId")
+                    # ROBUST FIX: Explicitly find Formatter Step config
+                    # The 'last_executed_node' might be misleading (e.g. pointing to Extractor).
+                    # We know valid Output Config lives in the Formatter step.
+                    formatter_params = {}
+                    if isinstance(steps, list):
+                        for s in steps:
+                            if s.get("type") == "formatter":
+                                formatter_params = s.get("params", {})
+                                break
+                    elif isinstance(nodes, list):
+                         for n in nodes:
+                             if n.get("type") == "formatter" or "formatter" in n.get("id", ""):
+                                 formatter_params = n.get("data", {}).get("params", {}) or n.get("params", {})
+                                 break
+
+                    # Fallback to current_node_params if formatter not found (legacy or generic agent)
+                    target_params = formatter_params or current_node_params
+
+                    # C. Select the appropriate Format ID
+                    # Priority: 1. Unified 'outputFormatId' 2. Legacy Category-based IDs
+                    unified_fmt_id = target_params.get("outputFormatId") or target_params.get("output_format_id")
+                    
+                    # LOGGING START
+                    with open("C:/Users/opole/Downloads/ChatBotn/backend/debug_trace.txt", "a") as trace:
+                         trace.write(f"\n[TRACE] Target Params Keys: {list(target_params.keys())}\n")
+                         trace.write(f"[TRACE] Unified ID: {unified_fmt_id}\n")
+                         trace.write(f"[TRACE] Resolved Category (Visualizer): {resolved_category}\n")
+                    # LOGGING END
+
+                    if unified_fmt_id:
+                         target_format_id = unified_fmt_id
+                    elif "text" in resolved_category or "summary" in resolved_category:
+                        target_format_id = target_params.get("text_format") or target_params.get("textFormatId")
                     elif "picture" in resolved_category or "image" in resolved_category or "diagram" in resolved_category:
-                        target_format_id = current_node_params.get("graphic_format") or current_node_params.get("graphicsFormatId")
+                        target_format_id = target_params.get("graphic_format") or target_params.get("graphicsFormatId")
                     elif "table" in resolved_category or "data" in resolved_category:
-                        target_format_id = current_node_params.get("data_format") or current_node_params.get("dataFormatId")
+                        target_format_id = target_params.get("data_format") or target_params.get("dataFormatId")
                     
                     print(f"[SmartTemplate] Selected Format ID: {target_format_id} (Category: {resolved_category})")
 
                     # D. Resolve the Target Format
                     if target_format_id:
                         _p_type, fmt_ext = resolve_fmt_type(target_format_id)
+                        
+                        # LOGGING TYPE RESOLUTION
+                        with open("C:/Users/opole/Downloads/ChatBotn/backend/debug_trace.txt", "a") as trace:
+                             trace.write(f"[TRACE] Target ID: {target_format_id}\n")
+                             trace.write(f"[TRACE] Resolved Type: {_p_type}, Ext: {fmt_ext}\n")
                         
                         # Graphic/Image
                         if "image" in str(fmt_ext) or "image" in str(_p_type) or "picture" in resolved_category:
@@ -843,24 +878,93 @@ class SmartTemplateService:
                         # Table/Data
                         elif "csv" in str(fmt_ext) or "json" in str(fmt_ext) or "table" in str(_p_type):
                              thing_type = ThingType.TABLE
+                             
+                             # DEBUG LOGGING
+                             with open("smart_debug.log", "a", encoding="utf-8") as f:
+                                 f.write(f"\n[SmartTemplate] Processing TABLE format. CurrentOutput Type: {type(current_output)}\n")
+                                 if isinstance(current_output, dict):
+                                     f.write(f"[SmartTemplate] Dict Keys: {list(current_output.keys())}\n")
+                                 elif isinstance(current_output, str):
+                                     f.write(f"[SmartTemplate] String Len: {len(current_output)}\n")
+
                              # Try to find table data
-                             if isinstance(current_output, dict) and "visualizer_output" in current_output:
-                                 viz_out = current_output["visualizer_output"]
-                                 if "visual_payload" in viz_out:
-                                     payload = viz_out["visual_payload"]
-                                     content = payload.get("content")
-                                     if isinstance(content, list):
-                                         thing_content["data"] = content
-                                     else:
-                                         # If content is string (e.g. Markdown Table), might need to store as text/markdown
-                                         # But we are in TABLE block. Let's provide it as 'markdown' key if strict Table component can't handle it
-                                         thing_content["markdown"] = str(content)
-                                         thing_content["data"] = [] # Empty data for safety
+                             target_content = None
+                             if isinstance(current_output, dict):
+                                 if "visualizer_output" in current_output:
+                                     with open("smart_debug.log", "a", encoding="utf-8") as f: f.write("[SmartTemplate] Found visualizer_output\n")
+                                     payload = current_output["visualizer_output"].get("visual_payload", {})
+                                     target_content = payload.get("content")
+                                 elif "converted_document" in current_output:
+                                      # New logic for DocumentConverter output
+                                      with open("smart_debug.log", "a", encoding="utf-8") as f: f.write("[SmartTemplate] Found converted_document\n")
+                                      target_content = current_output["converted_document"]
+                                      with open("smart_debug.log", "a", encoding="utf-8") as f: f.write(f"[SmartTemplate] Content Preview: {str(target_content)[:200]}\n")
+                                      
                              elif isinstance(current_output, list):
-                                 thing_content["data"] = current_output
+                                 with open("smart_debug.log", "a", encoding="utf-8") as f: f.write("[SmartTemplate] Output is List, using as data\n")
+                                 target_content = current_output
+                             
+                             # Process found content
+                             if target_content:
+                                 # 1. Parse Data if not already a list
+                                 parsed_data = []
+                                 if isinstance(target_content, list):
+                                     parsed_data = target_content
+                                 else:
+                                     val = str(target_content)
+                                     thing_content["markdown"] = val
+                                     thing_content["text"] = val
+                                     
+                                     # HTML Table Parsing
+                                     if "<table" in val.lower() or "<thead>" in val.lower():
+                                         try:
+                                             import re
+                                             # Simple regex to extract rows
+                                             row_pattern = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+                                             cell_pattern = re.compile(r"<(?:td|th)[^>]*>(.*?)</(?:td|th)>", re.DOTALL | re.IGNORECASE)
+                                             
+                                             rows = row_pattern.findall(val)
+                                             with open("smart_debug.log", "a", encoding="utf-8") as f: f.write(f"[SmartTemplate] Regex found {len(rows)} rows\n")
+                                             
+                                             for r in rows:
+                                                 cells = cell_pattern.findall(r)
+                                                 # Clean cell text
+                                                 clean_cells = []
+                                                 for c in cells:
+                                                     # Remove nested tags and bold markers
+                                                     text = re.sub(r"<[^>]+>", "", c)
+                                                     text = text.replace("&nbsp;", " ").replace("**", "").strip()
+                                                     clean_cells.append(text)
+                                                 if clean_cells:
+                                                     parsed_data.append(clean_cells)
+                                             
+                                             with open("smart_debug.log", "a", encoding="utf-8") as f: 
+                                                  f.write(f"[SmartTemplate] Parsed {len(parsed_data)} rows from HTML table\n")
+                                         except Exception as e:
+                                             with open("smart_debug.log", "a", encoding="utf-8") as f: f.write(f"[SmartTemplate] Error parsing HTML table: {e}\n")
+                                             print(f"Error parsing HTML table: {e}")
+
+                                     # CSV Fallback
+                                     elif "csv" in str(fmt_ext) and not parsed_data:
+                                          try:
+                                               import csv
+                                               from io import StringIO
+                                               f = StringIO(val)
+                                               reader = csv.reader(f)
+                                               data = list(reader)
+                                               if data: parsed_data = data
+                                          except Exception as e:
+                                               with open("smart_debug.log", "a", encoding="utf-8") as f: f.write(f"[SmartTemplate] Error parsing CSV: {e}\n")
+                                 
+                                 # 2. Assign Data
+                                 if parsed_data:
+                                     thing_content["data"] = parsed_data
+                                     with open("smart_debug.log", "a", encoding="utf-8") as f: f.write(f"[SmartTemplate] Assigned {len(parsed_data)} rows to thing_content['data']\n")
+                                 
                              
                              # Fallback: If we wanted a TABLE but got no data, check if we have text/markdown
                              if "data" not in thing_content and not thing_content.get("markdown"):
+                                 with open("smart_debug.log", "a", encoding="utf-8") as f: f.write("[SmartTemplate] No data found yet. Checking fallbacks...\n")
                                  # We failed to get structured table data.
                                  # Check if we have standard text output (fallback from TextTemplate)
                                  # OR if we have Agent's formatted_output (SWOT table)
@@ -872,8 +976,34 @@ class SmartTemplateService:
                                           current_output.get("_raw")
                                       )
                                  elif isinstance(current_output, str):
-                                      raw_text = current_output
-                                 
+                                      # If it's a TABLE type and we have a string (likely CSV from DocumentConverter)
+                                      with open("debug_csv.txt", "a") as log:
+                                          log.write(f"\n[SmartTemplate DEBUG] Checking CSV Parse. ThingType: {thing_type}, Ext: {fmt_ext}, OutputType: {type(current_output)}\n")
+                                      
+                                      if thing_type == ThingType.TABLE and "csv" in str(fmt_ext):
+                                          try:
+                                              import csv
+                                              from io import StringIO
+                                              f = StringIO(current_output)
+                                              reader = csv.reader(f)
+                                              data = list(reader)
+                                              with open("debug_csv.txt", "a") as log:
+                                                  log.write(f"[SmartTemplate DEBUG] Parsed CSV Data Rows: {len(data)}\n")
+                                              
+                                              if data:
+                                                  thing_content["data"] = data
+                                                  raw_text = None # Do not trigger fallback
+                                              else:
+                                                  raw_text = current_output
+                                          except Exception as e:
+                                              with open("debug_csv.txt", "a") as log:
+                                                  log.write(f"[SmartTemplate DEBUG] Failed to parse: {e}\n")
+                                              raw_text = current_output
+                                      else:
+                                          with open("debug_csv.txt", "a") as log:
+                                              log.write(f"[SmartTemplate DEBUG] Condition Failed. ThingType==TABLE? {thing_type == ThingType.TABLE}, 'csv' in ext? {'csv' in str(fmt_ext)}\n")
+                                          raw_text = current_output
+                                  
                                  if raw_text:
                                       print(f"[SmartTemplate] Table extraction failed, falling back to TEXT node with content (Len: {len(raw_text)}).")
                                       thing_type = ThingType.TEXT
@@ -924,6 +1054,20 @@ class SmartTemplateService:
                             # 1. Create Result Node
                             # Imports are global now
                             
+                            # Determine Target Canvas ID
+                            # CRITICAL FIX: Always co-locate result with the source nodes.
+                            # If we rely solely on request.canvas_id, we might create the node on a "shadow" canvas
+                            # if the Frontend URL state is desynchronized from the actual node location.
+                            target_canvas_id = request.canvas_id
+                            if things:
+                                # Use the canvas_id of the first source node (assuming all sources are on same canvas for now)
+                                # If cross-canvas sources are supported later, we might need a different strategy,
+                                # but for now, co-location is key for links to work.
+                                target_canvas_id = things[0].canvas_id
+                                if str(target_canvas_id) != str(request.canvas_id):
+                                     print(f"[SmartTemplate] CORRECTING CANVAS ID: Request={request.canvas_id}, SourceNode={target_canvas_id}. Forcing co-location.")
+
+                            
                             # Calculate Centroid Position from Input Things
                             pos_x, pos_y = 400.0, 300.0 # Default fallback
                             if things:
@@ -935,8 +1079,31 @@ class SmartTemplateService:
                                     pos_x = sum([t.position_x for t in valid_things]) / count
                                     pos_y = sum([t.position_y for t in valid_things]) / count
                                     
+                                    # Improved Positioning Strategy: "Next To" (Right Side)
+                                    # Mimic Frontend logic: Place new node to the right of the source.
+                                    # Find the right-most edge of the selection
+                                    max_right = -float('inf')
+                                    top_y = float('inf')
+                                    
+                                    for t in valid_things:
+                                        t_x = t.position_x or 0
+                                        t_y = t.position_y or 0
+                                        t_w = t.width if t.width is not None else 400.0 # Default width
+                                        
+                                        right_edge = t_x + t_w
+                                        if right_edge > max_right:
+                                            max_right = right_edge
+                                            # Align top with the right-most element (or average? Let's use average Y or top Y)
+                                        
+                                        if t_y < top_y:
+                                            top_y = t_y
+                                            
+                                    # Set new position relative to the bounding box of selection
+                                    pos_x = max_right + 50.0 
+                                    pos_y = top_y # Align tops
+                                    
                             new_node = CanvasThing(
-                                canvas_id=request.canvas_id,
+                                canvas_id=target_canvas_id, # Use corrected ID
                                 type=thing_type,
                                 title=thing_title,
                                 content=thing_content,
@@ -951,7 +1118,7 @@ class SmartTemplateService:
                             # 2. Link Inputs to Result
                             for t in things:
                                 link = CanvasLink(
-                                    canvas_id=request.canvas_id,
+                                    canvas_id=target_canvas_id, # Use corrected ID (Links must belong to same canvas)
                                     source_id=t.id,
                                     target_id=new_node.id,
                                     type="related", # The user requested "Related" type
@@ -962,7 +1129,7 @@ class SmartTemplateService:
                             db.commit()
                             db.refresh(new_node)
                             
-                            print(f"[SmartTemplate] Created result node {new_node.id}")
+                            print(f"[SmartTemplate] Created result node {new_node.id} on Canvas {target_canvas_id}")
                             
                             # 3. Notify Frontend
                             yield {
@@ -978,7 +1145,8 @@ class SmartTemplateService:
                                     # Actually, let's also send x/y for compatibility if frontend needs it,
                                     # but based on store it uses position_x/y
                                     "x": new_node.position_x,
-                                    "y": new_node.position_y
+                                    "y": new_node.position_y,
+                                    "canvas_id": target_canvas_id # Send valid canvas ID back so frontend knows where it is
                                 }
                             }
                         except Exception as persistence_error:
