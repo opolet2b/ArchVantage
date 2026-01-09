@@ -1122,12 +1122,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     // Execute Smart Analysis Template
     executeAnalysisTemplate: async (templateId: string, thingIds: string[], domainIds: string[]) => {
-        const { canvasId } = get();
+        const { canvasId, things, selectedModel, visionModel } = get();
         const token = getAuthToken();
         if (!token || !canvasId) return null;
 
         set({ isLoading: true });
-        console.log(`[CanvasStore] Executing template ${templateId} on canvas ${canvasId}`);
+
+        // Determine Model (LLM vs VLM)
+        const targetThings = things.filter(t => thingIds.includes(t.id));
+        const hasVisual = targetThings.some(t => t.type === "image" || t.type === "video" || t.type === "slideshow");
+        const activeModel = hasVisual ? (visionModel || selectedModel) : selectedModel;
+
+        console.log(`[CanvasStore] Executing template ${templateId} on canvas ${canvasId}. Model: ${activeModel} (Vision: ${hasVisual})`);
 
         try {
             const res = await fetch(
@@ -1143,7 +1149,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                         canvas_id: canvasId,
                         thing_ids: thingIds,
                         domain_ids: domainIds,
-                        model: get().selectedModel || undefined
+                        model: activeModel || undefined
                     }),
                 }
             );

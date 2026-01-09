@@ -60,6 +60,7 @@ import {
     RegionFragment,
     useSelection,
     VectorizationPreviewDialog,
+    ChartViewer,
 } from "../viewers";
 import { SlideshowNode } from "./slideshow-node";
 import {
@@ -1194,7 +1195,11 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
 
             case "text":
             case "agent_result": // Treat agent results as text, utilizing markdown viewer if applicable
-                const textVal = cleanContent || (content.text as string) || (content.content as string) || "";
+                let rawVal = cleanContent || content.text || content.content || "";
+                if (typeof rawVal === 'object') {
+                    rawVal = JSON.stringify(rawVal, null, 2);
+                }
+                const textVal = String(rawVal);
 
                 if (isEditingContent && thing.type === "text") {
                     return (
@@ -1211,6 +1216,28 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             </div>
                         </div>
                     )
+                }
+
+                // Check for Visualizer Output (Charts)
+                const visOutput = (thing.content as any)?.visualizer_output;
+                if (visOutput?.visual_payload) {
+                    const st = visOutput.visual_payload.structure_type?.toLowerCase() || "";
+                    if (st === 'chart' || st.includes('chart') || st === 'react_component') {
+                        const chartType = (st === 'chart' || st === 'react_component') ? 'linechart' : st;
+                        return (
+                            <div className="flex flex-col h-full overflow-hidden p-2">
+                                <div className="font-medium text-sm mb-2 px-1">
+                                    {thing.title || "Visual Analysis"}
+                                </div>
+                                <div className="flex-1 min-h-0 border rounded-md bg-slate-50 dark:bg-slate-900/50">
+                                    <ChartViewer
+                                        type={chartType}
+                                        data={visOutput.visual_payload.content}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    }
                 }
 
                 const showAsMarkdown = thing.type === "agent_result" || (isMarkdown(textVal) && !highlight);

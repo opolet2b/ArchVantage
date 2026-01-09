@@ -242,7 +242,10 @@ class JSONMappingPrimitive(BasePrimitive):
         try:
             tree = ast.parse(expression, mode='eval')
             evaluator = SafeEvaluator(variables)
-            return evaluator.visit(tree)
+            result = evaluator.visit(tree)
+            if isinstance(result, slice):
+                return "Error: Expression evaluated to a raw slice object (e.g. [:50]). Slices must be used inside brackets (e.g. data[:50])."
+            return result
         except Exception as e:
             return f"Error: {str(e)}"
 

@@ -87,8 +87,8 @@ export function MarkdownViewer({
                 "prose prose-sm dark:prose-invert max-w-none",
                 "prose-headings:text-foreground prose-p:text-foreground",
                 "prose-a:text-blue-600 dark:prose-a:text-blue-400",
-                "prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:rounded",
-                "prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800",
+                "prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:rounded prose-code:text-slate-900 dark:prose-code:text-slate-100",
+                "prose-pre:bg-slate-100 dark:prose-pre:bg-slate-800 prose-pre:text-slate-900 dark:prose-pre:text-slate-100",
                 selectionEnabled && "select-text cursor-text",
                 className
             )}

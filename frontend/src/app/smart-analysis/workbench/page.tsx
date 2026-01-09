@@ -199,6 +199,10 @@ export default function StudioPage() {
         }
     };
 
+    const handleToggleStep = (id: string, enabled: boolean) => {
+        setSteps(steps.map(s => s.id === id ? { ...s, enabled } : s));
+    };
+
     const selectedStep = steps.find(s => s.id === selectedStepId) || null;
 
     return (
@@ -311,6 +315,7 @@ export default function StudioPage() {
                     steps={steps}
                     selectedStepId={selectedStepId}
                     onSelectStep={setSelectedStepId}
+                    onToggleStep={handleToggleStep}
                 // Removed onDeleteStep and onAddModule
                 />
                 <StudioConfigPanel

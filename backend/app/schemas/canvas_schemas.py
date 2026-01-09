@@ -303,9 +303,9 @@ class FragmentData(BaseModel):
     id: Optional[str] = None
     content: Optional[str] = None
     # Text fragments
-    start_offset: Optional[int] = None
-    end_offset: Optional[int] = None
-    page_number: Optional[int] = None
+    start_offset: Optional[int] = Field(None, alias="startOffset")
+    end_offset: Optional[int] = Field(None, alias="endOffset")
+    page_number: Optional[int] = Field(None, alias="pageNumber")
     # Cell fragments
     sheet: Optional[str] = None
     range: Optional[str] = None
@@ -315,7 +315,7 @@ class FragmentData(BaseModel):
     width: Optional[float] = None
     height: Optional[float] = None
     # Message fragments
-    message_id: Optional[str] = None
+    message_id: Optional[str] = Field(None, alias="messageId")
 
 
 class AnalyzeRequest(BaseModel):
@@ -380,6 +380,7 @@ class ExecuteTemplateRequest(BaseModel):
     thing_ids: List[str] = []
     domain_ids: List[str] = []
     model: Optional[str] = None
+    source_fragment: Optional[FragmentData] = None
 
 class ExecuteTemplateResponse(BaseModel):
     """Response for template execution start."""
@@ -388,3 +389,15 @@ class ExecuteTemplateResponse(BaseModel):
     message: str
 
 
+
+# =============================================================================
+# Visualizer Schemas
+# =============================================================================
+
+class VisualPayload(BaseModel):
+    structure_type: str = Field(..., description="Type of structure: 'chart', 'mermaid', 'markdown', 'react_component'")
+    content: Dict[str, Any] = Field(..., description="The content payload. For charts, this is the props/data object.")
+
+class VisualizerOutput(BaseModel):
+    """Schema for Visualizer Agent Output."""
+    visualizer_output: Dict[str, VisualPayload] = Field(..., description="Wrapper for visual analysis result.")

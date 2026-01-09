@@ -288,16 +288,31 @@ class SmartTemplateService:
         db.refresh(db_item)
         return db_item
 
-    async def _resolve_thing_content(self, db: Session, thing: CanvasThing) -> str:
+    async def _resolve_thing_content(self, db: Session, thing: CanvasThing, fragment: Optional[canvas_schemas.FragmentData] = None) -> str:
         """
         Resolve the actual text content of a thing for analysis.
         Priority:
+        0. Fragment Content (if specific selection exists)
         1. RAG Search (Vectorized content) - Best for "Full Document" with semantic relevance
         2. Direct File Read (Fallback if RAG missing)
         3. Stored metadata/summaries
         """
         content_summary = ""
         content = thing.content or {}
+        
+        # 0. Fragment Priority
+        if fragment:
+            print(f"[ContentResolution] Using Fragment Data (Type: {fragment.type})")
+            if fragment.type == "text" and fragment.content:
+                return fragment.content
+            elif fragment.type == "region":
+                # For regions (images/PDFs), we return a metadata string describing the region
+                # The visualizer/LLM often needs the image itself, but for text-based analysis, this prompts context.
+                return f"[Selected Region at x={fragment.x:.2f}, y={fragment.y:.2f}, w={fragment.width:.2f}, h={fragment.height:.2f}]"
+            elif fragment.type == "cell":
+                return f"[Selected Cell: {fragment.range} in {fragment.sheet}] {fragment.content or ''}"
+            elif fragment.content:
+                return fragment.content
         
         print(f"\n[ContentResolution] Resolving content for Thing '{thing.title}' (ID: {thing.id}, Type: {thing.type.value})")
         
@@ -406,8 +421,9 @@ class SmartTemplateService:
         
         # 3. Construct Inputs
         entities_data = []
+        entities_data = []
         for t in things:
-             content_summary = await self._resolve_thing_content(db, t)
+             content_summary = await self._resolve_thing_content(db, t, request.source_fragment)
 
              entities_data.append({
                  "id": t.id,
@@ -568,7 +584,7 @@ class SmartTemplateService:
         entities_data = [] # Keep for legacy combined_context fallback
         
         for t in things:
-             content_summary = await self._resolve_thing_content(db, t)
+             content_summary = await self._resolve_thing_content(db, t, request.source_fragment)
              
              # Create AssetRef
              asset_ref = AssetRef(
@@ -719,7 +735,7 @@ class SmartTemplateService:
                         print(f"[SmartTemplate] DEBUG: current_output keys: {list(current_output.keys())}")
                         if "generated_markdown" in current_output:
                             print(f"[SmartTemplate] DEBUG: generated_markdown length: {len(current_output['generated_markdown'])}")
-                            print(f"[SmartTemplate] DEBUG: generated_markdown snippet: {current_output['generated_markdown'][:50]}...")
+                            print(f"[SmartTemplate] DEBUG: generated_markdown snippet: {str(current_output['generated_markdown'])[:50]}...")
                         if "_raw" in current_output:
                             print(f"[SmartTemplate] DEBUG: _raw length: {len(str(current_output['_raw']))}")
                     else:
@@ -846,11 +862,27 @@ class SmartTemplateService:
                     elif "table" in resolved_category or "data" in resolved_category:
                         target_format_id = target_params.get("data_format") or target_params.get("dataFormatId")
                     
+                    # Override for Chart/Component Output (Rich Visualization)
+                    if isinstance(current_output, dict) and "visualizer_output" in current_output:
+                        vp = current_output["visualizer_output"].get("visual_payload", {})
+                        st = vp.get("structure_type", "").lower()
+                        # Detect rich visualization intent - simplified to trust the key
+                        # If 'visualizer_output' exists, it is an Agent Result designed for ThingNode consumption
+                        print(f"[SmartTemplate] Detected 'visualizer_output'. Overriding format to AGENT_RESULT.")
+                        target_format_id = "CHART_OVERRIDE"
+
                     print(f"[SmartTemplate] Selected Format ID: {target_format_id} (Category: {resolved_category})")
 
                     # D. Resolve the Target Format
                     if target_format_id:
-                        _p_type, fmt_ext = resolve_fmt_type(target_format_id)
+                        if target_format_id == "CHART_OVERRIDE":
+                             thing_type = ThingType.AGENT_RESULT
+                             # WRAPPER FIX: Frontend expects thing.content.visualizer_output
+                             thing_content = {"visualizer_output": current_output["visualizer_output"]}
+                             _p_type, fmt_ext = "visualizer", "json"
+                             print(f"[SmartTemplate] Handling CHART_OVERRIDE. Assigned Content: {str(thing_content)[:100]}...")
+                        else:
+                            _p_type, fmt_ext = resolve_fmt_type(target_format_id)
                         
                         # LOGGING TYPE RESOLUTION
                         with open("C:/Users/opole/Downloads/ChatBotn/backend/debug_trace.txt", "a") as trace:
@@ -876,7 +908,8 @@ class SmartTemplateService:
                                   }
 
                         # Table/Data
-                        elif "csv" in str(fmt_ext) or "json" in str(fmt_ext) or "table" in str(_p_type):
+                        # Prevent overwriting AGENT_RESULT (which uses json/visualizer types)
+                        elif ("csv" in str(fmt_ext) or "json" in str(fmt_ext) or "table" in str(_p_type)) and thing_type != ThingType.AGENT_RESULT:
                              thing_type = ThingType.TABLE
                              
                              # DEBUG LOGGING
@@ -1013,7 +1046,7 @@ class SmartTemplateService:
                                       # We just need to make sure it finds the formatted_output there too. (We fixed that in Step 1396)
                                   
                         # Text/Document (Default)
-                        else:
+                        elif thing_type != ThingType.AGENT_RESULT:
                              f_path = outputs.get("file_path", "")
                              if ("pdf" in str(fmt_ext) or "document" in str(_p_type)) and f_path:
                                  thing_type = ThingType.DOCUMENT
@@ -1032,7 +1065,7 @@ class SmartTemplateService:
                             raw = current_output
                             # Check for specific 'formatted_output' (SWOT table etc) from Agent
                             # Or standard fields
-                            final_text = (
+                            val = (
                                 raw.get("analysis_results", {}).get("formatted_output") or 
                                 raw.get("generated_markdown") or 
                                 raw.get("text") or 
@@ -1042,6 +1075,8 @@ class SmartTemplateService:
                                 raw.get(current_node_params.get("output_variable") or "converted_document") or
                                 str(raw)
                             )
+                            # CRITICAL: Ensure we never pass a dict/list as 'text' to frontend logic
+                            final_text = str(val) if isinstance(val, (dict, list)) else val
                             thing_content = {"text": final_text, "markdown": final_text}
                          else:
                             val = str(current_output or "")

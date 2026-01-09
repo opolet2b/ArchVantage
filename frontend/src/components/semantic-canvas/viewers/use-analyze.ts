@@ -76,17 +76,18 @@ export function useAnalyze(): UseAnalyzeReturn {
                             fragment: {
                                 type: fragment.type,
                                 content: fragment.content,
-                                // Pass through fragment-specific fields
-                                ...("startOffset" in fragment && { start_offset: fragment.startOffset }),
-                                ...("endOffset" in fragment && { end_offset: fragment.endOffset }),
-                                ...("pageNumber" in fragment && { page_number: fragment.pageNumber }),
+                                id: "id" in fragment ? fragment.id : undefined,
+                                // Pass through fragment-specific fields using camelCase (matches Backend Schema Aliases)
+                                ...("startOffset" in fragment && { startOffset: fragment.startOffset }),
+                                ...("endOffset" in fragment && { endOffset: fragment.endOffset }),
+                                ...("pageNumber" in fragment && { pageNumber: fragment.pageNumber }),
                                 ...("sheet" in fragment && { sheet: fragment.sheet }),
                                 ...("range" in fragment && { range: fragment.range }),
                                 ...("x" in fragment && { x: fragment.x }),
                                 ...("y" in fragment && { y: fragment.y }),
                                 ...("width" in fragment && { width: fragment.width }),
                                 ...("height" in fragment && { height: fragment.height }),
-                                ...("messageId" in fragment && { message_id: fragment.messageId }),
+                                ...("messageId" in fragment && { messageId: fragment.messageId }),
                             },
                             action,
                             model,

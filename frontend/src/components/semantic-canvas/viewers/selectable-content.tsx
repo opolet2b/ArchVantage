@@ -12,6 +12,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { SelectionToolbar, LLMAction } from "./selection-toolbar";
+import { API_URL } from "@/lib/utils";
 import { useAnalyze } from "./use-analyze";
 import type { Fragment } from "./types";
 import { useCanvasStore } from "../canvas-store";
@@ -63,12 +64,21 @@ export function SelectableContent({
         try {
             const token = localStorage.getItem("token");
             let fetchUrl = url;
-            if (url.startsWith("/api/")) {
-                const protocol = window.location.protocol;
-                const hostname = window.location.hostname;
-                // Assuming standard dev port 8000 for backend if on localhost, otherwise relative
-                const port = hostname === "localhost" ? ":8000" : "";
-                fetchUrl = `${protocol}//${hostname}${port}${url}`;
+
+            // Robust URL construction matching ImageViewer logic
+            if (url.startsWith("/api/") && !url.startsWith("http")) {
+                if (API_URL) {
+                    try {
+                        const apiUrlObj = new URL(API_URL);
+                        fetchUrl = `${apiUrlObj.origin}${url}`;
+                    } catch (e) {
+                        if (process.env.NODE_ENV === 'development') {
+                            fetchUrl = `http://127.0.0.1:8000${url}`;
+                        }
+                    }
+                } else {
+                    fetchUrl = `http://127.0.0.1:8000${url}`;
+                }
                 console.log("[SelectableContent] Fetching full image from:", fetchUrl);
             }
 

@@ -77,7 +77,7 @@ class VisualizerInput(BaseModel):
 
 class VisualPayload(BaseModel):
     structure_type: str # mermaid_spec, markdown, html_table
-    content: str
+    content: Union[str, Dict[str, Any], List[Any]]
     labels: List[str] = Field(default_factory=list)
 
 class VisualizerOutput(BaseModel):

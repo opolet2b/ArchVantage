@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { API_URL } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
+import { useSelection } from "./viewers/selection-context";
+import { Fragment } from "./viewers/types";
 
 // =============================================================================
 // Types
@@ -52,7 +54,7 @@ interface CanvasContextMenuProps {
     /** Called when menu is closed */
     onClose: () => void;
     /** Called when an action is selected */
-    onAction?: (action: AnalysisAction, context: "canvas" | "domain" | "selection", domainId?: string) => void;
+    onAction?: (action: AnalysisAction, context: "canvas" | "domain" | "selection", domainId?: string, fragment?: Fragment) => void;
 }
 
 // =============================================================================
@@ -72,6 +74,7 @@ export function CanvasContextMenu({
     const selectedModel = useCanvasStore((state) => state.selectedModel);
     const selectedThingIds = useCanvasStore((state) => state.selectedThingIds);
     const selectedDomainIds = useCanvasStore((state) => state.selectedDomainIds);
+    const { selection, hasSelection } = useSelection(); // Use the selection context
 
     // Fetch available templates
     const [templates, setTemplates] = React.useState<any[]>([]);
@@ -136,39 +139,39 @@ export function CanvasContextMenu({
 
     // Get things in scope for the action (for logging/future use)
     const thingsInScope = React.useMemo(() => {
-        if (context === "selection") {
-            // Match itemCount logic:
-            const selectedThings = things.filter(t => selectedThingIds.includes(t.id));
-            const thingsInDomains = things.filter(t => t.domain_id && selectedDomainIds.includes(t.domain_id));
 
-            const combined = [...selectedThings, ...thingsInDomains];
-            const seen = new Set<string>();
-            return combined.filter(t => {
-                if (seen.has(t.id)) return false;
-                seen.add(t.id);
-                return true;
-            });
+        // Only use fragment if we are in selection mode AND the fragment source is actually selected
+        // This prevents fragment mode from taking over Canvas/Domain level actions
+        const isFragmentRelevant = hasSelection && selection.thingId && context === "selection" && selectedThingIds.includes(selection.thingId);
+
+        if (isFragmentRelevant && selection.thingId) {
+            // Fragment selection takes priority
+            return [selection.thingId];
+        } else if (context === "selection") {
+            let ids = [...selectedThingIds];
+            // Add things from selected domains
+            const domainThings = things.filter(t => t.domain_id && selectedDomainIds.includes(t.domain_id)).map(t => t.id);
+            return [...new Set([...ids, ...domainThings])];
+        } else if (context === "domain" && domainId) {
+            return things.filter((t) => t.domain_id === domainId).map((t) => t.id);
+        } else {
+            // Canvas context: root things + domains (treated as units)
+            return things.filter((t) => !t.domain_id).map((t) => t.id);
         }
-        if (context === "domain" && domainId) {
-            return things.filter((t) => t.domain_id === domainId);
-        }
-        // Canvas context: Root things
-        return things.filter((t) => !t.domain_id);
-    }, [context, domainId, things, selectedThingIds, selectedDomainIds]);
+    }, [context, domainId, things, selectedThingIds, selectedDomainIds, selection]);
 
     // Handle action selection
     const handleAction = (action: AnalysisAction) => {
-        console.log(
-            `[ContextMenu] Action: ${action}, Context: ${context}, ` +
-            `DomainId: ${domainId || "N/A"}, Items in scope: ${itemCount}, ` +
-            `Model: ${selectedModel || "default"}`
-        );
-
-        if (onAction) {
-            onAction(action, context, domainId);
-        }
-
         onClose();
+        if (onAction) {
+            const isFragmentRelevant = hasSelection && selection.thingId && context === "selection" && selectedThingIds.includes(selection.thingId);
+            onAction(
+                action,
+                isFragmentRelevant ? "selection" : context,
+                domainId,
+                isFragmentRelevant && selection.fragment ? selection.fragment : undefined
+            );
+        }
     };
 
     // Context label for menu header
@@ -226,6 +229,15 @@ export function CanvasContextMenu({
                     <DropdownMenuSubTrigger>
                         <MoreHorizontal className="mr-2 h-4 w-4" />
                         <span>Other Analyses</span>
+                        <span className="text-xs font-normal text-muted-foreground ml-2">
+                            {hasSelection
+                                ? "(Selected Fragment)"
+                                : context === "selection"
+                                    ? `(${thingsInScope.length} items)`
+                                    : context === "domain"
+                                        ? "(Domain items)"
+                                        : "(All items)"}
+                        </span>
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="max-h-[300px] overflow-y-auto">
                         {Object.entries(groupedTemplates).map(([category, items], idx) => (

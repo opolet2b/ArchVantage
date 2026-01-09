@@ -15,6 +15,7 @@ import json
 from datetime import datetime
 from jinja2 import Environment, BaseLoader, UndefinedError
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
+from app.schemas.canvas_schemas import VisualizerOutput
 
 
 class TextTemplatePrimitive(BasePrimitive):
@@ -145,6 +146,13 @@ class TextTemplatePrimitive(BasePrimitive):
                     rt = db.query(SmartRenderingType).filter(SmartRenderingType.id == rendering_type_id).first()
                     if rt:
                         print(f"[TextTemplate] Resolved Rendering Type: {rt.name}")
+                        
+                        # Store metadata for strict mode
+                        if hasattr(rt, "react_component") and rt.react_component:
+                             params["react_component"] = rt.react_component
+                        if hasattr(rt, "config_schema") and rt.config_schema:
+                             params["config_schema"] = rt.config_schema
+                             
                         if "Executive Summary" in rt.name:
                             template_content = (
                                 "## Executive Summary\n\n"
@@ -450,17 +458,48 @@ class TextTemplatePrimitive(BasePrimitive):
                     # Construct System Prompt with Output Schema
                     schema_str = json.dumps(VisualizerOutput.model_json_schema(), indent=2)
                     
+                    # Customize prompt for Chart/Component mode
+                    react_component = params.get("react_component")
+                    config_schema = params.get("config_schema")
+
+                    if react_component:
+                         # Improve terminology for LLM
+                         component_name = react_component
+                         target_structure_type = "chart" # Fallback/Default
+                         
+                         if "redcharts" in react_component.lower():
+                             component_name = "Recharts LineChart"
+                             target_structure_type = "chart"
+                         
+                         schema_desc = json.dumps(config_schema, indent=2) if config_schema else "No specific schema provided."
+                         context_instruction = (
+                             f"TARGET VISUALIZATION: '{component_name}'\n"
+                             f"You must generate a valid JSON payload for this React component.\n"
+                             f"Set 'structure_type' to '{target_structure_type}'.\n"
+                             f"The 'content' field must be a JSON object conforming to this schema:\n{schema_desc}\n"
+                         )
+                         # OVERRIDE: Ignore any generic template instructions that might suggest ASCII art
+                         template_for_prompt = (
+                             f"Task: Extract data from the analysis results to populate a {component_name}.\n"
+                             f"Strictly follow the JSON schema provided in the system prompt.\n"
+                             f"Do not generate markdown text or ASCII charts."
+                         )
+                    else:
+                         context_instruction = (
+                             "1. 'structure_type' should be 'markdown' for reports, 'mermaid' for diagrams.\n"
+                             "2. 'content' must contain the actual string payload (e.g. the full markdown text or mermaid code).\n"
+                         )
+
                     system_prompt = f"""You are a data visualization assistant.
-Your task is to transform the provided Analysis Results into a visual structure (Markdown, Mermaid, or Table).
+Your task is to transform the provided Analysis Results into a visual structure.
 
 Output Schema:
 {schema_str}
 
-Instructions:
-1. 'structure_type' should be 'markdown' for reports, 'mermaid' for diagrams.
-2. 'content' must contain the actual string payload (e.g. the full markdown text or mermaid code).
-4. If 'formatted_output' is present in the analysis results, it contains the pre-formatted text (e.g. Markdown Table or List). You MUST use this as the 'content'.
-5. Do not omit any findings from the analysis.
+Specific Instructions:
+{context_instruction}
+3. If 'formatted_output' is present in the analysis results, it contains the pre-formatted text.
+4. Do not omit any findings from the analysis.
 """
                     user_message_content = f"Analysis Results:\n{json.dumps(agent_out, indent=2)}\n\nTemplate/Instructions:\n{template_for_prompt}"
                     

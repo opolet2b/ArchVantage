@@ -1156,7 +1156,7 @@ function CanvasViewInner() {
     };
 
     // Handle Context Menu Actions
-    const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string) => {
+    const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string, fragment?: any) => {
         console.log(`[CanvasView] handleContextMenuAction: ${action}, context: ${context}`);
         toast({ title: "Debug Action", description: action });
         console.log(`[CanvasView] Context Menu Action: ${action} in context ${context}`);
@@ -1257,7 +1257,7 @@ function CanvasViewInner() {
 
         } else if (action.startsWith("execute_template:")) {
             const templateId = action.split(":")[1];
-            const { selectedThingIds, selectedDomainIds, things, domains } = useCanvasStore.getState();
+            const { selectedThingIds, selectedDomainIds, things, domains, selectedModel, visionModel } = useCanvasStore.getState();
             let tIds: string[] = [];
             let dIds: string[] = [];
 
@@ -1286,8 +1286,24 @@ function CanvasViewInner() {
                 duration: 1000000, // Keep open
             });
 
-            console.log(`[ExecuteTemplateStream] Template: ${templateId}, Model: ${selectedModel}`);
-            updateToast({ id: toastId, description: `Starting pipeline (Model: ${selectedModel || 'Default'})...` });
+            // Determine Model to use (LLM or VLM)
+            let activeModel = selectedModel;
+            const targetThings = things.filter(t => tIds.includes(t.id));
+            const hasVisualContent = targetThings.some(t => t.type === "image" || t.type === "video" || t.type === "slideshow");
+
+            // Priority:
+            // 1. Fragment is Region (Visual) -> VLM
+            // 2. Fragment is Text -> LLM (even if on image, we want text analysis usually, though VLM is fine too. Let's stick to LLM for text)
+            // 3. No Fragment, Has Visual Content -> VLM
+
+            if (fragment && fragment.type === "region") {
+                activeModel = visionModel || selectedModel;
+            } else if (!fragment && hasVisualContent) {
+                activeModel = visionModel || selectedModel;
+            }
+
+            console.log(`[ExecuteTemplateStream] Template: ${templateId}, Model: ${activeModel} (Vision trigger: ${hasVisualContent || (fragment && fragment.type === "region")})`);
+            updateToast({ id: toastId, description: `Starting pipeline (Model: ${activeModel || 'Default'})...` });
 
             try {
                 const token = localStorage.getItem("token");
@@ -1301,7 +1317,8 @@ function CanvasViewInner() {
                         template_id: templateId,
                         thing_ids: tIds,
                         canvas_id: canvasId,
-                        model: selectedModel
+                        model: activeModel,
+                        source_fragment: fragment
                     })
                 });
 

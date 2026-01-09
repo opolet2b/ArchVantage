@@ -1458,10 +1458,20 @@ async def analyze_selection(
                  # Fallback to existing content (metadata)
 
     if not selected_content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No content selected for analysis"
-        )
+        # Fallback for Region fragments (if cropping failed or wasn't provided)
+        if request.fragment.type == "region":
+            print("[Analyze] Warning: No content provided for region. Using coordinate fallback.")
+            selected_content = (
+                f"[Selected Region]\n"
+                f"Coordinates: x={request.fragment.x:.2f}, y={request.fragment.y:.2f}, "
+                f"w={request.fragment.width:.2f}, h={request.fragment.height:.2f}\n"
+                "(Visual analysis unavailable due to missing image data)"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No content selected for analysis"
+            )
     
     # Build prompt based on action
     # If content looks like base64 or is very long, don't put it all in the text prompt

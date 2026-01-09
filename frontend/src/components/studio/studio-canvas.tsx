@@ -3,6 +3,7 @@
 import React from "react";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Trash2, ChevronDown, CheckCircle2, FileText, Bot, Activity, FileJson } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 export interface PipelineStep {
     id: string;
@@ -11,15 +12,17 @@ export interface PipelineStep {
     name: string;
     config: any; // Dynamic config based on type
     description?: string;
+    enabled?: boolean;
 }
 
 interface StudioCanvasProps {
     steps: PipelineStep[];
     selectedStepId: string | null;
     onSelectStep: (id: string) => void;
+    onToggleStep: (id: string, enabled: boolean) => void;
 }
 
-export function StudioCanvas({ steps, selectedStepId, onSelectStep }: StudioCanvasProps) {
+export function StudioCanvas({ steps, selectedStepId, onSelectStep, onToggleStep }: StudioCanvasProps) {
     return (
         <div className="flex-1 bg-muted/5 h-full flex flex-col items-center gap-4 transition-colors relative overflow-hidden">
             {/* Tooltip Header Area */}
@@ -46,6 +49,7 @@ export function StudioCanvas({ steps, selectedStepId, onSelectStep }: StudioCanv
                                     ? 'shadow-2xl ring-2 ring-indigo-500 scale-105 z-10'
                                     : 'shadow-lg hover:shadow-xl border border-slate-100'
                                 }
+                                ${step.enabled === false ? 'opacity-50 grayscale' : ''}
                             `}
                             onClick={() => onSelectStep(step.id)}
                         >
@@ -54,6 +58,12 @@ export function StudioCanvas({ steps, selectedStepId, onSelectStep }: StudioCanv
                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                     Step {index + 1}
                                 </span>
+                                <div onClick={(e) => e.stopPropagation()}>
+                                    <Switch
+                                        checked={step.enabled !== false}
+                                        onCheckedChange={(checked) => onToggleStep(step.id, checked)}
+                                    />
+                                </div>
                             </div>
 
                             {/* Centered Icon */}

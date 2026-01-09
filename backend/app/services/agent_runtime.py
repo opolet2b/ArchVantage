@@ -152,6 +152,12 @@ class AgentRuntime:
                 step_id = step.get('id') or f"step_{i}"
                 if 'id' not in step: step['id'] = step_id
 
+                # SKIP DISABLED STEPS
+                # Check explicit 'enabled' flag (default True)
+                if step.get('enabled') is False:
+                     print(f"[RUNTIME] Skipping disabled step: {step_id}")
+                     continue
+
                 # Map Studio 'config' to Primitive 'params'
                 if 'config' in step:
                     config = step.get('config', {})
@@ -234,9 +240,9 @@ class AgentRuntime:
 
                 nodes.append(step)
                 
-                # Create sequential edge
-                if i > 0:
-                    prev_id = steps[i-1].get('id')
+                # Create sequential edge based on previously added node (not original steps index)
+                if len(nodes) > 1:
+                    prev_id = nodes[-2].get('id')
                     edges.append({
                         "source": prev_id,
                         "target": step_id,

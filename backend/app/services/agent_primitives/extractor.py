@@ -237,17 +237,69 @@ CRITICAL INSTRUCTIONS:
                 try:
                     extracted_data = json.loads(response_text)
                 except json.JSONDecodeError:
-                    # Fallback 1: Regex text search
-                    match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                    # Fallback on JSON error: Try to repair truncated JSON
+                    # 1. Regex to find the start of the JSON object (ignoring trailing garbage if possible, but identifying start is key)
+                    import re
+                    match = re.search(r'\{[\s\S]*', response_text)
+                    
                     if match:
+                        json_candidate = match.group(0).strip()
+                        
+                        # 2. Simple Repair Logic
+                        def repair_json(broken_json):
+                            stack = []
+                            is_inside_string = False
+                            escaped = False
+                            
+                            clean_json = ""
+                            
+                            # Consume string char by char to track state
+                            for char in broken_json:
+                                clean_json += char
+                                
+                                if is_inside_string:
+                                    if char == '"' and not escaped:
+                                        is_inside_string = False
+                                    elif char == '\\':
+                                        escaped = not escaped
+                                    else:
+                                        escaped = False
+                                else:
+                                    if char == '"':
+                                        is_inside_string = True
+                                    elif char == '{':
+                                        stack.append('}')
+                                    elif char == '[':
+                                        stack.append(']')
+                                    elif char == '}' or char == ']':
+                                        if stack:
+                                            if stack[-1] == char:
+                                                stack.pop()
+                                                
+                            # Close unclosed string
+                            if is_inside_string:
+                                clean_json += '"'
+                                
+                            # Close unclosed brackets/braces
+                            while stack:
+                                clean_json += stack.pop()
+                                
+                            return clean_json
+
+                        repaired_json = repair_json(json_candidate)
                         try:
-                            extracted_data = json.loads(match.group(0))
+                            print(f"[EXTRACTOR] Attempting to parse repaired JSON: {repaired_json[:100]}...")
+                            extracted_data = json.loads(repaired_json)
+                            print("[EXTRACTOR] Repair successful.")
                         except:
-                            # Fallback 2: ast.literal_eval (Handles single quotes/Python dicts)
-                            import ast
-                            extracted_data = ast.literal_eval(match.group(0))
+                             # Last Ditch: ast.literal_eval if it looks like python dict
+                             try:
+                                 import ast
+                                 extracted_data = ast.literal_eval(repaired_json)
+                             except:
+                                 raise ValueError("Could not parse JSON even after repair attempt.")
                     else:
-                        raise ValueError("No JSON block found")
+                         raise ValueError("No JSON object start '{' found.")
 
                 # Verify it matches ExtractorOutput structure (loose validation)
                 if "extracted_elements" not in extracted_data:
@@ -382,7 +434,6 @@ Schema:
                 extracted_data = json.loads(response_text)
             except json.JSONDecodeError:
                 # Fallback: try to find JSON in the text
-                import re
                 match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if match:
                     extracted_data = json.loads(match.group(0))
