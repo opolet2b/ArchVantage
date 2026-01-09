@@ -327,15 +327,13 @@ function OverlayItem({ overlay, isActive, containerDims, onAction }: OverlayItem
             }}
             onClick={(e) => {
                 e.stopPropagation();
-                // Only trigger click (select) if the body itself was clicked, not a handle
-                if (e.target === e.currentTarget) {
-                    onAction('click', e);
-                }
+                // Click is handled by MouseDown for better reliability
             }}
             onMouseDown={(e) => {
                 // IMPORTANT: Stop propagation to prevent "Creation Point" / Drawing mode from triggering on background
                 e.stopPropagation();
-                console.log("[OverlayItem] MouseDown (Stopping Prop)");
+                onAction('click', e);
+                console.log("[OverlayItem] MouseDown (Selected via MouseDown)");
             }}
         >
             {isActive && (
