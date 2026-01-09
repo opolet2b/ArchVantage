@@ -21,6 +21,12 @@ def debug_rendering_types():
         types = db.query(SmartRenderingType).all()
         for t in types:
             print(f"ID: {t.id} || Name: {t.name} || Category: {t.category}")
+            
+        print("\n--- Output Formats ---")
+        from app.models.smart_template import SmartOutputFormat
+        formats = db.query(SmartOutputFormat).all()
+        for f in formats:
+            print(f"ID: {f.id} || Name: {f.name} || Type: {f.type} || Ext: {f.extension}")
     finally:
         db.close()
 

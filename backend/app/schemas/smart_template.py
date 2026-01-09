@@ -150,6 +150,8 @@ class SmartRenderingTypeBase(BaseModel):
     category: str
     name: str
     description: Optional[str] = None
+    react_component: Optional[str] = None
+    config_schema: Optional[Dict[str, Any]] = None
 
 class SmartRenderingTypeCreate(SmartRenderingTypeBase):
     pass
@@ -158,6 +160,8 @@ class SmartRenderingTypeUpdate(BaseModel):
     category: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
+    react_component: Optional[str] = None
+    config_schema: Optional[Dict[str, Any]] = None
 
 class SmartRenderingTypeResponse(SmartRenderingTypeBase):
     id: str

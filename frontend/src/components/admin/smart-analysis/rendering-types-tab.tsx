@@ -88,10 +88,25 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
 
             const method = editingId ? "PUT" : "POST";
 
+            // Process payload to ensure JSON is valid
+            const payload = { ...newItem };
+            if (typeof payload.config_schema === 'string') {
+                if (payload.config_schema.trim() === "") {
+                    payload.config_schema = null;
+                } else {
+                    try {
+                        payload.config_schema = JSON.parse(payload.config_schema);
+                    } catch (e) {
+                        alert("Invalid JSON in Configuration Schema. Please correct it.");
+                        return;
+                    }
+                }
+            }
+
             const res = await fetch(url, {
                 method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(newItem),
+                body: JSON.stringify(payload),
             });
 
             if (res.ok) {

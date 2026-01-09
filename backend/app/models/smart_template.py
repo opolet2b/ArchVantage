@@ -85,6 +85,8 @@ class SmartRenderingType(Base):
     category = Column(String, nullable=False) # Text, Table, Picture, Diagram, Combination
     name = Column(String, nullable=False) # e.g. "Single Sentence", "Pie Chart"
     description = Column(Text, nullable=True)
+    react_component = Column(String, nullable=True)
+    config_schema = Column(JSON, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
