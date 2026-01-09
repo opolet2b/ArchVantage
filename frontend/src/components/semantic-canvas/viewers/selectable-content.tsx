@@ -104,6 +104,8 @@ export function SelectableContent({
         console.log("[SelectableContent] Preparing fragment. Type:", fragment.type);
 
         if (fragment.type === "region") {
+
+
             const store = useCanvasStore.getState();
             const thing = store.things.find(t => t.id === thingId);
             const regionFrag = fragment as any;

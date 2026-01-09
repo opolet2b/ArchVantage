@@ -380,7 +380,6 @@ class ExecuteTemplateRequest(BaseModel):
     thing_ids: List[str] = []
     domain_ids: List[str] = []
     model: Optional[str] = None
-    source_fragment: Optional[FragmentData] = None
 
 class ExecuteTemplateResponse(BaseModel):
     """Response for template execution start."""
@@ -389,15 +388,3 @@ class ExecuteTemplateResponse(BaseModel):
     message: str
 
 
-
-# =============================================================================
-# Visualizer Schemas
-# =============================================================================
-
-class VisualPayload(BaseModel):
-    structure_type: str = Field(..., description="Type of structure: 'chart', 'mermaid', 'markdown', 'react_component'")
-    content: Dict[str, Any] = Field(..., description="The content payload. For charts, this is the props/data object.")
-
-class VisualizerOutput(BaseModel):
-    """Schema for Visualizer Agent Output."""
-    visualizer_output: Dict[str, VisualPayload] = Field(..., description="Wrapper for visual analysis result.")

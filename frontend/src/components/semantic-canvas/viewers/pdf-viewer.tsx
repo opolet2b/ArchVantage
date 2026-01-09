@@ -237,27 +237,38 @@ export function PDFViewer({
         // 1. Capture Image Data
         let base64Content = "";
         try {
-            // Find the canvas element inside the page container
-            const canvas = pageContainerRef.current.querySelector("canvas");
+            // Target the PDF page canvas specifically. react-pdf adds this class.
+            const canvas = (pageContainerRef.current.querySelector("canvas.react-pdf__Page__canvas") ||
+                pageContainerRef.current.querySelector("canvas")) as HTMLCanvasElement | null;
+
             if (canvas) {
+                console.log(`[PDFViewer] Found canvas for capture: ${canvas.width}x${canvas.height}`);
+
                 // Create a temporary canvas to draw the crop
                 const tempCanvas = document.createElement("canvas");
                 // We need to account for the canvas scaling (retain quality)
                 const scaleX = canvas.width / canvas.offsetWidth;
                 const scaleY = canvas.height / canvas.offsetHeight;
 
-                tempCanvas.width = rect.width * scaleX;
-                tempCanvas.height = rect.height * scaleY;
+                // Ensure dimensions are positive
+                const targetWidth = Math.max(1, rect.width * scaleX);
+                const targetHeight = Math.max(1, rect.height * scaleY);
+
+                tempCanvas.width = targetWidth;
+                tempCanvas.height = targetHeight;
 
                 const ctx = tempCanvas.getContext("2d");
                 if (ctx) {
                     ctx.drawImage(
                         canvas,
                         rect.x * scaleX, rect.y * scaleY, rect.width * scaleX, rect.height * scaleY,
-                        0, 0, rect.width * scaleX, rect.height * scaleY
+                        0, 0, targetWidth, targetHeight
                     );
                     base64Content = tempCanvas.toDataURL("image/jpeg");
+                    console.log(`[PDFViewer] Accessing captured content length: ${base64Content.length}`);
                 }
+            } else {
+                console.warn("[PDFViewer] No canvas found for capture via querySelector");
             }
         } catch (err) {
             console.error("Failed to crop PDF region:", err);
@@ -333,15 +344,54 @@ export function PDFViewer({
     const handleOverlayAction = (action: 'resize' | 'delete' | 'click', id: string, data?: any) => {
         if (action === 'click') {
             setActiveOverlayId(id);
-            // Re-trigger onSelect? Copy from old impl
+            // Re-trigger onSelect with FRESH CAPTURE
             const overlay = overlays.find(o => o.id === id);
             if (overlay && onSelect && pageContainerRef.current) {
+                // 1. Capture Content again
+                let base64Content = "";
+                try {
+                    const canvas = (pageContainerRef.current.querySelector("canvas.react-pdf__Page__canvas") ||
+                        pageContainerRef.current.querySelector("canvas")) as HTMLCanvasElement | null;
+
+                    if (canvas) {
+                        const rect = {
+                            x: (overlay.x / 100) * canvas.offsetWidth,
+                            y: (overlay.y / 100) * canvas.offsetHeight,
+                            width: (overlay.width / 100) * canvas.offsetWidth,
+                            height: (overlay.height / 100) * canvas.offsetHeight
+                        };
+
+                        const tempCanvas = document.createElement("canvas");
+                        const scaleX = canvas.width / canvas.offsetWidth;
+                        const scaleY = canvas.height / canvas.offsetHeight;
+                        const targetWidth = Math.max(1, rect.width * scaleX);
+                        const targetHeight = Math.max(1, rect.height * scaleY);
+
+                        tempCanvas.width = targetWidth;
+                        tempCanvas.height = targetHeight;
+
+                        const ctx = tempCanvas.getContext("2d");
+                        if (ctx) {
+                            ctx.drawImage(
+                                canvas,
+                                rect.x * scaleX, rect.y * scaleY, rect.width * scaleX, rect.height * scaleY,
+                                0, 0, targetWidth, targetHeight
+                            );
+                            base64Content = tempCanvas.toDataURL("image/jpeg");
+                            console.log(`[PDFViewer] Re-captured content for existing region: ${base64Content.length}`);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Failed to re-capture region", e);
+                }
+
                 const fragment: RegionFragment = {
                     id: overlay.id,
                     type: "region",
                     x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height,
-                    content: (overlay as any).content
+                    content: base64Content || (overlay as any).content // Fallback if capture fails
                 };
+
                 const container = pageContainerRef.current;
                 const rect = container.getBoundingClientRect();
                 const xPx = (overlay.x / 100) * rect.width;
