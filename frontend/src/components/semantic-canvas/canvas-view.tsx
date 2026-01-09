@@ -1318,7 +1318,13 @@ function CanvasViewInner() {
                         thing_ids: tIds,
                         canvas_id: canvasId,
                         model: activeModel,
-                        source_fragment: fragment
+                        source_fragment: fragment ? {
+                            ...fragment,
+                            start_offset: (fragment as any).startOffset,
+                            end_offset: (fragment as any).endOffset,
+                            page_number: (fragment as any).pageNumber,
+                            message_id: (fragment as any).messageId
+                        } : undefined
                     })
                 });
 

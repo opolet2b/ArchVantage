@@ -306,8 +306,9 @@ class SmartTemplateService:
             if fragment.type == "text" and fragment.content:
                 return fragment.content
             elif fragment.type == "region":
-                # For regions (images/PDFs), we return a metadata string describing the region
-                # The visualizer/LLM often needs the image itself, but for text-based analysis, this prompts context.
+                # Only return coordinate string if no real content is provided (fallback)
+                if fragment.content and len(fragment.content) > 50:
+                     return fragment.content
                 return f"[Selected Region at x={fragment.x:.2f}, y={fragment.y:.2f}, w={fragment.width:.2f}, h={fragment.height:.2f}]"
             elif fragment.type == "cell":
                 return f"[Selected Cell: {fragment.range} in {fragment.sheet}] {fragment.content or ''}"

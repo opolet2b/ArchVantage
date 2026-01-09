@@ -488,21 +488,31 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
         try {
             console.log(`[Store] Sending POST to /canvases/${canvasId}/things`);
+            const payload = {
+                type,
+                content: typeof content === 'object' ? {
+                    ...content,
+                    page_number: content.pageNumber,
+                    start_offset: content.startOffset,
+                    end_offset: content.endOffset,
+                    message_id: content.messageId
+                } : content,
+                position: { x: position.x, y: position.y },
+                size: { width: width ?? 400, height: height ?? 400 },
+                title,
+                color,
+                domain_id: domainId,
+            };
+
+            console.log("[Store] addThing payload content:", payload.content);
+
             const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
                 method: "POST",
                 headers: {
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({
-                    type,
-                    content,
-                    position: { x: position.x, y: position.y },
-                    size: { width: width ?? 400, height: height ?? 400 },
-                    title,
-                    color,
-                    domain_id: domainId,
-                }),
+                body: JSON.stringify(payload),
             });
 
             console.log(`[Store] POST response status: ${res.status}`);

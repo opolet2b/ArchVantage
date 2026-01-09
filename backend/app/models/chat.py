@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 class Message(BaseModel):
     """Chat message model."""
     role: str
-    content: str
+    content: Any  # Can be str or List[Dict] for multi-modal
 
 
 class ChatRequest(BaseModel):

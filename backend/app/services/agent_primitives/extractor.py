@@ -201,31 +201,86 @@ CRITICAL INSTRUCTIONS:
 3. 'data' should contain the information extracted based on the instructions.
 4. 'content_type' should be 'text' unless specific images/tables are extracted.
 """
-            user_content = f"Source Assets:\n{source_text}"
+            # Construct Multi-modal Message
+            # Verify if we have images in the assets
+            has_images = False
+            image_blocks = []
+            text_parts = []
+            
+            # Re-process assets to separate text and images
+            if "extractor_input" in variables:
+                ext_input = variables["extractor_input"]
+                if isinstance(ext_input, dict) and "assets" in ext_input:
+                     for a in ext_input["assets"]:
+                         content = a.get("content") or ""
+                         a_id = a.get("id", "unknown")
+                         
+                         # Check for Base64 Image
+                         # Similar logic to canvas.py
+                         if content and isinstance(content, str) and ("base64," in content[:100] or (len(content) > 5000 and " " not in content[:100])):
+                             if not content.strip().startswith("{") and not content.strip().startswith("["):
+                                 has_images = True
+                                 # Truncate content for text part
+                                 text_parts.append(f"--- Asset (ID: {a_id}) ---\n[Image Content Provided Separately]")
+                                 
+                                 # Add Image Block
+                                 image_blocks.append({
+                                     "type": "image_url",
+                                     "image_url": {"url": content if content.startswith("data:") else f"data:image/jpeg;base64,{content}"}
+                                 })
+                                 continue
+                         
+                         # Fallback to Text
+                         text_parts.append(f"--- Asset (ID: {a_id}) ---\n{content}")
+
+            # Reconstruct source text without huge base64 strings
+            source_text_clean = "\n\n".join(text_parts) if text_parts else source_text
+
+            user_content_block = []
+            user_text = f"Source Assets:\n{source_text_clean}"
             if instruction:
-                user_content += f"\n\nExtraction Instructions:\n{instruction}"
-                
+                user_text += f"\n\nExtraction Instructions:\n{instruction}"
+            
             # FORCE INSTRUCTION REINFORCEMENT
-            user_content += "\n\nIMPORTANT: If the source text is in a different language than the schema keys (English), you MUST TRANSLATE the concepts. For example, if looking for 'Strengths', extract 'Forces' or positive aspects from the text and map them to 'Strengths'."
-            user_content += "\n\nCRITICAL OUTPUT RULE: You MUST ONLY return a JSON object with the key 'extracted_elements'. Do NOT create keys like 'generated_markdown', 'report', or 'summary'. Put all your findings into the 'data' field of an extracted element."
-                
+            user_text += "\n\nIMPORTANT: If the source text is in a different language than the schema keys (English), you MUST TRANSLATE the concepts. For example, if looking for 'Strengths', extract 'Forces' or positive aspects from the text and map them to 'Strengths'."
+            user_text += "\n\nCRITICAL OUTPUT RULE: You MUST ONLY return a JSON object with the key 'extracted_elements'. Do NOT create keys like 'generated_markdown', 'report', or 'summary'. Put all your findings into the 'data' field of an extracted element."
+
+            # Construct final message content
+            if has_images:
+                user_content_block.append({"type": "text", "text": user_text})
+                user_content_block.extend(image_blocks)
+                print(f"[EXTRACTOR] Constructed Multi-modal message with {len(image_blocks)} images.")
+            else:
+                user_content_block = user_text
+
             messages = [
                 ChatMessage(role="system", content=system_prompt),
-                ChatMessage(role="user", content=user_content)
+                ChatMessage(role="user", content=user_content_block)
             ]
             
             # Debug Log: Dump the full messages (STRICT MODE)
             try:
                 with open("execution_debug.log", "a", encoding="utf-8") as f:
-                    f.write(f"\n[EXTRACTOR PROMPT DEBUG-STRICT]\nSYSTEM: {messages[0].content}\nUSER: {messages[1].content[:500]}...\n")
+                    f.write(f"\n[EXTRACTOR PROMPT DEBUG-STRICT]\nSYSTEM: {messages[0].content}\nUSER: {str(messages[1].content)[:500]}...\n")
             except: pass
              
-            # Call LLM with JSON mode
-            response_text = await llm_service.chat(
-                messages=messages,
-                model_name=model,
-                response_format={"type": "json_object"}
-            )
+            # Call LLM
+            # CRITICAL FIX for Local VLM Crash:
+            # Some local vision models (Llava, Llama 3.2 Vision) crash if 'format="json"' is enforced.
+            # If we detected images, we DISABLE strict JSON mode and rely on prompt engineering + repair.
+            
+            call_kwargs = {
+                "messages": messages,
+                "model_name": model
+            }
+            
+            if not has_images:
+                # Only enforce JSON mode for text-only tasks
+                call_kwargs["response_format"] = {"type": "json_object"}
+            else:
+                print(f"[EXTRACTOR] Images detected. Disabling strict JSON mode to prevent VLM crash.")
+
+            response_text = await llm_service.chat(**call_kwargs)
             
             # Debug Log: Final Response
             try:
@@ -235,15 +290,30 @@ CRITICAL INSTRUCTIONS:
             
             try:
                 try:
-                    extracted_data = json.loads(response_text)
+                    # Clean up Markdown Code Blocks first
+                    clean_response = response_text.strip()
+                    if clean_response.startswith("```"):
+                        # Remove first line (```json)
+                        clean_response = "\n".join(clean_response.split("\n")[1:])
+                    if clean_response.endswith("```"):
+                        clean_response = clean_response[:-3].strip()
+                    
+                    extracted_data = json.loads(clean_response)
                 except json.JSONDecodeError:
                     # Fallback on JSON error: Try to repair truncated JSON
-                    # 1. Regex to find the start of the JSON object (ignoring trailing garbage if possible, but identifying start is key)
+                    # 1. Regex to find the start of the JSON object 
                     import re
-                    match = re.search(r'\{[\s\S]*', response_text)
+                    # Find { ... } boundaries
+                    match = re.search(r'\{[\s\S]*\}', response_text)
+                    if not match:
+                         # Maybe truncated? Find start at least
+                         match = re.search(r'\{[\s\S]*', response_text)
                     
                     if match:
                         json_candidate = match.group(0).strip()
+                        # If candidate ends with garbage (like ```), trim it
+                        if json_candidate.endswith("```"):
+                            json_candidate = json_candidate[:-3].strip()
                         
                         # 2. Simple Repair Logic
                         def repair_json(broken_json):

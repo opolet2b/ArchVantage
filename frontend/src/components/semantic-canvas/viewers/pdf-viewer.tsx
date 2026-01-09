@@ -247,8 +247,9 @@ export function PDFViewer({
                 // Create a temporary canvas to draw the crop
                 const tempCanvas = document.createElement("canvas");
                 // We need to account for the canvas scaling (retain quality)
-                const scaleX = canvas.width / canvas.offsetWidth;
-                const scaleY = canvas.height / canvas.offsetHeight;
+                const canvasRect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / canvasRect.width;
+                const scaleY = canvas.height / canvasRect.height;
 
                 // Ensure dimensions are positive
                 const targetWidth = Math.max(1, rect.width * scaleX);
@@ -378,7 +379,15 @@ export function PDFViewer({
                                 0, 0, targetWidth, targetHeight
                             );
                             base64Content = tempCanvas.toDataURL("image/jpeg");
-                            console.log(`[PDFViewer] Re-captured content for existing region: ${base64Content.length}`);
+                            console.log(`[PDFViewer] Re-captured content info:`, {
+                                page: pageNumber,
+                                overlayPage: (overlay as any).pageNumber,
+                                captureSize: base64Content.length,
+                                sourceCanvas: { w: canvas.width, h: canvas.height },
+                                cssSize: { w: canvas.offsetWidth, h: canvas.offsetHeight },
+                                scale: { x: scaleX, y: scaleY },
+                                targetRect: { w: targetWidth, h: targetHeight }
+                            });
                         }
                     }
                 } catch (e) {
