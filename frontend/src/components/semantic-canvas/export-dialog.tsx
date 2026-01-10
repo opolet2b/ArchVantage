@@ -25,6 +25,8 @@ import { CanvasThing } from "./canvas-store";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
+import domToImage from "dom-to-image-more";
+
 
 interface ExportDialogProps {
     open: boolean;
@@ -32,7 +34,7 @@ interface ExportDialogProps {
     thing: CanvasThing;
 }
 
-type ExportFormat = "pdf" | "png" | "jpeg" | "json" | "csv" | "xlsx" | "txt" | "md";
+type ExportFormat = "pdf" | "png" | "jpeg" | "json" | "csv" | "xlsx" | "txt" | "md" | "html";
 
 export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
     const [filename, setFilename] = React.useState("");
@@ -53,6 +55,13 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                 return ["pdf", "txt", "md", "json"];
             case "slideshow":
                 return ["pdf", "json"];
+            case "agent_result":
+                // Check if it's a visualizer component
+                const vis = (thing.content as any)?.visualizer_output;
+                if (vis?.visual_payload?.structure_type) {
+                    return ["png", "jpeg", "pdf", "html", "json", "txt"];
+                }
+                return ["json", "txt", "md", "pdf"];
             default:
                 return ["json", "txt"];
         }
@@ -84,6 +93,9 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                 case "md":
                     exportText(content, safeFilename, "md");
                     break;
+                case "html":
+                    exportHTML(content, safeFilename);
+                    break;
                 case "csv":
                 case "xlsx":
                     exportSpreadsheet(content, safeFilename, format);
@@ -95,6 +107,8 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                 case "pdf":
                     if (thing.type === "slideshow") {
                         await exportSlideshowPDF(content, safeFilename);
+                    } else if (thing.type === "agent_result" && (content as any)?.visualizer_output?.visual_payload) {
+                        await exportVisualizerPDF(thing.id, content, safeFilename);
                     } else {
                         exportTextPDF(content, safeFilename);
                     }
@@ -148,6 +162,38 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
     };
 
     const exportImage = async (content: any, filename: string, format: "png" | "jpeg") => {
+        // Check if this is a Visualizer result (Chart)
+        if (thing.type === 'agent_result' && (content as any)?.visualizer_output?.visual_payload) {
+            const element = document.querySelector(`[data-thing-id="${thing.id}"]`);
+            if (element) {
+                // Use dom-to-image-more which supports modern CSS (oklch) via foreignObject
+                const dataUrl = await domToImage.toPng(element as HTMLElement, {
+                    bgcolor: '#ffffff', // Ensure white background for transparent charts
+                    scale: 2 // High resolution
+                });
+
+                const link = document.createElement('a');
+                link.download = `${filename}.${format}`;
+                link.href = dataUrl; // format is ignored by domToImage, it produces PNG. We can try toJpeg if needed but PNG is safer.
+
+                // If user wanted JPEG, convert:
+                if (format === 'jpeg') {
+                    // Simple canvas conversion if strict jpeg needed, or just teach domToImage
+                    const jpegUrl = await domToImage.toJpeg(element as HTMLElement, {
+                        bgcolor: '#ffffff',
+                        quality: 0.95,
+                        scale: 2
+                    });
+                    link.href = jpegUrl;
+                }
+
+                link.click();
+                return;
+            } else {
+                throw new Error("Element not found");
+            }
+        }
+
         const url = content.file_path || content.url || (content.image_asset_id ? `/api/v1/assets/${content.image_asset_id}` : null);
 
         if (!url) throw new Error("No image URL found");
@@ -167,6 +213,111 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
         URL.revokeObjectURL(downloadUrl);
     };
 
+    const exportHTML = (content: any, filename: string) => {
+        // Extract content if wrapped in visualizer output
+        let rawContent = content;
+        if (content?.visualizer_output?.visual_payload?.content) {
+            rawContent = content.visualizer_output.visual_payload.content;
+        }
+
+        // If it looks like JSON data (e.g. chart data), stringify it
+        if (typeof rawContent !== 'string') {
+            rawContent = JSON.stringify(rawContent, null, 2);
+        }
+
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>${filename}</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; line-height: 1.5; }
+        pre { background: #f4f4f5; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        code { font-family: monospace; }
+        .metadata { color: #666; font-size: 0.875rem; marginBottom: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>${filename}</h1>
+    <div class="metadata">Exported from Intelligent Document Analysis</div>
+    <hr/>
+    <pre><code>${rawContent}</code></pre>
+</body>
+</html>`;
+
+        downloadFile(html, `${filename}.html`, "text/html");
+    };
+
+    const exportVisualizerPDF = async (thingId: string, content: any, filename: string) => {
+        const doc = new jsPDF({
+            orientation: "landscape",
+            unit: "pt",
+            format: "a4"
+        });
+
+        const width = doc.internal.pageSize.getWidth();
+        const height = doc.internal.pageSize.getHeight();
+
+        // 1. Capture Visual
+        try {
+            const element = document.querySelector(`[data-thing-id="${thingId}"] .recharts-responsive-container, [data-thing-id="${thingId}"] .min-h-\\[300px\\]`); // Try identifying chart container
+            // Fallback to thing-content if specific chart container undefined
+            const target = element || document.querySelector(`[data-thing-id="${thingId}"]`);
+
+            if (target) {
+                // Capture image using dom-to-image-more
+                const imgData = await domToImage.toPng(target as HTMLElement, {
+                    bgcolor: '#ffffff',
+                    scale: 2
+                });
+
+                const imgProps = doc.getImageProperties(imgData);
+                const pdfWidth = width - 40;
+                const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+                doc.setFontSize(16);
+                doc.text(filename, 20, 30);
+                doc.addImage(imgData, 'PNG', 20, 50, pdfWidth, pdfHeight);
+
+                // Add new page for data
+                doc.addPage();
+            } else {
+                // Fallback text if capture failed
+                doc.text("[Visual Capture Failed]", 20, 30);
+                doc.addPage();
+            }
+        } catch (e) {
+            console.error("Visual capture error", e);
+            doc.text("[Visual Capture Failed]", 20, 50);
+            doc.addPage(); // Ensure a new page for data even if visual capture fails
+        }
+
+        // 2. Add Code/Data on next page
+        doc.setFontSize(12);
+        doc.text("Source Data / Code:", 20, 30);
+
+        let rawContent = content;
+        if (content?.visualizer_output?.visual_payload?.content) {
+            rawContent = content.visualizer_output.visual_payload.content;
+        }
+        const text = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent, null, 2);
+
+        const splitText = doc.splitTextToSize(text, width - 40);
+        let cursorY = 50;
+        const pageHeight = height;
+
+        splitText.forEach((line: string) => {
+            if (cursorY > pageHeight - 20) {
+                doc.addPage();
+                cursorY = 30;
+            }
+            doc.text(line, 20, cursorY);
+            cursorY += 14; // Line height
+        });
+
+        doc.save(`${filename}.pdf`);
+    };
+
     const exportTextPDF = (content: any, filename: string) => {
         const doc = new jsPDF();
         let text = "";
@@ -177,6 +328,10 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
         else if (typeof content.text_content === "string") text = content.text_content;
         else if (typeof content.full_text === "string") text = content.full_text;
         else if (typeof content.markdown === "string") text = content.markdown;
+        else if (content?.visualizer_output?.visual_payload?.content) {
+            const raw = content.visualizer_output.visual_payload.content;
+            text = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+        }
         else text = JSON.stringify(content, null, 2);
 
         const pageHeight = doc.internal.pageSize.height;

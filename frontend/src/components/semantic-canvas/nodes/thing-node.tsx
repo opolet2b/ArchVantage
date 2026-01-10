@@ -1646,6 +1646,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
             />
             {/* Agent Builder-style container */}
             <div
+                data-thing-id={thing.id}
                 className={cn(
                     "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md",
                     "transition-all duration-200 overflow-hidden",
