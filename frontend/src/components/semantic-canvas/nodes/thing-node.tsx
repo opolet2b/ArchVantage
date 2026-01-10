@@ -1741,6 +1741,28 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                         </button>
                     )}
 
+                    {/* Agent Analysis Indicator (Green Brain) */}
+                    {(thing.content as any)?.agent_analysis && (
+                        <div
+                            className="flex items-center cursor-pointer hover:opacity-80 mr-2"
+                            title="View Agent Analysis"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const rawAnalysis = (thing.content as any).agent_analysis;
+                                const contentStr = typeof rawAnalysis === 'object' ? JSON.stringify(rawAnalysis, null, 2) : String(rawAnalysis);
+
+                                setPreviewContent({
+                                    title: "Agent Analysis",
+                                    content: contentStr,
+                                    type: "text"
+                                });
+                                setPreviewDialogOpen(true);
+                            }}
+                        >
+                            <BrainCircuit className="h-4 w-4 text-green-500" />
+                        </div>
+                    )}
+
                     {/* RAG Status Indicator */}
                     {/* RAG Status Indicator */}
                     {localStatus && localStatus !== "none" && (

@@ -1134,10 +1134,61 @@ class SmartTemplateService:
                                         if t_y < top_y:
                                             top_y = t_y
                                             
-                                    # Set new position relative to the bounding box of selection
+                            # Set new position relative to the bounding box of selection
                                     pos_x = max_right + 50.0 
                                     pos_y = top_y # Align tops
                                     
+                            # Inject Agent Analysis into Metadata (if available)
+                            # This enables the "Green Brain" icon on the frontend
+                            agent_analysis = None
+                            
+                            # 1. Check direct output (if it's a dict with analysis)
+                            if isinstance(current_output, dict):
+                                agent_analysis = (
+                                    current_output.get("analysis_results", {}).get("formatted_output") or
+                                    current_output.get("analysis_results", {}).get("text") or
+                                    current_output.get("generated_markdown") 
+                                )
+                            
+                            # 2. Resurrect from Variables (if current_output is Visualizer/Chart)
+                            if not agent_analysis and "variables" in full_state:
+                                vars = full_state["variables"]
+                                
+                                # Look for Agent Step output
+                                # Common variabe names used in blueprints: "agent_output", "analysis", "text"
+                                candidate_vars = ["agent_output", "analysis", "text", "extractor_output"]
+                                for v in candidate_vars:
+                                    val = vars.get(v)
+                                    if val and isinstance(val, dict):
+                                         agent_analysis = (
+                                             val.get("analysis_results", {}).get("formatted_output") or 
+                                             val.get("generated_markdown") or
+                                             val.get("text")
+                                         )
+                                    elif val and isinstance(val, str) and len(val) > 100:
+                                         agent_analysis = val
+                                    
+                                    if agent_analysis: break
+                                    
+                                # If still not found, search by Node ID structure (generic)
+                                if not agent_analysis:
+                                     # Try to find a node output that looks like markdown/analysis
+                                     for k, v in vars.items():
+                                         if isinstance(v, dict) and ("formatted_output" in v.get("analysis_results", {}) or "generated_markdown" in v):
+                                             agent_analysis = v.get("analysis_results", {}).get("formatted_output") or v.get("generated_markdown")
+                                             break
+                            
+                            if agent_analysis:
+                                # CRITICAL FIX: Ensure agent_analysis is a string to prevent Frontend "Objects are not valid as React child" crash
+                                if isinstance(agent_analysis, (dict, list)):
+                                     import json
+                                     agent_analysis = json.dumps(agent_analysis, indent=2)
+                                else:
+                                     agent_analysis = str(agent_analysis)
+
+                                print(f"[SmartTemplate] Attaching Agent Analysis to Thing Content (Len: {len(agent_analysis)})")
+                                thing_content["agent_analysis"] = agent_analysis
+
                             new_node = CanvasThing(
                                 canvas_id=target_canvas_id, # Use corrected ID
                                 type=thing_type,
