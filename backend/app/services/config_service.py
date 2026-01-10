@@ -102,4 +102,25 @@ class ConfigService:
     def set_active_preset(self, preset_name: str):
          self.set_default_llm_preset(preset_name)
 
+    def delete_preset(self, preset_name: str) -> bool:
+        """Deletes a preset by name. Returns True if deleted, False if not found."""
+        config = self.get_config()
+        presets = config.get("presets", [])
+        
+        # Check if exists
+        initial_len = len(presets)
+        config["presets"] = [p for p in presets if p["name"] != preset_name]
+        
+        if len(config["presets"]) < initial_len:
+            # Also clear defaults if they pointed to this preset
+            if config.get("default_llm_preset_name") == preset_name:
+                config["default_llm_preset_name"] = None
+            if config.get("default_vision_preset_name") == preset_name:
+                config["default_vision_preset_name"] = None
+                
+            self.save_config(config)
+            return True
+            
+        return False
+
 config_service = ConfigService()

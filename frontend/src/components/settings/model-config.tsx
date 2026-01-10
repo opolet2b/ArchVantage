@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Save, Loader2, RotateCcw, Sparkles } from "lucide-react"
+import { Save, Loader2, RotateCcw, Sparkles, Trash2 } from "lucide-react"
 import { API_URL } from "@/lib/utils"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
 
@@ -147,6 +147,40 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
         } catch (error) {
             console.error("Failed to save", error)
             alert("Error saving configuration")
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const handleDelete = async () => {
+        if (!name || !presets.find(p => p.name === name)) {
+            return
+        }
+
+        if (!confirm(`Are you sure you want to delete the configuration "${name}"? This cannot be undone.`)) {
+            return
+        }
+
+        setSaving(true)
+        try {
+            const res = await fetch(`${API_URL}/config/presets/${encodeURIComponent(name)}`, {
+                method: "DELETE",
+            })
+
+            if (res.ok) {
+                alert("Configuration deleted.")
+                // Reset form
+                setName("")
+                setSelectedPreset("")
+                setLocalModel("")
+                fetchPresets()
+                fetchDefaults() // Defaults might have changed if we deleted the default
+            } else {
+                alert("Failed to delete configuration")
+            }
+        } catch (error) {
+            console.error("Failed to delete", error)
+            alert("Error deleting configuration")
         } finally {
             setSaving(false)
         }
@@ -451,6 +485,19 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                         {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                         Save Configuration
                     </Button>
+
+                    {/* Show Delete button only if editing an existing preset */}
+                    {presets.some(p => p.name === name) && (
+                        <Button
+                            onClick={handleDelete}
+                            disabled={saving}
+                            variant="destructive"
+                            className="flex-none"
+                            title="Delete this configuration"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             </CardContent>
         </Card>

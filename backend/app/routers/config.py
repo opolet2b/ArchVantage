@@ -47,6 +47,13 @@ def save_preset(preset: ConfigRequest):
     config_service.save_config(config)
     return {"status": "success", "preset": preset_dict}
 
+@router.delete("/config/presets/{preset_name}")
+def delete_preset(preset_name: str):
+    success = config_service.delete_preset(preset_name)
+    if success:
+        return {"status": "success", "message": f"Preset '{preset_name}' deleted."}
+    raise HTTPException(status_code=404, detail="Preset not found")
+
 class DefaultsRequest(BaseModel):
     default_llm: Optional[str] = None
     default_vision: Optional[str] = None
