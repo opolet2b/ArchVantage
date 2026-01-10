@@ -330,16 +330,24 @@ export function PDFViewer({
     // For now, allow all (might be confusing) or try to adhere to session?
     // Let's pass all but maybe filtered if they have page metadata.
     const currentOverlays = overlays.filter(o => {
-        // If overlay has no pageNumber, show it? Or assume page 1?
-        // Let's rely on backend storing page info.
-        // For compatibility with current implementation:
+        // Check for 'slideIndex' (0-based) which aligns with our RegionFragment type
+        if ((o as any).slideIndex !== undefined) {
+            console.log(`[PDFViewer] Filtering overlay ${o.id}: slideIndex ${(o as any).slideIndex} vs page ${pageNumber - 1}`);
+            return (o as any).slideIndex === (pageNumber - 1);
+        }
+
+        // Fallback for older 'pageNumber' property (1-based)
         if ((o as any).pageNumber !== undefined) {
             return (o as any).pageNumber === pageNumber;
         }
-        // If no page number, maybe it was created on "current" page so user expects it here?
-        // Or maybe it's global?
-        // Let's show it to prevent data hiding, but this is a TODO for the user data model.
-        return true;
+
+        // If no page info, assume it belongs to the first page or is global?
+        // Better to be strict: if it has no page info, it's likely broken or legacy.
+        // But for safety, show on Page 1 only? Or Show on All?
+        // Given the user report of "fragment of any page stays visible", defaulting to TRUE is the problem.
+        // Let's change default to: Show only on Page 1 (index 0) if undefined.
+        // OR better: Assume slideIndex 0 if undefined.
+        return (pageNumber === 1);
     });
 
     const handleOverlayAction = (action: 'resize' | 'delete' | 'click', id: string, data?: any) => {
