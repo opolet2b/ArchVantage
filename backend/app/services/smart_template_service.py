@@ -1160,11 +1160,15 @@ class SmartTemplateService:
                                 for v in candidate_vars:
                                     val = vars.get(v)
                                     if val and isinstance(val, dict):
-                                         agent_analysis = (
-                                             val.get("analysis_results", {}).get("formatted_output") or 
-                                             val.get("generated_markdown") or
-                                             val.get("text")
-                                         )
+                                         # Prioritize Extractor Output (Strict JSON)
+                                         if "extracted_elements" in val:
+                                             agent_analysis = val
+                                         else:
+                                             agent_analysis = (
+                                                 val.get("analysis_results", {}).get("formatted_output") or 
+                                                 val.get("generated_markdown") or
+                                                 val.get("text")
+                                             )
                                     elif val and isinstance(val, str) and len(val) > 100:
                                          agent_analysis = val
                                     

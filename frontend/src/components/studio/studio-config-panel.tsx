@@ -218,6 +218,32 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                             </p>
                         </div>
 
+                        {/* Extraction Mode Selection */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-xs font-bold text-muted-foreground uppercase">Extraction Mode</Label>
+                                <HelpTooltip contentPath="smart-analysis/extraction_mode" />
+                            </div>
+                            <Select
+                                value={selectedStep.config?.mode || "semantic"}
+                                onValueChange={(val) => handleUpdateConfig("mode", val)}
+                            >
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="semantic">Semantic Analysis (Default)</SelectItem>
+                                    <SelectItem value="table">Table / Structure</SelectItem>
+                                    <SelectItem value="ocr">OCR / Verbatim</SelectItem>
+                                    <SelectItem value="raw">Raw / Pass-Through (No AI)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <p className="text-[10px] text-muted-foreground">
+                                {selectedStep.config?.mode === 'table' ? "Strictly transcribes tabular data row-by-row." :
+                                    selectedStep.config?.mode === 'ocr' ? "Extracts raw text exactly as it appears." :
+                                        selectedStep.config?.mode === 'raw' ? "Passes selection directly to next step (Bypasses AI)." :
+                                            "Analyzes and filters information based on meaning."}
+                            </p>
+                        </div>
+
                         <div className="space-y-2">
                             <div className="flex items-center justify-between">
                                 <Label className="text-xs font-bold text-muted-foreground uppercase">Source Sections</Label>

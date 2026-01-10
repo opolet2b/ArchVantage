@@ -9,9 +9,11 @@ Features:
 - Fills <!-- INSTRUCTION: --> blocks using LLM
 - Supports image placement and table formatting
 """
-from typing import Any, Dict, Tuple
-import re
+import logging
 import json
+import re
+import time
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from jinja2 import Environment, BaseLoader, UndefinedError
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
@@ -413,7 +415,7 @@ class TextTemplatePrimitive(BasePrimitive):
             # STRICT CONTRACT MODE
             # Check if we have 'agent_output' from previous node
             variables = state.get("variables", {})
-            agent_out = variables.get("agent_output")
+            agent_out = variables.get("agent_output") or variables.get("extractor_output")
             
             print(f"[TextTemplate] Debug: checking for agent_output. Keys in variables: {list(variables.keys())}")
             if agent_out:
@@ -471,13 +473,37 @@ class TextTemplatePrimitive(BasePrimitive):
                              component_name = "Recharts LineChart"
                              target_structure_type = "chart"
                          
-                         schema_desc = json.dumps(config_schema, indent=2) if config_schema else "No specific schema provided."
+                         # SCHEMA HANDLING
+                         schema_desc = "No specific schema provided."
+                         example_desc = ""
+                         
+                         if config_schema:
+                             if isinstance(config_schema, str) and ("const" in config_schema or "=" in config_schema or "[" in config_schema):
+                                 # User provided JS Code/Example Data
+                                 schema_desc = "Schema: See Example Data below."
+                                 example_desc = f"REFERENCE DATA STRUCTURE (Javascript):\n{config_schema}\n\nINSTRUCTION: Output JSON that matches the structure and keys of the reference data above."
+                             else:
+                                 # Standard JSON Schema
+                                 schema_desc = json.dumps(config_schema, indent=2)
+
                          context_instruction = (
                              f"TARGET VISUALIZATION: '{component_name}'\n"
                              f"You must generate a valid JSON payload for this React component.\n"
                              f"Set 'structure_type' to '{target_structure_type}'.\n"
                              f"The 'content' field must be a JSON object conforming to this schema:\n{schema_desc}\n"
+                             f"{example_desc}\n"
                          )
+                         
+                         if "recharts" in component_name.lower():
+                             context_instruction += (
+                                 "\nIMPORTANT DATA TRANSFORMATION STRATEGY:\n"
+                                 "The Input Analysis Results likely contain a 'flat' dictionary with keys combining Entity, Time, and Metric (e.g. 'Euro_Area_Q1_2025_Growth').\n"
+                                 "You MUST pivot this data into an Array of Objects suitable for a Time-Series Chart.\n"
+                                 "1. Identify the common 'Time' or 'Category' across the keys (e.g. Q1 2025, Q2 2025).\n"
+                                 "2. Create one object for each Time/Category: {'name': 'Q1 2025'}.\n"
+                                 "3. Extract the numeric values for each Entity at that time and add them to the object.\n"
+                                 "   Example Goal: [{'name': 'Q1 2025', 'Euro Area': 1.3, 'EU': 1.2}, ...]\n"
+                             )
                          # OVERRIDE: Ignore any generic template instructions that might suggest ASCII art
                          template_for_prompt = (
                              f"Task: Extract data from the analysis results to populate a {component_name}.\n"
@@ -518,50 +544,81 @@ Specific Instructions:
                             f.write("="*50 + "\n")
                     except Exception as log_e:
                          print(f"Logging failed: {log_e}")
-                    # ---------------------
-
+                    # Step 4: Execute with LLM
+                    start_time = time.time()
+                    # In strict mode, summarization_needed is effectively false due to MAX_SAFE_CHARS bypass
+                    start_time = time.time()
+                    print(f"[TextTemplate] executing Single-Shot Semantic Generation (Strict Mode) at {start_time}")
+                    
                     response_text = await llm_service.chat(
                         messages=messages, 
                         model_name=llm_model,
-                        response_format={"type": "json_object"}
+                        temperature=0.7 
                     )
                     
+                    end_time = time.time()
+                    duration = end_time - start_time
+                    print(f"[TextTemplate] LLM Generation Finished. Duration: {duration:.2f} seconds ({duration/60:.2f} minutes).")
+                    
+                    # Fix: Strip Markdown Fences if present (common with Flash/Smart models despite Strict Mode)
+                    clean_text = response_text.strip()
+                    if clean_text.startswith("```json"):
+                        clean_text = clean_text[7:]
+                    if clean_text.startswith("```"):
+                        clean_text = clean_text[3:]
+                    if clean_text.endswith("```"):
+                        clean_text = clean_text[:-3]
+                    clean_text = clean_text.strip()
+
                     try:
-                        viz_output_data = json.loads(response_text)
+                        viz_output_data = json.loads(clean_text)
                     except json.JSONDecodeError:
                         # Fallback 1: Regex text search
                         # re is imported globally
-                        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        match = re.search(r'\{.*\}', clean_text, re.DOTALL)
                         if match:
                             try:
                                 viz_output_data = json.loads(match.group(0))
                             except:
-                                # Fallback 2: ast.literal_eval (Handles single quotes/Python dicts)
                                 import ast
-                                viz_output_data = ast.literal_eval(match.group(0))
+                                try:
+                                    viz_output_data = ast.literal_eval(match.group(0))
+                                except:
+                                     raise ValueError(f"Could not parse JSON. Raw: {clean_text[:100]}")
                         else:
-                            raise ValueError(f"No JSON block found in visualization response. Response start: {response_text[:100]}")
+                             raise ValueError(f"No JSON block found. Raw: {clean_text[:100]}")
                     
                     # Validate content presence
-                    if "visual_payload" not in viz_output_data or "content" not in viz_output_data["visual_payload"]:
-                         # Fallback/Fix
-                         if "content" in viz_output_data:
-                             viz_output_data = {"visual_payload": {"structure_type": "markdown", "content": viz_output_data["content"]}}
-                    
+                    if "visual_payload" not in viz_output_data:
+                         # Heuristic: Did we get a direct component payload (e.g. Chart.js style or Recharts array)?
+                         # If so, wrap it.
+                         if "type" in viz_output_data and "data" in viz_output_data:
+                              # Handle Chart.js style fallback -> Wrap it
+                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": viz_output_data}}
+                         elif isinstance(viz_output_data, list):
+                              # Direct Array -> Wrap it
+                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": viz_output_data}}
+                         elif "content" in viz_output_data:
+                              # Just missing wrapper
+                              viz_output_data = {"visual_payload": {"structure_type": "markdown", "content": viz_output_data["content"]}}
+                         else:
+                              # Blindly wrap whatever we got as content, aiming for best effort
+                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": viz_output_data}}
+
                     # Store strictly
                     if "variables" not in state: state["variables"] = {}
                     state["variables"]["visualizer_output"] = viz_output_data
                     
-                    # Update output_var to be the CONTENT string (for backward compatibility with tools expecting string)
-                    # BUT we also store strict object
-                    content_str = viz_output_data["visual_payload"]["content"]
+                    content_str = str(viz_output_data["visual_payload"]["content"])
+                    if isinstance(viz_output_data["visual_payload"]["content"], (dict, list)):
+                         content_str = json.dumps(viz_output_data["visual_payload"]["content"])
                     
                     return PrimitiveResult(
                         success=True,
                         output={
-                            output_var: content_str, # Legacy: String
-                            "visualizer_output": viz_output_data, # Strict: Object
-                            "_raw": content_str # Legacy: String (binding usually looks here)
+                            output_var: content_str, 
+                            "visualizer_output": viz_output_data, 
+                            "_raw": content_str 
                         }
                     )
                 except Exception as e:
@@ -629,6 +686,16 @@ Rules:
                 print(f"[TextTemplate] No explicit context window found for {llm_model}. Using default: {token_limit}")
                 
             MAX_SAFE_CHARS = int(token_limit * 3) # Approx 75% of window in chars (4 chars/token)
+            
+            # Calculate input size for decision making
+            total_chars = len(system_prompt) + len(user_message)
+
+            # CRITICAL BYPASS: If Strict Mode (agent_out) is active, output integrity is paramount.
+            # We bypass summarization unless it's stupidly large (e.g. > 100k chars), assuming the User selected
+            if agent_out:
+                print(f"[TextTemplate] Strict Mode active. Bypassing summarization check. (Input: {total_chars} chars)")
+                # Effective infinite limit for logic check, though physical API limit still applies
+                MAX_SAFE_CHARS = 1000000 
             
             filled_body = ""
             

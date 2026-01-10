@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from datetime import datetime
 
 # --- Global Categories ---
@@ -151,7 +151,7 @@ class SmartRenderingTypeBase(BaseModel):
     name: str
     description: Optional[str] = None
     react_component: Optional[str] = None
-    config_schema: Optional[Dict[str, Any]] = None
+    config_schema: Optional[Union[Dict[str, Any], str]] = None
 
 class SmartRenderingTypeCreate(SmartRenderingTypeBase):
     pass
@@ -161,7 +161,7 @@ class SmartRenderingTypeUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     react_component: Optional[str] = None
-    config_schema: Optional[Dict[str, Any]] = None
+    config_schema: Optional[Union[Dict[str, Any], str]] = None
 
 class SmartRenderingTypeResponse(SmartRenderingTypeBase):
     id: str

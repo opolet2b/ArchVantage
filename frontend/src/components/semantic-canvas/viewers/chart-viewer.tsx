@@ -19,6 +19,9 @@ import {
     Cell
 } from "recharts";
 import { cn } from "@/lib/utils";
+import { Eye, EyeOff } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
 
 interface ChartViewerProps {
     type: string;
@@ -29,6 +32,8 @@ interface ChartViewerProps {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 export function ChartViewer({ type, data, className }: ChartViewerProps) {
+    const [showLegend, setShowLegend] = useState(true);
+
     // Normalize input: data might be just an array (simple mode) or an object with config
     const chartData = Array.isArray(data) ? data : (data.data || []);
     const config = Array.isArray(data) ? {} : data;
@@ -48,8 +53,9 @@ export function ChartViewer({ type, data, className }: ChartViewerProps) {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey={xAxisKey} />
                         <YAxis />
+                        <YAxis />
                         <Tooltip />
-                        <Legend />
+                        {showLegend && <Legend />}
                         {series.map((s: any, idx: number) => (
                             <Line
                                 key={s.key}
@@ -69,8 +75,9 @@ export function ChartViewer({ type, data, className }: ChartViewerProps) {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey={xAxisKey} />
                         <YAxis />
+                        <YAxis />
                         <Tooltip />
-                        <Legend />
+                        {showLegend && <Legend />}
                         {series.map((s: any, idx: number) => (
                             <Bar
                                 key={s.key}
@@ -89,8 +96,9 @@ export function ChartViewer({ type, data, className }: ChartViewerProps) {
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey={xAxisKey} />
                         <YAxis />
+                        <YAxis />
                         <Tooltip />
-                        <Legend />
+                        {showLegend && <Legend />}
                         {series.map((s: any, idx: number) => (
                             <Area
                                 key={s.key}
@@ -126,7 +134,7 @@ export function ChartViewer({ type, data, className }: ChartViewerProps) {
                             ))}
                         </Pie>
                         <Tooltip />
-                        <Legend />
+                        {showLegend && <Legend />}
                     </PieChart>
                 );
 
@@ -140,7 +148,18 @@ export function ChartViewer({ type, data, className }: ChartViewerProps) {
     };
 
     return (
-        <div className={cn("w-full h-full min-h-[300px] p-4 bg-white dark:bg-slate-900 rounded-lg shadow-sm border", className)}>
+        <div className={cn("w-full h-full min-h-[300px] p-4 bg-white dark:bg-slate-900 rounded-lg shadow-sm border relative group", className)}>
+            <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 bg-white/50 hover:bg-white/80 border border-border/50"
+                    onClick={() => setShowLegend(!showLegend)}
+                    title={showLegend ? "Hide Legend" : "Show Legend"}
+                >
+                    {showLegend ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+            </div>
             {config.title && (
                 <h3 className="text-sm font-semibold mb-4 text-center">{config.title}</h3>
             )}

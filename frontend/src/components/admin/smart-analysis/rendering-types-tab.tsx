@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Check, Sparkles, Loader2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, Sparkles, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSortableData } from "@/hooks/use-sortable-data";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { API_URL } from "@/lib/utils";
 
 // Define interface matching the API schema
@@ -97,8 +98,10 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                     try {
                         payload.config_schema = JSON.parse(payload.config_schema);
                     } catch (e) {
-                        alert("Invalid JSON in Configuration Schema. Please correct it.");
-                        return;
+                        // ALLOW STRING PAYLOAD (e.g. JS Code Snippets)
+                        // If it fails to parse as JSON, we send it as a string.
+                        // The backend now supports this for "Reference Data" handling.
+                        console.warn("Config Schema is not valid JSON. Saving as string.");
                     }
                 }
             }
@@ -168,6 +171,8 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
             category: item.category,
             name: item.name,
             description: item.description,
+            react_component: item.react_component || "",
+            config_schema: typeof item.config_schema === 'object' ? JSON.stringify(item.config_schema, null, 2) : (item.config_schema || "")
         });
         setEditingId(item.id);
         setIsDialogOpen(true);
@@ -250,7 +255,19 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                                 </Select>
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="component" className="text-xs font-semibold text-muted-foreground uppercase">REACT COMPONENT NAME</Label>
+                                <div className="flex items-center gap-2">
+                                    <Label htmlFor="component" className="text-xs font-semibold text-muted-foreground uppercase">REACT COMPONENT NAME</Label>
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p className="max-w-xs">The exact name of the React component (e.g. 'RechartsLineChart', 'TableViewer') to use for rendering.</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                </div>
                                 <Input
                                     id="component"
                                     placeholder="e.g. TableViewer"
@@ -269,7 +286,19 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                             </div>
                             <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                    <Label htmlFor="config" className="text-xs font-semibold text-muted-foreground uppercase">CONFIGURATION SCHEMA (JSON)</Label>
+                                    <div className="flex items-center gap-2">
+                                        <Label htmlFor="config" className="text-xs font-semibold text-muted-foreground uppercase">CONFIGURATION SCHEMA (JSON)</Label>
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p className="max-w-xs">Define key data structure using JSON Schema or a Javascript example (e.g. {'const data = [{ name: "Q1", value: 100 }]'}).</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    </div>
                                     <Button
                                         size="sm"
                                         variant="ghost"

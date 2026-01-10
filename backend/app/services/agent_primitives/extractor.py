@@ -5,8 +5,10 @@ Uses an LLM to extract structured data from text based on a provided schema.
 """
 from typing import Any, Dict, List, Optional
 import logging
+from datetime import datetime
 import json
 import re
+import time
 
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
 from app.services.llm_service import llm_service
@@ -113,6 +115,9 @@ class ExtractorPrimitive(BasePrimitive):
                  # Handle direct content
                  elif "content" in extractor_input:
                      source_text = extractor_input["content"]
+         
+             # Default mode for all paths
+             extraction_mode = "semantic"
                      
              # Fallback to combined_context or text
              if not source_text:
@@ -161,6 +166,44 @@ class ExtractorPrimitive(BasePrimitive):
                          if instr_obj.get("additional_instructions"):
                              instruction += f"\n\nAdditional Instructions:\n{instr_obj.get('additional_instructions')}"
             
+            
+            # --- RAW / PASS-THROUGH MODE ---
+            # Bypass LLM completely
+            # This logic is inserted here because I couldn't match the block above
+            # We need to re-fetch extractor_mode here if it wasn't set (it won't be, passing local var is safer)
+            ext_mode_local = "semantic"
+            if "extractor_input" in variables:
+                 input_obj = variables["extractor_input"]
+                 if isinstance(input_obj, dict) and "extraction_instructions" in input_obj:
+                     ext_mode_local = input_obj["extraction_instructions"].get("mode", "semantic").lower()
+            
+            # Global variable setter for later use (prompt construction)
+            extraction_mode = ext_mode_local
+            print(f"[EXTRACTOR] Selected Mode: {extraction_mode}")
+
+            if extraction_mode in ["raw", "pass-through", "raw / pass-through"]:
+                 print(f"[EXTRACTOR] Executing RAW Pass-Through Mode")
+                 extracted_elements = []
+                 # Need to access ext_input safely
+                 assets_list = []
+                 if "extractor_input" in variables and isinstance(variables["extractor_input"], dict):
+                     assets_list = variables["extractor_input"].get("assets", [])
+                     
+                 for a in assets_list:
+                     extracted_elements.append({
+                         "source_id": a.get("id"),
+                         "content_type": "raw", 
+                         "data": a.get("content"), 
+                         "metadata": {"mode": "raw"}
+                     })
+                 
+                 raw_output = { "extracted_elements": extracted_elements }
+                 return PrimitiveResult(
+                     success=True,
+                     output=json.dumps(raw_output),
+                     data=raw_output
+                 )
+
             # Legacy support
             elif "combined_context" in variables:
                  source_text = variables["combined_context"]
@@ -183,8 +226,8 @@ class ExtractorPrimitive(BasePrimitive):
             # Use the strict Pydantic model for the schema
             schema_str = json.dumps(ExtractorOutput.model_json_schema(), indent=2)
             
-            # Enhanced System Prompt for Strict Mode
-            system_prompt = f"""You are a precise data extraction assistant.
+            # Enhanced System Prompt based on Mode
+            base_system_prompt = f"""You are a precise data extraction assistant.
 You have been provided with multiple source assets, each marked with an ID.
 The Source Assets may be in any language. You MUST analyze them in their original language and extract the requested information. 
 If the Output Schema keys are in English, you must TRANSLATE the extracted information concepts to match the schema's structure and intent. 
@@ -198,9 +241,36 @@ Output Schema:
 CRITICAL INSTRUCTIONS:
 1. You MUST return a valid JSON object matching 'ExtractorOutput'.
 2. The 'extracted_elements' list must contain items where 'source_id' matches the Asset ID provided in the text.
-3. 'data' should contain the information extracted based on the instructions.
-4. 'content_type' should be 'text' unless specific images/tables are extracted.
+3. 'content_type' should be 'text' unless specific images/tables are extracted.
 """
+
+            # Mode-Specific Instructions
+            if extraction_mode in ["table", "table / structure"]:
+                mode_instruction = """
+MODE: TABLE TRANSCRIPTION
+1. You are a STRICT TRANSCRIBER. Your goal is to digitize the tabular data EXACTLY as it appears.
+2. OPTIMIZATION RULE: To save space, you MUST Output a SINGLE 'ExtractedElement'. 
+3. The 'data' field of this single element MUST be a dictionary containing a key "rows" with the list of ALL row objects.
+4. Do NOT create one ExtractedElement per row. Consolidate everything into one.
+5. PRESERVE ALL ROWS. Do not summarize.
+6. If a table has 50 rows, your 'data.rows' list MUST have 50 items.
+"""
+            elif extraction_mode in ["ocr", "verbatim", "ocr / verbatim"]:
+                mode_instruction = """
+MODE: VERBATIM OCR
+1. You are a TEXT RECOGNITION engine. Your goal is to output the raw text content visible in the asset.
+2. Do not summarize. Do not analyze.
+3. Transcribe the full text content exactly as it appears.
+"""
+            else: # Semantic (Default)
+                mode_instruction = """
+MODE: SEMANTIC ANALYSIS
+1. You are an INTELLIGENT ANALYST. Your goal is to find relevant information concepts based on the User's Focus.
+2. You may summarize, synthesize, or filter information to best match the query.
+3. 'data' should contain the extracted insights.
+"""
+            
+            system_prompt = base_system_prompt + "\n" + mode_instruction
             # Construct Multi-modal Message
             # Verify if we have images in the assets
             has_images = False
@@ -248,8 +318,18 @@ CRITICAL INSTRUCTIONS:
             # Construct final message content
             if has_images:
                 user_content_block.append({"type": "text", "text": user_text})
+                
+                # Debug Image Sizes
+                total_img_size = 0
+                for i, img_block in enumerate(image_blocks):
+                     img_url = img_block.get("image_url", {}).get("url", "")
+                     size_kb = len(img_url) / 1024
+                     total_img_size += size_kb
+                     print(f"[EXTRACTOR] Image {i+1} Size: {size_kb:.2f} KB")
+
+                print(f"[EXTRACTOR] Constructed Multi-modal message with {len(image_blocks)} images. Total Image Payload: {total_img_size:.2f} KB")
+                
                 user_content_block.extend(image_blocks)
-                print(f"[EXTRACTOR] Constructed Multi-modal message with {len(image_blocks)} images.")
             else:
                 user_content_block = user_text
 
@@ -280,7 +360,15 @@ CRITICAL INSTRUCTIONS:
             else:
                 print(f"[EXTRACTOR] Images detected. Disabling strict JSON mode to prevent VLM crash.")
 
+            # Call LLM
+            start_time = time.time()
+            print(f"[EXTRACTOR] calling LLM at {start_time}")
+
             response_text = await llm_service.chat(**call_kwargs)
+            
+            end_time = time.time()
+            duration = end_time - start_time
+            print(f"[EXTRACTOR] LLM Call Finished. Duration: {duration:.2f} seconds ({duration/60:.2f} minutes).")
             
             # Debug Log: Final Response
             try:
