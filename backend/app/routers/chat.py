@@ -115,14 +115,14 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
             linked_nodes = db.query(CanvasThing).filter(CanvasThing.id.in_(list(linked_ids))).all()
             debug_log.append(f"Found {len(linked_nodes)} linked context nodes.")
             
-            asset_ids = []
+            rag_candidates = []
             text_context = []
             
             for node in linked_nodes:
                 linked_items_summary.append({"id": node.id, "title": node.title, "type": node.type})
                 
                 if node.content.get("asset_id"):
-                    asset_ids.append(node.content["asset_id"])
+                    rag_candidates.append({"thing_id": node.id, "asset_id": node.content["asset_id"]})
                 
                 if node.type in ["text", "message", "agent_result", "url"]:
                     txt = node.content.get("text") or node.content.get("content") or ""
@@ -133,15 +133,20 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                     text_context.append(f"[Image Description: {node.title}]: {node.content['generated_description']}")
 
             # A. Retrieve from RAG for Assets
-            if asset_ids:
+            if rag_candidates:
                 # Determine query string
                 query = last_user_message if last_user_message else "Summary"
-                debug_log.append(f"Querying RAG for assets: {asset_ids} with query: '{query}'")
+                debug_log.append(f"Querying RAG for {len(rag_candidates)} candidates with query: '{query}'")
                 
-                for aid in asset_ids:
+                for cand in rag_candidates:
+                    tid = cand["thing_id"]
+                    aid = cand["asset_id"]
+                    
+                    # We filter by THING_ID because that is what is in the DB metadata
+                    # (Asset ID was missing in metadata due to bug)
                     results = rag_service.search(
                         query, 
-                        filters={"asset_id": aid}, 
+                        filters={"thing_id": tid}, 
                         k=3
                     )
                     
@@ -150,18 +155,18 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                             context_parts.append(f"[Document Context]: {res['text']}")
                     else:
                         # Fallback: If specific query yielded no results, try to fetch a summary/intro
-                        debug_log.append(f"No results for asset {aid} with query '{query}'. Attempting fallback...")
+                        debug_log.append(f"No results for thing {tid} (asset {aid}). Attempting fallback...")
                         fallback_results = rag_service.search(
                             "Summary Introduction Abstract", 
-                            filters={"asset_id": aid}, 
+                            filters={"thing_id": tid}, 
                             k=2
                         )
                         if fallback_results:
-                            debug_log.append(f"Fallback successful for {aid}")
+                            debug_log.append(f"Fallback successful for {tid}")
                             for res in fallback_results:
                                 context_parts.append(f"[Document Context (Summary/Preview)]: {res['text']}")
                         else:
-                             debug_log.append(f"Fallback also empty for {aid}")
+                             debug_log.append(f"Fallback also empty for {tid}")
 
             # B. Add Raw Text Context
             for node in linked_nodes:
@@ -215,55 +220,105 @@ async def debug_chat_context(
     db: Session = Depends(get_db)
 ):
     """Debug endpoint to see what context is resolved for a conversation ID."""
+    from app.services.rag_service import rag_service
+    
     result = resolve_conversation_context(db, conversation_id, "DEBUG_TEST")
+    
+    # Debug the fallback logic too
+    if not result.get("linked_items"):
+        direct_results = rag_service.search("DEBUG_TEST", conversation_id=conversation_id, k=3)
+        result["fallback_rag_results"] = direct_results
+        result["fallback_message"] = f"Found {len(direct_results)} items via direct RAG search"
+        
+    return result
+        
     return result
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(
     request: ChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
 ):
     """
     Standard chat endpoint with RAG context support.
     
-    If conversation_id is provided, it resolves linked Canvas context:
-    1. Finds the Conversation Node on the canvas.
-    2. Finds all connected nodes (docs, images, text, etc.).
-    3. Retrieves relevant content from RAG (for docs) or raw content (for text).
-    4. Injects context into the system prompt.
+    If conversation_id is provided, it resolves linked Canvas context.
+    If NOT provided (Generic Sidebar Chat), it searches "Sidebar Uploads" for the user.
     """
+    from app.services.rag_service import rag_service
+    
     final_messages = list(request.messages)
     
+    # Extract last user message for query
+    last_msg = ""
+    for m in reversed(request.messages):
+        if m.role == "user":
+            last_msg = m.content
+            break
+
     if request.conversation_id:
-        # Extract last user message for query
-        last_msg = ""
-        for m in reversed(request.messages):
-            if m.role == "user":
-                last_msg = m.content
-                break
-                
-        # Resolve context
-        ctx_result = resolve_conversation_context(db, str(request.conversation_id), last_msg)
+        # Resolve Canvas Context
+        ctx_result = resolve_conversation_context(db, request.conversation_id, last_msg)
         
-        if ctx_result.get("context_data_text"):
-             context_text = ctx_result["context_data_text"]
-             
-             # Strategy: Inject into the LAST user message to ensure high attention.
-             # This is "RAG Injection" standard practice.
-             if final_messages and final_messages[-1].role == "user":
-                 print(f"[Chat] Injecting context into last USER message ({len(context_text)} chars)")
-                 final_messages[-1].content += f"\n\n[System Context Data]:\n{context_text}"
-             else:
-                 # Fallback to System Prompt injection if no user message found (rare)
-                 system_prompt = ctx_result["system_prompt_addendum"]
-                 from app.models.chat import Message
-                 if not final_messages:
-                     final_messages.append(Message(role="system", content=system_prompt))
-                 elif final_messages[0].role == "system":
-                     final_messages[0].content += f"\n\n{system_prompt}"
-                 else:
-                     final_messages.insert(0, type(final_messages[0])(role="system", content=system_prompt))
-                 print(f"[Chat] Injected System Prompt (Fallback): {system_prompt[:200]}...")
+        # Inject Context into System Prompt
+        if ctx_result["system_prompt_addendum"]:
+            # We inject this as a hidden system message or append to the last user message
+            # For robustness, we'll append to the last user message so the model definitely sees it
+            
+            # Find last user message in final_messages to append context
+            for i in range(len(final_messages) - 1, -1, -1):
+                if final_messages[i].role == "user":
+                    # Append context cleanly
+                    final_messages[i].content += f"\n\n--- RELEVANT CONTEXT ---\n{ctx_result['context_data_text']}\n------------------------"
+                    break
+        
+        # FALLBACK: If no Canvas items were found, this might be a pure Sidebar Chat
+        # Check if there are documents directly associated with this conversation_id (via rag.py upload)
+        if not ctx_result.get("linked_items"):
+            print(f"[Chat] No Canvas links found. Checking for direct RAG content for conversation {request.conversation_id}")
+            direct_results = rag_service.search(last_msg, conversation_id=request.conversation_id, k=3)
+            
+            if direct_results:
+                 print(f"[Chat] Found {len(direct_results)} direct RAG items for conversation.")
+                 direct_context = "\n".join([f"[Document Context]: {res['text']}" for res in direct_results])
+                 
+                 # Inject into last user message
+                 for i in range(len(final_messages) - 1, -1, -1):
+                    if final_messages[i].role == "user":
+                        # If we already added context (unlikely if linked_items was empty, but safe to check), append
+                        if "--- RELEVANT CONTEXT ---" in str(final_messages[i].content):
+                             final_messages[i].content += f"\n\n--- ADDITIONAL CONTEXT ---\n{direct_context}\n--------------------------"
+                        else:
+                             final_messages[i].content += f"\n\n--- UPLOADED FILE CONTEXT ---\n{direct_context}\n-----------------------------"
+                        break
+    
+    else:
+        # GENERIC SIDEBAR CHAT FALLBACK
+        # Search all assets uploaded by this user via the sidebar
+        print(f"[Chat] Generic chat request from user {current_user.id}. Query: {last_msg}")
+        
+        results = rag_service.search(
+            last_msg,
+            filters={
+                "owner_id": current_user.id,
+                "source": "sidebar_upload"
+            },
+            k=3
+        )
+        
+        if results:
+            print(f"[Chat] Found {len(results)} generic context items for user.")
+            context_text = "\n".join([f"[Document Context]: {res['text']}" for res in results])
+            
+            # Inject into last user message
+            for i in range(len(final_messages) - 1, -1, -1):
+                if final_messages[i].role == "user":
+                    final_messages[i].content += f"\n\n--- UPLOADED FILE CONTEXT ---\n{context_text}\n-----------------------------"
+                    break
+        else:
+            print("[Chat] No generic context found.")
+
 
     response_content = await llm_service.chat(final_messages, request.model)
     return ChatResponse(role="assistant", content=response_content)

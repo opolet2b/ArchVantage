@@ -443,6 +443,10 @@ async def handle_async_vectorization(
         else:
             # Default Document Ingestion
             meta = base_metadata.copy()
+            # CRITICAL FIX: Include asset_id so chat can filter by it if needed in future
+            if thing.content.get("asset_id"):
+                meta["asset_id"] = thing.content.get("asset_id")
+            
             result = rag_service.ingest_file(
                 file_path, 
                 metadata=meta,

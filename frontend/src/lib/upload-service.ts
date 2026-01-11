@@ -19,6 +19,11 @@ export function uploadFile(
 
         xhr.open("POST", url, true)
 
+        const token = localStorage.getItem("token")
+        if (token) {
+            xhr.setRequestHeader("Authorization", `Bearer ${token}`)
+        }
+
         xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
                 const percentage = Math.round((e.loaded / e.total) * 100)

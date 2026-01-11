@@ -6,7 +6,7 @@ Handles uploading and secure streaming.
 
 PEP 8 Compliant
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -41,27 +41,58 @@ class AssetUploadResponse(BaseModel):
 # Endpoints
 # =============================================================================
 
-@router.post("/upload", response_model=AssetUploadResponse)
+@router.post("/assets/upload")
 async def upload_asset(
-    file: UploadFile = File(...),
+    file: UploadFile,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Upload a file to secure storage.
-    Returns the asset ID and access URL.
+    Upload a file and create an asset record.
+    Triggers asynchronous RAG ingestion.
     """
-    print(f"[AssetRouter] Upload request received")
-    if not file:
+    try:
+        asset, file_hash = await asset_service.create_asset(db, file, current_user.id)
+        
+        # Trigger Background RAG Ingestion
+        # This fixes the "Sidebar Chat Hallucination" issue by ensuring standard uploads are vectorized.
+        def ingest_asset_for_user(asset_id, file_path, user_id):
+            try:
+                print(f"[AssetRouter] Starting background ingestion for asset {asset_id}")
+                
+                # Metadata: Tag with asset_id and owner_id so the generic chat can find it
+                result = rag_service.ingest_file(
+                    file_path,
+                    metadata={
+                        "asset_id": asset_id, 
+                        "owner_id": user_id, 
+                        "source": "sidebar_upload"
+                    }
+                )
+                print(f"[AssetRouter] Background ingestion finished: {result.get('status')}")
+            except Exception as e:
+                print(f"[AssetRouter] Background ingestion failed: {e}")
+
+        # Resolve full path for ingestion
+        full_path = str(asset_service.get_storage_path(asset))
+        
+        background_tasks.add_task(ingest_asset_for_user, asset.id, full_path, current_user.id)
+        
+        return {
+            "id": asset.id,
+            "filename": asset.original_name,
+            "size": asset.size_bytes,
+            "hash": file_hash,  # Return hash to prevent duplicate uploads if frontend checks,
+            "status": "processing" # Indicate that AI processing is happening
+        }
+    except Exception as e:
+        print(f"[Upload] Error: {e}")
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No file provided"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
         )
 
-    # Use service to handle storage logic
-    asset, file_hash = await asset_service.create_asset(db, file, current_user.id)
-    
-    # Check for PowerPoint
     filename = asset.original_name.lower()
     if filename.endswith(".pptx"):
         print(f"[AssetRouter] Detected PowerPoint file. Processing structure...")
