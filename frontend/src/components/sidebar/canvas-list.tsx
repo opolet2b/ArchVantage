@@ -10,7 +10,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw } from "lucide-react";
+import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw, Sparkles } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -193,6 +193,41 @@ export function CanvasList() {
             console.error("Failed to rename canvas:", err);
         } finally {
             setEditingId(null);
+        }
+    };
+
+    const handleAutoRename = async (id: string, currentName: string) => {
+        const token = getToken();
+        if (!token) return;
+
+        // Optimistic / Loading feedback
+        // We could set a "renaming" state, but for now let's just use a toast or simple rename flow
+        // Or set the name to "Generating name..." temporarily?
+        // Let's just do it silently and update when done, maybe show a toast if we had one.
+
+        try {
+            const res = await fetch(`${API_URL}/canvases/${id}/auto-rename`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (data.status === "success" && data.name) {
+                    setCanvases((prev) =>
+                        prev.map((c) =>
+                            c.id === id ? { ...c, name: data.name } : c
+                        )
+                    );
+                } else if (data.status === "skipped") {
+                    console.log("Auto-rename skipped:", data.message);
+                    alert("Could not generate a better name. Please add more content to the canvas first.");
+                }
+            }
+        } catch (err) {
+            console.error("Failed to auto-rename:", err);
         }
     };
 
@@ -677,6 +712,15 @@ export function CanvasList() {
                                         >
                                             <Lock className="mr-2 h-3 w-3" />{" "}
                                             Permissions
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleAutoRename(canvas.id, canvas.name);
+                                            }}
+                                        >
+                                            <Sparkles className="mr-2 h-3 w-3 text-purple-500" />{" "}
+                                            Auto-Rename
                                         </DropdownMenuItem>
                                         <DropdownMenuItem
                                             className="text-red-600 focus:text-red-600"

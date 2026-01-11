@@ -102,4 +102,24 @@ class LLMService:
             print(f"Error in LLMService: {e}")
             return f"Error: {str(e)}"
 
+    async def generate_title(self, content: str, type: str = "conversation") -> str:
+        """Generates a short 3-5 word title for the given content."""
+        try:
+            llm = self._get_model("default")
+            
+            prompt = f"""
+            Generate a short, concise title (3-5 words) for the following {type}.
+            Do not use quotes or prefixes like "Title:". Just the title.
+            
+            Content:
+            {content[:2000]} 
+            """
+            
+            response = await llm.ainvoke([HumanMessage(content=prompt)])
+            title = response.content.strip().replace('"', '')
+            return title
+        except Exception as e:
+            print(f"Error generating title: {e}")
+            return "New " + type.capitalize()
+
 llm_service = LLMService()

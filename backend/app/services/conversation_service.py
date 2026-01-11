@@ -179,38 +179,17 @@ class ConversationService:
             return
 
         messages = conversations[conv_id]["messages"]
-        # Prepare a prompt for summarization
-        # We need to convert dict messages to objects expected by LLMService if needed, 
-        # but LLMService takes Pydantic models usually. Let's check LLMService usage.
-        # LLMService.chat takes List[Message].
-        
-        from pydantic import BaseModel
-        class Message(BaseModel):
-            role: str
-            content: str
-
-        # Construct prompt messages
-        prompt_messages = [
-            Message(role="system", content="You are a helpful assistant. Generate a short, concise title (max 6 words) for this conversation based on the user's first message. Do not use quotes."),
-            Message(role="user", content=f"Generate title for this conversation:\n\nUser: {messages[0]['content'] if messages else ''}")
-        ]
-        
-        # If there are more messages, maybe include them? For now just the first user message is usually enough.
-        # Let's find the first user message
         first_user_msg = next((m for m in messages if m["role"] == "user"), None)
+        
         if not first_user_msg:
-            return
-
-        prompt_messages = [
-            Message(role="system", content="Generate a short title (max 5 words) for this conversation. Output ONLY the title."),
-            Message(role="user", content=first_user_msg["content"])
-        ]
-
-        try:
-            title = await llm_service.chat(prompt_messages, model_name="default")
-            title = title.strip().strip('"')
-            self.update_conversation(conv_id, {"title": title})
-        except Exception as e:
-            print(f"Error generating title: {e}")
+             return
+             
+        content_to_analyze = first_user_msg["content"]
+        
+        # Use the specialized method
+        title = await llm_service.generate_title(content_to_analyze, type="conversation")
+        
+        if title:
+             self.update_conversation(conv_id, {"title": title})
 
 conversation_service = ConversationService()

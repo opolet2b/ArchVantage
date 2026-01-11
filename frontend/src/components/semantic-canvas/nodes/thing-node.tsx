@@ -258,6 +258,9 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     // REUSE ALL EXISTING STATE LOGIC FROM LINES ~230-496 (skipping for brevity in prompt but must exist)
     const [selected, setSelected] = React.useState(isSelected);
 
+    // Full Screen State
+    const [isFullScreen, setIsFullScreen] = React.useState(false);
+
     // Content Editing State
     const [isEditingContent, setIsEditingContent] = React.useState(false);
     const [editedContent, setEditedContent] = React.useState("");
@@ -1602,6 +1605,13 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                     position={Position.Right}
                     className={cn("!w-3 !h-3", colorTheme.handleColor)}
                 />
+
+                {/* Title Label for Iconified State */}
+                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 flex justify-center z-10 pointer-events-none">
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300 bg-white/90 dark:bg-slate-900/90 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-800 shadow-sm truncate text-center backdrop-blur-sm max-w-full">
+                        {thing.title || getDefaultTitle()}
+                    </span>
+                </div>
             </div>
         );
     }
@@ -1886,6 +1896,18 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                         title="Export content"
                     >
                         <Download className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                    </button>
+
+                    {/* Maximize Button - Full Screen Mode */}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setIsFullScreen(true);
+                        }}
+                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                        title="Full Screen"
+                    >
+                        <Maximize2 className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                     </button>
 
                     {/* Iconify button - shown when selected */}
@@ -2196,6 +2218,49 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 onOpenChange={setExportDialogOpen}
                 thing={currentThing}
             />
+
+            {/* Full Screen Portal */}
+            {isFullScreen && typeof document !== "undefined" && createPortal(
+                <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-950 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                    {/* Full Screen Header */}
+                    <div className={cn(
+                        "flex items-center gap-3 px-4 py-3 border-b shadow-sm flex-none",
+                        colorTheme.headerBg,
+                        colorTheme.headerBgDark
+                    )}>
+                        <Icon className={cn("h-5 w-5", colorTheme.iconColor)} />
+
+                        <div className="flex-1 min-w-0">
+                            <h2 className="text-lg font-semibold truncate">
+                                {thing.title || getDefaultTitle()}
+                            </h2>
+                        </div>
+
+                        {/* Close / Restore Button */}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-2 ml-auto"
+                            onClick={() => setIsFullScreen(false)}
+                        >
+                            <Minimize2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">Exit Full Screen</span>
+                        </Button>
+                    </div>
+
+                    {/* Check if syncing is needed for correct content display */}
+                    {/* Main Content Area - Reusing render logic but ensuring container fits */}
+                    <div className="flex-1 min-h-0 overflow-hidden relative p-4 bg-slate-50 dark:bg-slate-900/50">
+                        <div className="h-full w-full max-w-7xl mx-auto bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
+                            {/* We wrap the content render in a strict container to ensure scrolling works inside it */}
+                            <div className="flex-1 min-h-0 relative">
+                                {renderFullContent()}
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
         </>
     );
 }

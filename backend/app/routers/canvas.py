@@ -188,6 +188,73 @@ def update_canvas(
     return canvas
 
 
+    db.commit()
+    db.refresh(canvas)
+    return canvas
+
+@router.post("/canvases/{canvas_id}/auto-rename", response_model=dict)
+async def auto_rename_canvas(
+    canvas_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Automatically rename the canvas based on its content using LLM."""
+    from app.services.llm_service import llm_service
+    
+    # 1. Fetch canvas with things
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id)
+            # Roles excluded for now as implicit write permission is tricky
+        )
+    ).first()
+    
+    if not canvas:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Canvas not found or access denied"
+        )
+        
+    # 2. Aggregate content
+    things = db.query(CanvasThing).filter(CanvasThing.canvas_id == canvas_id).all()
+    if not things:
+        return {"status": "skipped", "message": "Canvas is empty", "name": canvas.name}
+        
+    content_parts = []
+    for t in things:
+        # Include title if meaningful
+        if t.title and not t.title.startswith("New ") and len(t.title) > 3:
+            content_parts.append(f"Title: {t.title}")
+            
+        # Include content based on type
+        if t.type == "text" and t.content:
+            text_val = t.content.get("text", "")
+            if isinstance(text_val, str):
+                content_parts.append(text_val[:500]) # Cap per node
+            elif isinstance(text_val, dict) or isinstance(text_val, list):
+                 # Handle cases where text might be rich text JSON or list
+                 content_parts.append(str(text_val)[:500])
+        elif t.type == "conversation":
+            # For chats, maybe just the last few messages or summary?
+            # Analyzing chat history is expensive, let's skip deep analysis for canvas rename
+            # and rely on title if it was auto-generated
+            pass
+            
+    full_text = "\n".join(content_parts)
+    if len(full_text) < 10:
+         return {"status": "skipped", "message": "Not enough content to generate name", "name": canvas.name}
+
+    # 3. Generate Title
+    new_title = await llm_service.generate_title(full_text, type="canvas")
+    
+    # 4. Update
+    canvas.name = new_title
+    db.commit()
+    
+    return {"status": "success", "name": new_title}
+
 @router.delete("/canvases/{canvas_id}")
 def delete_canvas(
     canvas_id: str,

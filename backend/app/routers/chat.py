@@ -22,6 +22,202 @@ from app.models.agent_blueprint import AgentBlueprint
 router = APIRouter()
 
 
+def resolve_conversation_context(db: Session, conversation_id: str, last_user_message: str = "") -> dict:
+    """
+    Helper to resolve context for a conversation.
+    Returns a dict with:
+      - system_prompt_addendum: The text to add to system prompt
+      - linked_items: List of items found
+      - debug_log: List of strings describing what happened
+    """
+    from app.models.canvas_models import CanvasThing, CanvasLink, Domain
+    from sqlalchemy import or_
+    from app.services.rag_service import rag_service
+    
+    debug_log = []
+    debug_log.append(f"Resolving context for {conversation_id}")
+    
+    # 1. Find Conversation Node
+    candidates = db.query(CanvasThing).filter(CanvasThing.type == "conversation").all()
+    convo_node = next((t for t in candidates if str(t.content.get("conversation_id")) == conversation_id), None)
+    
+    linked_ids = set()
+    linked_items_summary = []
+    
+    if convo_node:
+        debug_log.append(f"Found conversation node: {convo_node.id}")
+        
+        # 2. Find Linked Nodes
+        links = db.query(CanvasLink).filter(
+            or_(
+                CanvasLink.source_id == convo_node.id,
+                CanvasLink.target_id == convo_node.id
+            )
+        ).all()
+        
+        for link in links:
+            target_id = link.target_id if link.source_id == convo_node.id else link.source_id
+            linked_ids.add(target_id)
+            
+        # 2a. Domain Context
+        if convo_node.domain_id:
+            debug_log.append(f"Conversation is in domain: {convo_node.domain_id}")
+            def get_descendant_domain_ids(root_id):
+                descendants = set([root_id])
+                children = db.query(Domain).filter(Domain.parent_id == root_id).all()
+                for child in children:
+                    descendants.update(get_descendant_domain_ids(child.id))
+                return descendants
+            
+            domain_ids = get_descendant_domain_ids(convo_node.domain_id)
+            domain_things = db.query(CanvasThing).filter(
+                CanvasThing.domain_id.in_(domain_ids),
+                CanvasThing.id != convo_node.id
+            ).all()
+            for t in domain_things:
+                linked_ids.add(t.id)
+
+        # 2b. Linked Domains Context
+        linked_domains = db.query(Domain).filter(Domain.id.in_(list(linked_ids))).all()
+        if linked_domains:
+             debug_log.append(f"Found {len(linked_domains)} explicitly linked domains.")
+             for domain in linked_domains:
+                 def get_descendant_domain_ids_local(root_id):
+                    descendants = set([root_id])
+                    children = db.query(Domain).filter(Domain.parent_id == root_id).all()
+                    for child in children:
+                        descendants.update(get_descendant_domain_ids_local(child.id))
+                    return descendants
+
+                 domain_tree_ids = get_descendant_domain_ids_local(domain.id)
+                 domain_children = db.query(CanvasThing).filter(
+                    CanvasThing.domain_id.in_(domain_tree_ids),
+                     CanvasThing.id != convo_node.id
+                 ).all()
+                 
+                 debug_log.append(f"Added {len(domain_children)} items from linked domain {domain.name}")
+                 for child in domain_children:
+                     linked_ids.add(child.id)
+
+        # 3. Global Fallback
+        if len(linked_ids) == 0:
+            debug_log.append("No specific context linked. Falling back to Global Canvas Context")
+            all_things = db.query(CanvasThing).filter(
+                CanvasThing.canvas_id == convo_node.canvas_id,
+                CanvasThing.id != convo_node.id
+            ).all()
+            for t in all_things:
+                linked_ids.add(t.id)
+
+        # Process Linked IDs
+        context_parts = []
+        if linked_ids:
+            linked_nodes = db.query(CanvasThing).filter(CanvasThing.id.in_(list(linked_ids))).all()
+            debug_log.append(f"Found {len(linked_nodes)} linked context nodes.")
+            
+            asset_ids = []
+            text_context = []
+            
+            for node in linked_nodes:
+                linked_items_summary.append({"id": node.id, "title": node.title, "type": node.type})
+                
+                if node.content.get("asset_id"):
+                    asset_ids.append(node.content["asset_id"])
+                
+                if node.type in ["text", "message", "agent_result", "url"]:
+                    txt = node.content.get("text") or node.content.get("content") or ""
+                    if txt:
+                        text_context.append(f"[{node.title or 'Note'}]: {txt}")
+                        
+                if node.content.get("generated_description"):
+                    text_context.append(f"[Image Description: {node.title}]: {node.content['generated_description']}")
+
+            # A. Retrieve from RAG for Assets
+            if asset_ids:
+                # Determine query string
+                query = last_user_message if last_user_message else "Summary"
+                debug_log.append(f"Querying RAG for assets: {asset_ids} with query: '{query}'")
+                
+                for aid in asset_ids:
+                    results = rag_service.search(
+                        query, 
+                        filters={"asset_id": aid}, 
+                        k=3
+                    )
+                    
+                    if results:
+                        for res in results:
+                            context_parts.append(f"[Document Context]: {res['text']}")
+                    else:
+                        # Fallback: If specific query yielded no results, try to fetch a summary/intro
+                        debug_log.append(f"No results for asset {aid} with query '{query}'. Attempting fallback...")
+                        fallback_results = rag_service.search(
+                            "Summary Introduction Abstract", 
+                            filters={"asset_id": aid}, 
+                            k=2
+                        )
+                        if fallback_results:
+                            debug_log.append(f"Fallback successful for {aid}")
+                            for res in fallback_results:
+                                context_parts.append(f"[Document Context (Summary/Preview)]: {res['text']}")
+                        else:
+                             debug_log.append(f"Fallback also empty for {aid}")
+
+            # B. Add Raw Text Context
+            for node in linked_nodes:
+                 if node.type == "document" and node.content.get("content"):
+                      content_len = len(node.content.get("content", ""))
+                      if content_len < 10000:
+                           text_context.append(f"[{node.title}]: {node.content['content']}")
+
+            context_parts.extend(text_context)
+            
+            # C. Generate Context Manifest
+            manifest_text = "You have access to the following context items:\n"
+            for node in linked_nodes:
+                 manifest_text += f"- {node.title} ({node.type})\n"
+
+            # Construct full context block
+            context_data_text = manifest_text + "\n"
+            if context_parts:
+                context_data_text += "Answer the user's question based on the following linked context:\n\n"
+                context_data_text += "\n---\n".join(context_parts)
+                context_data_text += "\n\nIf the information is not in the context, say so, but you can use general knowledge if appropriate."
+            else:
+                context_data_text += "No specific text content was retrieved for these items (they may be large files, images, or empty).\n"
+                context_data_text += "Answer the user's question to the best of your ability."
+
+            # Legacy full system prompt for backward compatibility or direct system injection
+            system_prompt = (
+                "You are a helpful assistant with access to a Semantic Canvas.\n" +
+                context_data_text
+            )
+            
+            return {
+                "system_prompt_addendum": system_prompt, # Keeping for debug
+                "context_data_text": context_data_text,  # New structured return
+                "manifest_text": manifest_text,
+                "linked_items": linked_items_summary,
+                "debug_log": debug_log
+            }
+            
+    return {
+        "system_prompt_addendum": None, 
+        "context_data_text": None,
+        "manifest_text": None,
+        "linked_items": [], 
+        "debug_log": debug_log
+    }
+
+@router.get("/chat/context/{conversation_id}")
+async def debug_chat_context(
+    conversation_id: str,
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to see what context is resolved for a conversation ID."""
+    result = resolve_conversation_context(db, conversation_id, "DEBUG_TEST")
+    return result
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(
     request: ChatRequest,
@@ -36,155 +232,38 @@ async def chat_endpoint(
     3. Retrieves relevant content from RAG (for docs) or raw content (for text).
     4. Injects context into the system prompt.
     """
-    from app.models.canvas_models import CanvasThing, CanvasLink
-    from sqlalchemy import or_
-    from app.services.rag_service import rag_service
-
     final_messages = list(request.messages)
     
     if request.conversation_id:
-        print(f"[Chat] Resolving context for conversation: {request.conversation_id}")
+        # Extract last user message for query
+        last_msg = ""
+        for m in reversed(request.messages):
+            if m.role == "user":
+                last_msg = m.content
+                break
+                
+        # Resolve context
+        ctx_result = resolve_conversation_context(db, str(request.conversation_id), last_msg)
         
-        # 1. Find Conversation Node
-        # JSON filtering is dialect-specific, so we fetch candidates and filter in Python for portability
-        # Optimization: Filter by type first
-        candidates = db.query(CanvasThing).filter(CanvasThing.type == "conversation").all()
-        convo_node = next((t for t in candidates if t.content.get("conversation_id") == request.conversation_id), None)
-        
-        if convo_node:
-            print(f"[Chat] Found conversation node: {convo_node.id} ({convo_node.title})")
-            
-            # 2. Find Linked Nodes
-            # Fetch links where this node is source OR target
-            links = db.query(CanvasLink).filter(
-                or_(
-                    CanvasLink.source_id == convo_node.id,
-                    CanvasLink.target_id == convo_node.id
-                )
-            ).all()
-            
-            linked_ids = set()
-            for link in links:
-                target_id = link.target_id if link.source_id == convo_node.id else link.source_id
-                linked_ids.add(target_id)
-            
-            # 2a. Domain Context (Recursive)
-            if convo_node.domain_id:
-                print(f"[Chat] Conversation is in domain: {convo_node.domain_id}. resolving siblings...")
-                from app.models.canvas_models import Domain
-                
-                # Helper to collect all descendant domain IDs
-                def get_descendant_domain_ids(root_id):
-                    descendants = set([root_id])
-                    # Note: This is a simple iterative fetch. For deep trees, CTE is better, but this is fine for canvas.
-                    children = db.query(Domain).filter(Domain.parent_id == root_id).all()
-                    for child in children:
-                        descendants.update(get_descendant_domain_ids(child.id))
-                    return descendants
-                
-                domain_ids = get_descendant_domain_ids(convo_node.domain_id)
-                print(f"[Chat] Found domain hierarchy: {domain_ids}")
-                
-                # Fetch all things in these domains (excluding self)
-                domain_things = db.query(CanvasThing).filter(
-                    CanvasThing.domain_id.in_(domain_ids),
-                    CanvasThing.id != convo_node.id
-                ).all()
-                
-                for t in domain_things:
-                    linked_ids.add(t.id)
-
-            # 3. Global Fallback (Entire Canvas)
-            # If NO links and NO domain context, assume the user wants to chat about the entire canvas.
-            if not linked_ids:
-                print(f"[Chat] No specific context linked. Falling back to Global Canvas Context (Canvas ID: {convo_node.canvas_id})")
-                all_things = db.query(CanvasThing).filter(
-                    CanvasThing.canvas_id == convo_node.canvas_id,
-                    CanvasThing.id != convo_node.id
-                ).all()
-                for t in all_things:
-                    linked_ids.add(t.id)
-
-            if linked_ids:
-                linked_nodes = db.query(CanvasThing).filter(CanvasThing.id.in_(linked_ids)).all()
-                print(f"[Chat] Found {len(linked_nodes)} linked context nodes.")
-                
-                asset_ids = []
-                text_context = []
-                
-                for node in linked_nodes:
-                    # Collect Asset IDs for RAG
-                    if node.content.get("asset_id"):
-                        asset_ids.append(node.content["asset_id"])
-                    
-                    # Collect Text Content directly
-                    # Handle "text", "message", or result types
-                    if node.type in ["text", "message", "agent_result", "url"]:
-                        txt = node.content.get("text") or node.content.get("content") or ""
-                        if txt:
-                            text_context.append(f"[{node.title or 'Note'}]: {txt}")
-                            
-                    # Handle Scanned/Described Images that are effectively text now
-                    if node.content.get("generated_description"):
-                        text_context.append(f"[Image Description: {node.title}]: {node.content['generated_description']}")
-
-                context_parts = []
-                
-                # A. Retrieve from RAG for Assets
-                if asset_ids:
-                    # Extract last user message for query
-                    last_msg = next((m.content for m in reversed(request.messages) if m.role == "user"), "")
-                    if last_msg:
-                        print(f"[Chat] Querying RAG for assets: {asset_ids}")
-                        # Filter by metadata asset_id (Exact Match OR In)
-                        # Since we might have multiple, we ideally use "In" filter or separate queries
-                        # Chroma/LlamaIndex support depends on version.
-                        # Simple approach: Search broadly or iterate?
-                        # Better: Allow rag_service to handle list filter if supported, 
-                        # OR simply loop query if few assets (safe)
-                        
-                        # Note: rag_service.search uses ExactMatchFilter by default for specific keys
-                        # We will try to pass a list if possible? No, ExactMatch is scalar usually.
-                        # Let's try to fetch relevant context for EACH asset if small number?
-                        # Or just search GLOBAL index with asset_id filter?
-                        # Currently we don't have an "IN" filter exposed in RAGService.search clearly.
-                        
-                        # Workaround: Retrieve from index without filter? No, context leakage.
-                        # Let's just fetch ALL content for the linked assets if they are small docs? 
-                        # RAG is for large docs.
-                        
-                        # Let's assume standard "vector search" across specific assets.
-                        # Since we can't pass "IN", let's use a "filter_list" in `rag_service.search` if we modify it,
-                        # OR just query with NO filter but check metadata in results? Inefficient.
-                        
-                        # Best approach for now:
-                        # Iterate assets and query (limit top_k=2 per asset)
-                        for aid in asset_ids:
-                            results = rag_service.search(
-                                last_msg, 
-                                filters={"asset_id": aid}, 
-                                k=3
-                            )
-                            for res in results:
-                                context_parts.append(f"[Document Context]: {res['text']}")
-
-                # B. Add Raw Text Context
-                context_parts.extend(text_context)
-                
-                if context_parts:
-                     system_prompt = (
-                        "You are a helpful assistant with access to a Semantic Canvas.\n"
-                        "Answer the user's question based on the following context linked to this conversation:\n\n"
-                        + "\n---\n".join(context_parts)
-                        + "\n\nIf the information is not in the context, say so, but you can use general knowledge if appropriate."
-                    )
-                     
-                     # Insert System Prompt at beginning
-                     # Check if system prompt exists
-                     if final_messages[0].role == "system":
-                         final_messages[0].content += f"\n\n{system_prompt}"
-                     else:
-                         final_messages.insert(0, type(final_messages[0])(role="system", content=system_prompt))
+        if ctx_result.get("context_data_text"):
+             context_text = ctx_result["context_data_text"]
+             
+             # Strategy: Inject into the LAST user message to ensure high attention.
+             # This is "RAG Injection" standard practice.
+             if final_messages and final_messages[-1].role == "user":
+                 print(f"[Chat] Injecting context into last USER message ({len(context_text)} chars)")
+                 final_messages[-1].content += f"\n\n[System Context Data]:\n{context_text}"
+             else:
+                 # Fallback to System Prompt injection if no user message found (rare)
+                 system_prompt = ctx_result["system_prompt_addendum"]
+                 from app.models.chat import Message
+                 if not final_messages:
+                     final_messages.append(Message(role="system", content=system_prompt))
+                 elif final_messages[0].role == "system":
+                     final_messages[0].content += f"\n\n{system_prompt}"
+                 else:
+                     final_messages.insert(0, type(final_messages[0])(role="system", content=system_prompt))
+                 print(f"[Chat] Injected System Prompt (Fallback): {system_prompt[:200]}...")
 
     response_content = await llm_service.chat(final_messages, request.model)
     return ChatResponse(role="assistant", content=response_content)
