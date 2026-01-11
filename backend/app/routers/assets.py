@@ -41,7 +41,7 @@ class AssetUploadResponse(BaseModel):
 # Endpoints
 # =============================================================================
 
-@router.post("/assets/upload")
+@router.post("/upload")
 async def upload_asset(
     file: UploadFile,
     background_tasks: BackgroundTasks,

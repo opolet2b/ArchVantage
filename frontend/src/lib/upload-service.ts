@@ -26,7 +26,7 @@ export function uploadFile(
 
         xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
-                const percentage = Math.round((e.loaded / e.total) * 100)
+                const percentage = Math.round((e.loaded / e.total) * 90)
                 onProgress({
                     loaded: e.loaded,
                     total: e.total,
@@ -81,7 +81,7 @@ export function uploadFile(
             onProgress({
                 loaded: file.size,
                 total: file.size,
-                percentage: 100,
+                percentage: 95,
                 status: 'processing'
             })
         }

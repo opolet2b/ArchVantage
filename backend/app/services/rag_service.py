@@ -212,8 +212,8 @@ class RAGService:
             print(f"[RAGService] Error creating LLM instance for {model_name}: {e}")
             return Settings.llm
 
-    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None):
-        print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name})")
+    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None, enable_vision: bool = True):
+        print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, Vision: {enable_vision})")
         try:
             # Check magic bytes for legacy OLE files first
             with open(file_path, 'rb') as f:
@@ -230,7 +230,7 @@ class RAGService:
             # Resolve LLM
             llm_instance = self.create_llm_instance(model_name)
             
-            return document_ingestor.ingest_document(
+            result = document_ingestor.ingest_document(
                 file_path=file_path,
                 index=self.index,
                 storage_context=self.storage_context,
@@ -239,6 +239,66 @@ class RAGService:
                 progress_callback=progress_callback,
                 llm=llm_instance
             )
+            
+            # HYBRID VLM ENRICHMENT (Post-Text Ingestion)
+            if enable_vision and result.get("status") == "success" and file_path.lower().endswith(".pdf"):
+                try:
+                    from app.services.pdf_service import pdf_service
+                    
+                    # 1. Identify visual pages
+                    visual_pages = pdf_service.identify_visual_pages(file_path)
+                    
+                    if visual_pages:
+                        print(f"[RAGService] Found {len(visual_pages)} visual pages. Triggering Hybrid VLM...")
+                        from app.services.vision_service import vision_service
+                        import asyncio
+                        
+                        # 2. Convert visual pages
+                        images = pdf_service.convert_pdf_to_images(file_path, page_indices=visual_pages)
+                        
+                        hybrid_descriptions = []
+                        # Use a small loop with timeout safeguard
+                        for idx, (real_page_num, img_b64) in enumerate(zip(visual_pages, images)):
+                            display_page = real_page_num + 1
+                             
+                            try:
+                                prompt = f"Analyze the visual elements (charts, diagrams, graphs) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe text."
+                                # We can't await easily if this function is sync?
+                                # Wait, ingest_file is NOT async def. It is synchronous.
+                                # But vision_service.analyze IS async.
+                                # We need to run it synchronously.
+                                
+                                # Helper to run async in sync context
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                page_desc = loop.run_until_complete(vision_service.analyze(
+                                     image_data=img_b64,
+                                     prompt=prompt,
+                                     model_name=model_name or "default" # Use passed model or default
+                                ))
+                                loop.close()
+                                
+                                hybrid_descriptions.append(f"--- Page {display_page} Visual Charts ---\n{page_desc}")
+                                
+                            except Exception as ve:
+                                print(f"[RAGService] VLM Error Page {display_page}: {ve}")
+                        
+                        if hybrid_descriptions:
+                            combined_visuals = "\n\n".join(hybrid_descriptions)
+                            print(f"[RAGService] Ingesting {len(combined_visuals)} chars of Visual Context.")
+                            
+                            # Ingest Visual Context
+                            v_meta = metadata.copy() if metadata else {}
+                            v_meta.update({"type": "visual_context", "source": file_path, "conversation_id": conversation_id})
+                            self.ingest_text(combined_visuals, metadata=v_meta)
+                            
+                            # Verification: Append to result for debug
+                            result["visual_context_extracted"] = True
+                            
+                except Exception as he:
+                    print(f"[RAGService] Hybrid VLM Failed: {he}")
+
+            return result
 
         except Exception as e:
             print(f"Error ingesting file {file_path}: {e}")
@@ -278,7 +338,13 @@ class RAGService:
             
             if nodes:
                print(f"[RAGService] Ingesting {len(nodes)} nodes from text content.")
-               self.index.insert_nodes(nodes)
+               try:
+                   self.index.insert_nodes(nodes)
+               except Exception as ie:
+                   err_str = str(ie).lower()
+                   if "connect" in err_str and "11434" in err_str:
+                         raise Exception("RAG Embeddings Failed: Could not connect to Ollama (port 11434). Please ensure Ollama is running or configure a different Embedding Provider in Settings.")
+                   raise ie
                return {"status": "success", "count": len(nodes)}
             
             return {"status": "no_content"}

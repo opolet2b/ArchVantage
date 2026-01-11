@@ -57,8 +57,14 @@ async def upload_file(conversation_id: str, file: UploadFile = File(...)):
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-        # Ingest file
-        result = rag_service.ingest_file(file_path, conversation_id)
+        from starlette.concurrency import run_in_threadpool
+        
+        # Ingest file (Run in threadpool to avoid blocking loop and allow VLM async calls)
+        result = await run_in_threadpool(
+            rag_service.ingest_file,
+            file_path, 
+            conversation_id
+        )
         
         return {
             "filename": file.filename,

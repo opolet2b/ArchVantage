@@ -164,7 +164,14 @@ def update_canvas(
         canvas.viewport = request.viewport.model_dump()
 
     if request.owner_config is not None:
-        canvas.owner_config = request.owner_config
+        # Merge with existing config to prevent overwriting
+        current_config = canvas.owner_config or {}
+        # Ensure it's a dict (handle potential None or weird state)
+        if not isinstance(current_config, dict):
+            current_config = {}
+            
+        current_config.update(request.owner_config)
+        canvas.owner_config = current_config
         flag_modified(canvas, "owner_config")
         
     # Update Permissions (Only Owner can change permissions?)
@@ -595,12 +602,35 @@ async def create_thing(
                      else:
                          print(f"[CanvasRouter] Asset record not found for ID: {asset_id}")
                 
-                # Support for Image-Based Slideshows (Synthetic)
-                elif thing.content.get("source_type") == "image_folder":
+                if thing.content.get("source_type") == "image_folder":
                     real_path = "IMAGE_FOLDER_MODE"
                     print(f"[CanvasRouter] Identified Image-Based Slideshow. Triggering worker.")
                 
                 if real_path:
+                    # CRITICAL FIX: Frontend PDFViewer needs 'file_path' in content to render!
+                    # The asset_id alone is not enough for the current frontend logic.
+                    if real_path != "IMAGE_FOLDER_MODE":
+                        # Convert absolute path back to a relative/accessible web path if needed?
+                        # Actually PDFViewer handles /api/ assets.
+                        # But it checks content.file_path.
+                        # Let's verify what PDFViewer expects. It likely expects the URL.
+                        # For now, let's store the asset ID reference as the path for the API?
+                        # Or just tell the frontend "Hey, I have a file".
+                        
+                        # Wait, PDFViewer uses 'src' prop. canvas-view passes 'content.file_path'.
+                        # We need to give it a URL it can fetch.
+                        # If we have asset_id, we should provide the asset download URL.
+                        ct = dict(thing.content)
+                        ct["file_path"] = f"/api/v1/assets/{asset_id}"
+                        # FIX: Model field is 'original_name', not 'filename'
+                        ct["filename"] = asset_record.original_name if asset_record else "document.pdf"
+                        thing.content = ct                        
+                        
+                        # We need to flag modified since we mutated a JSON field
+                        from sqlalchemy.orm.attributes import flag_modified
+                        flag_modified(thing, "content")
+                        db.commit() # Save the file path update
+
                     print(f"[CanvasRouter] Triggering Async Vectorization for {real_path}")
                     
                     # Set status to PENDING

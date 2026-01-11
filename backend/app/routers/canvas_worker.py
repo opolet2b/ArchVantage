@@ -31,13 +31,27 @@ async def handle_async_vectorization(
         try:
             canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
             if canvas and canvas.owner_config:
+                 print(f"[CanvasWorker] DEBUG OWNER CONFIG: {canvas.owner_config}")
+                 print(f"[CanvasWorker] DEBUG OWNER CONFIG KEYS: {list(canvas.owner_config.keys())}")
                  # Check common keys for model selection
                  canvas_model = (
                      canvas.owner_config.get("selectedModel") or 
                      canvas.owner_config.get("model") or 
                      "default"
                  )
-            print(f"[CanvasWorker] Using Canvas Model: {canvas_model}")
+                 # Resolve Vision Model preference
+                 # Frontend usually stores this in 'visionModel' or similar
+                 canvas_vision_model = (
+                      canvas.owner_config.get("visionModel") or
+                      canvas.owner_config.get("selectedVisionModel") or
+                      canvas.owner_config.get("vision_model") or
+                      canvas_model
+                 )
+            
+            print(f"[CanvasWorker] Using Canvas Model: {canvas_model}, Vision: {canvas_vision_model}")
+        except Exception as e:
+            print(f"[CanvasWorker] Warning: Failed to resolve canvas model: {e}")
+            canvas_vision_model = "default"
         except Exception as e:
             print(f"[CanvasWorker] Warning: Failed to resolve canvas model: {e}")
 
@@ -85,7 +99,7 @@ async def handle_async_vectorization(
                      image_data = base64.b64encode(img_file.read()).decode('utf-8')
                      
                  # 2. Get Vision Model preference
-                 vision_model = thing.content.get("vision_model", "default")
+                 vision_model = thing.content.get("vision_model", canvas_vision_model)
                  print(f"[CanvasWorker] Using Vision Model: {vision_model}")
                  
                  # 3. Analyze
@@ -449,9 +463,9 @@ async def handle_async_vectorization(
             
             result = rag_service.ingest_file(
                 file_path, 
-                metadata=meta,
                 progress_callback=update_progress,
-                model_name=canvas_model
+                model_name=canvas_model,
+                enable_vision=False # CanvasWorker handles vision with UI progress updates
             )
             
             if result.get("status") == "success":
@@ -496,17 +510,14 @@ async def handle_async_vectorization(
                          
                          # 2. Transcribe each page
                          # Reuse vision model setting if available, else default
-                         vision_model = thing.content.get("vision_model", "default")
+                         vision_model = thing.content.get("vision_model", canvas_vision_model)
                          
                          full_description = []
                          total_pages = len(images)
                          
                          for i, img_b64 in enumerate(images):
                              print(f"[CanvasWorker] Transcribing Page {i+1}/{len(images)}...")
-                             update_progress(i, total_pages) # Show progress: "Processing 0/X" -> "Processing 1/X" logic?
-                             # Actually we want "Processing document X/Y chunks" style.
-                             # update_progress sets `percent`. 
-                             # Let's update `ingestion_progress` manually to reflect "Transcribing Page X/Y"
+                             update_progress(i, total_pages) 
                              
                              try:
                                  # 120 second timeout for VLM per page
@@ -525,6 +536,9 @@ async def handle_async_vectorization(
                                  print(f"[CanvasWorker] VLM Error on Page {i+1}: {e}")
                                  page_desc = f"(Analysis failed: {e})"
 
+                             if not page_desc or not page_desc.strip():
+                                 page_desc = "(No text content returned from Vision Model)"
+                             
                              full_description.append(f"--- Page {i+1} ---\n{page_desc}")
                              
                          combined_text = "\n\n".join(full_description)
@@ -554,6 +568,79 @@ async def handle_async_vectorization(
                          # Mark as failed so user knows VLM ingestion failed
                          result = {"status": "failed", "error": str(se)}
                          print("[CanvasWorker] Marking result as FAILED due to VLM error.")
+                else:
+                     # PHASE 3: Hybrid Mode (High Text Density + Visuals)
+                     print(f"[CanvasWorker] Text density normal. Checking for Visual Pages (Hybrid Mode)...")
+                     from app.services.pdf_service import pdf_service
+                     
+                     # 1. Identify visual pages (Charts/Images)
+                     visual_pages = pdf_service.identify_visual_pages(file_path)
+                     
+                     if visual_pages:
+                         print(f"[CanvasWorker] Found {len(visual_pages)} visual pages: {visual_pages}. Triggering Hybrid VLM...")
+                         from app.services.vision_service import vision_service
+                         
+                         try:
+                             import asyncio
+                             # 2. Convert ONLY visual pages to images
+                             # Note: convert_pdf_to_images returns list corresponding to indices
+                             images = pdf_service.convert_pdf_to_images(file_path, page_indices=visual_pages)
+                             
+                             vision_model = thing.content.get("vision_model", canvas_vision_model)
+                             hybrid_descriptions = []
+                             
+                             for idx, (real_page_num, img_b64) in enumerate(zip(visual_pages, images)):
+                                 display_page = real_page_num + 1
+                                 print(f"[CanvasWorker] Analyzing Visual Page {display_page}...")
+                                 
+                                 # Send progress update (using 100% base since text is done, maybe just log?)
+                                 # Or maybe 90-99 wait state?
+                                 
+                                 try:
+                                      prompt = f"Analyze the visual elements (charts, diagrams, graphs, images) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe the main text blocks as they are already extracted."
+                                      page_desc = await asyncio.wait_for(
+                                          vision_service.analyze(
+                                              image_data=img_b64,
+                                              prompt=prompt,
+                                              model_name=vision_model
+                                          ),
+                                          timeout=120.0
+                                      )
+                                 except Exception as ve:
+                                      print(f"[CanvasWorker] Hybrid VLM Error on Page {display_page}: {ve}")
+                                      page_desc = f"(Visual Analysis Failed: {ve})"
+                                 
+                                 hybrid_descriptions.append(f"--- Page {display_page} Visuals ---\n{page_desc}")
+                             
+                             combined_visuals = "\n\n".join(hybrid_descriptions)
+                             print(f"[CanvasWorker] Hybrid Analysis Complete ({len(combined_visuals)} chars).")
+                             
+                             # 3. Store Visual Descriptions
+                             # We append to existing text content or store separately?
+                             # Let's append to 'generated_description' for visibility
+                             new_content = dict(thing.content)
+                             existing_gen = new_content.get("generated_description", "")
+                             new_content["generated_description"] = (existing_gen + "\n\n" + combined_visuals).strip()
+                             thing.content = new_content
+                             
+                             from sqlalchemy.orm.attributes import flag_modified
+                             flag_modified(thing, "content")
+                             db.commit()
+                             
+                             # 4. Ingest Visual Context
+                             meta = base_metadata.copy()
+                             meta.update({"type": "visual_context", "source": file_path})
+                             rag_service.ingest_text(
+                                 combined_visuals,
+                                 metadata=meta
+                             )
+                             print("[CanvasWorker] Visual Context Ingested.")
+                             
+                         except Exception as he:
+                             print(f"[CanvasWorker] Hybrid Mode Failed: {he}")
+                             # Do not fail the whole job, as text is valid. Just log error.
+                     else:
+                         print("[CanvasWorker] No visual pages detected. Skipping VLM.")
         
         # Reload thing 
         thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()

@@ -180,6 +180,10 @@ class OllamaVisionProvider(VisionProvider):
                     return f"Error from Ollama: {response.status_code} - {error_text}"
                 
                 result = response.json()
+                # DEBUG: Log raw output to catch empty responses
+                if not result.get("message", {}).get("content"):
+                    print(f"[OllamaVisionProvider] WARNING: Empty content in response! Raw: {response.text}")
+                
                 # Extract content from response
                 # Response format: { "model": "...", "created_at": "...", "message": { "role": "assistant", "content": "..." }, ... }
                 return result.get("message", {}).get("content", "")
