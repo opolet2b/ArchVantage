@@ -191,5 +191,29 @@ class ConversationService:
         
         if title:
              self.update_conversation(conv_id, {"title": title})
+             
+             # Sync with CanvasThing if this conversation is on a canvas
+             try:
+                 from app.core.database import SessionLocal
+                 from app.models.canvas_models import CanvasThing, ThingType
+                 
+                 db = SessionLocal()
+                 # Find things referencing this conversation
+                 # Using explicit link or content check
+                 # Note: JSON filtering in generic SQLA is complex, doing hybrid search
+                 things = db.query(CanvasThing).filter(
+                     CanvasThing.type == ThingType.CONVERSATION
+                 ).all()
+                 
+                 for thing in things:
+                     if thing.content.get("conversation_id") == conv_id:
+                         print(f"[ConversationService] Syncing title for Thing {thing.id} to '{title}'")
+                         thing.title = title
+                         db.add(thing)
+                 
+                 db.commit()
+                 db.close()
+             except Exception as e:
+                 print(f"[ConversationService] Error syncing title to canvas: {e}")
 
 conversation_service = ConversationService()
