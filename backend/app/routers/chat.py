@@ -182,6 +182,37 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
             for node in linked_nodes:
                  manifest_text += f"- {node.title} ({node.type})\n"
 
+            # D. Inject Graph Relationships
+            # Query links where both source and target are in our context set
+            if linked_ids:
+                relevant_links = db.query(CanvasLink).filter(
+                    CanvasLink.source_id.in_(list(linked_ids)),
+                    CanvasLink.target_id.in_(list(linked_ids))
+                ).all()
+                
+                if relevant_links:
+                    manifest_text += "\nKNOWN RELATIONSHIPS:\n"
+                    # Map IDs to Titles for readability
+                    id_to_title = {n.id: n.title or "Untitled" for n in linked_nodes}
+                    
+                    # Also fetch Domains if they are in the linked set
+                    linked_domains = db.query(Domain).filter(Domain.id.in_(list(linked_ids))).all()
+                    for d in linked_domains:
+                        id_to_title[d.id] = d.name
+                    
+                    for link in relevant_links:
+                        src = id_to_title.get(link.source_id, "Unknown")
+                        tgt = id_to_title.get(link.target_id, "Unknown")
+                        res = link.type.value
+                        
+                        # Include label if present
+                        if link.label:
+                            res += f": \"{link.label}\""
+                            
+                        manifest_text += f"- \"{src}\" --[{res}]--> \"{tgt}\"\n"
+                    
+                    debug_log.append(f"Injected {len(relevant_links)} graph relationships into context.")
+
             # Construct full context block
             context_data_text = manifest_text + "\n"
             if context_parts:
