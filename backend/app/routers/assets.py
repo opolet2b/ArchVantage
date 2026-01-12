@@ -77,6 +77,33 @@ async def upload_asset(
         # Resolve full path for ingestion
         full_path = str(asset_service.get_storage_path(asset))
         
+        
+        # Debug Extension Logic
+        print(f"[AssetRouter] Upload complete. Checking for PPTX processing...")
+        print(f"[AssetRouter] Asset ID: {asset.id}, Original Name: '{asset.original_name}'")
+        
+        filename = asset.original_name.lower().strip() # Added strip for safety
+        if filename.endswith(".pptx"):
+            print(f"[AssetRouter] MATCHED .pptx extension. Starting processing...")
+            try:
+                # We need the physical path. AssetService stores it. 
+                # Resolve physical path correctly
+                file_path = str(asset_service.get_storage_path(asset))
+                
+                # Process Structure
+                structure = pptx_service.process_presentation(file_path)
+                
+                # Save Structure Metadata
+                metadata_path = f"{file_path}.json"
+                with open(metadata_path, "w") as f:
+                    json.dump(structure, f)
+                    
+                print(f"[AssetRouter] Saved PPTX structure to {metadata_path}")
+                
+            except Exception as e:
+                print(f"[AssetRouter] Failed to process PPTX: {e}")
+                # Don't fail the upload, just log error
+
         background_tasks.add_task(ingest_asset_for_user, asset.id, full_path, current_user.id)
         
         return {
@@ -93,51 +120,6 @@ async def upload_asset(
             detail=str(e)
         )
 
-    filename = asset.original_name.lower()
-    if filename.endswith(".pptx"):
-        print(f"[AssetRouter] Detected PowerPoint file. Processing structure...")
-        try:
-            # We need the physical path. AssetService stores it. 
-            # Assuming asset_service returns an asset object which might map to a file path 
-            # or we need to reconstruct it. 
-            # Looking at asset_service usage in get_asset, it seems we can get path.
-            # But here we just created it. 
-            # Let's assume standard uploads folder structure: data/uploads/{conversation_id? no, raw}/...
-            # A safer way is to ask asset_service or just re-open the saved file if we know where it is.
-            # Let's peek at AssetService implementation if needed, or just guess standard path:
-            # "data/secure/{asset_id}" or similar.
-            
-            # Resolve physical path correctly
-            file_path = str(asset_service.get_storage_path(asset))
-            
-            # Process Structure
-            structure = pptx_service.process_presentation(file_path)
-            
-            # Save Structure Metadata
-            metadata_path = f"{file_path}.json"
-            with open(metadata_path, "w") as f:
-                json.dump(structure, f)
-                
-            print(f"[AssetRouter] Saved PPTX structure to {metadata_path}")
-            
-            # Phase 2: AI Vectorization
-            # Optimization: We defer RAG ingestion to the canvas/creation step (Background Task)
-            # to avoid blocking the upload endpoint (timeouts).
-            # The 'create_thing' endpoint will trigger the worker.
-            pass
-            
-        except Exception as e:
-            print(f"[AssetRouter] Failed to process PPTX: {e}")
-            # Don't fail the upload, just log error
-
-    return AssetUploadResponse(
-        id=str(asset.id),
-        filename=asset.original_name,
-        url=f"/api/v1/assets/{asset.id}",
-        mime_type=asset.mime_type,
-        size=asset.size_bytes,
-        file_hash=file_hash
-    )
 
 
 

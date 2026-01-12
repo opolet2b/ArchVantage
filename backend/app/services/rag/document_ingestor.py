@@ -68,6 +68,28 @@ class DocumentIngestor:
         else:
             # Default handling (PDF, txt, etc) using SimpleDirectoryReader
             documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+            
+            # SANITIZATION: Fix "Metadata length" and "Type" errors from SimpleDirectoryReader
+            if documents:
+                for doc in documents:
+                    # Create safe copy of keys to iterate
+                    for key in list(doc.metadata.keys()):
+                        val = doc.metadata[key]
+                        
+                        # 1. Remove complex types (lists, dicts) which break Vector Stores
+                        if isinstance(val, (list, dict, set, tuple)):
+                             del doc.metadata[key]
+                             continue
+                        
+                        # 2. Remove None
+                        if val is None:
+                            del doc.metadata[key]
+                            continue
+                            
+                        # 3. Truncate long strings (Metadata length error)
+                        if isinstance(val, str) and len(val) > 400:
+                             # Truncate and add ellipsis
+                             doc.metadata[key] = val[:400] + "..."
 
         # Common metadata handling
         if documents:

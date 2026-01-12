@@ -52,8 +52,7 @@ async def handle_async_vectorization(
         except Exception as e:
             print(f"[CanvasWorker] Warning: Failed to resolve canvas model: {e}")
             canvas_vision_model = "default"
-        except Exception as e:
-            print(f"[CanvasWorker] Warning: Failed to resolve canvas model: {e}")
+
 
         thing.rag_status = RAGStatus.PROCESSING
         db.commit()
@@ -237,7 +236,7 @@ async def handle_async_vectorization(
                              
                              b64_data = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
                              
-                             vision_model = thing.content.get("vision_model", "default")
+                             vision_model = thing.content.get("vision_model", canvas_vision_model)
                              # Improved Prompt for Optical Character Recognition + Summary
                              prompt_text = (
                                  "Identify the main title and key points in this slide. Summarize the content."

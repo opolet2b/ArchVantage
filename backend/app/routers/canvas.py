@@ -597,6 +597,16 @@ async def create_thing(
                          if full_path.exists():
                              real_path = str(full_path)
                              print(f"[CanvasRouter] Resolved asset path: {real_path}")
+                             
+                             # AUTO-DETECT PPTX -> SLIDESHOW
+                             # If the user dragged a PPTX, it might come in as generic DOCUMENT or IMAGE type.
+                             # We must force it to SLIDESHOW to trigger the specialized viewer.
+                             if asset_record.original_name.lower().endswith(".pptx"):
+                                 print(f"[CanvasRouter] Detected PPTX asset. Forcing type to SLIDESHOW.")
+                                 thing.type = ModelThingType.SLIDESHOW
+                                 
+                                 # Ensure 'slides' key exists or is pre-filled from sidecar?
+                                 # process_slideshow worker handles the heavy lifting, but frontend needs to know it's a slideshow.
                          else:
                              print(f"[CanvasRouter] Asset file missing on disk: {full_path}")
                      else:
