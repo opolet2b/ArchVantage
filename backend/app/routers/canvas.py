@@ -2062,7 +2062,30 @@ async def discover_links(
                     else:
                         debug_service.log("WARN", "DiscoverLinks", f"Skipping RAG for {thing.id} - status is {thing.rag_status}")
                 elif thing.type == ModelThingType.IMAGE:
-                     summary = "Image (No description available)"
+                    summary = "Image"
+                    if thing.rag_status and thing.rag_status.lower() == "completed":
+                        try:
+                            from app.services.rag_service import rag_service
+                            filters = {"thing_id": thing.id}
+                            debug_service.log("DEBUG", "DiscoverLinks", f"Fetching RAG context for IMAGE {thing.id}...")
+                            
+                            results = rag_service.search(
+                                query="Describe this image",
+                                filters=filters,
+                                k=3
+                            )
+                            
+                            if results:
+                                debug_service.log("INFO", "DiscoverLinks", f"Found {len(results)} chunks for IMAGE {thing.id}")
+                                rag_context = "\n".join([r["text"] for r in results])
+                                summary += f"\n\nVisual Analysis:\n{rag_context}"
+                            else:
+                                summary += " (No description available)"
+                        except Exception as e:
+                            debug_service.log("ERROR", "DiscoverLinks", f"Failed to fetch RAG for image {thing.id}: {e}")
+                            summary += " (Error fetching description)"
+                    else:
+                        summary += " (Not analyzed)"
                 
                 things_map[thing.id] = {
                     "title": thing.title or f"{thing.type.value} {thing.id[:4]}",

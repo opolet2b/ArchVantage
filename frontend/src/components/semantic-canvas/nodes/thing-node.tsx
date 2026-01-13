@@ -1693,7 +1693,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 data-thing-id={thing.id}
                 className={cn(
                     "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md",
-                    "transition-all duration-200 overflow-hidden",
+                    "transition-all duration-200", // Removed overflow-hidden to allow handles to protrude
                     (isSelected || selected)
                         ? `${colorTheme.borderSelected} ring-2 ring-offset-1 shadow-lg`
                         : "border-slate-200 dark:border-slate-700",
@@ -1726,284 +1726,287 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                     )
                 }
 
-                <div ref={nodeRef} className="absolute inset-0 pointer-events-none" />
-                {/* Gradient header - Agent Builder style */}
-                <div className={cn(
-                    "flex items-center gap-2 px-3 py-2 border-b rounded-t-lg",
-                    colorTheme.headerBg,
-                    colorTheme.headerBgDark
-                )}
-                    style={{
-                        backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
-                        backgroundImage: (canvasSettings?.tool_colors?.[thing.type] || thing.color) ? 'none' : undefined
-                    }}
-                >
-                    <Icon className={cn("h-4 w-4 flex-shrink-0", colorTheme.iconColor)} />
-                    {zoomLevel !== "summary" && (
-                        isEditingTitle ? (
-                            <Input
-                                value={titleInputValue}
-                                onChange={(e) => setTitleInputValue(e.target.value)}
-                                onBlur={handleTitleSave}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") handleTitleSave();
-                                    e.stopPropagation(); // Prevent canvas hotkeys
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                className="h-6 py-0 px-1 text-sm font-medium flex-1 min-w-0 bg-white/50 dark:bg-black/50 border-none focus-visible:ring-1"
-                                autoFocus
-                            />
-                        ) : (
-                            <span
-                                className="text-sm font-medium truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                                onDoubleClick={(e) => {
-                                    e.stopPropagation();
-                                    setTitleInputValue(thing.title || getDefaultTitle());
-                                    setIsEditingTitle(true);
-                                }}
-                                title="Double-click to rename"
-                            >
-                                {thing.title || getDefaultTitle()}
-                            </span>
-                        )
+                {/* Inner Content Wrapper - Clips content but leaves Handles outside */}
+                <div className="flex-1 w-full min-h-0 flex flex-col overflow-hidden rounded-lg relative">
+                    <div ref={nodeRef} className="absolute inset-0 pointer-events-none" />
+                    {/* Gradient header - Agent Builder style */}
+                    <div className={cn(
+                        "flex items-center gap-2 px-3 py-2 border-b rounded-t-lg",
+                        colorTheme.headerBg,
+                        colorTheme.headerBgDark
                     )}
-
-                    {/* Thinking Toggle - Only if thinking content exists */}
-                    {hasThinking && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setIsThinkingVisible(!isThinkingVisible);
-                            }}
-                            className={cn(
-                                "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
-                                isThinkingVisible ? "text-amber-500 bg-amber-50 dark:bg-amber-900/20" : "text-slate-400 hover:text-amber-500"
-                            )}
-                            title={isThinkingVisible ? "Hide Thinking Process" : "Show Thinking Process"}
-                        >
-                            <Lightbulb className={cn("h-4 w-4", isThinkingVisible && "fill-current")} />
-                        </button>
-                    )}
-
-                    {/* Agent Analysis Indicator (Green Brain) */}
-                    {(thing.content as any)?.agent_analysis && (
-                        <div
-                            className="flex items-center cursor-pointer hover:opacity-80 mr-2"
-                            title="View Agent Analysis"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const rawAnalysis = (thing.content as any).agent_analysis;
-                                const contentStr = typeof rawAnalysis === 'object' ? JSON.stringify(rawAnalysis, null, 2) : String(rawAnalysis);
-
-                                setPreviewContent({
-                                    title: "Agent Analysis",
-                                    content: contentStr,
-                                    type: "text"
-                                });
-                                setPreviewDialogOpen(true);
-                            }}
-                        >
-                            <BrainCircuit className="h-4 w-4 text-green-500" />
-                        </div>
-                    )}
-
-                    {/* RAG Status Indicator */}
-                    {/* RAG Status Indicator */}
-                    {localStatus && localStatus !== "none" && (
-                        <div
-                            className={cn("flex items-center", (((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") && "cursor-pointer hover:opacity-80")}
-                            title={(localStatus as string) === "failed" ? "Ingestion Failed (Click for logs)" : `Vectorization: ${localStatus}${(((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") ? " (Click to view content)" : ""}`}
-                            onClick={(e) => {
-                                const c = thing.content as any;
-                                const isClickable = ((!!c.description || !!c.generated_description) || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed";
-
-                                if (isClickable) {
-                                    e.stopPropagation();
-
-                                    if ((localStatus as string) === "failed") {
-                                        const errorMsg = String(c.last_error || "Unknown error occurred during ingestion.");
-                                        setPreviewContent({
-                                            title: "Ingestion Error",
-                                            content: errorMsg,
-                                            type: "text"
-                                        });
-                                        setPreviewDialogOpen(true);
-                                        return;
-                                    }
-
-                                    handleOpenPreview();
-                                }
-                            }}
-                        >
-                            {localStatus === "pending" || localStatus === "processing" ? (
-                                <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                            ) : localStatus === "completed" ? (
-                                <BrainCircuit className="h-4 w-4 text-green-500" />
-                            ) : localStatus === "failed" ? (
-                                <AlertCircle className="h-4 w-4 text-red-500" />
-                            ) : null}
-                        </div>
-                    )}
-
-                    {/* Edit Content Button (Text Only) */}
-                    {thing.type === "text" && (
-                        <>
-                            {isEditingContent ? (
-                                <>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleContentSave();
-                                        }}
-                                        className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
-                                        title="Save Changes"
-                                    >
-                                        <Save className="h-4 w-4 text-green-600" />
-                                    </button>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setIsEditingContent(false);
-                                        }}
-                                        className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
-                                        title="Cancel Editing"
-                                    >
-                                        <X className="h-4 w-4 text-red-500" />
-                                    </button>
-                                </>
-                            ) : (
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditedContent((thing.content.text as string) || (thing.content.content as string) || "");
-                                        setIsEditingContent(true);
-                                    }}
-                                    className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                                    title="Edit Content"
-                                >
-                                    <Pencil className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                                </button>
-                            )}
-                            {/* Separator */}
-                            <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1" />
-                        </>
-                    )}
-
-                    {/* Copy Content Button */}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            const textToCopy = typeof thing.content.text === "string" ? thing.content.text :
-                                typeof thing.content.content === "string" ? thing.content.content :
-                                    JSON.stringify(thing.content, null, 2);
-
-                            navigator.clipboard.writeText(textToCopy);
+                        style={{
+                            backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
+                            backgroundImage: (canvasSettings?.tool_colors?.[thing.type] || thing.color) ? 'none' : undefined
                         }}
-                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                        title="Copy content to clipboard"
                     >
-                        <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                    </button>
+                        <Icon className={cn("h-4 w-4 flex-shrink-0", colorTheme.iconColor)} />
+                        {zoomLevel !== "summary" && (
+                            isEditingTitle ? (
+                                <Input
+                                    value={titleInputValue}
+                                    onChange={(e) => setTitleInputValue(e.target.value)}
+                                    onBlur={handleTitleSave}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleTitleSave();
+                                        e.stopPropagation(); // Prevent canvas hotkeys
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    className="h-6 py-0 px-1 text-sm font-medium flex-1 min-w-0 bg-white/50 dark:bg-black/50 border-none focus-visible:ring-1"
+                                    autoFocus
+                                />
+                            ) : (
+                                <span
+                                    className="text-sm font-medium truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                    onDoubleClick={(e) => {
+                                        e.stopPropagation();
+                                        setTitleInputValue(thing.title || getDefaultTitle());
+                                        setIsEditingTitle(true);
+                                    }}
+                                    title="Double-click to rename"
+                                >
+                                    {thing.title || getDefaultTitle()}
+                                </span>
+                            )
+                        )}
 
-                    {/* Sync Button (if asset exists) */}
-                    {thing.content?.asset_id && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleInitSync();
-                            }}
-                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                            title="Sync with source file"
-                        >
-                            <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
-                        </button>
-                    )}
-
-                    {/* Manual Vectorize Button (Brain) */}
-                    {/* Show if: Text/Document/Slideshow AND status is NOT completed/processing/pending */}
-                    {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow') &&
-                        (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending')) && (
+                        {/* Thinking Toggle - Only if thinking content exists */}
+                        {hasThinking && (
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleVectorize();
+                                    setIsThinkingVisible(!isThinkingVisible);
                                 }}
-                                className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                                title="Vectorize (Enable RAG)"
+                                className={cn(
+                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
+                                    isThinkingVisible ? "text-amber-500 bg-amber-50 dark:bg-amber-900/20" : "text-slate-400 hover:text-amber-500"
+                                )}
+                                title={isThinkingVisible ? "Hide Thinking Process" : "Show Thinking Process"}
                             >
-                                <BrainCircuit className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                                <Lightbulb className={cn("h-4 w-4", isThinkingVisible && "fill-current")} />
                             </button>
                         )}
 
-                    {/* Export Button */}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setExportDialogOpen(true);
-                        }}
-                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                        title="Export content"
-                    >
-                        <Download className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                    </button>
+                        {/* Agent Analysis Indicator (Green Brain) */}
+                        {(thing.content as any)?.agent_analysis && (
+                            <div
+                                className="flex items-center cursor-pointer hover:opacity-80 mr-2"
+                                title="View Agent Analysis"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    const rawAnalysis = (thing.content as any).agent_analysis;
+                                    const contentStr = typeof rawAnalysis === 'object' ? JSON.stringify(rawAnalysis, null, 2) : String(rawAnalysis);
 
-                    {/* Maximize Button - Full Screen Mode */}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setIsFullScreen(true);
-                        }}
-                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                        title="Full Screen"
-                    >
-                        <Maximize2 className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                    </button>
+                                    setPreviewContent({
+                                        title: "Agent Analysis",
+                                        content: contentStr,
+                                        type: "text"
+                                    });
+                                    setPreviewDialogOpen(true);
+                                }}
+                            >
+                                <BrainCircuit className="h-4 w-4 text-green-500" />
+                            </div>
+                        )}
 
-                    {/* Iconify button - shown when selected */}
-                    {(isSelected || selected) && (
-                        <button
-                            onClick={handleToggleIconify}
-                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                            title="Reduce to icon"
-                        >
-                            <Minimize2 className="h-4 w-4 text-slate-500" />
-                        </button>
-                    )}
-                    {/* Delete button - shown when selected */}
-                    {(isSelected || selected) && (
+                        {/* RAG Status Indicator */}
+                        {/* RAG Status Indicator */}
+                        {localStatus && localStatus !== "none" && (
+                            <div
+                                className={cn("flex items-center", (((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") && "cursor-pointer hover:opacity-80")}
+                                title={(localStatus as string) === "failed" ? "Ingestion Failed (Click for logs)" : `Vectorization: ${localStatus}${(((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") ? " (Click to view content)" : ""}`}
+                                onClick={(e) => {
+                                    const c = thing.content as any;
+                                    const isClickable = ((!!c.description || !!c.generated_description) || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed";
+
+                                    if (isClickable) {
+                                        e.stopPropagation();
+
+                                        if ((localStatus as string) === "failed") {
+                                            const errorMsg = String(c.last_error || "Unknown error occurred during ingestion.");
+                                            setPreviewContent({
+                                                title: "Ingestion Error",
+                                                content: errorMsg,
+                                                type: "text"
+                                            });
+                                            setPreviewDialogOpen(true);
+                                            return;
+                                        }
+
+                                        handleOpenPreview();
+                                    }
+                                }}
+                            >
+                                {localStatus === "pending" || localStatus === "processing" ? (
+                                    <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+                                ) : localStatus === "completed" ? (
+                                    <BrainCircuit className="h-4 w-4 text-green-500" />
+                                ) : localStatus === "failed" ? (
+                                    <AlertCircle className="h-4 w-4 text-red-500" />
+                                ) : null}
+                            </div>
+                        )}
+
+                        {/* Edit Content Button (Text Only) */}
+                        {thing.type === "text" && (
+                            <>
+                                {isEditingContent ? (
+                                    <>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleContentSave();
+                                            }}
+                                            className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
+                                            title="Save Changes"
+                                        >
+                                            <Save className="h-4 w-4 text-green-600" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setIsEditingContent(false);
+                                            }}
+                                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
+                                            title="Cancel Editing"
+                                        >
+                                            <X className="h-4 w-4 text-red-500" />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditedContent((thing.content.text as string) || (thing.content.content as string) || "");
+                                            setIsEditingContent(true);
+                                        }}
+                                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                        title="Edit Content"
+                                    >
+                                        <Pencil className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                                    </button>
+                                )}
+                                {/* Separator */}
+                                <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1" />
+                            </>
+                        )}
+
+                        {/* Copy Content Button */}
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
-                                onDelete(thing.id);
+                                const textToCopy = typeof thing.content.text === "string" ? thing.content.text :
+                                    typeof thing.content.content === "string" ? thing.content.content :
+                                        JSON.stringify(thing.content, null, 2);
+
+                                navigator.clipboard.writeText(textToCopy);
                             }}
-                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
-                            title="Delete"
+                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                            title="Copy content to clipboard"
                         >
-                            <Trash2 className="h-4 w-4 text-red-500" />
+                            <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                         </button>
+
+                        {/* Sync Button (if asset exists) */}
+                        {thing.content?.asset_id && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleInitSync();
+                                }}
+                                className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                title="Sync with source file"
+                            >
+                                <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                            </button>
+                        )}
+
+                        {/* Manual Vectorize Button (Brain) */}
+                        {/* Show if: Text/Document/Slideshow AND status is NOT completed/processing/pending */}
+                        {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow') &&
+                            (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending')) && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleVectorize();
+                                    }}
+                                    className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                    title="Vectorize (Enable RAG)"
+                                >
+                                    <BrainCircuit className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                                </button>
+                            )}
+
+                        {/* Export Button */}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setExportDialogOpen(true);
+                            }}
+                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                            title="Export content"
+                        >
+                            <Download className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                        </button>
+
+                        {/* Maximize Button - Full Screen Mode */}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsFullScreen(true);
+                            }}
+                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                            title="Full Screen"
+                        >
+                            <Maximize2 className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                        </button>
+
+                        {/* Iconify button - shown when selected */}
+                        {(isSelected || selected) && (
+                            <button
+                                onClick={handleToggleIconify}
+                                className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                title="Reduce to icon"
+                            >
+                                <Minimize2 className="h-4 w-4 text-slate-500" />
+                            </button>
+                        )}
+                        {/* Delete button - shown when selected */}
+                        {(isSelected || selected) && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onDelete(thing.id);
+                                }}
+                                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
+                                title="Delete"
+                            >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Body content */}
+                    {getDisplayContent() && (
+                        <div className="px-3 py-3 flex-1 overflow-auto min-h-0 flex flex-col">
+                            <div className="h-full relative">
+                                {getDisplayContent()}
+                            </div>
+                        </div>
                     )}
                 </div>
-
-                {/* Body content */}
-                {getDisplayContent() && (
-                    <div className="px-3 py-3 flex-1 overflow-auto min-h-0 flex flex-col">
-                        <div className="h-full relative">
-                            {getDisplayContent()}
-                        </div>
-                    </div>
-                )}
 
                 {/* Connection handles - colored by type */}
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className={cn("!w-3 !h-3", colorTheme.handleColor)}
+                    className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}
                 />
                 <Handle
                     type="source"
                     position={Position.Right}
-                    className={cn("!w-3 !h-3", colorTheme.handleColor)}
+                    className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}
                 />
             </div >
 
