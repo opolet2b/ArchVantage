@@ -11,6 +11,7 @@ class Conversation(BaseModel):
     created_at: str
     updated_at: str
     archived: Optional[bool] = False
+    position: Optional[int] = 0
     messages: List[Dict[str, Any]]
 
 class CreateConversationResponse(BaseModel):
@@ -30,6 +31,12 @@ class AddMessageRequest(BaseModel):
 @router.post("/conversations", response_model=CreateConversationResponse)
 def create_conversation():
     return conversation_service.create_conversation()
+
+@router.post("/conversations/reorder")
+def reorder_conversations(updates: List[Dict[str, Any]]):
+    """Reorder conversations."""
+    count = conversation_service.reorder_conversations(updates)
+    return {"status": "success", "updated_count": count}
 
 @router.get("/conversations", response_model=List[Conversation])
 def get_conversations(archived: bool = False):

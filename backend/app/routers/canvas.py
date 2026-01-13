@@ -6,7 +6,7 @@ Handles CRUD operations for canvases, things, links, and domains.
 
 PEP 8 Compliant
 """
-from typing import List
+from typing import List, Dict, Any
 import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -94,8 +94,49 @@ def list_canvases(
     # Note: is_archived defaults to False, so this handles legacy rows too if default was set correctly
     query = query.filter(Canvas.is_archived == archived)
     
+    query = query.filter(Canvas.is_archived == archived)
+    
+    # Sort by position (ASC) then updated_at (DESC)
+    from sqlalchemy import desc, asc
+    query = query.order_by(Canvas.position.asc(), Canvas.updated_at.desc())
+
     canvases = query.all()
     return canvases
+
+
+@router.post("/canvases/reorder")
+def reorder_canvases(
+    updates: List[Dict[str, Any]],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Reorder canvases."""
+    # updates is a list of {id: str, position: int}
+    ids = [u["id"] for u in updates]
+    
+    # Verify ownership/access for all IDs
+    # For simplicity, we only allow owner to reorder their own canvases
+    # Or should we allow non-owners to reorder their view?
+    # Viewport/OwnerConfig is stored on shared canvas, so position is currently shared globally (on the Canvas model).
+    # This means if I move it, it moves for everyone. Ideally it should be UserCanvasAssociation, but that's a big refactor.
+    # User accepted side effects. So shared order is the way.
+    
+    canvases = db.query(Canvas).filter(
+        Canvas.id.in_(ids),
+        Canvas.owner_id == current_user.id
+    ).all()
+    
+    # Map for quick lookup
+    canvas_map = {c.id: c for c in canvases}
+    
+    for update in updates:
+        cid = update["id"]
+        if cid in canvas_map:
+            canvas_map[cid].position = update["position"]
+            flag_modified(canvas_map[cid], "position")
+            
+    db.commit()
+    return {"status": "success"}
 
 
 @router.get("/canvases/{canvas_id}", response_model=CanvasWithContents)

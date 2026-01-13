@@ -562,6 +562,13 @@ export function PDFViewer({
                                     // Pointer events for text selection if needed
                                     // mode === "region" && "pointer-events-none" // OverlayLayer handles region events, but we need text selection
                                 )}
+                                onRenderError={(error) => {
+                                    // Ignore harmless cancellation errors during resize/navigation
+                                    if (error.name === 'AbortException' || error.message.includes('cancelled')) {
+                                        return;
+                                    }
+                                    console.error('Page render error:', error);
+                                }}
                                 renderTextLayer={selectionEnabled && mode === "text"}
                                 renderAnnotationLayer={false}
                             />

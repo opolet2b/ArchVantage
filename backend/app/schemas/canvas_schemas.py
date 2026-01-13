@@ -74,10 +74,9 @@ class CanvasUpdate(BaseModel):
     description: Optional[str] = None
     viewport: Optional[ViewportState] = None
     allowed_user_ids: Optional[List[int]] = None
-    allowed_user_ids: Optional[List[int]] = None
     allowed_role_ids: Optional[List[int]] = None
     owner_config: Optional[Dict[str, Any]] = None
-
+    position: Optional[int] = None
 
 
 class CanvasResponse(BaseModel):
@@ -88,10 +87,9 @@ class CanvasResponse(BaseModel):
     description: Optional[str]
     viewport: ViewportState
     allowed_user_ids: List[int] = [] # Computed field, needs resolver
-    viewport: ViewportState
-    allowed_user_ids: List[int] = [] # Computed field, needs resolver
     allowed_role_ids: List[int] = [] # Computed field, needs resolver
     owner_config: Optional[Dict[str, Any]] = None
+    position: int = 0
     created_at: datetime
     updated_at: Optional[datetime]
 

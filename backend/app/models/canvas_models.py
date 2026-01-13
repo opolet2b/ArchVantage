@@ -111,6 +111,9 @@ class Canvas(Base):
     # Format: {"x": float, "y": float, "zoom": float}
     viewport = Column(JSON, default={"x": 0, "y": 0, "zoom": 1.0})
     
+    # Sort Order
+    position = Column(Integer, default=0, nullable=False)
+
     # Store arbitrary owner settings for this canvas (e.g. tool colors)
     owner_config = Column(JSON, nullable=True)
     

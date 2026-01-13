@@ -25,6 +25,7 @@ interface ConversationContextType {
     archiveConversation: (id: string) => Promise<void>
     restoreConversation: (id: string) => Promise<void>
     importConversations: (data: any[]) => Promise<void>
+    reorderConversations: (updates: { id: string; position: number }[]) => Promise<void>
 }
 
 const ConversationContext = createContext<ConversationContextType | undefined>(undefined)
@@ -161,6 +162,29 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
         }
     }
 
+    const reorderConversations = async (updates: { id: string; position: number }[]) => {
+        try {
+            const token = localStorage.getItem("token");
+            if (!token) return;
+
+            // Optimistic update?
+            // For now, wait for server
+            const res = await fetch(`${API_URL}/conversations/reorder`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(updates)
+            });
+
+            if (!res.ok) throw new Error("Failed to reorder conversations");
+            await refreshConversations();
+        } catch (err) {
+            console.error("Failed to reorder conversations:", err);
+        }
+    };
+
     return (
         <ConversationContext.Provider
             value={{
@@ -176,6 +200,7 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
                 archiveConversation,
                 restoreConversation,
                 importConversations,
+                reorderConversations,
             }}
         >
             {children}

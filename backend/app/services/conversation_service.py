@@ -56,8 +56,26 @@ class ConversationService:
             c for c in conversations.values() 
             if c.get("archived", False) == archived
         ]
-        # Return list sorted by updated_at desc
-        return sorted(filtered, key=lambda x: x["updated_at"], reverse=True)
+        # Return list sorted by position (asc), then updated_at (desc)
+        # Default position to 0 if missing
+        return sorted(
+            filtered, 
+            key=lambda x: (x.get("position", 0), -datetime.fromisoformat(x["updated_at"]).timestamp())
+        )
+
+    def reorder_conversations(self, updates: List[Dict[str, Any]]) -> int:
+        conversations = self._get_all()
+        count = 0
+        for update in updates:
+            cid = update["id"]
+            if cid in conversations:
+                conversations[cid]["position"] = update["position"]
+                # Don't update 'updated_at' to avoid jumping to top if we sorted by that alone
+                count += 1
+        
+        if count > 0:
+            self._save_conversations(conversations)
+        return count
 
     def get_conversation(self, conv_id: str) -> Optional[Dict[str, Any]]:
         conversations = self._get_all()

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useConversation } from "@/lib/conversation-context"
-import { MessageSquare, MoreVertical, Trash2, Edit2, Download, FileText, CheckSquare, X, ListChecks, Archive, Upload, RotateCcw } from "lucide-react"
+import { MessageSquare, MoreVertical, Trash2, Edit2, Download, FileText, CheckSquare, X, ListChecks, Archive, Upload, RotateCcw, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,7 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../ui/alert-dialog"
@@ -29,7 +30,8 @@ export function ConversationList() {
         setViewMode,
         archiveConversation,
         restoreConversation,
-        importConversations
+        importConversations,
+        reorderConversations
     } = useConversation()
 
     const [editingId, setEditingId] = useState<string | null>(null)
@@ -175,6 +177,38 @@ export function ConversationList() {
         if (fileInputRef.current) {
             fileInputRef.current.value = ""
         }
+    }
+
+    const handleReorder = async (id: string, direction: 'up' | 'down' | 'top' | 'bottom') => {
+        const currentIndex = conversations.findIndex(c => c.id === id)
+        if (currentIndex === -1) return
+
+        const newConversations = [...conversations]
+        const item = newConversations[currentIndex]
+
+        // Remove item from current position
+        newConversations.splice(currentIndex, 1)
+
+        // Insert at new position
+        if (direction === 'top') {
+            newConversations.unshift(item)
+        } else if (direction === 'bottom') {
+            newConversations.push(item)
+        } else if (direction === 'up') {
+            const newIndex = Math.max(0, currentIndex - 1)
+            newConversations.splice(newIndex, 0, item)
+        } else if (direction === 'down') {
+            const newIndex = Math.min(newConversations.length, currentIndex + 1)
+            newConversations.splice(newIndex, 0, item)
+        }
+
+        // Generate updates: assign index 0..N
+        const updates = newConversations.map((c, index) => ({
+            id: c.id,
+            position: index
+        }))
+
+        await reorderConversations(updates)
     }
 
     return (
@@ -356,6 +390,48 @@ export function ConversationList() {
                                     >
                                         <Trash2 className="mr-2 h-3 w-3" /> Delete
                                     </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <div className="flex items-center justify-between px-2 py-1.5">
+                                        <span className="text-xs text-muted-foreground w-full text-center">Move</span>
+                                    </div>
+                                    <div className="grid grid-cols-4 gap-1 p-1">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-full"
+                                            onClick={(e) => { e.stopPropagation(); handleReorder(conv.id, 'top') }}
+                                            title="Move to Top"
+                                        >
+                                            <ChevronsUp className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-full"
+                                            onClick={(e) => { e.stopPropagation(); handleReorder(conv.id, 'up') }}
+                                            title="Move Up"
+                                        >
+                                            <ArrowUp className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-full"
+                                            onClick={(e) => { e.stopPropagation(); handleReorder(conv.id, 'down') }}
+                                            title="Move Down"
+                                        >
+                                            <ArrowDown className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-full"
+                                            onClick={(e) => { e.stopPropagation(); handleReorder(conv.id, 'bottom') }}
+                                            title="Move to Bottom"
+                                        >
+                                            <ChevronsDown className="h-3 w-3" />
+                                        </Button>
+                                    </div>
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         </div>

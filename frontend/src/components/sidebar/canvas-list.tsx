@@ -12,7 +12,7 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 
 import { useRouter, usePathname } from "next/navigation";
-import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw, Sparkles } from "lucide-react";
+import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw, Sparkles, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
@@ -472,6 +473,61 @@ export function CanvasList() {
         }
     };
 
+    const handleReorder = async (id: string, direction: 'up' | 'down' | 'top' | 'bottom') => {
+        const currentIndex = canvases.findIndex(c => c.id === id);
+        if (currentIndex === -1) return;
+
+        const newCanvases = [...canvases];
+        const item = newCanvases[currentIndex];
+
+        // Remove item from current position
+        newCanvases.splice(currentIndex, 1);
+
+        // Insert at new position
+        if (direction === 'top') {
+            newCanvases.unshift(item);
+        } else if (direction === 'bottom') {
+            newCanvases.push(item);
+        } else if (direction === 'up') {
+            const newIndex = Math.max(0, currentIndex - 1);
+            newCanvases.splice(newIndex, 0, item);
+        } else if (direction === 'down') {
+            const newIndex = Math.min(newCanvases.length, currentIndex + 1);
+            newCanvases.splice(newIndex, 0, item);
+        }
+
+        // Optimistic update
+        setCanvases(newCanvases);
+
+        // Generate updates: assign index 0..N
+        const updates = newCanvases.map((c, index) => ({
+            id: c.id,
+            position: index
+        }));
+
+        try {
+            const token = getToken();
+            if (!token) return;
+
+            const res = await fetch(`${API_URL}/canvases/reorder`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(updates)
+            });
+
+            if (!res.ok) {
+                // Revert on failure? Or just re-fetch
+                fetchCanvases();
+            }
+        } catch (err) {
+            console.error("Failed to reorder canvases:", err);
+            fetchCanvases();
+        }
+    };
+
     // Select a canvas
     const handleSelectCanvas = (id: string) => {
         setActiveCanvasId(id);
@@ -735,6 +791,48 @@ export function CanvasList() {
                                             <Trash2 className="mr-2 h-3 w-3" />{" "}
                                             Delete
                                         </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <div className="flex items-center justify-between px-2 py-1.5">
+                                            <span className="text-xs text-muted-foreground w-full text-center">Move</span>
+                                        </div>
+                                        <div className="grid grid-cols-4 gap-1 p-1">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-full"
+                                                onClick={(e) => { e.stopPropagation(); handleReorder(canvas.id, 'top') }}
+                                                title="Move to Top"
+                                            >
+                                                <ChevronsUp className="h-3 w-3" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-full"
+                                                onClick={(e) => { e.stopPropagation(); handleReorder(canvas.id, 'up') }}
+                                                title="Move Up"
+                                            >
+                                                <ArrowUp className="h-3 w-3" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-full"
+                                                onClick={(e) => { e.stopPropagation(); handleReorder(canvas.id, 'down') }}
+                                                title="Move Down"
+                                            >
+                                                <ArrowDown className="h-3 w-3" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-full"
+                                                onClick={(e) => { e.stopPropagation(); handleReorder(canvas.id, 'bottom') }}
+                                                title="Move to Bottom"
+                                            >
+                                                <ChevronsDown className="h-3 w-3" />
+                                            </Button>
+                                        </div>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
