@@ -15,6 +15,7 @@ import { Plus, Trash2, RefreshCw, AlertCircle, Loader2, Wand2, Calculator, Info,
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -257,6 +258,42 @@ export function MappingEditor({
 
             const tool = await response.json();
             const config = tool.configuration || {};
+            console.log("[MappingEditor] Fetched Tool:", tool.name, tool.id);
+            console.log("[MappingEditor] Config Output Schema:", config.output_schema);
+
+            if (forOutput) {
+                const outputSchema = config.output_schema || {};
+                const outFields: SchemaField[] = [];
+
+                if (outputSchema.properties) {
+                    for (const [name, prop] of Object.entries(outputSchema.properties)) {
+                        const propData = prop as { type?: string; description?: string };
+                        outFields.push({ name, type: propData.type || "string", label: propData.description || name });
+                    }
+                } else if (outputSchema.type === "array" && outputSchema.items?.properties) {
+                    // It's an array output. Expose root list (empty name triggers node reference)
+                    outFields.push({ name: "", type: "array", label: "Root List (All Items)" });
+                    // Expose item properties for easy mapping via JMESPath
+                    for (const [name, prop] of Object.entries(outputSchema.items.properties)) {
+                        const propData = prop as { type?: string; description?: string };
+                        outFields.push({
+                            name: `[*].${name}`,
+                            type: propData.type || "string",
+                            label: `(Item) ${propData.description || name}`
+                        });
+                    }
+                }
+
+                if (outFields.length > 0) return outFields;
+                // Fallback: If generic object, assume 'result' property or root?
+                // Usually generic format implies object w/ properties.
+                // If we know nothing, maybe empty name?
+                // But sticking to 'result' is safer legacy wise if tools wrapped it.
+                // However, for consistency, let's use check properties.
+                return [{ name: "result", type: "object", label: `Result from ${tool.name || "tool"}` }];
+            }
+
+            // --- Input Schema Logic (Only if !forOutput) ---
             const fields: SchemaField[] = [];
 
             if (tool.tool_type === "gui" || config.gui_schema) {
@@ -278,7 +315,7 @@ export function MappingEditor({
                 if (fields.length > 0) return fields;
             }
 
-            // Check for MCP functions
+            // Check for MCP functions (parameters)
             const selectedFunctions = config.selected_functions || [];
             if (selectedFunctions.length > 0) {
                 for (const func of selectedFunctions) {
@@ -291,7 +328,6 @@ export function MappingEditor({
                 if (fields.length > 0) return fields;
             }
 
-            if (forOutput) return [{ name: "result", type: "object", label: `Result from ${tool.name || "tool"}` }];
             return [];
         } catch (error) {
             console.error("Failed to fetch tool schema:", error);
@@ -441,66 +477,73 @@ export function MappingEditor({
             ]
         },
         {
-            label: "Functions",
             options: [
                 { label: "Length len()", value: "len()" },
                 { label: "Format format()", value: "format()" },
                 { label: "Round round()", value: "round()" },
                 { label: "Current Time", value: "datetime.now()" },
+                { label: "List Extraction (JMESPath)", value: "search('items[*].name', input)" },
             ]
         },
+        {
+            label: "Collections",
+            options: [
+                { label: "Keys .keys()", value: ".keys()" },
+                { label: "Values .values()", value: ".values()" },
+                { label: "Items .items()", value: ".items()" },
+                { label: "Join list .join()", value: '" ".join()' },
+            ]
+        }
     ];
 
 
 
     // ... [Previous Helper Functions] ...
 
-    const handleInsertField = () => {
-        if (!selectedSourceNode || !selectedSourceField) return;
+    const getFieldExpression = (nodeId: string, field: string, typeVal: string) => {
+        if (!nodeId) return "";
+        const safeNodeId = nodeId.replace(/-/g, "_");
+        let expr = "";
 
-        // 1. Sanitize Node ID part if it contains dashes
-        // The value is like "call_tool_123.field" or "node-id.field"
-        // We need to split it
+        if (!field) {
+            expr = safeNodeId;
+        } else if (field.startsWith("[*].")) {
+            expr = `search('${field}', ${safeNodeId})`;
+        } else {
+            const isValidIdentifier = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field);
+            if (isValidIdentifier) {
+                expr = `${safeNodeId}.${field}`;
+            } else {
+                expr = `${safeNodeId}['${field}']`;
+            }
+        }
+
+        const typeDef = MAPPING_TYPES.find(t => t.value === typeVal);
+        if (typeDef && typeVal !== "any") {
+            expr = typeDef.wrap(expr);
+        }
+        return expr;
+    };
+
+    const handleInsertField = () => {
+        // Appends current selection to expression at cursor
+        if (!selectedSourceNode) return;
+        const insertion = getFieldExpression(selectedSourceNode, selectedSourceField, selectedType);
+
         let start = inputRef.current?.selectionStart || newExpression.length;
         let end = inputRef.current?.selectionEnd || newExpression.length;
-
-        // Clean node ID (replace dashes with underscores)
-        const safeNodeId = selectedSourceNode.replace(/-/g, "_");
-
-        // Define expression part
-        let expressionPart = "";
-
-        // Check if field name is a valid Python identifier
-        const isValidIdentifier = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(selectedSourceField);
-
-        if (isValidIdentifier) {
-            expressionPart = `${safeNodeId}.${selectedSourceField}`;
-        } else {
-            expressionPart = `${safeNodeId}['${selectedSourceField}']`;
-        }
-
-        let insertion = expressionPart;
-        // Wrap with type cast if needed
-        const typeDef = MAPPING_TYPES.find(t => t.value === selectedType);
-        if (typeDef && selectedType !== "any") {
-            insertion = typeDef.wrap(expressionPart);
-        }
 
         const newVal = newExpression.substring(0, start) + insertion + newExpression.substring(end);
         setNewExpression(newVal);
 
-        // Reset selection
-        setSelectedSourceField("");
-        setSelectedType("any");
-
-        // Focus back after state update
+        // Reset selection? Maybe keep it for multiple inserts
+        // setSelectedSourceField("");
         setTimeout(() => inputRef.current?.focus(), 0);
     };
 
     const handleInsertFunction = (func: string) => {
         let start = inputRef.current?.selectionStart || newExpression.length;
         let end = inputRef.current?.selectionEnd || newExpression.length;
-
         const newVal = newExpression.substring(0, start) + func + newExpression.substring(end);
         setNewExpression(newVal);
         setTimeout(() => inputRef.current?.focus(), 0);
@@ -530,33 +573,12 @@ export function MappingEditor({
         onMappingsChange(updated);
     };
 
-    const insertText = (text: string) => {
-        if (inputRef.current) {
-            const start = inputRef.current.selectionStart || 0;
-            const end = inputRef.current.selectionEnd || 0;
-            const currentVal = newExpression;
-            const newVal = currentVal.substring(0, start) + text + currentVal.substring(end);
-            setNewExpression(newVal);
-            setTimeout(() => {
-                inputRef.current?.focus();
-                inputRef.current?.setSelectionRange(start + text.length, start + text.length);
-            }, 0);
-        } else {
-            setNewExpression(prev => prev + text);
-        }
-    };
-
-
-    // Helper function to extract node references from expression
     const extractNodeInfo = (expression: string): Array<{ nodeId: string; nodeName: string }> => {
         const refs: Array<{ nodeId: string; nodeName: string }> = [];
-        // Match patterns like: node_id.field or node_id['field']
         const nodePattern = /\b([a-zA-Z0-9_-]+)\s*(?:\.|\[)/g;
         let match;
-
         while ((match = nodePattern.exec(expression)) !== null) {
             const nodeId = match[1];
-            // Find the actual node to get its label
             const node = nodes.find(n => n.id === nodeId || n.id.replace(/-/g, '_') === nodeId);
             if (node) {
                 const nodeData = node.data as { label?: string; primitiveType?: string };
@@ -564,11 +586,8 @@ export function MappingEditor({
                 refs.push({ nodeId: node.id, nodeName });
             }
         }
-
         return refs;
     };
-
-    // ... continue with rest of code ...
 
     return (
         <div className="space-y-4">
@@ -593,8 +612,14 @@ export function MappingEditor({
                                     <li>Concat: <code>name + " " + suffix</code></li>
                                     <li>Functions: <code>str(), int(), len()</code></li>
                                     <li>Slicing: <code>items[0:5]</code></li>
-                                    <li>Methods: <code>str.title()</code></li>
+                                    <li>Methods: <code>str.title(), list.join()</code></li>
+                                    <li>Lists: <code>search('items[*].name', input)</code></li>
                                 </ul>
+                                <div className="mt-2 text-[10px] text-muted-foreground border-t pt-2">
+                                    <p className="font-semibold">List Extraction (JMESPath):</p>
+                                    <p>Use <code>search('pattern', data)</code> to extract values from lists.</p>
+                                    <p>Example: <code>search('users[*].email', input_data)</code></p>
+                                </div>
                             </div>
                         </PopoverContent>
                     </Popover>
@@ -609,65 +634,50 @@ export function MappingEditor({
                 {mappings.map((mapping, index) => {
                     const expression = mapping.expression || mapping.source || "";
                     const nodeRefs = extractNodeInfo(expression);
-
-                    // Find target node info from outgoing schemas
-                    const targetNodeInfo = outgoing.find(schema =>
-                        schema.fields.some(f => f.name === mapping.target)
-                    );
-
                     return (
                         <div key={index} className="space-y-1.5 p-3 bg-slate-50 dark:bg-slate-900/40 rounded border group">
                             <div className="flex items-center gap-2">
-                                <div className="flex-1 space-y-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-mono text-xs text-blue-600 dark:text-blue-400 font-semibold">
-                                            {mapping.target}
-                                        </span>
-                                        {targetNodeInfo && (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 gap-1 font-mono">
-                                                            <span className="text-muted-foreground">to:</span>
-                                                            <span className="font-semibold">{targetNodeInfo.node_id}</span>
-                                                        </Badge>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="top" className="text-xs font-mono">
-                                                        <div>Type: {targetNodeInfo.node_type}</div>
-                                                        <div>Label: {targetNodeInfo.label}</div>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        )}
-                                        {nodeRefs.length > 0 && nodeRefs.map((ref, i) => (
-                                            <TooltipProvider key={i}>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 gap-1 font-mono">
-                                                            <span className="text-muted-foreground">from:</span>
-                                                            <span className="font-semibold">{ref.nodeId}</span>
-                                                        </Badge>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="top" className="text-xs font-mono">
-                                                        Source: {ref.nodeId}
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        ))}
+                                <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                                    <div className="shrink-0 flex items-center">
+                                        <span className="text-[10px] text-muted-foreground mr-1">To:</span>
+                                        <Select
+                                            value={mapping.target}
+                                            onValueChange={(val) => handleUpdateMapping(index, "target", val)}
+                                        >
+                                            <SelectTrigger className="h-6 text-xs px-2 min-w-[120px] max-w-[200px] border-dashed border-slate-300 dark:border-slate-700 bg-transparent">
+                                                <span className="truncate font-mono font-semibold text-blue-600 dark:text-blue-400">
+                                                    {mapping.target}
+                                                </span>
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {targetFields.map((f, i) => (
+                                                    <SelectItem key={i} value={f.value} className="text-xs">
+                                                        <span className="font-mono text-blue-600 dark:text-blue-400">{f.value}</span>
+                                                        <span className="ml-2 text-muted-foreground">({f.nodeLabel})</span>
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
+
+                                    {/* Source Badges */}
+                                    {nodeRefs.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 ml-1 border-l pl-2 border-slate-200 dark:border-slate-800">
+                                            {nodeRefs.map((ref, i) => (
+                                                <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0 h-5 gap-1 font-mono">
+                                                    <span className="text-muted-foreground">src:</span>
+                                                    <span className="font-semibold">{ref.nodeId}</span>
+                                                </Badge>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="text-muted-foreground text-xs font-mono">=</div>
-                                <Button
-                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleRemoveMapping(index)}
-                                >
+                                <Button className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" variant="ghost" size="icon" onClick={() => handleRemoveMapping(index)}>
                                     <Trash2 className="h-3 w-3 text-red-500" />
                                 </Button>
                             </div>
-                            <Input
-                                className="h-8 font-mono text-xs bg-white dark:bg-black"
+                            <Textarea
+                                className="min-h-[40px] font-mono text-xs bg-white dark:bg-black resize-y"
                                 value={expression}
                                 onChange={(e) => handleUpdateMapping(index, "expression", e.target.value)}
                                 placeholder="Expression..."
@@ -689,7 +699,6 @@ export function MappingEditor({
                     <div className="space-y-1.5">
                         <Label className="text-xs font-medium">Source Field Builder</Label>
                         <div className="flex gap-2 items-end">
-                            {/* Source Field Dropdown */}
                             <div className="flex-1 min-w-0">
                                 <Select
                                     value={selectedSourceNode && selectedSourceField ? `${selectedSourceNode}:${selectedSourceField}` : ""}
@@ -697,6 +706,9 @@ export function MappingEditor({
                                         const [node, field] = val.split(":");
                                         setSelectedSourceNode(node);
                                         setSelectedSourceField(field);
+                                        // Auto-populate expression
+                                        const expr = getFieldExpression(node, field, selectedType);
+                                        setNewExpression(expr);
                                     }}
                                 >
                                     <SelectTrigger className="h-8 text-xs">
@@ -707,6 +719,9 @@ export function MappingEditor({
                                         {incoming.map((node) => (
                                             <SelectGroup key={node.node_id}>
                                                 <SelectLabel className="text-xs font-bold text-muted-foreground px-2 py-1.5">{node.label} ({node.node_id})</SelectLabel>
+                                                <SelectItem value={`${node.node_id}:`} className="text-xs pl-4 italic">
+                                                    <span className="font-mono text-muted-foreground">Root (Whole Object)</span>
+                                                </SelectItem>
                                                 {node.fields.map((field) => (
                                                     <SelectItem key={`${node.node_id}:${field.name}`} value={`${node.node_id}:${field.name}`} className="text-xs pl-4">
                                                         <span className="font-mono">{field.name}</span>
@@ -719,9 +734,17 @@ export function MappingEditor({
                                 </Select>
                             </div>
 
-                            {/* Type Dropdown */}
                             <div className="w-[110px] shrink-0">
-                                <Select value={selectedType} onValueChange={setSelectedType}>
+                                <Select
+                                    value={selectedType}
+                                    onValueChange={(val) => {
+                                        setSelectedType(val);
+                                        if (selectedSourceNode) {
+                                            const expr = getFieldExpression(selectedSourceNode, selectedSourceField, val);
+                                            setNewExpression(expr);
+                                        }
+                                    }}
+                                >
                                     <SelectTrigger className="h-8 text-xs">
                                         <SelectValue placeholder="Type" />
                                     </SelectTrigger>
@@ -733,15 +756,14 @@ export function MappingEditor({
                                 </Select>
                             </div>
 
-                            {/* Insert Button */}
                             <Button
                                 size="sm"
                                 className="h-8 px-3 text-xs"
                                 variant="secondary"
                                 onClick={handleInsertField}
-                                disabled={!selectedSourceField}
+                                disabled={!selectedSourceNode}
                             >
-                                Insert <ArrowRight className="h-3 w-3 ml-1" />
+                                Append <ArrowRight className="h-3 w-3 ml-1" />
                             </Button>
                         </div>
                     </div>
@@ -750,8 +772,6 @@ export function MappingEditor({
                     <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
                             <Label className="text-xs font-medium">Expression</Label>
-
-                            {/* Functions Dropdown */}
                             <Select onValueChange={handleInsertFunction}>
                                 <SelectTrigger className="h-6 text-xs w-[140px] px-2 border-dashed">
                                     <Wand2 className="h-3 w-3 mr-1" />
@@ -819,14 +839,16 @@ export function MappingEditor({
             </div>
 
             {/* Discovery Errors */}
-            {errors.length > 0 && (
-                <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
-                    <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Schema Warnings:</span>
-                    <ul className="text-xs text-amber-600 dark:text-amber-400 mt-1 list-disc list-inside">
-                        {errors.map((err, i) => <li key={i}>{err}</li>)}
-                    </ul>
-                </div>
-            )}
-        </div>
+            {
+                errors.length > 0 && (
+                    <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-200 dark:border-amber-800">
+                        <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Schema Warnings:</span>
+                        <ul className="text-xs text-amber-600 dark:text-amber-400 mt-1 list-disc list-inside">
+                            {errors.map((err, i) => <li key={i}>{err}</li>)}
+                        </ul>
+                    </div>
+                )
+            }
+        </div >
     );
 }

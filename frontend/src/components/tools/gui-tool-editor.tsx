@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Trash2, ArrowLeft, ChevronDown, ChevronRight } from "lucide-react"
+import { API_URL } from "@/lib/utils"
 
 interface GUIToolEditorProps {
     tool: Tool | null
@@ -29,6 +30,8 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
     const [isPublic, setIsPublic] = useState(false)
     const [permissions, setPermissions] = useState<ToolPermission[]>([])
     const [showPermissions, setShowPermissions] = useState(false)
+    const [categories, setCategories] = useState<{ id: number, name: string }[]>([])
+    const [categoryId, setCategoryId] = useState<number | null>(null)
 
     // Dirty state tracking
     const [formDirty, setFormDirty] = useState(false)
@@ -41,14 +44,39 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             setDescription(tool.description || "")
             setIsPublic(tool.is_public)
             setPermissions(tool.permissions || [])
+            setCategoryId(tool.category_id || null)
         } else {
             setName("")
             setDescription("")
             setIsPublic(false)
             setPermissions([])
+            setCategoryId(null)
         }
         setMetaDirty(false)
     }, [tool])
+
+    // Fetch categories
+    useEffect(() => {
+        const fetchCategories = async () => {
+            try {
+                // Assuming API_URL is imported or available. If not, need to check imports.
+                // ToolEditor imports API_URL from "@/lib/utils". I need to check imports here.
+                // Assuming it's imported or I need to add it.
+                // Looking at file content, API_URL is NOT imported. I need to add it.
+                // I will assume I need to add the import in a separate chunk.
+                const response = await fetch(`${API_URL}/categories`, {
+                    headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
+                })
+                if (response.ok) {
+                    const data = await response.json()
+                    setCategories(data)
+                }
+            } catch (error) {
+                console.error("Failed to fetch categories", error)
+            }
+        }
+        fetchCategories()
+    }, [])
 
     // Notify parent of total dirty state
     useEffect(() => {
@@ -99,7 +127,8 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             },
             permissions,  // Include permissions
             // Generate system prompt for GUI tool
-            system_prompt: generateSystemPrompt(formConfig)
+            system_prompt: generateSystemPrompt(formConfig),
+            category_id: categoryId || undefined
         }
         onSave(toolData)
     }
@@ -156,6 +185,20 @@ ${formConfig.components
                             placeholder="What does this form collect?"
                             className="h-8"
                         />
+                    </div>
+
+                    <div className="w-48 space-y-1">
+                        <Label className="text-xs text-muted-foreground">Category</Label>
+                        <select
+                            value={categoryId || ""}
+                            onChange={(e) => handleMetaChange(() => setCategoryId(e.target.value ? Number(e.target.value) : null))}
+                            className="flex h-8 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <option value="">Uncategorized</option>
+                            {categories.map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
                     </div>
 
                     {/* Permissions Toggle */}

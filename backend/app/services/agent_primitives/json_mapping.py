@@ -6,6 +6,7 @@ Transforms and extracts data from JSON using JMESPath expressions.
 from typing import Any, Dict
 import jmespath
 import ast
+import json
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
 
 
@@ -59,8 +60,24 @@ class JSONMappingPrimitive(BasePrimitive):
         - New: date(), datetime(), time(), round(), format()
         - Methods: .title(), .capitalize()
         """
+
         from datetime import datetime, date, time
         
+        # DEBUG LOGGING (Temporary)
+        print(f"[DEBUG] safe_eval expression: {expression}")
+        # print(f"[DEBUG] safe_eval variables keys: {list(variables.keys())}")
+        if 'list_columns' in variables:
+            print(f"[DEBUG] list_columns type: {type(variables['list_columns'])}")
+            print(f"[DEBUG] list_columns sample: {str(variables['list_columns'])[:100]}")
+        else:
+            print(f"[DEBUG] list_columns NOT FOUND in {list(variables.keys())}")
+
+        try:
+             tree = ast.parse(expression, mode='eval')
+        except Exception as e:
+             print(f"[DEBUG] Parse Error: {e}")
+             return None
+
         # Whitelist of safe functions
         SAFE_FUNCTIONS = {
             "str": str,
@@ -79,10 +96,20 @@ class JSONMappingPrimitive(BasePrimitive):
             "time": time,
             "round": round,
             "format": format,
+            "search": jmespath.search, 
+            "parse": json.loads,
+            "from_json": json.loads, # Alias
+            "to_json": json.dumps,
+            "str": str, # Ensure explicit string conversion
         }
 
         # Whitelist of allowed methods on objects
-        ALLOWED_METHODS = {"title", "capitalize", "upper", "lower", "strip", "split", "replace"}
+        ALLOWED_METHODS = {
+            "title", "capitalize", "upper", "lower", "strip", "split", "replace", 
+            "join",  # String join
+            "keys", "values", "items", "get", # Dict methods
+            "append", "extend", "pop", "insert", "remove", # List methods (though mutation might not persist in eval context, helpful for constructing result)
+        }
 
         class SafeEvaluator(ast.NodeVisitor):
             def __init__(self, vars_context):
@@ -104,18 +131,45 @@ class JSONMappingPrimitive(BasePrimitive):
 
             def visit_Name(self, node):
                 # Try exact match first
+                val = None
                 if node.id in self.vars:
-                    return self.vars[node.id]
-                    
-                # Try fuzzy match for Node IDs (handle suffixes like node_id-suffix)
-                # We look for keys that start with the node.id + "-" OR node.id + "_"
-                prefix_dash = node.id + "-"
-                prefix_underscore = node.id + "_"
+                    val = self.vars[node.id]
+                else:
+                    # Try fuzzy match for Node IDs (handle suffixes like node_id-suffix)
+                    prefix_dash = node.id + "-"
+                    prefix_underscore = node.id + "_"
+                    matches = [k for k in self.vars.keys() if k.startswith(prefix_dash) or k.startswith(prefix_underscore)]
+                    if matches:
+                        val = self.vars[matches[0]]
                 
-                matches = [k for k in self.vars.keys() if k.startswith(prefix_dash) or k.startswith(prefix_underscore)]
-                
-                if matches:
-                    return self.vars[matches[0]]
+                if val is not None:
+                     # AUTO-UNWRAP 'result' wrapper from AgentRuntime
+                     if isinstance(val, dict):
+                         # 1. unwrapping {"result": ...} - loop to handle nesting
+                         while isinstance(val, dict) and "result" in val:
+                             val = val["result"]
+                         
+                         # 2. Parsing MCP Content ({"content": [{"text": "..."}]})
+                         if isinstance(val, dict) and "content" in val and isinstance(val["content"], list):
+                             try:
+                                 # Checking for text content
+                                 items = val["content"]
+                                 if len(items) > 0 and isinstance(items[0], dict):
+                                     text_data = items[0].get("text")
+                                     if isinstance(text_data, str):
+                                         trimmed = text_data.strip()
+                                         # print(f"[DEBUG visit_Name] Found text content: {trimmed[:30]}...")
+                                         if trimmed.startswith("[") or trimmed.startswith("{"):
+                                             import json
+                                             parsed = json.loads(text_data)
+                                             # print(f"[DEBUG visit_Name] Parsed JSON! Type: {type(parsed)}")
+                                             # Ensure we return the main data
+                                             val = parsed
+                             except Exception as e:
+                                 # print(f"[DEBUG visit_Name] Parsing Failed: {e}")
+                                 pass
+                                 
+                     return val
                 
                 if node.id in SAFE_FUNCTIONS:
                     return SAFE_FUNCTIONS[node.id]
@@ -222,7 +276,11 @@ class JSONMappingPrimitive(BasePrimitive):
                 # Regular function call
                 func = self.visit(node.func)
                 if func not in SAFE_FUNCTIONS.values():
-                     raise ValueError("Function call not allowed")
+                     func_name = func.__name__ if hasattr(func, '__name__') else str(func)
+                     # Check if it looks like a dict/list/obj that user tried to call
+                     if isinstance(func, (dict, list, str, int, float, bool)):
+                         raise ValueError(f"Object of type '{type(func).__name__}' is not callable. Did you use '()' instead of '[]' or '.' to access a field? (Value: {str(func)[:100]}...)")
+                     raise ValueError(f"Function call not allowed: {func_name}")
                 
                 args = [self.visit(arg) for arg in node.args]
                 return func(*args)
@@ -300,7 +358,9 @@ class JSONMappingPrimitive(BasePrimitive):
                     debug_info[target_key] = str(result)
             
             # Also store the whole result in the requested output variable
+            # We spread final_output to the root so that downstream tools can find variables directly
             final_output_wrapped = {
+                **final_output, 
                 output_var: final_output,
                 "result": final_output,
                 "_debug": debug_info

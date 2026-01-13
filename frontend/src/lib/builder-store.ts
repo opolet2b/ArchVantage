@@ -62,6 +62,7 @@ interface BuilderState {
         toolName: string;
         description: string;
         waitingNodeId: string;
+        initial_values?: Record<string, unknown>;
     } | null;
 
     // UI state
@@ -903,7 +904,8 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                             schema: data.gui_schema,
                             toolName: data.tool_name,
                             description: data.description,
-                            waitingNodeId: data.waiting_node
+                            waitingNodeId: data.waiting_node,
+                            initial_values: data.initial_values
                         } : null,
                         isExecuting: isBusy
                     });
@@ -972,7 +974,8 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                             schema: data.gui_schema,
                             toolName: data.tool_name,
                             description: data.description,
-                            waitingNodeId: data.waiting_node
+                            waitingNodeId: data.waiting_node,
+                            initial_values: data.initial_values
                         } : null,
                         isExecuting: false
                     });

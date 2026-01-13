@@ -20,6 +20,7 @@ export interface FormRendererProps {
         cols: number
     }
     value: Record<string, any>
+    context?: Record<string, any> // Read-only context for dynamic lookups
     onChange: (id: string, value: any) => void
     readOnly?: boolean
 }
@@ -28,6 +29,7 @@ export function FormRenderer({
     widgets,
     layout = { rows: 1, cols: 2 },
     value: formValues,
+    context = {}, // Default to empty
     onChange,
     readOnly = false
 }: FormRendererProps) {
@@ -37,8 +39,33 @@ export function FormRenderer({
         onChange(id, value)
     }
 
+    const getWidgetOptions = (widget: WidgetConfig) => {
+        if (widget.dynamicOptionsField) {
+            // Look in context (stable) first, then formValues (mutable)
+            // This prevents the "Selection overwrites List" bug when widget ID == source var
+            const dynamicData = context[widget.dynamicOptionsField] ?? formValues[widget.dynamicOptionsField]
+
+            // Debug Log
+            console.log("[FormRenderer] resolving options", {
+                widgetId: widget.id,
+                dynamicField: widget.dynamicOptionsField,
+                foundInContext: !!context[widget.dynamicOptionsField],
+                foundInForm: !!formValues[widget.dynamicOptionsField]
+            });
+
+            if (Array.isArray(dynamicData)) {
+                return dynamicData.map(item => {
+                    const val = typeof item === 'object' ? JSON.stringify(item) : String(item)
+                    return { label: val, value: val }
+                })
+            }
+        }
+        return widget.options || []
+    }
+
     const renderWidget = (widget: WidgetConfig) => {
         const value = formValues[widget.id] ?? widget.default
+        const options = getWidgetOptions(widget)
 
         switch (widget.type) {
             case "text_input":
@@ -111,7 +138,7 @@ export function FormRenderer({
                             <SelectValue placeholder="Select an option" />
                         </SelectTrigger>
                         <SelectContent>
-                            {widget.options?.map((opt, i) => (
+                            {options.map((opt, i) => (
                                 <SelectItem key={i} value={opt.value}>
                                     {opt.label}
                                 </SelectItem>
@@ -136,7 +163,7 @@ export function FormRenderer({
             case "checkbox_group":
                 return (
                     <div className="space-y-2">
-                        {widget.options?.map((opt, i) => {
+                        {options.map((opt, i) => {
                             const currentValues = (value as string[]) || []
                             const checked = currentValues.includes(opt.value)
                             return (
@@ -167,7 +194,7 @@ export function FormRenderer({
             case "radio_group":
                 return (
                     <div className="space-y-2">
-                        {widget.options?.map((opt, i) => (
+                        {options.map((opt, i) => (
                             <div key={i} className="flex items-center space-x-2">
                                 <input
                                     type="radio"

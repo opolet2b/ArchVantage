@@ -113,6 +113,9 @@ class CallToolPrimitive(BasePrimitive):
             arguments = params.get("arguments", {})
             
             # Resolve variables in static arguments
+            print(f"[DEBUG CALL_TOOL] Raw Arguments: {arguments}")
+            print(f"[DEBUG CALL_TOOL] Available Variables: {list(state.get('variables', {}).keys())}")
+
             resolved_args = {}
             for key, value in arguments.items():
                 if isinstance(value, str):
@@ -131,7 +134,7 @@ class CallToolPrimitive(BasePrimitive):
                 if key not in resolved_args:
                     resolved_args[key] = value
             
-            print(f"[CALL_TOOL] MCP resolved_args: {resolved_args}")
+            print(f"[DEBUG CALL_TOOL] Final resolved_args keys: {list(resolved_args.keys())}")
             
             # Get database session from state if available
             db = state.get("db")
@@ -193,7 +196,8 @@ class CallToolPrimitive(BasePrimitive):
                             "tool_name": tool_name,
                             "description": tool_desc,
                             "gui_schema": gui_schema,
-                            "message": f"User input required: {tool_desc or tool_name}"
+                            "message": f"User input required: {tool_desc or tool_name}",
+                            "initial_values": resolved_args
                         }
                     )
                 

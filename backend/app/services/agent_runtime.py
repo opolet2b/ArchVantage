@@ -467,8 +467,18 @@ class AgentRuntime:
             # Log Node Start
             _log_execution(f"NODE START: {current_node}", {
                 "params": self.nodes.get(current_node, {}).get("params"),
-                "state_variables_keys": list(state.get("variables", {}).keys())
+                "state_variables_keys": list(state.get("variables", {}).keys()),
+                "state_variables_values_preview": {
+                    k: str(v)[:200] for k, v in state.get("variables", {}).items() 
+                    # Only log variables that look like our mapping output for debugging
+                    if k in ["column_name", "list_columns", "mapped_data"]
+                }
             })
+
+            # Additional Console Print for immediate feedback
+            print(f"[RUNTIME DEBUG] Node {current_node} context variables: {list(state.get('variables', {}).keys())}")
+            if "column_name" in state.get("variables", {}):
+                print(f"[RUNTIME DEBUG] Found 'column_name': {str(state['variables']['column_name'])[:100]}...")
 
             # Execute node
             result = await self._execute_node(current_node, state)
@@ -526,6 +536,7 @@ class AgentRuntime:
                         "status": "waiting_for_input",
                         "waiting_node": current_node,
                         "gui_schema": result.output.get("gui_schema", {}),
+                        "initial_values": result.output.get("initial_values", {}),
                         "tool_name": result.output.get("tool_name", "GUI Tool"),
                         "description": result.output.get("description", ""),
                         "outputs": state["variables"],

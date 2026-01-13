@@ -51,6 +51,7 @@ export interface GuiFormInfo {
     };
     toolName: string;
     description: string;
+    initial_values?: Record<string, unknown>;
 }
 
 /**
@@ -157,6 +158,7 @@ export function useAgentExecution(options: UseAgentExecutionOptions = {}) {
                     schema: data.gui_schema,
                     toolName: data.tool_name || "Form Input Required",
                     description: data.description || "",
+                    initial_values: data.initial_values || {},
                 });
             } else {
                 setWaitingForInput(null);

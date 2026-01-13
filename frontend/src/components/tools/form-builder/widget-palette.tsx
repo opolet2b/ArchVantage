@@ -59,6 +59,7 @@ export interface WidgetConfig {
         rowSpan: number
         colSpan: number
     }
+    dynamicOptionsField?: string
 }
 
 // Available widget types

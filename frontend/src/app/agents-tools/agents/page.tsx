@@ -237,7 +237,7 @@ export default function AgentsPage() {
                         </p>
                     </div>
                     <Button
-                        onClick={() => router.push("/agents/builder/new")}
+                        onClick={() => router.push("/agents-tools/agents/builder/new")}
                         className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
                     >
                         <Plus className="h-4 w-4 mr-2" />
@@ -270,7 +270,7 @@ export default function AgentsPage() {
                             Create your first AI agent to get started
                         </p>
                         <Button
-                            onClick={() => router.push("/agents/builder/new")}
+                            onClick={() => router.push("/agents-tools/agents/builder/new")}
                             variant="outline"
                         >
                             <Plus className="h-4 w-4 mr-2" />
@@ -312,7 +312,7 @@ export default function AgentsPage() {
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem
-                                                    onClick={() => router.push(`/agents/builder/${agent.id}`)}
+                                                    onClick={() => router.push(`/agents-tools/agents/builder/${agent.id}`)}
                                                 >
                                                     <ExternalLink className="h-4 w-4 mr-2" />
                                                     Edit

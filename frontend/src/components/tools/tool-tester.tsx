@@ -58,6 +58,7 @@ interface ToolTesterProps {
         properties?: Record<string, PropertySchema>;
         required?: string[];
     };
+    onExecutionComplete?: (result: Record<string, unknown>) => void;
 }
 
 interface ExecutionLog {
@@ -73,6 +74,7 @@ export function ToolTester({
     selectedFunctions,
     toolName,
     toolInputSchema,
+    onExecutionComplete,
 }: ToolTesterProps) {
     // State
     const [selectedFunction, setSelectedFunction] = useState<string>(
@@ -102,7 +104,7 @@ export function ToolTester({
         setLogs((prev) => [
             ...prev,
             {
-                id: Date.now().toString(),
+                id: crypto.randomUUID(),
                 timestamp: new Date(),
                 type,
                 message,
@@ -276,6 +278,7 @@ export function ToolTester({
                     setError(errorText);
                 } else {
                     addLog("success", "Pipeline executed successfully");
+                    onExecutionComplete?.(data);
                 }
             }
         } catch (err) {

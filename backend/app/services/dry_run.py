@@ -9,6 +9,7 @@ User Confirmation: Required for mappings and destructive operations
 """
 import uuid
 import re
+import traceback
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -659,6 +660,8 @@ class DryRunService:
         except Exception as e:
             session.status = DryRunStatus.FAILED
             session.error = str(e)
+            print(f"Dry Run Error: {str(e)}")
+            traceback.print_exc()
             return {
                 "success": False,
                 "step_id": step_id,

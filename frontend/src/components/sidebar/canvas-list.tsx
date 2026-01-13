@@ -9,6 +9,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useAuth } from "@/lib/auth-context";
+
 import { useRouter, usePathname } from "next/navigation";
 import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw, Sparkles } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -53,6 +55,7 @@ interface CanvasSummary {
 // =============================================================================
 
 export function CanvasList() {
+    const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
     const [canvases, setCanvases] = useState<CanvasSummary[]>([]);
     const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -85,22 +88,22 @@ export function CanvasList() {
         return null;
     };
 
-    // Fetch canvases on mount
-    useEffect(() => {
-        fetchCanvases();
-    }, []);
-
-    // Focus input when editing
-    useEffect(() => {
-        if (editingId && inputRef.current) {
-            inputRef.current.focus();
-        }
-    }, [editingId]);
-
     // Fetch list of canvases from backend
     const fetchCanvases = async () => {
+        // Wait for auth to initialize
+        if (isAuthLoading) return;
+
+        if (!isAuthenticated) {
+            setCanvases([]);
+            setIsLoading(false);
+            return;
+        }
+
         const token = getToken();
-        if (!token) return;
+        if (!token) {
+            setIsLoading(false);
+            return;
+        }
 
         try {
             const res = await fetch(`${API_URL}/canvases?archived=${viewMode === 'archived'}`, {
@@ -126,10 +129,10 @@ export function CanvasList() {
         }
     };
 
-    // Re-fetch when view mode changes
+    // Re-fetch when auth state or view mode changes
     useEffect(() => {
         fetchCanvases();
-    }, [viewMode]);
+    }, [viewMode, isAuthLoading, isAuthenticated]);
 
     // Create new canvas
     const handleNewCanvas = async () => {

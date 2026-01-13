@@ -16,7 +16,7 @@ const navItems = [
     { href: "/agents-tools", icon: Bot, label: "Agents and Tools" },
     { href: "/smart-analysis", icon: Brain, label: "Smart Analysis" },
     { href: "/templates", icon: FileText, label: "Templates" },
-    { href: "/rag", icon: Database, label: "RAG" },
+
     { href: "/search", icon: Search, label: "Research" },
     { href: "/settings", icon: Settings, label: "Settings" },
     { href: "/help", icon: HelpCircle, label: "Help" },
@@ -123,16 +123,14 @@ export function AppSidebar() {
                     </Link>
                 ))}
 
-                {user?.auth_type !== "SSO" && (
-                    <Button
-                        variant="ghost"
-                        className="w-full justify-start gap-2 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
-                        onClick={logout}
-                    >
-                        <LogOut className="h-4 w-4" />
-                        Log out
-                    </Button>
-                )}
+                <Button
+                    variant="ghost"
+                    className="w-full justify-start gap-2 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
+                    onClick={logout}
+                >
+                    <LogOut className="h-4 w-4" />
+                    Log out
+                </Button>
             </div>
         </div>
     )

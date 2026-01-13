@@ -260,6 +260,20 @@ export function WidgetPropertiesPanel({
                             </Button>
                         </div>
 
+                        <div className="space-y-2 mb-4">
+                            <Label htmlFor="options-source" className="text-xs">Options Source (Variable)</Label>
+                            <Input
+                                id="options-source"
+                                value={widget.dynamicOptionsField || ""}
+                                onChange={(e) => updateWidget({ dynamicOptionsField: e.target.value })}
+                                placeholder="e.g. column_name"
+                                className="h-8 font-mono text-xs"
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                                Leave empty to use static options below. Matches input param name.
+                            </p>
+                        </div>
+
                         <div className="space-y-2">
                             {widget.options?.map((option, index) => (
                                 <div key={index} className="flex gap-1">

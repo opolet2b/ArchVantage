@@ -217,6 +217,7 @@ class PipelineGenerationRequest(BaseModel):
     server_functions: Dict[str, List[str]]  # server_id -> function names mapping
     input_schema: Optional[Dict[str, Any]] = None  # Existing input schema (if any)
     output_schema: Optional[Dict[str, Any]] = None  # Existing output schema (if any)
+    execution_sample: Optional[Any] = None  # Optional sample of execution result for schema generation
 
 
 class PipelineGenerationResponse(BaseModel):

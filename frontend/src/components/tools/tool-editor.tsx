@@ -86,6 +86,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
     const [isToolVerified, setIsToolVerified] = useState(false)
     const [outputMappings, setOutputMappings] = useState<Record<string, string>>({})  // Output schema mappings from dry-run
     const [isDirty, setIsDirty] = useState(false)
+    const [executionResult, setExecutionResult] = useState<any>(null)
     const lastGeneratedSchema = useRef<string>("")
 
     useEffect(() => {
@@ -720,7 +721,12 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                     functions: functions,
                     server_functions: serverFunctions,
                     input_schema: existingInputSchema,
-                    output_schema: null  // Force regeneration
+                    output_schema: null,  // Force regeneration
+                    execution_sample: executionResult?.result?.content ?
+                        // Try to unwrap MCP format content if possible (simple heuristic)
+                        (executionResult.result.content[0]?.text && executionResult.result.content[0].text.startsWith('{') || executionResult.result.content[0].text.startsWith('[') ?
+                            (() => { try { return JSON.parse(executionResult.result.content[0].text) } catch { return executionResult } })() : executionResult
+                        ) : executionResult
                 })
             })
 
@@ -1251,6 +1257,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                             toolInputSchema={
                                 inputSchema ? JSON.parse(inputSchema) : tool.configuration?.input_schema
                             }
+                            onExecutionComplete={setExecutionResult}
                         />
                     )}
                 </div>
@@ -1403,6 +1410,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                     <DryRunWizard
                         toolId={tool.id}
                         pipeline={pipeline}
+                        inputSchema={inputSchema ? JSON.parse(inputSchema) : undefined}
                         outputSchema={outputSchema ? JSON.parse(outputSchema) : undefined}
                         open={showDryRunWizard}
                         onCancel={() => setShowDryRunWizard(false)}

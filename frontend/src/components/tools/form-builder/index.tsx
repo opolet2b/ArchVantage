@@ -58,8 +58,8 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
     const [showInputSchemaEditor, setShowInputSchemaEditor] = useState(false)
 
     // Grid State
-    const [gridRows, setGridRows] = useState(4)
-    const [gridCols, setGridCols] = useState(2)
+    const [gridRows, setGridRows] = useState(initialConfig?.layout?.rows || 4)
+    const [gridCols, setGridCols] = useState(initialConfig?.layout?.cols || 2)
     const [selectedCell, setSelectedCell] = useState<{ r: number, c: number } | null>(null)
 
     // Modification State

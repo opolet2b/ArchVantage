@@ -72,6 +72,7 @@ interface SafetyWarning {
 interface DryRunWizardProps {
     toolId: number;
     pipeline: PipelineStep[];
+    inputSchema?: Record<string, unknown>;
     outputSchema?: Record<string, unknown>;
     onComplete: (
         verifiedPipeline: PipelineStep[],
@@ -242,6 +243,7 @@ function getSchemaType(propDef: Record<string, unknown>): string {
 export function DryRunWizard({
     toolId,
     pipeline,
+    inputSchema,
     outputSchema,
     onComplete,
     onCancel,
@@ -279,6 +281,7 @@ export function DryRunWizard({
     const [verifiedPipeline, setVerifiedPipeline] = useState<PipelineStep[] | null>(null);
     const [capturedSchemas, setCapturedSchemas] = useState<Record<string, unknown>>({});
     const [finalOutput, setFinalOutput] = useState<unknown>(null);
+    const [showFullOutput, setShowFullOutput] = useState(false);
 
 
     // Start the dry-run session
@@ -311,8 +314,42 @@ export function DryRunWizard({
             setTotalSteps(data.total_steps);
             setCurrentStep(data.current_step);
 
-            if (data.required_inputs?.length > 0) {
-                setRequiredInputs(data.required_inputs);
+            // Merge requirements: Backend detected + Input Schema defined
+            const backendReqs = data.required_inputs || [];
+
+            // Convert inputSchema into RequiredInput format
+            const schemaReqs: RequiredInput[] = [];
+            if (inputSchema && inputSchema.properties) {
+                const props = inputSchema.properties as Record<string, any>;
+                const required = (inputSchema.required as string[]) || [];
+
+                Object.entries(props).forEach(([name, def]) => {
+                    // Check if already in backendReqs to avoid duplicates
+                    if (!backendReqs.some((r: any) => r.name === name)) {
+                        schemaReqs.push({
+                            name,
+                            argument: name, // Default to name mapping
+                            description: def.description || `Input parameter: ${name}`
+                        });
+                    }
+                });
+            }
+
+            const allRequirements = [...backendReqs, ...schemaReqs];
+
+            if (allRequirements.length > 0) {
+                setRequiredInputs(allRequirements);
+
+                // Initialize input types from schema if available
+                if (inputSchema && inputSchema.properties) {
+                    const props = inputSchema.properties as Record<string, any>;
+                    const newTypes = { ...inputTypes };
+                    Object.entries(props).forEach(([name, def]) => {
+                        newTypes[name] = getSchemaType(def);
+                    });
+                    setInputTypes(newTypes);
+                }
+
                 setWizardState("input_required");
             } else {
                 await executeStep(data.session_id);
@@ -323,7 +360,7 @@ export function DryRunWizard({
         } finally {
             setIsLoading(false);
         }
-    }, [toolId, pipeline]);
+    }, [toolId, pipeline, inputSchema]);
 
     // Reset all state when dialog opens
     useEffect(() => {
@@ -583,6 +620,46 @@ export function DryRunWizard({
         return Array.from(paths).sort();
     }, [availablePaths, outputMappings]);
 
+    // Truncate helper for large outputs
+    const renderOutput = (data: any) => {
+        const str = JSON.stringify(data, null, 2);
+        if (str.length > 2000 && !showFullOutput) {
+            return (
+                <div>
+                    <pre className="text-xs bg-slate-50 dark:bg-slate-900 p-2 rounded whitespace-pre-wrap break-all min-w-0">
+                        {str.slice(0, 2000)}...
+                    </pre>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 text-xs w-full"
+                        onClick={() => setShowFullOutput(true)}
+                    >
+                        Show Full Output ({Math.round(str.length / 1024)} KB)
+                    </Button>
+                </div>
+            );
+        }
+        return (
+            <div>
+                <pre className="text-xs bg-slate-50 dark:bg-slate-900 p-2 rounded whitespace-pre-wrap break-all min-w-0">
+                    {str}
+                </pre>
+                {str.length > 2000 && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 text-xs w-full"
+                        onClick={() => setShowFullOutput(false)}
+                    >
+                        Collapse Output
+                    </Button>
+                )}
+            </div>
+        );
+    };
+
+
     return (
         <>
             <Dialog open={open && wizardState !== "safety_warning"} onOpenChange={() => onCancel()}>
@@ -660,10 +737,8 @@ export function DryRunWizard({
 
                                 <div className="border rounded-lg p-3">
                                     <h5 className="text-sm font-medium mb-2">Output:</h5>
-                                    <div className="overflow-auto max-h-48 max-w-full">
-                                        <pre className="text-xs bg-slate-50 dark:bg-slate-900 p-2 rounded whitespace-pre min-w-max">
-                                            {JSON.stringify(stepOutput, null, 2)}
-                                        </pre>
+                                    <div className="overflow-auto max-h-96 w-full">
+                                        {renderOutput(stepOutput)}
                                     </div>
                                 </div>
 
@@ -729,55 +804,124 @@ export function DryRunWizard({
                                     </div>
                                 )}
 
-                                {outputSchema && !!(outputSchema as Record<string, unknown>).properties && (
-                                    <div className="space-y-3 mt-4 pt-4 border-t">
-                                        <h5 className="text-sm font-medium text-purple-600 dark:text-purple-400">
-                                            Map to Pipeline Output Schema:
-                                        </h5>
-                                        {Object.entries((outputSchema as Record<string, Record<string, unknown>>).properties || {}).map(([field, def]) => (
-                                            <div key={field} className="p-3 rounded border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 space-y-2">
-                                                <Label className="text-sm font-medium">{field} <span className="text-muted-foreground">(output)</span></Label>
-                                                <div className="flex gap-2">
-                                                    <select
-                                                        value={outputMappings[field] || ""}
-                                                        onChange={(e) => {
-                                                            if (e.target.value === "") {
-                                                                setOutputMappings((prev) => {
-                                                                    const next = { ...prev };
-                                                                    delete next[field];
-                                                                    return next;
-                                                                });
-                                                            } else {
-                                                                setOutputMappings((prev) => ({ ...prev, [field]: e.target.value }));
-                                                            }
-                                                        }}
-                                                        className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm"
-                                                    >
-                                                        <option value="">-- Don't map --</option>
-                                                        {outputSchemaDropdownPaths.map((path) => (
-                                                            <option key={path} value={path}>{path}</option>
-                                                        ))}
-                                                    </select>
-                                                    {outputMappings[field] && (
-                                                        <select
-                                                            value={typeTransformations[`output.${field}`] || getSchemaType(def as Record<string, unknown>)}
-                                                            onChange={(e) => setTypeTransformations((prev) => ({ ...prev, [`output.${field}`]: e.target.value }))}
-                                                            className="w-28 h-9 px-2 rounded-md border border-input bg-background text-xs"
-                                                            title={`Output schema type: ${(def as Record<string, unknown>).type || 'auto'}`}
-                                                        >
-                                                            <option value="auto">Auto</option>
-                                                            <option value="string">→ String</option>
-                                                            <option value="number">→ Number</option>
-                                                            <option value="integer">→ Integer</option>
-                                                            <option value="boolean">→ Boolean</option>
-                                                            <option value="json">→ JSON</option>
-                                                        </select>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))}
+                                {/* DEBUG: Temporary helper to diagnose schema issues */}
+                                {false && (
+                                    <div className="mt-4 p-2 bg-slate-100 dark:bg-slate-800 text-xs font-mono rounded overflow-auto max-h-32">
+                                        <p className="font-bold text-muted-foreground mb-1">Debug Output Schema:</p>
+                                        {JSON.stringify(outputSchema || "No Output Schema Passed", null, 2)}
                                     </div>
                                 )}
+
+                                {(() => {
+                                    if (!outputSchema) return null;
+
+                                    const schema = outputSchema as Record<string, any>;
+                                    let properties = schema.properties;
+                                    let prefix = "";
+                                    let isArrayRoot = false;
+
+                                    // Handle Array schema
+                                    if (schema.type === "array") {
+                                        if (schema.items && schema.items.properties) {
+                                            properties = schema.items.properties;
+                                            prefix = "items[].";
+                                        } else {
+                                            // Array of primitives or unspecified items - Allow mapping the root list source
+                                            isArrayRoot = true;
+                                        }
+                                    }
+
+                                    if (!properties && !isArrayRoot) return null;
+
+                                    return (
+                                        <div className="space-y-3 mt-4 pt-4 border-t">
+                                            <h5 className="text-sm font-medium text-purple-600 dark:text-purple-400">
+                                                Map to Pipeline Output Schema:
+                                            </h5>
+
+                                            {/* Root List Mapping for Arrays */}
+                                            {isArrayRoot && (
+                                                <div className="p-3 rounded border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 space-y-2">
+                                                    <Label className="text-sm font-medium">Output List Source <span className="text-muted-foreground">(Array)</span></Label>
+                                                    <div className="flex gap-2">
+                                                        <select
+                                                            value={outputMappings["__root__"] || ""}
+                                                            onChange={(e) => {
+                                                                if (e.target.value === "") {
+                                                                    setOutputMappings((prev) => {
+                                                                        const next = { ...prev };
+                                                                        delete next["__root__"];
+                                                                        return next;
+                                                                    });
+                                                                } else {
+                                                                    setOutputMappings((prev) => ({ ...prev, "__root__": e.target.value }));
+                                                                }
+                                                            }}
+                                                            className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm"
+                                                        >
+                                                            <option value="">-- Auto-detect (Heuristic) --</option>
+                                                            {outputSchemaDropdownPaths.map((path) => (
+                                                                <option key={path} value={path}>{path}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Select the field from the tool output that contains the list.
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {/* Property Mapping */}
+                                            {properties && Object.entries(properties as Record<string, any>).map(([field, def]) => (
+                                                <div key={field} className="p-3 rounded border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 space-y-2">
+                                                    <Label className="text-sm font-medium">
+                                                        {prefix}{field}
+                                                        <span className="text-muted-foreground ml-1">
+                                                            ({def.description || "output"})
+                                                        </span>
+                                                    </Label>
+                                                    <div className="flex gap-2">
+                                                        <select
+                                                            value={outputMappings[field] || ""}
+                                                            onChange={(e) => {
+                                                                if (e.target.value === "") {
+                                                                    setOutputMappings((prev) => {
+                                                                        const next = { ...prev };
+                                                                        delete next[field];
+                                                                        return next;
+                                                                    });
+                                                                } else {
+                                                                    setOutputMappings((prev) => ({ ...prev, [field]: e.target.value }));
+                                                                }
+                                                            }}
+                                                            className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm"
+                                                        >
+                                                            <option value="">-- Don't map --</option>
+                                                            {outputSchemaDropdownPaths.map((path) => (
+                                                                <option key={path} value={path}>{path}</option>
+                                                            ))}
+                                                        </select>
+                                                        {outputMappings[field] && (
+                                                            <select
+                                                                value={typeTransformations[`output.${field}`] || getSchemaType(def)}
+                                                                onChange={(e) => setTypeTransformations((prev) => ({ ...prev, [`output.${field}`]: e.target.value }))}
+                                                                className="w-28 h-9 px-2 rounded-md border border-input bg-background text-xs"
+                                                                title={`Output schema type: ${def.type || 'auto'}`}
+                                                            >
+                                                                <option value="auto">Auto</option>
+                                                                <option value="string">→ String</option>
+                                                                <option value="number">→ Number</option>
+                                                                <option value="integer">→ Integer</option>
+                                                                <option value="boolean">→ Boolean</option>
+                                                                <option value="json">→ JSON</option>
+                                                            </select>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         )}
 
@@ -795,10 +939,8 @@ export function DryRunWizard({
                                             <Zap className="h-4 w-4 text-purple-500" />
                                             Pipeline Final Output
                                         </h5>
-                                        <div className="overflow-auto max-h-60 rounded border bg-background">
-                                            <pre className="text-xs p-3 font-mono whitespace-pre text-left">
-                                                {JSON.stringify(finalOutput, null, 2)}
-                                            </pre>
+                                        <div className="overflow-auto max-h-96 w-full rounded border bg-background">
+                                            {renderOutput(finalOutput)}
                                         </div>
                                     </div>
                                 )}

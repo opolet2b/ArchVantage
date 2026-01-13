@@ -247,7 +247,8 @@ async def generate_pipeline(
         functions=request.functions,
         server_functions=request.server_functions,
         input_schema=request.input_schema,  # Pass existing input schema if provided
-        output_schema=request.output_schema  # Pass existing output schema if provided
+        output_schema=request.output_schema,  # Pass existing output schema if provided
+        execution_sample=request.execution_sample  # Pass execution sample if provided
     )
     return result
 

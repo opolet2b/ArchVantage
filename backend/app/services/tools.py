@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models.tools import Tool, Category, ToolPermission, PermissionLevel, MCPServer, MCPServerPermission, AuthType
 from app.schemas.tools import ToolCreate, ToolUpdate, CategoryCreate, CategoryUpdate, ToolPermissionCreate, MCPServerCreate, MCPServerUpdate, MCPServerPermissionCreate
-from typing import List, Optional
+from typing import List, Optional, Any
 import json
 
 def get_tool(db: Session, tool_id: int):
@@ -378,7 +378,8 @@ async def generate_pipeline(
     functions: List[dict],
     server_functions: dict,
     input_schema: Optional[dict] = None,
-    output_schema: Optional[dict] = None
+    output_schema: Optional[dict] = None,
+    execution_sample: Optional[Any] = None
 ) -> dict:
     """
     Generate a Declarative JSON Pipeline from user description.
@@ -395,6 +396,7 @@ async def generate_pipeline(
         server_functions: Mapping of server_id -> function names
         input_schema: Optional existing input schema to use for pipeline generation
         output_schema: Optional existing output schema to preserve
+        execution_sample: Optional sample of execution result for schema generation
         
     Returns:
         Dict containing:
@@ -414,11 +416,39 @@ async def generate_pipeline(
         server_id = func.get('serverId', 'unknown')
         
         functions_doc += f"""
-Function: {server_id}.{func_name}
+---
+Function Name: {func_name}
+Server ID: {server_id}
+Full Reference: {server_id}.{func_name}
 Description: {func_desc}
 Input Schema: {json.dumps(func_input_schema, indent=2)}
+---
 """
     
+    # Format execution sample if provided
+    execution_sample_doc = ""
+    if execution_sample:
+        print(f"DEBUG: generate_pipeline received execution_sample type: {type(execution_sample)}")
+        try:
+             sample_str = json.dumps(execution_sample, indent=2)
+             print(f"DEBUG: execution_sample length: {len(sample_str)}")
+             if len(sample_str) > 8000: # Truncate if too huge
+                 sample_str = sample_str[:8000] + "... (truncated)"
+             
+             execution_sample_doc = f"""
+IMPORTANT - ACTUAL EXECUTION RESULT SAMPLE:
+The user has already executed this tool and this is the result.
+You MUST use this sample to define the "output_schema".
+The output_schema must be able to validate this data structure.
+If the sample is a list of objects, you MUST define the "items" schema with "properties" 
+matching the keys in the objects (e.g. name, value, labels, etc).
+
+SAMPLE DATA:
+{sample_str}
+"""
+        except:
+             pass
+
     # Include existing input schema in prompt if provided
     schema_instruction = ""
     if input_schema:
@@ -457,6 +487,8 @@ AVAILABLE FUNCTIONS:
 {functions_doc}
 {schema_instruction}
 
+{execution_sample_doc}
+
 PIPELINE FORMAT:
 The pipeline must follow this exact JSON structure:
 {{
@@ -477,12 +509,25 @@ VARIABLE SYNTAX:
 - Use {{{{ env.VARIABLE_NAME }}}} for environment variables
 
 RULES:
-1. Each step must have a unique step_id (e.g., step1, step2, find_user, get_invoices)
-2. function_ref must be in format: server_id.function_name
+1. Each step must have a unique step_id
+2. function_ref must be in format: "server_id.function_name" (e.g., "1.query_dataset")
+   - CRITICAL: You MUST use the EXACT "Server ID" provided in the function list above.
 3. Chain data between steps using the variable syntax
 4. The final step's result becomes the tool's output
+5. GENERATE A DETAILED OUTPUT SCHEMA:
+   - Analyze the User Description to understand what the tool returns (e.g. "list of columns", "a summary", "a boolean").
+   - Create a JSON Schema that accurately describes this output.
+   - For lists, specify "type": "array" and the "items" structure.
+   - For objects, specify "properties".
+   - Do NOT return an empty schema unless the tool truly returns nothing.
+   - This is CRITICAL for the tool to be usable.
 {rule_5}
 {rule_6}
+
+IMPORTANT ON OUTPUT SCHEMA:
+If the user description says "The output is a list of columns", your output_schema MUST be:
+{{"type": "array", "items": {{"type": "string", "description": "Column name"}}}} or similar.
+Do NOT just return {{"type": "object"}}. Be specific!
 
 OUTPUT FORMAT:
 Respond with valid JSON only containing:

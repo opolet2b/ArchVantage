@@ -219,6 +219,7 @@ class BlueprintExecuteResponse(BaseModel):
     
     # GUI Tool fields (present when status is waiting_for_input)
     gui_schema: Optional[Dict[str, Any]] = None
+    initial_values: Optional[Dict[str, Any]] = None
     tool_name: Optional[str] = None
     description: Optional[str] = None
     waiting_node: Optional[str] = None

@@ -712,8 +712,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                         <ScrollArea className="h-40 w-full rounded border bg-slate-50 dark:bg-slate-900 p-2">
                                             <pre className="text-[10px] font-mono whitespace-pre-wrap">
                                                 {JSON.stringify(
-                                                    selectedToolConfig.configuration?.input_schema ||
-                                                        (selectedToolConfig as any).tool_type === "gui" ? selectedToolConfig.configuration : "No schema defined",
+                                                    selectedToolConfig.configuration?.input_schema || "No schema defined",
                                                     null, 2
                                                 )}
                                             </pre>

@@ -14,6 +14,8 @@ from typing import Dict, Any, List, Optional, Type
 from pydantic import BaseModel, create_model, ValidationError
 import httpx
 import uuid
+import json
+import json
 import sys
 import io
 import traceback
@@ -227,16 +229,31 @@ async def execute_mcp_function(
                     if access_token:
                         headers["Authorization"] = f"Bearer {access_token}"
     
+    print(f"\n[MCP EXECUTION] Server: {server.name} ({server.base_url})")
+    print(f"[MCP EXECUTION] Function: {function_name}")
+    print(f"[MCP EXECUTION] Arguments: {json.dumps(arguments, indent=2)}")
+
     # Make the JSON-RPC request to the MCP server
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            server.base_url,
-            json=jsonrpc_request,
-            headers=headers
-        )
-        
-        response.raise_for_status()
-        return response.json()
+        try:
+            print(f"[MCP EXECUTION] Sending request to {server.base_url}...")
+            response = await client.post(
+                server.base_url,
+                json=jsonrpc_request,
+                headers=headers
+            )
+            print(f"[MCP EXECUTION] Response Status: {response.status_code}")
+            
+            response.raise_for_status()
+            response_json = response.json()
+            print(f"[MCP EXECUTION] Response Body: {json.dumps(response_json, indent=2)}")
+            return response_json
+        except httpx.HTTPStatusError as e:
+            print(f"[MCP EXECUTION] HTTP Error: {e.response.text}")
+            raise
+        except Exception as e:
+            print(f"[MCP EXECUTION] Error: {str(e)}")
+            raise
 
 
 # =============================================================================
@@ -353,6 +370,9 @@ class PipelineExecutor:
                     for part in parts[1:]:
                         if isinstance(current, dict) and part in current:
                             current = current[part]
+                        elif isinstance(current, dict) and "result" in current and isinstance(current["result"], dict) and part in current["result"]:
+                            # Implicitly unwrap 'result' wrapper
+                            current = current["result"][part]
                         else:
                             raise ValueError(
                                 f"Variable '{var_path}' not found in step '{context_type}'"
@@ -376,7 +396,13 @@ class PipelineExecutor:
                     elif context_type != "env":
                         current = self.context[context_type]
                         for part in parts[1:]:
-                            current = current[part]
+                            if isinstance(current, dict) and part in current:
+                                current = current[part]
+                            elif isinstance(current, dict) and "result" in current and isinstance(current["result"], dict) and part in current["result"]:
+                                 # Implicitly unwrap 'result' wrapper
+                                 current = current["result"][part]
+                            else:
+                                raise KeyError(part)
                         return current
                 except (KeyError, TypeError):
                     pass  # Fall through to string replacement
@@ -385,7 +411,15 @@ class PipelineExecutor:
             return re.sub(pattern, replace_match, value)
         
         elif isinstance(value, dict):
-            return {k: self.resolve_variables(v) for k, v in value.items()}
+            # Resolve both keys and values
+            resolved_dict = {}
+            for k, v in value.items():
+                # Resolve key if it's a string containing variables
+                resolved_key = self.resolve_variables(k) if isinstance(k, str) and "{{" in k else k
+                # Resolve value
+                resolved_value = self.resolve_variables(v)
+                resolved_dict[resolved_key] = resolved_value
+            return resolved_dict
         
         elif isinstance(value, list):
             return [self.resolve_variables(item) for item in value]
@@ -409,6 +443,27 @@ class PipelineExecutor:
                 MCPServer.id == server_id_int
             ).first()
         except ValueError:
+            # Fallback 1: Try exact name
+            server = self.db.query(MCPServer).filter(
+                MCPServer.name == server_id
+            ).first()
+            if server:
+                return server
+
+            # Fallback 2: Try case-insensitive and partial matching
+            # Get all servers (valid for small numbers of servers)
+            all_servers = self.db.query(MCPServer).all()
+            
+            # 2a. Case-insensitive exact match
+            for s in all_servers:
+                if s.name.lower() == server_id.lower():
+                    return s
+            
+            # 2b. Partial match (if server_id is in name or name is in server_id)
+            for s in all_servers:
+                if server_id.lower() in s.name.lower() or s.name.lower() in server_id.lower():
+                    return s
+            
             return None
     
     async def execute_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
@@ -444,6 +499,24 @@ class PipelineExecutor:
         if not server:
             raise ValueError(f"Step '{step_id}': MCP server '{server_id}' not found")
         
+        # Log Expected Schema if available
+        if self.tool and self.tool.configuration:
+            selected_functions = self.tool.configuration.get("selected_functions", [])
+            # Find the function info
+            func_info = None
+            # Check both structure formats (list of objects or list of strings)
+            for f in selected_functions:
+                if isinstance(f, dict):
+                    if f.get("name") == function_name and str(f.get("serverId", "")) == str(server_id):
+                        func_info = f
+                        break
+            
+            if func_info and "inputSchema" in func_info:
+                print(f"[MCP EXECUTION] Expected Input Schema for '{function_name}':")
+                print(json.dumps(func_info["inputSchema"], indent=2))
+            else:
+                print(f"[MCP EXECUTION] Could not find schema for function '{function_name}' in tool configuration.")
+
         # Resolve variables in arguments
         resolved_args = self.resolve_variables(arguments)
         
@@ -457,18 +530,19 @@ class PipelineExecutor:
             raise ValueError(f"Step '{step_id}': MCP error - {error_msg}")
         
         # Extract result
-        result = response.get("result", {})
+        mcp_result = response.get("result", {})
         
         # Check if MCP returned an error in result
-        if isinstance(result, dict) and result.get("isError"):
-            content = result.get("content", [])
+        if isinstance(mcp_result, dict) and mcp_result.get("isError"):
+            content = mcp_result.get("content", [])
             if content and isinstance(content[0], dict):
                 error_text = content[0].get("text", "Unknown error")
             else:
                 error_text = str(content)
             raise ValueError(f"Step '{step_id}': {error_text}")
         
-        return result
+        # Flatten and Parse Result (e.g. JSON strings inside text)
+        return self._flatten_mcp_result(mcp_result)
     
     async def execute(
         self,
@@ -492,7 +566,7 @@ class PipelineExecutor:
             self.load_tool()
             
             # Get pipeline
-            pipeline = self.get_pipeline()
+            pipeline = self.get_pipeline() # Ensure pipeline is loaded
             
             if not pipeline:
                 # No pipeline - fall back to legacy single-function execution
@@ -579,6 +653,40 @@ class PipelineExecutor:
         Returns:
             Transformed result conforming to the output schema
         """
+        # Handle Array output schema
+        if output_schema.get("type") == "array":
+            # Check for explicit root mapping
+            output_mappings = {}
+            if self.tool and self.tool.configuration:
+                output_mappings = self.tool.configuration.get("output_mappings", {})
+            
+            if "__root__" in output_mappings:
+                source_path = output_mappings["__root__"]
+                return self._resolve_source_reference(source_path) or []
+            
+            # Fallback: Try to find a list in the last step result
+            last_step_result = self._get_last_step_result()
+            
+            # If last step result IS a list, return it
+            if isinstance(last_step_result, list):
+                return last_step_result
+                
+            # If last step result is a dict, look for list wrapper keys
+            if isinstance(last_step_result, dict):
+                # Try flattened form
+                flattened = self._flatten_mcp_result(last_step_result)
+                if "result_list" in flattened:
+                    return flattened["result_list"]
+                if "items" in flattened and isinstance(flattened["items"], list):
+                    return flattened["items"]
+                
+                # Look for any key that holds a list
+                for k, v in flattened.items():
+                    if isinstance(v, list) and len(v) > 0:
+                        return v
+
+            return []
+
         # Get the properties defined in the output schema
         properties = output_schema.get("properties", {})
         
@@ -802,20 +910,15 @@ class PipelineExecutor:
         
         return nested_output
     
-    def _flatten_mcp_result(self, mcp_result: Any) -> Dict[str, Any]:
+    def _flatten_mcp_result(self, mcp_result: Any) -> Any:
         """
-        Flatten an MCP result into a simple key-value dict for easier mapping.
+        Flatten an MCP result into a simple key-value dict or list.
         
         Handles:
         - {"content": [{"type": "text", "text": {...}}]} -> flattens text object
         - {"content": [{"type": "text", "text": "string"}]} -> {"text": "string"}
+        - {"content": [{"text": "[...]"}]} -> returns parsed List
         - Direct dict -> returns as-is
-        
-        Args:
-            mcp_result: Raw MCP result
-            
-        Returns:
-            Flattened dict with all extractable field values
         """
         if not isinstance(mcp_result, dict):
             return {"value": mcp_result}
@@ -834,6 +937,20 @@ class PipelineExecutor:
                         flattened.update(text_data)
                     elif isinstance(text_data, str):
                         flattened["text"] = text_data
+                        # Try to parse JSON string
+                        try:
+                            import json
+                            trimmed = text_data.strip()
+                            if trimmed.startswith("{") or trimmed.startswith("["):
+                                parsed = json.loads(text_data)
+                                if isinstance(parsed, dict):
+                                    flattened.update(parsed)
+                                elif isinstance(parsed, list):
+                                    # If the main content is a list, return it directly!
+                                    return parsed
+                        except:
+                            pass
+                    
                     # Also include other fields from content item
                     for k, v in item.items():
                         if k not in flattened:
@@ -1073,22 +1190,65 @@ class ToolRuntime:
         validated = model(**params)
         return validated.dict()
     
+    def _flatten_mcp_result(self, mcp_result: Any) -> Any:
+        """
+        Flatten an MCP result into a simple key-value dict or list.
+        
+        Handles:
+        - {"content": [{"type": "text", "text": {...}}]} -> flattens text object
+        - {"content": [{"type": "text", "text": "string"}]} -> {"text": "string"}
+        - {"content": [{"text": "[...]"}]} -> returns parsed List
+        - Direct dict -> returns as-is
+        """
+        if not isinstance(mcp_result, dict):
+            return mcp_result
+        
+        flattened = dict(mcp_result)  # Start with all top-level keys
+        
+        # Handle MCP content array
+        content = mcp_result.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    # Extract 'text' field which may be string or object
+                    text_data = item.get("text")
+                    if isinstance(text_data, dict):
+                        # Merge text object fields into flattened
+                        flattened.update(text_data)
+                    elif isinstance(text_data, str):
+                        flattened["text"] = text_data
+                        # Try to parse JSON string
+                        try:
+                            import json
+                            trimmed = text_data.strip()
+                            print(f"[DEBUG FLATTEN] Text start: {trimmed[:50]}")
+                            if trimmed.startswith("{") or trimmed.startswith("["):
+                                parsed = json.loads(text_data)
+                                print(f"[DEBUG FLATTEN] Parsed type: {type(parsed)}")
+                                if isinstance(parsed, dict):
+                                    flattened.update(parsed)
+                                elif isinstance(parsed, list):
+                                    print("[DEBUG FLATTEN] Returning LIST")
+                                    return parsed
+                        except Exception as e:
+                            print(f"[DEBUG FLATTEN] Error: {e}")
+                            pass
+        return flattened
+
     async def run(
-        self,
-        function_name: str,
+        self, 
+        function_name: str, 
         arguments: Dict[str, Any],
         request_id: int = 1
     ) -> Dict[str, Any]:
         """
-        Execute a tool function with full validation and error handling.
-        
-        This is the main entry point for tool execution.
+        Run the tool function.
         
         Args:
-            function_name: Name of the function to execute
-            arguments: Arguments to pass to the function
-            request_id: Request ID for the JSON-RPC response
-        
+            function_name: Name of the function/tool to run
+            arguments: Validated arguments
+            request_id: Request ID for JSON-RPC response
+            
         Returns:
             Standardized JSON-RPC 2.0 response (success or error)
         """
@@ -1163,8 +1323,8 @@ class ToolRuntime:
                     error_text = str(content)
                 return format_error_response(request_id, error_text)
             
-            # Success - return the result
-            return format_success_response(request_id, result)
+            # Success - return the FLATTENED result
+            return format_success_response(request_id, self._flatten_mcp_result(result))
             
         except ValueError as ve:
             return format_error_response(request_id, f"ValueError: {str(ve)}")

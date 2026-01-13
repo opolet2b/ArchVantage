@@ -136,6 +136,7 @@ async def execute_agent_blueprint_step(
         started_at=result.get("started_at"),
         completed_at=result.get("completed_at"),
         gui_schema=result.get("gui_schema"),
+        initial_values=result.get("initial_values"),
         tool_name=result.get("tool_name"),
         description=result.get("description"),
         waiting_node=result.get("waiting_node")
@@ -206,6 +207,7 @@ async def execute_agent_blueprint_stream(
             # Add GUI tool fields if waiting for input
             if result.get("status") == "waiting_for_input":
                 completion_event["gui_schema"] = result.get("gui_schema", {})
+                completion_event["initial_values"] = result.get("initial_values", {})
                 completion_event["tool_name"] = result.get("tool_name", "GUI Tool")
                 completion_event["description"] = result.get("description", "")
                 completion_event["waiting_node"] = result.get("waiting_node")
@@ -369,6 +371,7 @@ async def resume_execution_step(
             started_at=result.get("started_at"),
             completed_at=result.get("completed_at"),
             gui_schema=result.get("gui_schema"),
+            initial_values=result.get("initial_values"),
             tool_name=result.get("tool_name"),
             description=result.get("description"),
             waiting_node=result.get("waiting_node")
@@ -437,6 +440,7 @@ async def resume_execution_input(
             started_at=result.get("started_at"),
             completed_at=result.get("completed_at"),
             gui_schema=result.get("gui_schema"),
+            initial_values=result.get("initial_values"),
             tool_name=result.get("tool_name"),
             description=result.get("description"),
             waiting_node=result.get("waiting_node")

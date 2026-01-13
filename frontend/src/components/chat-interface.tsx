@@ -635,6 +635,13 @@ export function ChatInterface() {
         setMatchedAgents([])
     }
 
+    // Initialize form values when waiting for input
+    React.useEffect(() => {
+        if (execution.waitingForInput?.initial_values) {
+            setGuiFormValues(execution.waitingForInput.initial_values as Record<string, unknown>)
+        }
+    }, [execution.waitingForInput])
+
     return (
         <>
             <div className="flex h-[calc(100vh-2rem)] w-full max-w-5xl mx-auto p-4">
@@ -1011,6 +1018,7 @@ export function ChatInterface() {
                             widgets={(execution.waitingForInput?.schema?.components || []) as any}
                             layout={(execution.waitingForInput?.schema?.layout) as any}
                             value={guiFormValues}
+                            context={execution.waitingForInput?.initial_values as Record<string, any>}
                             onChange={(id, val) => setGuiFormValues(prev => ({ ...prev, [id]: val }))}
                         />
                     </div>

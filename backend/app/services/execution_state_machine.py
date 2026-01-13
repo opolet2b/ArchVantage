@@ -60,6 +60,7 @@ class ExecutionContext:
     steps: list = field(default_factory=list)
     outputs: Dict[str, Any] = field(default_factory=dict)
     gui_schema: Optional[Dict] = None
+    initial_values: Dict[str, Any] = field(default_factory=dict)  # Captured tool arguments
     tool_name: Optional[str] = None
     description: Optional[str] = None
     error: Optional[str] = None
@@ -250,6 +251,7 @@ class ExecutionStateMachine:
                 # GUI form is required
                 self.context.state = ExecutionState.WAITING_FOR_INPUT
                 self.context.gui_schema = result.get("gui_schema")
+                self.context.initial_values = result.get("initial_values", {})
                 self.context.tool_name = result.get("tool_name", "GUI Tool")
                 self.context.description = result.get("description", "")
                 break
@@ -321,6 +323,7 @@ class ExecutionStateMachine:
         # Add GUI fields if waiting for input
         if self.context.state == ExecutionState.WAITING_FOR_INPUT:
             response["gui_schema"] = self.context.gui_schema
+            response["initial_values"] = self.context.initial_values
             response["tool_name"] = self.context.tool_name
             response["description"] = self.context.description
         

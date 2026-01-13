@@ -76,15 +76,24 @@ export function DryRunPanel() {
         }
     }, [inputsSchema, testInputs, setTestInputs]);
 
-    // Reset form values when waiting info changes
     React.useEffect(() => {
         const schema = waitingNodeInfo?.schema as any;
         const components = schema?.components || schema?.widgets || [];
+        const initialBackendValues = (waitingNodeInfo as any)?.initial_values || {};
 
-        const initialValues: Record<string, any> = {};
+        console.log("[DryRunPanel] Schema Update:", {
+            waitingNodeInfo,
+            initialBackendValues,
+            componentsLength: components.length
+        });
+
+        // Initialize with ALL backend values (to keep hidden variables like dynamic lists),
+        // then ensure all widgets have at least a null value if missing.
+        const initialValues: Record<string, any> = { ...initialBackendValues };
+
         if (Array.isArray(components)) {
             components.forEach((comp: any) => {
-                if (comp.id) {
+                if (comp.id && initialValues[comp.id] === undefined) {
                     initialValues[comp.id] = null;
                 }
             });
@@ -721,6 +730,7 @@ export function DryRunPanel() {
                                             widgets={widgets}
                                             layout={layout}
                                             value={formValues}
+                                            context={(waitingNodeInfo as any)?.initial_values || {}}
                                             onChange={(id, val) => setFormValues(prev => ({ ...prev, [id]: val }))}
                                         />
                                     );
