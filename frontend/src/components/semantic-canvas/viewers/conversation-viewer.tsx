@@ -10,7 +10,7 @@
 "use client";
 
 import * as React from "react";
-import { User, Bot, Send, Loader2, RefreshCw, ExternalLink } from "lucide-react";
+import { User, Bot, Send, Loader2, RefreshCw, ExternalLink, Mic } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useReactFlow } from "reactflow"; // For viewport control
@@ -23,6 +23,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { API_URL } from "@/lib/utils";
 import type { MessageFragment } from "./types";
 import { useCanvasStore } from "../canvas-store";
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 
 // =============================================================================
 // Types
@@ -80,6 +81,19 @@ export function ConversationViewer({
     const { fitView } = useReactFlow();
     const selectThing = useCanvasStore(state => state.selectThing);
 
+    // Voice Recognition Hook
+    const { isListening, isSupported, toggleListening } = useSpeechRecognition({
+        onResult: (transcript) => {
+            setInputValue(prev => {
+                const trimmed = prev.trimEnd();
+                return trimmed ? `${trimmed} ${transcript}` : transcript;
+            });
+        },
+        onError: (err) => {
+            console.error("Voice input error:", err);
+        }
+    });
+
     // Load conversation history
     React.useEffect(() => {
         if (!conversationId) return;
@@ -104,6 +118,21 @@ export function ConversationViewer({
         };
 
         fetchConversation();
+
+        // Listen for live updates (e.g. rename from canvas)
+        const handleUpdate = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail && customEvent.detail.id === conversationId) {
+                // Determine if we should full refresh or just quick fetch
+                // For now, simpler to re-call fetch or just a lightweight title fetch.
+                // Let's re-use fetchConversation for simplicity and correctness.
+                fetchConversation();
+            }
+        };
+
+        window.addEventListener("conversation-updated", handleUpdate);
+        return () => window.removeEventListener("conversation-updated", handleUpdate);
+
     }, [conversationId]);
 
     // Auto-scroll to bottom
@@ -351,6 +380,19 @@ export function ConversationViewer({
                             disabled={isLoading || !inputValue.trim()}
                         >
                             <Send className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            size="icon"
+                            variant="ghost"
+                            className={cn(
+                                "h-8 w-8 shrink-0",
+                                isListening && "text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400"
+                            )}
+                            onClick={toggleListening}
+                            disabled={!isSupported}
+                            title={isListening ? "Stop listening" : "Voice input"}
+                        >
+                            <Mic className={cn("h-4 w-4", isListening && "animate-pulse")} />
                         </Button>
                     </div>
                 </div>

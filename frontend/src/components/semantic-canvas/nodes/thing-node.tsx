@@ -20,6 +20,7 @@ import {
     Table,
     Bot,
     Link,
+    ExternalLink,
     Type,
     Minimize2,
     Maximize2,
@@ -1697,10 +1698,9 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                     (isSelected || selected)
                         ? `${colorTheme.borderSelected} ring-2 ring-offset-1 shadow-lg`
                         : "border-slate-200 dark:border-slate-700",
-                    thing.type === "conversation" && "cursor-pointer hover:shadow-lg"
+                    thing.type === "conversation" && "hover:shadow-lg"
                 )}
-                onDoubleClick={handleDoubleClick}
-                title={thing.type === "conversation" ? "Double-click to open in chat" : undefined}
+                // Removed global onDoubleClick to prevent interference with text selection
                 style={{
                     minWidth,
                     width: "100%",
@@ -1733,12 +1733,16 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                     <div className={cn(
                         "flex items-center gap-2 px-3 py-2 border-b rounded-t-lg",
                         colorTheme.headerBg,
-                        colorTheme.headerBgDark
+                        colorTheme.headerBgDark,
+                        // Add pointer cursor to header to indicate interaction
+                        (thing.type === "conversation" || thing.iconified) && "cursor-pointer select-none"
                     )}
                         style={{
                             backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
                             backgroundImage: (canvasSettings?.tool_colors?.[thing.type] || thing.color) ? 'none' : undefined
                         }}
+                        onDoubleClick={handleDoubleClick}
+                        title={thing.type === "conversation" ? "Double-click to open in chat" : undefined}
                     >
                         <Icon className={cn("h-4 w-4 flex-shrink-0", colorTheme.iconColor)} />
                         {zoomLevel !== "summary" && (
@@ -1772,6 +1776,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                         )}
 
                         {/* Thinking Toggle - Only if thinking content exists */}
+                        {/* Thinking Toggle - Only if thinking content exists */}
                         {hasThinking && (
                             <button
                                 onClick={(e) => {
@@ -1785,6 +1790,20 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                 title={isThinkingVisible ? "Hide Thinking Process" : "Show Thinking Process"}
                             >
                                 <Lightbulb className={cn("h-4 w-4", isThinkingVisible && "fill-current")} />
+                            </button>
+                        )}
+
+                        {/* Open Conversation Button - Explicit Action */}
+                        {thing.type === "conversation" && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (onOpenConversation) onOpenConversation(thing.id);
+                                }}
+                                className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded mr-1"
+                                title="Open in full chat"
+                            >
+                                <ExternalLink className="h-3.5 w-3.5 opacity-70" />
                             </button>
                         )}
 

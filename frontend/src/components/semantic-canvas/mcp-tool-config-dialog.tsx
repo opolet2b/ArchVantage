@@ -120,7 +120,7 @@ export function MCPToolConfigDialog({
     }, [open, mode, existingConfig, inputSchema])
 
     const fetchMappingSuggestions = async (schema: any) => {
-        if (!localSourceNodes || localSourceNodes.length === 0) return
+        if (!sourceNodes || sourceNodes.length === 0) return
 
         setIsAnalyzing(true)
         try {
@@ -129,7 +129,7 @@ export function MCPToolConfigDialog({
             const payload = {
                 tool_name: selectedToolName || existingConfig?.tool_name,
                 tool_schema: schema,
-                source_nodes: localSourceNodes.map(n => ({
+                source_nodes: sourceNodes.map(n => ({
                     id: n.id,
                     type: n.type,
                     title: n.title,
@@ -251,7 +251,7 @@ export function MCPToolConfigDialog({
         const required = effectiveSchema.required || []
 
         return (
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+            <div className="space-y-4 pr-2">
                 {Object.entries(props).map(([key, schema]: [string, any]) => {
                     const isRequired = required.includes(key)
                     const label = (
@@ -361,7 +361,7 @@ export function MCPToolConfigDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md sm:max-w-2xl max-h-[85vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>
                         {mode === "create" && step === 1 && "Select MCP Server"}
@@ -375,7 +375,7 @@ export function MCPToolConfigDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="py-4">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 py-4 pl-1 pr-4">
                     {step === 1 && (
                         isLoadingServers ? (
                             <div className="flex items-center justify-center p-8">
@@ -413,7 +413,7 @@ export function MCPToolConfigDialog({
                                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                             </div>
                         ) : (
-                            <div className="grid gap-2 max-h-[60vh] overflow-y-auto pr-1">
+                            <div className="grid gap-2">
                                 {tools.length === 0 ? (
                                     <div className="text-center text-muted-foreground p-4">
                                         No tools found on this server.
@@ -446,7 +446,7 @@ export function MCPToolConfigDialog({
                     {step === 3 && renderForm()}
 
                     {step === 4 && (
-                        <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
+                        <div className="grid gap-4 py-4">
                             <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md mb-4 text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
                                 <Lightbulb className="h-4 w-4" />
                                 {isAnalyzing ? "AI is analyzing connections..." : "Review how connected nodes map to tool arguments."}

@@ -15,6 +15,7 @@ import json
 import os
 from datetime import datetime
 from app.schemas.smart_contracts import AssetRef, ExtractorInput, ExtractionInstructions
+from app.services.conversation_service import conversation_service
 
 class SmartTemplateService:
     
@@ -398,7 +399,90 @@ class SmartTemplateService:
              content_summary = content["description"]
         elif thing.type.value == "text":
              print(f"[ContentResolution] Using 'text' node content.")
-             content_summary = content.get("text", "")[:4000] 
+             # Check multiple possible keys for text content
+             text_content = (
+                 content.get("text") or 
+                 content.get("content") or 
+                 content.get("text_content") or 
+                 content.get("markdown") or 
+                 ""
+             )
+             content_summary = text_content[:10000] # Increased limit
+             
+        elif thing.type.value == "agent_result":
+             print(f"[ContentResolution] Resolving Agent Result content.")
+             # Try to extract the final output or relevant parts
+             outputs = content.get("outputs", {})
+             if isinstance(outputs, dict):
+                 # Prefer standard output keys
+                 content_summary = (
+                     outputs.get("final_response") or 
+                     outputs.get("response") or 
+                     outputs.get("output") or 
+                     outputs.get("answer") or
+                     outputs.get("summary") or
+                     json.dumps(outputs, indent=2)
+                 )
+             else:
+                 content_summary = str(outputs)
+                 
+        elif thing.type.value == "url":
+             print(f"[ContentResolution] Resolving URL content.")
+             # Check if we have scraped content
+             content_summary = (
+                 content.get("scraped_content") or 
+                 content.get("markdown") or 
+                 content.get("content") or
+                 f"URL: {content.get('url')}\n(No scraped content available)"
+             )
+
+        elif thing.type.value == "conversation":
+             print(f"[ContentResolution] Resolving Conversation content.")
+             conversation_id = content.get("conversation_id")
+             if conversation_id:
+                 conv = conversation_service.get_conversation(conversation_id)
+                 if conv and conv.get("messages"):
+                     # Format transcript
+                     transcript = []
+                     for m in conv["messages"]:
+                         role = m.get("role", "unknown").upper()
+                         text = m.get("content", "")
+                         transcript.append(f"[{role}]: {text}")
+                     content_summary = "\n".join(transcript)
+                 else:
+                     content_summary = "(Empty Conversation)"
+             else:
+                 content_summary = "(Missing Conversation ID)"
+
+        elif thing.type.value == "message":
+            print(f"[ContentResolution] Resolving Single Message.")
+            content_summary = content.get("text") or content.get("content") or ""
+
+        elif thing.type.value == "table":
+            print(f"[ContentResolution] Resolving Table content.")
+            # Handle CSV or JSON data
+            if content.get("csv"):
+                content_summary = f"Format: CSV\n\n{content['csv'][:10000]}"
+            elif content.get("data") and isinstance(content["data"], list):
+                # Convert JSON list to string representation
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(content["data"])
+                    content_summary = f"Format: Markdown Table\n\n{df.to_markdown(index=False)}"
+                except ImportError:
+                     content_summary = f"Format: JSON Data\n\n{json.dumps(content['data'], indent=2)}"
+            else:
+                 content_summary = str(content)
+
+        elif thing.type.value == "database":
+             print(f"[ContentResolution] Resolving Database content.")
+             # Extract schema or SQL query results
+             schema = content.get("schema")
+             if schema:
+                 content_summary = f"Database Schema:\n{json.dumps(schema, indent=2)}"
+             else:
+                 content_summary = str(content)
+
         else:
              print(f"[ContentResolution] Fallback to raw JSON dump.")
              content_summary = str(content)

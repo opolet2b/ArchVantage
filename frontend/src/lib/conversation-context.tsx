@@ -52,6 +52,13 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
 
     useEffect(() => {
         refreshConversations()
+
+        // Listen for external updates (e.g. from Canvas)
+        const handleUpdate = () => {
+            refreshConversations();
+        };
+        window.addEventListener("conversation-updated", handleUpdate);
+        return () => window.removeEventListener("conversation-updated", handleUpdate);
     }, [refreshConversations])
 
     const createNewConversation = async () => {

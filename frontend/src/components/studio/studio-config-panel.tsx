@@ -141,6 +141,30 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
         fetchData();
     }, []);
 
+    // --- Resize Logic ---
+    const [panelWidth, setPanelWidth] = useState(350);
+    const isResizing = React.useRef(false);
+
+    const startResize = (e: React.MouseEvent) => {
+        e.preventDefault();
+        isResizing.current = true;
+        document.addEventListener("mousemove", handleMouseMove);
+        document.addEventListener("mouseup", stopResize);
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+        if (!isResizing.current) return;
+        const newWidth = window.innerWidth - e.clientX;
+        // Clamp width between 250px and 900px
+        setPanelWidth(Math.max(250, Math.min(900, newWidth)));
+    };
+
+    const stopResize = () => {
+        isResizing.current = false;
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", stopResize);
+    };
+
     if (!selectedStep) {
         return (
             <div className="w-80 border-l bg-muted/10 h-full p-6 flex flex-col items-center justify-center text-muted-foreground text-center">
@@ -153,7 +177,15 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
     // For now show all, or if we had a "Type" selector in formatter.
 
     return (
-        <div className="w-[350px] border-l bg-background flex flex-col h-full overflow-hidden shadow-xl z-20">
+        <div
+            className="border-l bg-background flex flex-col h-full overflow-hidden shadow-xl z-20 relative shrink-0"
+            style={{ width: panelWidth }}
+        >
+            {/* Resize Handle */}
+            <div
+                className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-500/50 transition-colors z-50"
+                onMouseDown={startResize}
+            />
             {/* Header */}
             <div className={`h-14 border-b flex items-center px-6 gap-3 font-semibold text-sm uppercase tracking-wider
                 ${selectedStep.type === 'extractor' ? 'bg-blue-50/50 text-blue-700' :

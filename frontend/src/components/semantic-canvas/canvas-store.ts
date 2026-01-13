@@ -615,6 +615,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 return t;
             });
             set({ things: newThings });
+
+            // Dispatch potential conversation update event for UI sync
+            if (updates.title && serverUpdated.type === "conversation") {
+                console.log("[CanvasStore] Dispatching conversation-updated event for", serverUpdated.id);
+                // We dispatch the event with the THING ID. The listener should resolve the Conversation ID if needed, 
+                // but usually for our app the thing ID effectively maps or we can just refresh the list.
+                // However, the side-bar list uses CONVERSATION IDs.
+                // The thing content contains { conversation_id: "..." }.
+                const convId = serverUpdated.content?.conversation_id;
+                if (convId) {
+                    window.dispatchEvent(new CustomEvent("conversation-updated", { detail: { id: convId } }));
+                }
+            }
         } catch (err) {
             console.error("Failed to update thing:", err);
             // Revert on error

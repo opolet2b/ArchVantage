@@ -145,7 +145,17 @@ export function SpreadsheetViewer({
             if (sheet) {
                 const jsonData = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1 });
                 if (jsonData.length > 0) {
-                    setHeaders(jsonData[0] as string[]);
+                    // Calculate max columns to ensure we don't hide data if header row is merged/short
+                    const maxCols = Math.max(...jsonData.map(row => row.length));
+                    const headerRow = jsonData[0] as string[];
+
+                    // Pad headers if needed
+                    const paddedHeaders = [...headerRow];
+                    while (paddedHeaders.length < maxCols) {
+                        paddedHeaders.push("");
+                    }
+
+                    setHeaders(paddedHeaders);
                     setData(jsonData.slice(1) as any[][]);
                 } else {
                     setHeaders([]);
@@ -494,6 +504,7 @@ export function SpreadsheetViewer({
                                     onClick={(e) => handleColumnClick(i, e)}
                                     className={cn(
                                         "border border-slate-300 dark:border-slate-600 px-2 py-1 text-left font-medium bg-slate-100 dark:bg-slate-800",
+                                        "max-w-[400px] truncate",
                                         selectionEnabled && "cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
                                     )}
                                     title="Click to select column (Shift+Click for range)"
@@ -533,8 +544,10 @@ export function SpreadsheetViewer({
                                             <td
                                                 key={colIndex}
                                                 onClick={(e) => handleCellClick(rowIndex, colIndex, e)}
+                                                title={String(row[colIndex] ?? "")}
                                                 className={cn(
                                                     "border border-slate-300 dark:border-slate-600 px-2 py-1",
+                                                    "max-w-[400px] truncate",
                                                     selectionEnabled && "cursor-pointer",
                                                     isSelected && "bg-blue-100 dark:bg-blue-900 ring-2 ring-blue-500",
                                                     isHighlighted && !isSelected && "bg-yellow-100 dark:bg-yellow-900/50 ring-2 ring-yellow-400"

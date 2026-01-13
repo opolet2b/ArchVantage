@@ -900,6 +900,17 @@ def update_thing(
         thing.domain_id = request.domain_id if request.domain_id else None
     if request.title is not None:
         thing.title = request.title
+        
+        # Sync title to Conversation service if applicable
+        if thing.type == "conversation" and thing.content and "conversation_id" in thing.content:
+             try:
+                 from app.services.conversation_service import conversation_service
+                 conversation_service.update_conversation(
+                     thing.content["conversation_id"], 
+                     {"title": request.title}
+                 )
+             except Exception as e:
+                 print(f"[CanvasRouter] Failed to sync conversation title: {e}")
     if request.color is not None:
         thing.color = request.color
     if request.collapsed is not None:

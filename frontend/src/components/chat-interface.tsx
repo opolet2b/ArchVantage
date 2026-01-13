@@ -21,6 +21,7 @@ import { AgentInputForm } from "@/components/agent-input-form"
 import { AgentInputModeSelector, AgentInputMode } from "@/components/agent-input-mode-selector"
 import { useAgentExecution } from "@/lib/use-agent-execution"
 import { FormRenderer } from "@/components/tools/form-builder/form-renderer"
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
 
 /**
  * Chat message type.
@@ -95,11 +96,12 @@ export function ChatInterface() {
     const [pendingParamKeys, setPendingParamKeys] = React.useState<string[]>([])
     const [currentParamIndex, setCurrentParamIndex] = React.useState(0)
 
-    // GUI form state for mid-workflow forms (using unified execution hook)
+    // Hook for agent execution
     const execution = useAgentExecution({
         onStatusChange: (status) => {
             console.log("[Chat] Agent execution status:", status)
         },
+
         onComplete: async (result) => {
             // Add agent response message when execution completes
             if (selectedAgent) {
@@ -134,28 +136,29 @@ export function ChatInterface() {
             if (selectedAgent) {
                 const agentMsg: Message = {
                     role: "agent",
-                    content: `Agent execution failed: ${error}`,
+                    content: `Error executing agent: ${(error as any).message || String(error)}`,
                     agentName: selectedAgent.name,
                     agentId: selectedAgent.id
                 }
                 setMessages(prev => [...prev, agentMsg])
-
-                // Persist to backend
-                if (activeConversationId) {
-                    try {
-                        await fetch(`${API_URL}/conversations/${activeConversationId}/messages`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(agentMsg)
-                        })
-                    } catch (err) {
-                        console.error("Failed to save error message:", err)
-                    }
-                }
             }
             setIsExecutingAgent(false)
         }
     })
+
+    // Voice Recognition Hook
+    const { isListening, isSupported, toggleListening } = useSpeechRecognition({
+        onResult: (transcript) => {
+            // Append result to current input with a space if needed
+            setInput(prev => {
+                const trimmed = prev.trimEnd();
+                return trimmed ? `${trimmed} ${transcript}` : transcript;
+            });
+        },
+        onError: (err) => {
+            console.error("Voice input error:", err);
+        }
+    });
     const [guiFormValues, setGuiFormValues] = React.useState<Record<string, unknown>>({})
 
 
@@ -902,8 +905,23 @@ export function ChatInterface() {
                                         <Send className="h-5 w-5" />
                                     </Button>
                                 ) : (
-                                    <Button variant="ghost" size="icon" className="h-10 w-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-slate-200 dark:hover:bg-slate-700">
-                                        <Mic className="h-5 w-5" />
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className={cn(
+                                            "h-10 w-10 rounded-lg transition-all duration-300",
+                                            isListening
+                                                ? "bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400"
+                                                : "text-muted-foreground hover:text-foreground hover:bg-slate-200 dark:hover:bg-slate-700"
+                                        )}
+                                        onClick={toggleListening}
+                                        disabled={!isSupported}
+                                        title={isListening ? "Stop listening" : "Voice input"}
+                                    >
+                                        <Mic className={cn(
+                                            "h-5 w-5",
+                                            isListening && "animate-pulse"
+                                        )} />
                                     </Button>
                                 )}
                             </div>
