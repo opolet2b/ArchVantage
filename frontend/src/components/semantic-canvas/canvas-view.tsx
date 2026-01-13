@@ -1158,8 +1158,7 @@ function CanvasViewInner() {
     // Handle Context Menu Actions
     const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string, fragment?: any) => {
         console.log(`[CanvasView] handleContextMenuAction: ${action}, context: ${context}`);
-        toast({ title: "Debug Action", description: action });
-        console.log(`[CanvasView] Context Menu Action: ${action} in context ${context}`);
+        // toast({ title: "Debug Action", description: action }); // Removed debug toast
 
         if (action === "discover_links") {
             const { selectedThingIds, selectedDomainIds, discoverLinks } = useCanvasStore.getState();
@@ -1186,6 +1185,11 @@ function CanvasViewInner() {
                 });
                 return;
             }
+
+            toast({
+                title: "Discovering Links",
+                description: "Analyzing semantic connections between items...",
+            });
 
             // Call store
             const result = await discoverLinks(tIds, dIds);

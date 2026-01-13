@@ -117,6 +117,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
             
             rag_candidates = []
             text_context = []
+            used_citation_ids = set()
             
             for node in linked_nodes:
                 linked_items_summary.append({"id": node.id, "title": node.title, "type": node.type})
@@ -151,6 +152,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                     )
                     
                     if results:
+                        used_citation_ids.add(tid)
                         for res in results:
                             context_parts.append(f"[Document Context]: {res['text']}")
                     else:
@@ -162,6 +164,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                             k=2
                         )
                         if fallback_results:
+                            used_citation_ids.add(tid)
                             debug_log.append(f"Fallback successful for {tid}")
                             for res in fallback_results:
                                 context_parts.append(f"[Document Context (Summary/Preview)]: {res['text']}")
@@ -234,6 +237,10 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 "context_data_text": context_data_text,  # New structured return
                 "manifest_text": manifest_text,
                 "linked_items": linked_items_summary,
+                "citations": [
+                    {"id": n.id, "title": n.title or "Untitled", "type": n.type} 
+                    for n in linked_nodes if n.id in used_citation_ids
+                ],
                 "debug_log": debug_log
             }
             
@@ -242,6 +249,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
         "context_data_text": None,
         "manifest_text": None,
         "linked_items": [], 
+        "citations": [],
         "debug_log": debug_log
     }
 
@@ -352,7 +360,13 @@ async def chat_endpoint(
 
 
     response_content = await llm_service.chat(final_messages, request.model)
-    return ChatResponse(role="assistant", content=response_content)
+    
+    # Extract citations from context logic (if available)
+    citations = []
+    if request.conversation_id and "ctx_result" in locals():
+         citations = ctx_result.get("citations", [])
+
+    return ChatResponse(role="assistant", content=response_content, citations=citations)
 
 
 @router.post("/chat/match-agent", response_model=AgentMatchResponse)

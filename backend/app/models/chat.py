@@ -19,6 +19,7 @@ class ChatResponse(BaseModel):
     """Standard chat response."""
     role: str
     content: str
+    citations: Optional[List[Dict[str, str]]] = None # List of {id, title, type}
 
 
 class AgentMatchRequest(BaseModel):

@@ -10,9 +10,10 @@
 "use client";
 
 import * as React from "react";
-import { User, Bot, Send, Loader2, RefreshCw } from "lucide-react";
+import { User, Bot, Send, Loader2, RefreshCw, ExternalLink } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useReactFlow } from "reactflow"; // For viewport control
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { API_URL } from "@/lib/utils";
 import type { MessageFragment } from "./types";
+import { useCanvasStore } from "../canvas-store";
 
 // =============================================================================
 // Types
@@ -32,6 +34,7 @@ interface Message {
     content: string;
     timestamp?: string;
     agentName?: string;
+    citations?: { id: string; title: string; type: string }[];
 }
 
 // =============================================================================
@@ -72,6 +75,10 @@ export function ConversationViewer({
     const scrollAreaRef = React.useRef<HTMLDivElement>(null);
     const [isFetchingInfo, setIsFetchingInfo] = React.useState(false);
     const [title, setTitle] = React.useState<string>("");
+
+    // React Flow hooks for camera control
+    const { fitView } = useReactFlow();
+    const selectThing = useCanvasStore(state => state.selectThing);
 
     // Load conversation history
     React.useEffect(() => {
@@ -156,7 +163,11 @@ export function ConversationViewer({
             if (!response.ok) throw new Error("Failed to get response");
 
             const data = await response.json();
-            const assistantMessage: Message = { role: "assistant", content: data.content };
+            const assistantMessage: Message = {
+                role: "assistant",
+                content: data.content,
+                citations: data.citations
+            };
 
             // 3. Save Assistant Message
             await fetch(`${API_URL}/conversations/${conversationId}/messages`, {
@@ -281,6 +292,29 @@ export function ConversationViewer({
                                             {message.content}
                                         </ReactMarkdown>
                                     </div>
+
+                                    {/* Citations / Sources */}
+                                    {message.citations && message.citations.length > 0 && (
+                                        <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                                            <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Sources</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {message.citations.map((cit, i) => (
+                                                    <div
+                                                        key={i}
+                                                        className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation(); // Prevent message selection
+                                                            selectThing(cit.id);
+                                                            fitView({ nodes: [{ id: cit.id }], duration: 800, padding: 0.2 });
+                                                        }}
+                                                    >
+                                                        <ExternalLink className="h-3 w-3 text-blue-500" />
+                                                        <span className="truncate max-w-[150px]">{cit.title}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         );
