@@ -574,6 +574,68 @@ def import_canvas(
 # Things CRUD
 # =============================================================================
 
+
+@router.post("/canvases/{canvas_id}/things/{thing_id}/vectorize", response_model=Dict[str, Any])
+def trigger_vectorization(
+    canvas_id: str,
+    thing_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Manually trigger RAG vectorization for a thing.
+    Useful for retrying failed items or processing text nodes created before auto-ingestion.
+    """
+    thing = db.query(CanvasThing).filter(
+        CanvasThing.canvas_id == canvas_id,
+        CanvasThing.id == thing_id
+    ).first()
+
+    if not thing:
+        raise HTTPException(status_code=404, detail="Thing not found")
+
+    # Re-use logic to determine path
+    real_path = None
+    asset_id = thing.content.get("asset_id")
+
+    if asset_id:
+        from app.models.asset_models import Asset
+        from app.services.asset_service import STORAGE_ROOT
+        
+        asset_record = db.query(Asset).filter(Asset.id == asset_id).first()
+        if asset_record:
+            full_path = STORAGE_ROOT / asset_record.file_path
+            if full_path.exists():
+                real_path = str(full_path)
+            else:
+                 raise HTTPException(status_code=404, detail=f"Asset file not found on disk")
+        else:
+             raise HTTPException(status_code=404, detail=f"Asset record {asset_id} not found")
+
+    if thing.content.get("source_type") == "image_folder":
+        real_path = "IMAGE_FOLDER_MODE"
+
+    if thing.type == ModelThingType.TEXT or (thing.type == ModelThingType.DOCUMENT and not asset_id and thing.content.get("content")):
+        real_path = "TEXT_CONTENT_MODE"
+
+    if not real_path:
+        raise HTTPException(status_code=400, detail="Cannot vectorize this item (No valid asset or text content)")
+
+    # Set status to PENDING
+    thing.rag_status = RAGStatus.PENDING
+    db.commit() 
+    
+    # Trigger Worker
+    from app.routers.canvas_worker import handle_async_vectorization
+    background_tasks.add_task(
+        handle_async_vectorization, 
+        thing.id,
+        real_path, 
+        canvas_id
+    )
+
+    return {"status": "triggered", "thing_id": thing.id}
 @router.post("/canvases/{canvas_id}/things", response_model=ThingResponse)
 async def create_thing(
     canvas_id: str,
@@ -618,7 +680,7 @@ async def create_thing(
         print(f"[CanvasRouter] Thing created successfully: {thing.id}")
 
         # Trigger RAG Ingestion for Documents, Images, and Slideshows
-        if thing.type in [ModelThingType.DOCUMENT, ModelThingType.IMAGE, ModelThingType.SLIDESHOW]:
+        if thing.type in [ModelThingType.DOCUMENT, ModelThingType.IMAGE, ModelThingType.SLIDESHOW, ModelThingType.TEXT]:
             try:
                 # Logic to find the file execution.
                 asset_id = thing.content.get("asset_id")
@@ -656,11 +718,16 @@ async def create_thing(
                 if thing.content.get("source_type") == "image_folder":
                     real_path = "IMAGE_FOLDER_MODE"
                     print(f"[CanvasRouter] Identified Image-Based Slideshow. Triggering worker.")
+
+                if thing.type == ModelThingType.TEXT or (thing.type == ModelThingType.DOCUMENT and not asset_id and thing.content.get("content")):
+                    real_path = "TEXT_CONTENT_MODE"
+                    print(f"[CanvasRouter] Identified Text-based Thing. Triggering worker.")
                 
                 if real_path:
                     # CRITICAL FIX: Frontend PDFViewer needs 'file_path' in content to render!
                     # The asset_id alone is not enough for the current frontend logic.
-                    if real_path != "IMAGE_FOLDER_MODE":
+                    if real_path != "IMAGE_FOLDER_MODE" and real_path != "TEXT_CONTENT_MODE":
+
                         # Convert absolute path back to a relative/accessible web path if needed?
                         # Actually PDFViewer handles /api/ assets.
                         # But it checks content.file_path.

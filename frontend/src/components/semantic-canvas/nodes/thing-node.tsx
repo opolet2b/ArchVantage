@@ -362,10 +362,44 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         setSelected(isSelected);
     }, [isSelected]);
 
-    // Sync local status when prop changes
     React.useEffect(() => {
-        setLocalStatus(currentThing.rag_status);
+        setLocalStatus(currentThing.rag_status || "none");
     }, [currentThing.rag_status]);
+
+    // Handle manual vectorization trigger
+    const handleVectorize = React.useCallback(async () => {
+        try {
+            setLocalStatus("pending"); // Optimistic update
+            const token = localStorage.getItem("token");
+            const res = await fetch(`${API_URL}/canvases/${canvasId}/things/${thing.id}/vectorize`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                }
+            });
+
+            if (!res.ok) {
+                throw new Error("Failed to trigger vectorization");
+            }
+
+            toast({
+                title: "Vectorization Started",
+                description: "The item has been queued for processing.",
+            });
+
+            // Force refresh things to get latest status if needed
+            // useCanvasStore.getState().refreshThings();
+        } catch (error) {
+            console.error("Vectorization trigger failed:", error);
+            setLocalStatus("failed");
+            toast({
+                title: "Vectorization Failed",
+                description: "Could not trigger processing. Please try again.",
+                variant: "destructive"
+            });
+        }
+    }, [thing.id, canvasId]);
 
     // Polling effect for RAG Status
     React.useEffect(() => {
@@ -1885,6 +1919,22 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
                         </button>
                     )}
+
+                    {/* Manual Vectorize Button (Brain) */}
+                    {/* Show if: Text/Document/Slideshow AND status is NOT completed/processing/pending */}
+                    {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow') &&
+                        (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending')) && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleVectorize();
+                                }}
+                                className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                title="Vectorize (Enable RAG)"
+                            >
+                                <BrainCircuit className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                            </button>
+                        )}
 
                     {/* Export Button */}
                     <button

@@ -144,6 +144,26 @@ async def handle_async_vectorization(
 
 
 
+        elif thing.type.value == "text" or (thing.type.value == "document" and file_path == "TEXT_CONTENT_MODE"):
+            print(f"[CanvasWorker] Processing Text Thing {thing_id}...")
+            # Extract text content (support both 'text' and 'content' keys)
+            text_content = thing.content.get("text") or thing.content.get("content")
+            
+            if text_content and isinstance(text_content, str) and len(text_content.strip()) > 0:
+                print(f"[CanvasWorker] Ingesting {len(text_content)} chars of text.")
+                
+                # Ingest into RAG
+                meta = base_metadata.copy()
+                meta.update({"type": "text_node"})
+                
+                result = rag_service.ingest_text(
+                    text_content,
+                    metadata=meta
+                )
+            else:
+                print(f"[CanvasWorker] Text Thing {thing_id} has no valid content to ingest.")
+                result = {"status": "no_content"}
+
         elif thing.type.value == "slideshow":
             print(f"[CanvasWorker] Processing Slideshow... ThingID={thing_id}")
             source_type = thing.content.get("source_type", "pptx")
