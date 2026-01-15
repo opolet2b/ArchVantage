@@ -256,6 +256,54 @@ async def execute_mcp_function(
             raise
 
 
+
+def transform_value(value: Any, target_type: str) -> Any:
+    """
+    Transform a value to the target type.
+    Used for converting string inputs to numbers/booleans/json.
+    """
+    if value is None:
+        return None
+        
+    target_type = target_type.lower()
+    
+    if target_type == "string":
+        return str(value)
+        
+    elif target_type == "number":
+        if isinstance(value, (int, float)):
+            return value
+        try:
+            return float(str(value).strip())
+        except:
+            return value # Return original if fails
+            
+    elif target_type == "integer":
+        if isinstance(value, int):
+            return value
+        try:
+            return int(float(str(value).strip()))
+        except:
+            return value
+            
+    elif target_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        s = str(value).lower().strip()
+        return s in ("true", "1", "yes", "on")
+        
+    elif target_type == "json":
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            import json
+            return json.loads(str(value))
+        except:
+            return value
+            
+    return value
+
+
 # =============================================================================
 # Pipeline Executor (Section 3 of ToolBuilder.md)
 # =============================================================================
@@ -310,113 +358,183 @@ class PipelineExecutor:
         """
         Resolve {{ placeholder }} syntax in a value.
         
-        Supports three contexts:
-        - {{ input.argument_name }} - Input passed to the tool at runtime
-        - {{ step_id.result.field_name }} - Output from previous steps
-        - {{ env.VARIABLE_NAME }} - Environment variables
+        Supports:
+        - {{ input.field }}
+        - {{ step_id.result.field }}
+        - {{ step_id[0].field }} (Array access)
+        - {{ env.VAR }}
         
         Args:
-            value: The value to resolve (string, dict, or list)
+            value: The value to resolve
             
         Returns:
-            The resolved value
-            
-        Raises:
-            ValueError: If a required variable is missing (fail-fast)
+            Resolved value
         """
         import re
         import os
         
         if isinstance(value, str):
-            # Pattern to match {{ variable.path.to.value }}
-            pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\}\}'
+            # Pattern matches:
+            # - identifiers (a_b)
+            # - dot notation (.field)
+            # - array index ([0])
+            # - combinations (step1[0].field.sub[1])
+            pattern = r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)|(?:\[\d+\]))*)\s*\}\}'
             
-            def replace_match(match):
-                var_path = match.group(1)
-                parts = var_path.split(".")
+            def parse_path(path_str):
+                # Split by dot, but handle array indices
+                # "a.b[0].c" -> ["a", "b", "[0]", "c"]
+                # Regex to split: keep delimiters
+                parts = []
+                # First split by dot
+                dot_segments = path_str.split('.')
+                for segment in dot_segments:
+                    # Check for array indices in segment like "field[0][1]"
+                    # Use regex to find all [N] occurrences
+                    indices = list(re.finditer(r'\[(\d+)\]', segment))
+                    
+                    if not indices:
+                        parts.append(segment)
+                        continue
+                        
+                    # Has indices. Append the base name (if any) before the first index
+                    base_end = indices[0].start()
+                    if base_end > 0:
+                        parts.append(segment[:base_end])
+                    
+                    # Append indices
+                    for i, match in enumerate(indices):
+                        parts.append(int(match.group(1)))
+                        # If there's text between indices (unlikely but possible), append it?
+                        # Standard JS/Python syntax doesn't allow field[0]field2[1] without dot
+                        # So we assume contiguous indices are fine.
+                        
+                return parts
+
+            def get_value_at_path(full_path):
+                parts = parse_path(full_path)
+                if not parts:
+                    raise ValueError(f"Invalid path: {full_path}")
                 
-                if len(parts) < 2:
-                    raise ValueError(f"Invalid variable syntax: {var_path}")
+                start_node = parts[0]
+                remaining_parts = parts[1:]
                 
-                context_type = parts[0]  # e.g., 'input', 'step1', 'env'
+                current = None
                 
-                if context_type == "env":
-                    # Environment variable: {{ env.API_KEY }}
-                    env_var = parts[1]
-                    env_value = os.environ.get(env_var)
-                    if env_value is None:
+                # Determine context root
+                if start_node == "env":
+                    if not remaining_parts:
+                         raise ValueError("Environment variable name missing")
+                    env_var = str(remaining_parts[0])
+                    val = os.environ.get(env_var)
+                    if val is None:
                         raise ValueError(f"Environment variable '{env_var}' not found")
-                    return env_value
-                
-                elif context_type == "input":
-                    # Input parameter: {{ input.email }}
+                    return val
+                    
+                elif start_node == "input":
                     if "input" not in self.context:
                         raise ValueError("No input context available")
-                    
                     current = self.context["input"]
-                    for part in parts[1:]:
-                        if isinstance(current, dict) and part in current:
-                            current = current[part]
-                        else:
-                            raise ValueError(f"Input variable '{var_path}' not found")
-                    return str(current) if not isinstance(current, str) else current
-                
-                else:
-                    # Step result: {{ step_id.result.field_name }}
-                    if context_type not in self.context:
-                        raise ValueError(f"Step '{context_type}' has not been executed yet")
                     
-                    current = self.context[context_type]
-                    for part in parts[1:]:
-                        if isinstance(current, dict) and part in current:
-                            current = current[part]
-                        elif isinstance(current, dict) and "result" in current and isinstance(current["result"], dict) and part in current["result"]:
-                            # Implicitly unwrap 'result' wrapper
-                            current = current["result"][part]
+                elif start_node in self.context:
+                    # Step result
+                    step_data = self.context[start_node]
+                    
+                    # Handle implicit 'result' unwrapping
+                    # If step_data is wrapper {"result": ...}
+                    # And next part is NOT 'result', unwrap it
+                    if isinstance(step_data, dict) and "result" in step_data:
+                        # Check if we should unwrap
+                        should_unwrap = True
+                        if remaining_parts and remaining_parts[0] == "result":
+                             should_unwrap = False
+                        
+                        if should_unwrap:
+                            current = step_data["result"]
                         else:
-                            raise ValueError(
-                                f"Variable '{var_path}' not found in step '{context_type}'"
-                            )
-                    return str(current) if not isinstance(current, str) else current
+                            current = step_data
+                    else:
+                        current = step_data
+                else:
+                    raise ValueError(f"Context '{start_node}' not found (executed steps: {list(self.context.keys())})")
+
+                # Traverse remaining parts
+                for part in remaining_parts:
+                    if current is None:
+                        # Path continues but we hit None
+                        raise ValueError(f"Value at '{start_node}...' is null, cannot get '{part}'")
+                    
+                    if isinstance(part, int): # Array index
+                        if isinstance(current, (list, tuple)):
+                            if 0 <= part < len(current):
+                                current = current[part]
+                            else:
+                                raise ValueError(f"Index {part} out of bounds (len: {len(current)})")
+                        else:
+                             # Try to look into 'result' if we are at a dict that looks like a step wrapper
+                             # (Matches edge case where implicit unwrap didn't happen because logic above applied to ROOT only)
+                             if isinstance(current, dict) and "result" in current and isinstance(current["result"], (list, tuple)):
+                                 current = current["result"]
+                                 if 0 <= part < len(current):
+                                     current = current[part]
+                                 else:
+                                     raise ValueError(f"Index {part} out of bounds")
+                             else:
+                                 raise ValueError(f"Cannot index non-list value: {type(current)}")
+                                 
+                    else: # String key
+                        if isinstance(current, list):
+                            # Auto-Unwrap Strategy:
+                            # If we try to access a field "x" on a list [obj], assume user meant [0].x
+                            if len(current) == 1 and isinstance(current[0], dict) and part in current[0]:
+                                current = current[0][part]
+                                # We could log a warning here if we had a logger
+                            else:
+                                raise ValueError(f"Cannot access field '{part}' on a list of length {len(current)}. Did you mean to use an index like '[0]'?")
+                             
+                        elif isinstance(current, dict):
+                            if part in current:
+                                current = current[part]
+                            elif "result" in current and isinstance(current["result"], dict) and part in current["result"]:
+                                # Implicit unwrap for nested objects
+                                current = current["result"][part]
+                            else:
+                                raise ValueError(f"Field '{part}' not found")
+                        else:
+                            raise ValueError(f"Field '{part}' not found")
+                
+                return current
+
+            def replace_match(match):
+                var_path = match.group(1)
+                try:
+                    # Log what we are trying to resolve
+                    print(f"[DEBUG] Resolving variable: {var_path}")
+                    val = get_value_at_path(var_path)
+                    print(f"[DEBUG] Resolved {var_path} -> {val}")
+                    return str(val) if not isinstance(val, str) else val
+                except ValueError as e:
+                    print(f"[ERROR] Failed to resolve {var_path}: {e}")
+                    raise e # Propagate error to fail verification
+                except Exception as e:
+                    print(f"[CRITICAL] Unexpected error resolving {var_path}: {e}")
+                    traceback.print_exc()
+                    raise e
             
-            # Check if the entire value is a single variable (for non-string returns)
+            # Check if full match (return raw object)
             full_match = re.fullmatch(pattern, value.strip())
             if full_match:
-                try:
-                    # Return the actual value, not stringified
-                    var_path = full_match.group(1)
-                    parts = var_path.split(".")
-                    context_type = parts[0]
-                    
-                    if context_type == "input":
-                        current = self.context["input"]
-                        for part in parts[1:]:
-                            current = current[part]
-                        return current
-                    elif context_type != "env":
-                        current = self.context[context_type]
-                        for part in parts[1:]:
-                            if isinstance(current, dict) and part in current:
-                                current = current[part]
-                            elif isinstance(current, dict) and "result" in current and isinstance(current["result"], dict) and part in current["result"]:
-                                 # Implicitly unwrap 'result' wrapper
-                                 current = current["result"][part]
-                            else:
-                                raise KeyError(part)
-                        return current
-                except (KeyError, TypeError):
-                    pass  # Fall through to string replacement
+                var_path = full_match.group(1)
+                print(f"[DEBUG] Full match resolution: {var_path}")
+                return get_value_at_path(var_path)
             
-            # Replace all matches in the string
+            # String replacement
             return re.sub(pattern, replace_match, value)
         
         elif isinstance(value, dict):
-            # Resolve both keys and values
             resolved_dict = {}
             for k, v in value.items():
-                # Resolve key if it's a string containing variables
                 resolved_key = self.resolve_variables(k) if isinstance(k, str) and "{{" in k else k
-                # Resolve value
                 resolved_value = self.resolve_variables(v)
                 resolved_dict[resolved_key] = resolved_value
             return resolved_dict
@@ -520,6 +638,26 @@ class PipelineExecutor:
         # Resolve variables in arguments
         resolved_args = self.resolve_variables(arguments)
         
+        # Apply Type Transformations if configured
+        # This fixes issues where variables are resolved as strings but tool expects numbers
+        if self.tool and self.tool.configuration:
+            type_transformations = self.tool.configuration.get("type_transformations", {})
+            if type_transformations:
+                print(f"[DEBUG] Applying type transformations: {type_transformations}")
+                for arg_name, arg_value in resolved_args.items():
+                    # Check for specific step transformation: "step1.latitude"
+                    # Or generic transformation: "latitude" (fallback)
+                    target_type = type_transformations.get(f"{step_id}.{arg_name}")
+                    if not target_type:
+                        target_type = type_transformations.get(arg_name)
+                    
+                    if target_type:
+                        try:
+                            resolved_args[arg_name] = transform_value(arg_value, target_type)
+                            print(f"[DEBUG] Transformed '{arg_name}': {arg_value} -> {resolved_args[arg_name]} ({target_type})")
+                        except Exception as e:
+                            print(f"[WARN] Failed to transform '{arg_name}': {e}")
+        
         # Execute the MCP function
         response = await execute_mcp_function(server, function_name, resolved_args)
         
@@ -547,7 +685,8 @@ class PipelineExecutor:
     async def execute(
         self,
         input_params: Dict[str, Any],
-        request_id: int = 1
+        request_id: int = 1,
+        include_trace: bool = False
     ) -> Dict[str, Any]:
         """
         Execute the complete pipeline with given input parameters.
@@ -580,20 +719,47 @@ class PipelineExecutor:
             
             # Step 2: Sequential Iteration with timeout
             final_result = None
+            trace = []
             
             async def run_pipeline():
                 nonlocal final_result
-                for step in pipeline:
-                    step_id = step.get("step_id", "unknown")
+                for i, step in enumerate(pipeline):
+                    step_id = step.get("step_id", f"step_{i}")
+                    trace_item = {
+                        "step_id": step_id,
+                        "function_ref": step.get("function_ref"),
+                        "status": "pending",
+                        "input": step.get("arguments", {}),  # Raw arguments before resolution
+                        "output": None,
+                        "error": None
+                    }
                     
-                    # Step 4: Atomic Execution
-                    result = await self.execute_step(step)
+                    try:
+                        # Step 4: Atomic Execution
+                        # We might need resolved args for trace?
+                        # Capturing resolved args implies resolving them before execution call 
+                        # but execute_step does both.
+                        # For now, we rely on execute_step to run.
+                        
+                        result = await self.execute_step(step)
+                        
+                        # Step 5: Context Update - store result under step_id
+                        self.context[step_id] = {"result": result}
+                        
+                        # Track final result
+                        final_result = result
+                        
+                        trace_item["status"] = "success"
+                        trace_item["output"] = result
                     
-                    # Step 5: Context Update - store result under step_id
-                    self.context[step_id] = {"result": result}
+                    except Exception as e:
+                        trace_item["status"] = "failed"
+                        trace_item["error"] = str(e)
+                        trace.append(trace_item)
+                        raise e
                     
-                    # Track final result
-                    final_result = result
+                    trace.append(trace_item)
+            
             
             # Step 6: Termination - apply global timeout
             try:
@@ -614,7 +780,12 @@ class PipelineExecutor:
                 final_result = self.transform_to_output_schema(output_schema)
             
             # Return the result of the final step
-            return format_success_response(request_id, final_result)
+            response = format_success_response(request_id, final_result)
+            
+            if include_trace:
+                response["result"]["_execution_trace"] = trace
+                
+            return response
             
         except ValueError as ve:
             # Validation or resolution error - fail fast
@@ -695,6 +866,25 @@ class PipelineExecutor:
             last_step_result = self._get_last_step_result()
             return last_step_result if last_step_result else {}
         
+        # Helper to set nested value
+        def _set_nested_value(obj: Dict[str, Any], path: str, value: Any):
+            parts = path.split('.')
+            current = obj
+            for i, part in enumerate(parts[:-1]):
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+                if not isinstance(current, dict):
+                    # Conflict: Trying to traverse into a non-dict
+                    # e.g. path="a.b", but "a" is already set to a string
+                    # Force overwrite or fail? For now, we might need to convert to dict or warn.
+                    # As a safe fallback for mixed mapping types, we stop or overwrite?
+                    # Let's assume schema compliance is ensured by user.
+                    # We can't traverse.
+                    return 
+            
+            current[parts[-1]] = value
+
         # Check if we have explicit output mappings from dry-run verification
         output_mappings = None
         if self.tool and self.tool.configuration:
@@ -703,21 +893,38 @@ class PipelineExecutor:
         # Build the conformant output with values from context
         conformant_output = {}
         
+        # Phase 1: Apply Explicit Output Mappings (support nested keys like 'weather.temp')
+        if output_mappings:
+            for target_path, source_ref in output_mappings.items():
+                if target_path == "__root__":
+                    continue
+                
+                # Resolve value from pipeline context
+                val = self._resolve_source_reference(source_ref)
+                
+                if val is not None:
+                    _set_nested_value(conformant_output, target_path, val)
+        
+        # Phase 2: Heuristic Filling (Top-Level Properties only, to preserve backward compatibility)
+        # Only fill if not already populated by explicit mapping
         for prop_name, prop_def in properties.items():
+            # If property already exists (via explicit nested mapping or direct mapping), skip matching
+            if prop_name in conformant_output:
+                continue
+                
             value = None
             
-            # Priority 1: Use explicit output mapping if defined
+            # (Old explicit check removed as it's handled in Phase 1, but we check if we missed it?)
             if output_mappings and prop_name in output_mappings:
-                source_path = output_mappings[prop_name]
-                value = self._resolve_source_reference(source_path)
-            
-            # Priority 2: Fall back to heuristics
-            if value is None:
+                 # Should have been handled by Phase 1
+                 pass
+            else:
+                # Value not set, try heuristics
                 value = self._extract_property_value(prop_name, prop_def)
             
             if value is not None:
                 conformant_output[prop_name] = value
-            elif "default" in prop_def:
+            elif "default" in prop_def and prop_name not in conformant_output:
                 conformant_output[prop_name] = prop_def["default"]
         
         # If we couldn't extract any fields, include all step results
@@ -1376,7 +1583,8 @@ async def execute_pipeline(
     db: Session,
     tool_id: int,
     input_params: Dict[str, Any],
-    request_id: int = 1
+    request_id: int = 1,
+    include_trace: bool = False
 ) -> Dict[str, Any]:
     """
     Execute a tool's pipeline with given input parameters.
@@ -1388,10 +1596,11 @@ async def execute_pipeline(
         tool_id: ID of the tool to execute
         input_params: Runtime input parameters for the pipeline
         request_id: Request ID for JSON-RPC response
+        include_trace: Whether to include execution trace in response
         
     Returns:
         Standardized JSON-RPC 2.0 response
     """
     executor = PipelineExecutor(db, tool_id)
-    return await executor.execute(input_params, request_id)
+    return await executor.execute(input_params, request_id, include_trace)
 

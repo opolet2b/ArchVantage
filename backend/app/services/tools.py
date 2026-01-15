@@ -601,6 +601,235 @@ Now generate the pipeline for the user's description. Output ONLY valid JSON."""
         }
 
 
+async def suggest_relevant_tools(description: str, candidates: List[dict], model_name: Optional[str] = None) -> List[str]:
+    print(f"DEBUG TOOL: suggest_relevant_tools called with description='{description}', model_name='{model_name}' and {len(candidates)} candidates", flush=True)
+    from app.services.llm_service import llm_service
+    from app.models.chat import Message
+    
+    candidates_doc = ""
+    for tool in candidates:
+        name = tool.get('name')
+        desc = tool.get('description', 'No description')
+        candidates_doc += f"- {name}: {desc}\n"
+    
+    print(f"DEBUG TOOL: candidates_doc:\n{candidates_doc}", flush=True)
+        
+    prompt = f"""
+You are an expert AI Assistant specialized in planning tool workflows.
+
+USER GOAL:
+"{description}"
+
+AVAILABLE TOOLS:
+{candidates_doc}
+
+TASK:
+1. Analyze the user's goal. It may be a simple task or a complex multi-step workflow.
+2. Review the Available Tools.
+3. Select ALL tools that are necessary to complete the goal.
+4. If the goal requires chaining (e.g., "Search for X then Summarize Y"), you MUST select BOTH the search tool and the summarization tool.
+5. If a tool output is needed as input for another tool, select both.
+6. If multiple similar tools exist, pick the best fit.
+
+output ONLY a JSON array of strings containing the exact names of the selected tools.
+If no tools are relevant, return an empty array [].
+
+Example response: ["wikipedia_search", "text_summary", "email_sender"]
+"""
+    
+    messages = [
+        Message(role="system", content="You are a tool selection expert. Output JSON array of strings only."),
+        Message(role="user", content=prompt)
+    ]
+    
+    print(f"DEBUG TOOL: Sending request to LLM (Model: {model_name or 'Default'})...", flush=True)
+    response = await llm_service.chat(messages, model_name=model_name)
+    print(f"DEBUG TOOL: LLM Response Raw: {response}", flush=True)
+    
+    try:
+        # Robust JSON extraction using regex to handle <think> blocks and markdown
+        import re
+        # Look for a JSON array pattern: [ ... ]
+        match = re.search(r'\[.*\]', response, re.DOTALL)
+        if match:
+            json_str = match.group(0)
+            selected = json.loads(json_str)
+            print(f"DEBUG TOOL: Parsed selection: {selected}", flush=True)
+            if isinstance(selected, list):
+                return [str(s) for s in selected]
+            return []
+        
+        # Fallback: try standard existing cleaning if regex fails (unlikely for array)
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            if lines[-1].strip() == "```":
+                cleaned = "\n".join(lines[1:-1])
+            else:
+                cleaned = "\n".join(lines[1:])
+        selected = json.loads(cleaned)
+        return [str(s) for s in selected] if isinstance(selected, list) else []
+            
+    except Exception as e:
+        print(f"DEBUG TOOL: Error parsing LLM response: {e}", flush=True)
+        return []
+
+
+async def suggest_mappings(
+    description: str,
+    target_step_id: str,
+    target_input_schema: dict,
+    available_context: dict,
+    model_name: Optional[str] = None
+) -> dict:
+    from app.services.llm_service import llm_service
+    from app.models.chat import Message
+    
+    print(f"DEBUG TOOL: suggest_mappings called for step='{target_step_id}', model='{model_name}'", flush=True)
+    
+    # Format target inputs
+    target_doc = json.dumps(target_input_schema, indent=2)
+    
+    # Truncate context values to avoid exceeding token limits
+    truncated_context = {}
+    for k, v in available_context.items():
+        v_str = str(v)
+        if len(v_str) > 2000:
+            truncated_context[k] = v_str[:2000] + "... (truncated)"
+        else:
+            truncated_context[k] = v_str
+
+    # Format available context
+    context_doc = json.dumps(truncated_context, indent=2)
+    
+    prompt = f"""
+    You are an intelligent data mapping assistant for a workflow pipeline.
+    
+    GOAL: Map available variables to the required inputs for step "{target_step_id}".
+    
+    PIPELINE GOAL: "{description}"
+    
+    REQUIRED INPUTS (Target Schema):
+    {target_doc}
+    
+    AVAILABLE VARIABLES (Context):
+    {context_doc}
+    
+    Task:
+    For each required input parameter in the target schema, find the best matching variable from the available context.
+    - Use {{{{ variable_name }}}} syntax for mapping variables.
+    - If a parameter needs a hardcoded value based on the description, provide it.
+    - If no clear match exists, make a reasonable guess if possible, or omit.
+    
+    CRITICAL: TYPE INFERENCE
+    - You MUST infer the most logical type for each parameter based on its name and description.
+    - Allowed types: "string", "integer", "number", "boolean", "json".
+    - If the schema says "any" or "string", DO NOT blindy copy it. Look at the parameter name:
+      - "price", "score", "rate", "distance" -> "number" (for reals/floats) or "integer"
+      - "is_enabled", "has_permission", "verified" -> "boolean"
+      - "metadata", "config", "tags" -> "json"
+    - ONLY use "string" if the value is text.
+    
+    Structure your response as a JSON object where keys are argument names and values are objects with:
+    - "value": The mapping string or literal value.
+    - "type": The inferred type (MUST be one of the allowed types: string, integer, number, boolean, json).
+    - "reason": A brief explanation of why this mapping was chosen.
+    - IMPORTANT: RETURN ONLY JSON. NO MARKDOWN, NO COMMENTS.
+    
+    Example:
+    {{
+        "user_name": {{ "value": "{{{{ input.user }}}}", "type": "string", "reason": "Direct match" }},
+        "max_retries": {{ "value": 3, "type": "integer", "reason": "Default limit" }},
+        "confidence_score": {{ "value": "{{{{ input.score }}}}", "type": "number", "reason": "Score is a floating point number" }}
+    }}
+    """
+    
+    print(f"DEBUG TOOL: suggest_mappings PROMPT:\n{prompt}", flush=True)
+
+    messages = [
+        Message(role="system", content="You are a data mapping assistant. Output JSON object only."),
+        Message(role="user", content=prompt)
+    ]
+    
+    print(f"DEBUG TOOL: Sending request to LLM (Model: {model_name or 'Default'})...", flush=True)
+    try:
+        response = await llm_service.chat(messages, model_name=model_name)
+    except Exception as e:
+        print(f"DEBUG TOOL: LLM request failed: {e}", flush=True)
+        return {}
+
+    print(f"DEBUG TOOL: suggest_mappings LLM Response Raw: {response}", flush=True)
+    
+    if not response or not response.strip():
+        print("DEBUG TOOL: Empty response from LLM", flush=True)
+        return {}
+    
+    try:
+        # Robust JSON extraction using regex
+        import re
+        # Look for a JSON object pattern: { ... }
+        start = response.find('{')
+        end = response.rfind('}')
+        
+        if start != -1 and end != -1:
+            json_str = response[start:end+1]
+            try:
+                mapping = json.loads(json_str)
+                print(f"DEBUG TOOL: Parsed mapping: {mapping}", flush=True)
+                if isinstance(mapping, dict):
+                    # Validate and normalize structure
+                    normalized = {}
+                    for k, v in mapping.items():
+                        if isinstance(v, dict) and "value" in v:
+                             # Map 'null' from LLM (None in python) to empty string or preserve None?
+                             # Frontend expects string in Input value. Pydantic might expect string.
+                             # If value is None, use empty string? Or let it be None if optional?
+                             val = v["value"]
+                             if val is None:
+                                 val = "" # Normalize null to empty string to avoid validation errors
+                             
+                             # Ensure structure
+                             normalized[k] = { 
+                                 "value": val, 
+                                 "type": v.get("type", "unknown"), 
+                                 "reason": v.get("reason", "inferred") 
+                             }
+                        else:
+                             # Legacy or direct value
+                             val = v
+                             if val is None:
+                                 val = ""
+                             normalized[k] = { "value": val, "type": "unknown", "reason": "inferred" }
+                    return normalized
+            except Exception as e:
+                print(f"DEBUG TOOL: JSON regex parse failed: {e}", flush=True)
+                # Fallback to cleaning
+                pass
+             
+        # Fallback cleaning logic (remove markdown blocks)
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            if lines[-1].strip() == "```":
+                cleaned = "\n".join(lines[1:-1])
+            else:
+                cleaned = "\n".join(lines[1:])
+        
+        mapping = json.loads(cleaned)
+        if isinstance(mapping, dict):
+            normalized = {}
+            for k, v in mapping.items():
+                if isinstance(v, dict) and "value" in v:
+                        normalized[k] = v
+                else:
+                        normalized[k] = { "value": v, "type": "unknown", "reason": "inferred" }
+            return normalized
+        return {}
+    except Exception as e:
+        print(f"DEBUG TOOL: Error parsing mapping response: {e}", flush=True)
+        return {}
+
+
 def _extract_input_schema_from_pipeline(pipeline: List[dict]) -> dict:
     """
     Extract input schema from pipeline by finding {{ input.x }} references.

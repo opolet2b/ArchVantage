@@ -219,6 +219,18 @@ class PipelineGenerationRequest(BaseModel):
     output_schema: Optional[Dict[str, Any]] = None  # Existing output schema (if any)
     execution_sample: Optional[Any] = None  # Optional sample of execution result for schema generation
 
+class ToolSuggestionRequest(BaseModel):
+    description: str
+    candidates: List[Dict[str, Any]]
+    model_name: Optional[str] = None
+
+class MappingSuggestionRequest(BaseModel):
+    description: str
+    target_step_id: str
+    target_input_schema: Dict[str, Any]
+    available_context: Dict[str, str]
+    model_name: Optional[str] = None
+
 
 class PipelineGenerationResponse(BaseModel):
     """Response from pipeline generation."""

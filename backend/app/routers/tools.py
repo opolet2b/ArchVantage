@@ -7,7 +7,8 @@ from app.schemas.tools import (
     SystemPromptGenerationRequest, InputSchemaGenerationRequest,
     PipelineGenerationRequest,
     MCPServer, MCPServerCreate, MCPServerUpdate,
-    ToolsTreeResponse
+    ToolsTreeResponse,
+    ToolSuggestionRequest, MappingSuggestionRequest
 )
 from app.services import tools as tool_service
 from app.routers.auth import get_current_active_user, get_current_admin_user
@@ -188,11 +189,14 @@ async def execute_pipeline(
     input_params = params.get("input", {})
     request_id = params.get("id", 1)
     
+    include_trace = params.get("include_trace", False)
+    
     return await rt_execute_pipeline(
         db=db,
         tool_id=tool_id,
         input_params=input_params,
-        request_id=request_id
+        request_id=request_id,
+        include_trace=include_trace
     )
 
 @router.post("/generate-prompt")
@@ -251,6 +255,51 @@ async def generate_pipeline(
         execution_sample=request.execution_sample  # Pass execution sample if provided
     )
     return result
+
+
+@router.post("/tools/suggest-tools")
+async def suggest_tools(
+    request: ToolSuggestionRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Suggest relevant tools from a list of candidates.
+    """
+    suggestions = await tool_service.suggest_relevant_tools(
+        description=request.description,
+        candidates=request.candidates,
+        model_name=request.model_name
+    )
+    return {"suggestions": suggestions}
+
+
+@router.post("/tools/suggest-mapping")
+async def suggest_mapping(
+    request: MappingSuggestionRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Suggest mappings for a specific step.
+    """
+    raw_mapping = await tool_service.suggest_mappings(
+        description=request.description,
+        target_step_id=request.target_step_id,
+        target_input_schema=request.target_input_schema,
+        available_context=request.available_context,
+        model_name=request.model_name
+    )
+    
+    # Flatten the rich response to simple key-value for frontend compatibility
+    # The suggest_mappings service now returns { param: { value, type, reason } }
+    mapping = {}
+    if isinstance(raw_mapping, dict):
+        for k, v in raw_mapping.items():
+            if isinstance(v, dict) and "value" in v:
+                mapping[k] = str(v["value"])
+            else:
+                mapping[k] = str(v)
+            
+    return {"mapping": mapping}
 
 
 # MCP Server endpoints
@@ -371,11 +420,12 @@ async def start_dry_run(
     from app.services.dry_run import DryRunService
     
     pipeline = request.get("pipeline", [])
+    model_name = request.get("model_name") # Extract selected model
     if not pipeline:
         raise HTTPException(status_code=400, detail="Pipeline is required")
     
     service = DryRunService(db)
-    result = await service.start_session(tool_id, pipeline)
+    result = await service.start_session(tool_id, pipeline, model_name=model_name)
     return result
 
 

@@ -7,7 +7,7 @@
  * Guides users through input injection, safety checks, execution,
  * and mapping confirmation for each pipeline step.
  */
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,8 +51,9 @@ interface PipelineStep {
 
 interface RequiredInput {
     name: string;
-    argument: string;
     description: string;
+    argument: string;
+    default_value?: string;
 }
 
 interface MappingSuggestion {
@@ -60,6 +61,7 @@ interface MappingSuggestion {
     target_param: string;
     confidence: number;
     reason: string;
+    target_type?: string;
 }
 
 interface SafetyWarning {
@@ -81,6 +83,8 @@ interface DryRunWizardProps {
     ) => void;
     onCancel: () => void;
     open: boolean;
+    description: string;
+    selectedModel?: string;
 }
 
 type WizardState =
@@ -151,7 +155,8 @@ function extractFieldPaths(data: unknown, stepId: string, prefix: string = ""): 
     }
 
     if (Array.isArray(data)) {
-        if (data.length > 0 && typeof data[0] === "object") {
+        if (data.length > 0) {
+            // Always recurse into the first item to support primitives like ["Paris"] -> path[0]
             paths.push(...extractFieldPaths(data[0], stepId, `${basePath}[0]`));
         }
         paths.push(basePath);
@@ -166,9 +171,10 @@ function extractFieldPaths(data: unknown, stepId: string, prefix: string = ""): 
 
         if (value !== null && typeof value === "object" && !Array.isArray(value)) {
             paths.push(...extractFieldPaths(value, stepId, fieldPath));
-        } else if (Array.isArray(value) && value.length > 0) {
+        } else if (Array.isArray(value)) {
             paths.push(fieldPath);
-            if (typeof value[0] === "object") {
+            if (value.length > 0) {
+                // Always recurse into array items
                 paths.push(...extractFieldPaths(value[0], stepId, `${fieldPath}[0]`));
             }
         } else {
@@ -240,6 +246,49 @@ function getSchemaType(propDef: Record<string, unknown>): string {
     }
 }
 
+/**
+ * Recursively flatten a JSON Schema to find all leaf mappable nodes.
+ * Returns an array of field descriptors { path, schema }.
+ */
+function flattenSchema(
+    schema: any,
+    prefix: string = ""
+): Array<{ path: string, schema: any }> {
+    let fields: Array<{ path: string, schema: any }> = [];
+
+    if (!schema || !schema.properties) return fields;
+
+    Object.entries(schema.properties).forEach(([key, def]: [string, any]) => {
+        const fullPath = prefix ? `${prefix}.${key}` : key;
+
+        if (def.type === 'object' && def.properties) {
+            // Recurse into object
+            fields = fields.concat(flattenSchema(def, fullPath));
+        } else if (def.type === 'array' && def.items && def.items.type === 'object') {
+            // For arrays of objects, we map the array root and keep recursing if needed? 
+            // In a mapping UI, usually you map the array itself or objects into it.
+            // Let's expose the array itself as a mappable target.
+            // AND the recursive properties? 
+            // If we have weather_report (array), we map it to "stepX.result.list".
+            // If we have weather_report.date, that implies we are mapping INTO each item?
+            // For now, let's just show the array root and primitive leaves.
+            // But user screenshot showed "weather_report" (array) and wanted "weather_report.date".
+            // So we MUST return properties of items for arrays-of-objects if we want to support that granularity.
+            // If we assume the tool builder constructs objects via mapping...
+            fields.push({ path: fullPath, schema: def });
+
+            // Recurse into array items to support "weather_report[].date" if needed?
+            // Or simpler: just treat it as object for mapping visibility
+            fields = fields.concat(flattenSchema(def.items, fullPath));
+        } else {
+            // Leaf node (string, number, boolean, or array of primitives)
+            fields.push({ path: fullPath, schema: def });
+        }
+    });
+
+    return fields;
+}
+
 export function DryRunWizard({
     toolId,
     pipeline,
@@ -248,6 +297,8 @@ export function DryRunWizard({
     onComplete,
     onCancel,
     open,
+    description,
+    selectedModel
 }: DryRunWizardProps) {
     // Session state
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -300,7 +351,10 @@ export function DryRunWizard({
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`,
                     },
-                    body: JSON.stringify({ pipeline }),
+                    body: JSON.stringify({
+                        pipeline: pipeline,
+                        model_name: selectedModel
+                    }),
                 }
             );
 
@@ -313,6 +367,7 @@ export function DryRunWizard({
             setSessionId(data.session_id);
             setTotalSteps(data.total_steps);
             setCurrentStep(data.current_step);
+            setStepOutput(data.current_step_info || null);
 
             // Merge requirements: Backend detected + Input Schema defined
             const backendReqs = data.required_inputs || [];
@@ -321,7 +376,6 @@ export function DryRunWizard({
             const schemaReqs: RequiredInput[] = [];
             if (inputSchema && inputSchema.properties) {
                 const props = inputSchema.properties as Record<string, any>;
-                const required = (inputSchema.required as string[]) || [];
 
                 Object.entries(props).forEach(([name, def]) => {
                     // Check if already in backendReqs to avoid duplicates
@@ -340,15 +394,31 @@ export function DryRunWizard({
             if (allRequirements.length > 0) {
                 setRequiredInputs(allRequirements);
 
-                // Initialize input types from schema if available
+                // Initialize input types and values from schema/backend defaults
+                const newValues = { ...inputValues };
+                const newTypes = { ...inputTypes };
+
+                allRequirements.forEach(req => {
+                    // Pre-fill value if suggested by backend
+                    if (req.default_value && !newValues[req.name]) {
+                        // Strip quotes if LLM returned JSON string "value"
+                        let val = req.default_value;
+                        if (typeof val === 'string' && val.startsWith('"') && val.endsWith('"')) {
+                            val = val.slice(1, -1);
+                        }
+                        newValues[req.name] = val;
+                    }
+                });
+
                 if (inputSchema && inputSchema.properties) {
                     const props = inputSchema.properties as Record<string, any>;
-                    const newTypes = { ...inputTypes };
                     Object.entries(props).forEach(([name, def]) => {
                         newTypes[name] = getSchemaType(def);
                     });
-                    setInputTypes(newTypes);
                 }
+
+                setInputValues(newValues);
+                setInputTypes(newTypes);
 
                 setWizardState("input_required");
             } else {
@@ -360,7 +430,7 @@ export function DryRunWizard({
         } finally {
             setIsLoading(false);
         }
-    }, [toolId, pipeline, inputSchema]);
+    }, [toolId, pipeline, inputSchema, selectedModel]);
 
     // Reset all state when dialog opens
     useEffect(() => {
@@ -387,7 +457,85 @@ export function DryRunWizard({
             // Auto-start the session
             startSession();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, startSession]);  // Trigger when open changes
+
+    // AI Suggestion Logic
+    const suggestMappingsForInputs = useCallback(async (reqs: RequiredInput[]) => {
+        console.log("suggestMappingsForInputs called. Description present:", !!description, "Inputs needed:", reqs.length);
+        if (!description || reqs.length === 0) return;
+
+        try {
+            // Build simple context map from available paths
+            const context: Record<string, string> = {};
+            allAvailablePaths.forEach(path => {
+                context[path] = path;
+            });
+            // Also include input schema fields if available
+            if (inputSchema) {
+                const fields = flattenSchema(inputSchema, "input");
+                fields.forEach(f => {
+                    context[f.path] = f.path;
+                });
+            }
+
+            const targetSchema: Record<string, any> = {};
+            reqs.forEach(r => {
+                targetSchema[r.name] = r.description;
+            });
+
+            console.log("Suggesting mappings for:", {
+                step: `step${currentStep}`,
+                targetSchema,
+                avaliableContextKeys: Object.keys(context),
+                model: selectedModel
+            })
+
+            const response = await fetch(`${API_URL}/tools/suggest-mapping`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({
+                    description,
+                    target_step_id: `step${currentStep}`,
+                    target_input_schema: targetSchema,
+                    available_context: context,
+                    model_name: selectedModel
+                }),
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const mapping = data.mapping || {};
+
+                // Pre-fill inputs
+                if (Object.keys(mapping).length > 0) {
+                    console.log("Applying suggested mappings:", mapping)
+                    setInputValues(prev => ({
+                        ...prev,
+                        ...mapping
+                    }));
+                } else {
+                    console.log("No mappings returned from AI suggestion.")
+                }
+            } else {
+                console.error("Suggest mapping API failed:", response.status, await response.text())
+            }
+        } catch (e) {
+            console.error("Failed to suggest mappings", e);
+        }
+    }, [description, allAvailablePaths, inputSchema, currentStep, selectedModel]);
+
+    // Trigger suggestion when entering input_required state
+    useEffect(() => {
+        console.log("Effect triggered. State:", wizardState, "Required Inputs:", requiredInputs.length);
+        if (wizardState === "input_required" && requiredInputs.length > 0) {
+            console.log("Triggering auto-mapping suggestion... SKIPPED to prevent overwrite.");
+            // suggestMappingsForInputs(requiredInputs);
+        }
+    }, [wizardState, requiredInputs, suggestMappingsForInputs]);
 
     const submitInput = async () => {
         if (!sessionId) return;
@@ -483,12 +631,38 @@ export function DryRunWizard({
             if (data.mapping_suggestions?.length > 0) {
                 setMappingSuggestions(data.mapping_suggestions);
                 const autoMappings: Record<string, string> = {};
+                const autoTransforms: Record<string, string> = {};
+
                 data.mapping_suggestions.forEach((s: MappingSuggestion) => {
+                    console.log(`[DryRunWizard] Checking suggestion for ${s.target_param}:`, s);
                     if (s.confidence >= 0.7) {
                         autoMappings[s.target_param] = s.source_path;
+                        // NEW: Set type transformation automatically
+                        // If backend provides target_type, use it.
+                        // Translate backend type (integer, number, etc.) to transformation value
+                        if (s.target_type) {
+                            console.log(`[DryRunWizard] Processing target_type for ${s.target_param}:`, s.target_type);
+                            // Map schema types to transformation values
+                            const typeMap: Record<string, string> = {
+                                "string": "string",
+                                "integer": "integer",
+                                "number": "number",
+                                "boolean": "boolean",
+                                "object": "json",
+                                "json": "json",
+                                "array": "json"
+                            };
+                            const transform = typeMap[s.target_type.toLowerCase()];
+                            console.log(`[DryRunWizard] Mapped transform:`, transform);
+
+                            if (transform) {
+                                autoTransforms[s.target_param] = transform;
+                            }
+                        }
                     }
                 });
                 setAcceptedMappings(autoMappings);
+                setTypeTransformations(autoTransforms);
             } else {
                 // No suggestions for next step, clear any previous ones
                 setMappingSuggestions([]);
@@ -564,19 +738,10 @@ export function DryRunWizard({
                     await executeStep(sid);
                 }
             }
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to proceed");
-            setWizardState("failed");
         } finally {
             setIsLoading(false);
         }
     };
-
-    React.useEffect(() => {
-        if (open && wizardState === "idle") {
-            startSession();
-        }
-    }, [open, wizardState, startSession]);
 
     const handleComplete = () => {
         if (verifiedPipeline) {
@@ -698,12 +863,14 @@ export function DryRunWizard({
                                                     value={inputValues[input.name] || ""}
                                                     onChange={(e) => setInputValues((prev) => ({ ...prev, [input.name]: e.target.value }))}
                                                     className="flex-1"
+                                                    disabled={isLoading}
                                                 />
                                                 <select
                                                     value={inputTypes[input.name] || "string"}
                                                     onChange={(e) => setInputTypes((prev) => ({ ...prev, [input.name]: e.target.value }))}
                                                     className="w-28 h-9 px-2 rounded-md border border-input bg-background text-xs"
                                                     title="Input type"
+                                                    disabled={isLoading}
                                                 >
                                                     <option value="string">String</option>
                                                     <option value="number">Number</option>
@@ -719,10 +886,12 @@ export function DryRunWizard({
                             </div>
                         )}
 
-                        {wizardState === "executing" && (
+                        {((wizardState === "idle") || (wizardState === "executing")) && (
                             <div className="flex flex-col items-center justify-center py-8">
                                 <Loader2 className="h-8 w-8 animate-spin text-blue-500 mb-4" />
-                                <p className="text-muted-foreground">Executing step {currentStep + 1}...</p>
+                                <p className="text-muted-foreground">
+                                    {wizardState === "idle" ? "Initializing session..." : `Executing step ${currentStep + 1}...`}
+                                </p>
                             </div>
                         )}
 
@@ -780,9 +949,20 @@ export function DryRunWizard({
                                                         className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm"
                                                     >
                                                         <option value="">-- Don't map --</option>
-                                                        {availablePaths.map((path) => (
-                                                            <option key={path} value={path}>{path}</option>
-                                                        ))}
+
+                                                        <optgroup label="Previous Step Output">
+                                                            {availablePaths.map((path) => (
+                                                                <option key={path} value={path}>{path}</option>
+                                                            ))}
+                                                        </optgroup>
+
+                                                        {inputSchema && Object.keys(inputSchema.properties || {}).length > 0 && (
+                                                            <optgroup label="Pipeline Input">
+                                                                {Object.keys(inputSchema.properties || {}).map((key) => (
+                                                                    <option key={`input.${key}`} value={`input.${key}`}>input.{key}</option>
+                                                                ))}
+                                                            </optgroup>
+                                                        )}
                                                     </select>
                                                     {acceptedMappings[suggestion.target_param] && (
                                                         <select
@@ -815,23 +995,11 @@ export function DryRunWizard({
                                 {(() => {
                                     if (!outputSchema) return null;
 
-                                    const schema = outputSchema as Record<string, any>;
-                                    let properties = schema.properties;
-                                    let prefix = "";
-                                    let isArrayRoot = false;
+                                    const fieldsToMap = flattenSchema(outputSchema);
+                                    // Allow mapping the root if it is an array
+                                    const isArrayRoot = outputSchema.type === "array";
 
-                                    // Handle Array schema
-                                    if (schema.type === "array") {
-                                        if (schema.items && schema.items.properties) {
-                                            properties = schema.items.properties;
-                                            prefix = "items[].";
-                                        } else {
-                                            // Array of primitives or unspecified items - Allow mapping the root list source
-                                            isArrayRoot = true;
-                                        }
-                                    }
-
-                                    if (!properties && !isArrayRoot) return null;
+                                    if (fieldsToMap.length === 0 && !isArrayRoot) return null;
 
                                     return (
                                         <div className="space-y-3 mt-4 pt-4 border-t">
@@ -871,40 +1039,42 @@ export function DryRunWizard({
                                                 </div>
                                             )}
 
-                                            {/* Property Mapping */}
-                                            {properties && Object.entries(properties as Record<string, any>).map(([field, def]) => (
-                                                <div key={field} className="p-3 rounded border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 space-y-2">
+                                            {/* Recursive Property Mapping */}
+                                            {fieldsToMap.map(({ path, schema: def }) => (
+                                                <div key={path} className="p-3 rounded border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/20 space-y-2">
                                                     <Label className="text-sm font-medium">
-                                                        {prefix}{field}
+                                                        {path}
                                                         <span className="text-muted-foreground ml-1">
-                                                            ({def.description || "output"})
+                                                            ({def.description || def.type || "output"})
                                                         </span>
                                                     </Label>
                                                     <div className="flex gap-2">
                                                         <select
-                                                            value={outputMappings[field] || ""}
+                                                            value={outputMappings[path] || ""}
                                                             onChange={(e) => {
                                                                 if (e.target.value === "") {
                                                                     setOutputMappings((prev) => {
                                                                         const next = { ...prev };
-                                                                        delete next[field];
+                                                                        delete next[path];
                                                                         return next;
                                                                     });
                                                                 } else {
-                                                                    setOutputMappings((prev) => ({ ...prev, [field]: e.target.value }));
+                                                                    setOutputMappings((prev) => ({ ...prev, [path]: e.target.value }));
                                                                 }
                                                             }}
                                                             className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm"
                                                         >
                                                             <option value="">-- Don't map --</option>
-                                                            {outputSchemaDropdownPaths.map((path) => (
-                                                                <option key={path} value={path}>{path}</option>
+                                                            {outputSchemaDropdownPaths.map((optionPath) => (
+                                                                <option key={optionPath} value={optionPath}>
+                                                                    {optionPath}
+                                                                </option>
                                                             ))}
                                                         </select>
-                                                        {outputMappings[field] && (
+                                                        {outputMappings[path] && (
                                                             <select
-                                                                value={typeTransformations[`output.${field}`] || getSchemaType(def)}
-                                                                onChange={(e) => setTypeTransformations((prev) => ({ ...prev, [`output.${field}`]: e.target.value }))}
+                                                                value={typeTransformations[`output.${path}`] || getSchemaType(def)}
+                                                                onChange={(e) => setTypeTransformations((prev) => ({ ...prev, [`output.${path}`]: e.target.value }))}
                                                                 className="w-28 h-9 px-2 rounded-md border border-input bg-background text-xs"
                                                                 title={`Output schema type: ${def.type || 'auto'}`}
                                                             >
@@ -923,7 +1093,8 @@ export function DryRunWizard({
                                     );
                                 })()}
                             </div>
-                        )}
+                        )
+                        }
 
                         {wizardState === "completed" && (
                             <div className="flex flex-col items-center justify-center py-8 space-y-6">

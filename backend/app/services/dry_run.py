@@ -44,6 +44,7 @@ class MappingSuggestion:
     target_param: str  # e.g., "user_id"
     confidence: float  # 0.0 - 1.0
     match_reason: str  # Why this mapping was suggested
+    target_type: Optional[str] = None # The expected type for the target parameter
 
 
 @dataclass
@@ -65,12 +66,13 @@ class DryRunSession:
     session_id: str
     tool_id: int
     pipeline: List[Dict[str, Any]]
+    model_name: Optional[str] = None
     current_step_index: int = 0
     status: DryRunStatus = DryRunStatus.PENDING_INPUT
     context: Dict[str, Any] = field(default_factory=dict)
     captured_schemas: Dict[str, Dict] = field(default_factory=dict)
     refined_mappings: Dict[str, Dict] = field(default_factory=dict)
-    type_transformations: Dict[str, Dict[str, str]] = field(default_factory=dict)  # step_id -> {param: type}
+    type_transformations: Dict[str, str] = field(default_factory=dict)  # "step_id.param" -> type
     input_types: Dict[str, str] = field(default_factory=dict)  # input_name -> type
     error: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -116,7 +118,8 @@ class DryRunSessionManager:
     def create_session(
         self,
         tool_id: int,
-        pipeline: List[Dict[str, Any]]
+        pipeline: List[Dict[str, Any]],
+        model_name: Optional[str] = None
     ) -> DryRunSession:
         """Create a new dry-run session"""
         session_id = str(uuid.uuid4())
@@ -124,6 +127,7 @@ class DryRunSessionManager:
             session_id=session_id,
             tool_id=tool_id,
             pipeline=pipeline,
+            model_name=model_name,
             context={"input": {}}
         )
         self._sessions[session_id] = session
@@ -252,15 +256,22 @@ class SchemaDiscoveryService:
                     paths.extend(
                         SchemaDiscoveryService.extract_field_paths(value, path)
                     )
-                elif isinstance(value, list) and value and isinstance(
-                    value[0], dict
-                ):
+                elif isinstance(value, list) and value:
                     # Sample first item of array
+                    # We create a path like field[0] regardless of content type
+                    # to expose primitives inside lists (e.g. ["Paris"] -> "Paris")
                     paths.extend(
                         SchemaDiscoveryService.extract_field_paths(
                             value[0], f"{path}[0]"
                         )
                     )
+        elif isinstance(data, list) and data:
+             # Handle root-level list
+             paths.extend(
+                SchemaDiscoveryService.extract_field_paths(
+                    data[0], f"{prefix}[0]" if prefix else "[0]"
+                )
+             )
         
         return paths
     
@@ -333,8 +344,14 @@ class SchemaDiscoveryService:
                 # Update best match
                 if confidence > best_confidence:
                     best_confidence = confidence
+                    
+                    # Format path: avoid double dot if source_path starts with [
+                    final_source_path = f"{step_id}.result.{source_path}"
+                    if source_path.startswith("["):
+                        final_source_path = f"{step_id}.result{source_path}"
+                        
                     best_match = MappingSuggestion(
-                        source_path=f"{step_id}.result.{source_path}",
+                        source_path=final_source_path,
                         target_param=target_param,
                         confidence=confidence,
                         match_reason=reason
@@ -342,6 +359,14 @@ class SchemaDiscoveryService:
             
             if best_match:
                 suggestions.append(best_match)
+            else:
+                 # Add an empty suggestion to ensure the field appears in the UI
+                 suggestions.append(MappingSuggestion(
+                        source_path="",
+                        target_param=target_param,
+                        confidence=0.0,
+                        match_reason="Manual mapping available"
+                 ))
         
         return suggestions
     
@@ -489,7 +514,8 @@ class DryRunService:
     async def start_session(
         self,
         tool_id: int,
-        pipeline: List[Dict[str, Any]]
+        pipeline: List[Dict[str, Any]],
+        model_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Start a new dry-run verification session.
@@ -501,10 +527,57 @@ class DryRunService:
         Returns:
             Session info with first step requirements
         """
-        session = session_manager.create_session(tool_id, pipeline)
+        session = session_manager.create_session(tool_id, pipeline, model_name)
         
         # Analyze first step for required inputs
         required_inputs = self._get_required_inputs(session)
+        
+        # Suggest values for initial inputs based on tool description
+        if required_inputs and self.db:
+             try:
+                from app.services.tool_runtime import ToolRuntime
+                from app.services import tools as tool_service
+                
+                # Load tool for description
+                runtime = ToolRuntime(self.db, tool_id)
+                tool = runtime.load_tool()
+                
+                # Create target schema for suggestion
+                target_schema = {}
+                for req in required_inputs:
+                    target_schema[req["name"]] = {
+                        "type": req.get("type", "string"),
+                        "description": req.get("description", "")
+                    }
+                
+                # Context is the tool description/goal
+                context = {
+                    "Tool Goal": tool.description or "",
+                    "Pipeline Goal": tool.description or "" # Redundant but explicit
+                }
+                
+                print(f"[DEBUG DRYRUN] Suggesting initial values for start_session at {datetime.now()}", flush=True)
+                
+                suggestions = await tool_service.suggest_mappings(
+                    description="Infer initial test values for pipeline Inputs based on the goal",
+                    target_step_id="initial_input",
+                    target_input_schema=target_schema,
+                    available_context=context,
+                    model_name=model_name
+                )
+                
+                print(f"[DEBUG DRYRUN] Finished initial suggestion at {datetime.now()}", flush=True)
+
+                # Apply suggestions to required_inputs default values
+                for req in required_inputs:
+                    if req["name"] in suggestions:
+                         suggestion_obj = suggestions[req["name"]]
+                         suggestion_val = suggestion_obj["value"] if isinstance(suggestion_obj, dict) else suggestion_obj
+                         
+                         req["default_value"] = suggestion_val
+                         
+             except Exception as e:
+                 print(f"[DEBUG DRYRUN] Failed to suggest initial values: {e}")
         
         return {
             "session_id": session.session_id,
@@ -543,14 +616,24 @@ class DryRunService:
         if input_types:
             session.input_types.update(input_types)
         
+        print(f"[DEBUG DRYRUN] provide_input called for session {session_id}", flush=True)
+        print(f"[DEBUG DRYRUN] Input Data: {input_data}", flush=True)
+        print(f"[DEBUG DRYRUN] Input Types: {input_types}", flush=True)
+
         # Apply type transformations to input values before storing
         transformed_input = {}
         for name, value in input_data.items():
             input_type = input_types.get(name, "string") if input_types else "string"
             transformed_input[name] = transform_value(value, input_type)
         
+        print(f"[DEBUG DRYRUN] Transformed Input: {transformed_input}", flush=True)
+        
         # Store transformed input in context
+        if "input" not in session.context:
+            session.context["input"] = {}
         session.context["input"].update(transformed_input)
+        
+        print(f"[DEBUG DRYRUN] Updated Context Input: {session.context['input']}", flush=True)
         
         # Check if current step is destructive
         step = session.current_step
@@ -611,7 +694,35 @@ class DryRunService:
             executor.load_tool()
             executor.context = session.context.copy()
             
-            result = await executor.execute_step(step)
+            # Inject type transformations from session into tool configuration for this run
+            if hasattr(session, "type_transformations") and session.type_transformations:
+                print(f"[DEBUG] Injecting type transformations: {session.type_transformations}")
+                # Ensure configuration exists and is a dict
+                if not executor.tool.configuration:
+                    executor.tool.configuration = {}
+                elif hasattr(executor.tool.configuration, "copy"):
+                     executor.tool.configuration = executor.tool.configuration.copy()
+                
+                executor.tool.configuration["type_transformations"] = session.type_transformations
+            
+            # Apply refined mappings if any
+            step_to_exec = step.copy()
+            # Try index-based lookup first (new robust way)
+            mappings = session.refined_mappings.get(session.current_step_index)
+            if not mappings:
+                 # Fallback to ID-based (legacy)
+                 mappings = session.refined_mappings.get(step_id)
+            
+            if mappings:
+                print(f"[DEBUG] Applying refined mappings for step {session.current_step_index} ({step_id}): {mappings}")
+                input_mappings = mappings
+                new_args = step.get("arguments", {}).copy()
+                for target, source in input_mappings.items():
+                    # Wrap path in {{ }}
+                    new_args[target] = f"{{{{ {source} }}}}"
+                step_to_exec["arguments"] = new_args
+            
+            result = await executor.execute_step(step_to_exec)
             
             # Store result in context
             session.context[step_id] = {"result": result}
@@ -627,18 +738,118 @@ class DryRunService:
                 next_step = session.pipeline[next_step_index]
                 next_args = next_step.get("arguments", {})
                 
-                # Find which args need mapping (have {{ }} templates)
+                # Find which args need mapping request
+                # We want to expose ALL arguments for mapping consideration,
+                # not just the ones that already have templates.
                 target_params = {}
+
+                # Try to get schema for next step function
+                next_func_schema = None
+                if self.db:
+                    try:
+                        from app.services.tool_runtime import ToolRuntime
+                        # Note: pipeline steps might use different tools/servers if fully dynamic
+                        # But typically they are bound to the tool's context. 
+                        # PipelineExecutor handles this context.
+                        # For now assume same tool context or simple function lookup.
+                        runtime = ToolRuntime(self.db, session.tool_id)
+                        runtime.load_tool()
+                        next_func_ref = next_step.get("function_ref")
+                        if next_func_ref:
+                            next_func_schema = runtime.get_function_schema(next_func_ref)
+                            print(f"[DEBUG DRYRUN] Schema for {next_func_ref}: {next_func_schema}", flush=True)
+                            
+                    except Exception as e:
+                        print(f"[DEBUG] Failed to load next step schema: {e}")
+
                 for arg_name, arg_value in next_args.items():
-                    if isinstance(arg_value, str) and "{{" in arg_value:
-                        target_params[arg_name] = {"type": "string"}
+                    # Preserve existing logic but allow all fields
+                    param_type = "any" # Default to 'any' to allow LLM to infer if schema is missing
+                    param_desc = ""
+                    
+                    if next_func_schema and "properties" in next_func_schema:
+                        prop = next_func_schema["properties"].get(arg_name)
+                        if prop:
+                            param_type = prop.get("type", "any")
+                            param_desc = prop.get("description", "")
+                    
+                    target_params[arg_name] = {
+                        "type": param_type,
+                        "description": param_desc
+                    }
                 
-                if target_params and isinstance(result, dict):
-                    suggestions = self.schema_service.suggest_mappings(
-                        result, target_params, step_id
+                if target_params: 
+                    # Use LLM for intelligent mapping suggestions
+                    print(f"[DEBUG DRYRUN] Starting LLM suggestion at {datetime.now()}", flush=True)
+                    context = {}
+                    # Build context strings from available variables
+                    for k, v in session.context.items():
+                        # Flatten context variable to string representation
+                        # Check result type
+                        if isinstance(v, dict) and "result" in v:
+                             context[k] = str(v["result"])
+                        else:
+                             context[k] = str(v)
+                             
+                    # Include current step result explicitly as it's the most likely source
+                    context[step_id] = str(result)
+                    
+                    from app.services import tools as tool_service
+                    
+                    llm_mappings = await tool_service.suggest_mappings(
+                        description=f"Map output of {step_id} to inputs of next step",
+                        target_step_id=next_step.get("step_id", f"step{next_step_index}"),
+                        target_input_schema=target_params,
+                        available_context=context,
+                        model_name=session.model_name
                     )
+                    
+                    print(f"[DEBUG DRYRUN] Finished LLM suggestion at {datetime.now()}", flush=True)
+
+                    # Convert LLM dict result to MappingSuggestion objects
+                    suggestions = []
+                    for param, val_obj in llm_mappings.items():
+                        # Extract details from rich object
+                        source = val_obj["value"] if isinstance(val_obj, dict) else val_obj
+                        reason = val_obj.get("reason", "AI Suggested") if isinstance(val_obj, dict) else "AI Suggested"
+                        inferred_type = val_obj.get("type") if isinstance(val_obj, dict) else None
+                        
+                        if source:
+                            # Lookup target type from schema (authoritative)
+                            t_type = "any"
+                            if param in target_params:
+                                t_type = target_params[param].get("type", "any")
+                            
+                            # If schema is generic "string" or "any" but LLM logic inferred a specific type (e.g. integer),
+                            # prefer the specific type. This handles cases where schema is missing, loose, or defaults to "any".
+                            if (t_type == "string" or t_type == "any") and inferred_type and inferred_type.lower() not in ("string", "any"):
+                                t_type = inferred_type
+                            
+                            suggestions.append(MappingSuggestion(
+                                source_path=source.replace("{{ ", "").replace(" }}", ""), # Strip handlebars if present
+                                target_param=param,
+                                confidence=0.9, # High confidence for LLM guess
+                                match_reason=reason,
+                                target_type=t_type
+                            ))
+                     
+                    # Validation: Ensure ALL target_params are represented in suggestions
+                    # even if LLM missed them or failed. This ensures UI renders a row for them.
+                    suggested_params = {s.target_param for s in suggestions}
+                    for param, details in target_params.items():
+                        if param not in suggested_params:
+                            suggestions.append(MappingSuggestion(
+                                source_path="", # Empty default
+                                target_param=param,
+                                confidence=0.0,
+                                match_reason="Manual Input Required",
+                                target_type=details.get("type", "string")
+                            ))
+            
+            print(f"[DEBUG DRYRUN] Final Mapping Suggestions (with types): {suggestions}", flush=True)
             
             session.status = DryRunStatus.PENDING_MAPPING
+            print(f"[DEBUG DRYRUN] Returning response at {datetime.now()}", flush=True)
             
             return {
                 "success": True,
@@ -650,7 +861,8 @@ class DryRunService:
                         "source_path": s.source_path,
                         "target_param": s.target_param,
                         "confidence": s.confidence,
-                        "reason": s.match_reason
+                        "reason": s.match_reason,
+                        "target_type": s.target_type
                     }
                     for s in suggestions
                 ],
@@ -692,12 +904,26 @@ class DryRunService:
             return {"error": "Session not found or expired"}
         
         # Store refined mapping and type transformations
-        step_id = session.current_step.get(
-            "step_id", f"step{session.current_step_index}"
-        )
-        session.refined_mappings[step_id] = mapping
-        if type_transformations:
-            session.type_transformations[step_id] = type_transformations
+        # Mappings accepted here are for the NEXT step's arguments
+        next_step_index = session.current_step_index + 1
+        if next_step_index < len(session.pipeline):
+            next_step = session.pipeline[next_step_index]
+            next_step_id = next_step.get("step_id", f"step{next_step_index}")
+            
+            # Use Index for robust storage (avoid ID mismatches)
+            session.refined_mappings[next_step_index] = mapping
+            
+            if type_transformations:
+                # Prefix transformations with step_id so PipelineExecutor can find them
+                prefixed_transformations = {}
+                for k, v in type_transformations.items():
+                    prefixed_transformations[f"{next_step_id}.{k}"] = v
+                
+                # Merge into session store
+                if hasattr(session, "type_transformations"):
+                   session.type_transformations.update(prefixed_transformations)
+                else:
+                   session.type_transformations = prefixed_transformations
         
         # Move to next step
         session.current_step_index += 1
@@ -742,11 +968,8 @@ class DryRunService:
                     
                 # Also saving type transformations if any
                 if session.type_transformations:
-                    # Flatten type transformations
-                    all_transformations = {}
-                    for step_transforms in session.type_transformations.values():
-                        all_transformations.update(step_transforms)
-                    new_config["type_transformations"] = all_transformations
+                    # Transformations are already stored in flattened format (step_id.param -> type)
+                    new_config["type_transformations"] = session.type_transformations.copy()
                 
                 tool_service.update_tool(
                     self.db, 
@@ -871,6 +1094,23 @@ class DryRunService:
         required = []
         arguments = step.get("arguments", {})
         
+        # Try to get schema for accurate types/descriptions
+        function_schema = None
+        if self.db:
+            try:
+                from app.services.tool_runtime import ToolRuntime
+                runtime = ToolRuntime(self.db, session.tool_id)
+                runtime.load_tool()
+                function_ref = step.get("function_ref")
+                if function_ref:
+                    # Handle MCP format "mcp::server::tool" -> "tool" or check exact match logic
+                    # The runtime.get_function_schema expects the selected function name
+                    # In pipeline, function_ref might be "search_city" or "mcp::server::tool"
+                    # We should try to lookup by ref.
+                    function_schema = runtime.get_function_schema(function_ref)
+            except Exception as e:
+                print(f"[DEBUG] Failed to load tool schema: {e}")
+        
         for arg_name, arg_value in arguments.items():
             if isinstance(arg_value, str) and "{{ input." in arg_value:
                 # Extract variable name from {{ input.xxx }}
@@ -878,11 +1118,20 @@ class DryRunService:
                 if match:
                     input_name = match.group(1)
                     if input_name not in session.context.get("input", {}):
-                        required.append({
+                        req_info = {
                             "name": input_name,
                             "argument": arg_name,
                             "description": f"Please provide a test value for '{input_name}'"
-                        })
+                        }
+                        
+                        # Enrich with schema info if available
+                        if function_schema and "properties" in function_schema:
+                             prop_def = function_schema["properties"].get(arg_name)
+                             if prop_def:
+                                 req_info["description"] = prop_def.get("description", req_info["description"])
+                                 req_info["type"] = prop_def.get("type", "string")
+                                 
+                        required.append(req_info)
         
         return required
     
@@ -907,13 +1156,20 @@ class DryRunService:
             step_id = step.get("step_id", f"step{i}")
             
             # Apply refined mappings if any
-            if step_id in session.refined_mappings:
+            # Try index-based lookup first
+            mappings = session.refined_mappings.get(i)
+            if not mappings:
+                # Fallback to ID-based
+                mappings = session.refined_mappings.get(step_id)
+            
+            if mappings:
+                print(f"[DEBUG] Applying mappings for step {i} ({step_id}): {mappings}")
                 new_args = step.get("arguments", {}).copy()
-                for target_param, source_path in session.refined_mappings[
-                    step_id
-                ].items():
+                for target_param, source_path in mappings.items():
                     new_args[target_param] = f"{{{{ {source_path} }}}}"
                 new_step["arguments"] = new_args
+            else:
+                print(f"[DEBUG] No mappings found for step {i} ({step_id}). Available: {list(session.refined_mappings.keys())}")
             
             verified.append(new_step)
         

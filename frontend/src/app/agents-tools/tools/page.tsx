@@ -209,26 +209,14 @@ export default function ToolsPage() {
             )
         }
 
-        if (isGUITool) {
-            return (
-                <GUIToolEditor
-                    key={selectedTool?.id || "new"} // Force re-mount on tool switch
-                    tool={selectedTool}
-                    onSave={handleSaveTool}
-                    onDelete={handleDeleteTool}
-                    onDirtyChange={setIsDirty}
-                // We'd need to pass triggerSave here if we implemented the full prop drill save
-                />
-            )
-        }
-
+        // UNIFIED EDITOR: Always use the new GUIToolEditor which now supports MCP+Pipeline
         return (
-            <ToolEditor
-                key={selectedTool?.id || "new"}
+            <GUIToolEditor
+                key={selectedTool?.id || "new"} // Force re-mount on tool switch
                 tool={selectedTool}
                 onSave={handleSaveTool}
                 onDelete={handleDeleteTool}
-            // ToolEditor doesn't support dirty check yet, assuming just GUI needed it per request
+                onDirtyChange={setIsDirty}
             />
         )
     }
