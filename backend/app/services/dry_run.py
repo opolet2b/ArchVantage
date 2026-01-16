@@ -67,6 +67,7 @@ class DryRunSession:
     tool_id: int
     pipeline: List[Dict[str, Any]]
     model_name: Optional[str] = None
+    output_schema: Optional[Dict[str, Any]] = None
     current_step_index: int = 0
     status: DryRunStatus = DryRunStatus.PENDING_INPUT
     context: Dict[str, Any] = field(default_factory=dict)
@@ -119,7 +120,8 @@ class DryRunSessionManager:
         self,
         tool_id: int,
         pipeline: List[Dict[str, Any]],
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        output_schema: Optional[Dict[str, Any]] = None
     ) -> DryRunSession:
         """Create a new dry-run session"""
         session_id = str(uuid.uuid4())
@@ -128,6 +130,7 @@ class DryRunSessionManager:
             tool_id=tool_id,
             pipeline=pipeline,
             model_name=model_name,
+            output_schema=output_schema,
             context={"input": {}}
         )
         self._sessions[session_id] = session
@@ -437,6 +440,63 @@ class SchemaDiscoveryService:
         
         return None
 
+    @staticmethod
+    def flatten_schema_for_mapping(
+        schema: Any,
+        prefix: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Flatten a JSON Schema into a dictionary of target parameters for mapping.
+        
+        Args:
+            schema: The output schema (or part of it)
+            prefix: Current path prefix
+            
+        Returns:
+            Dict[str, Dict]: { "path": { "type": "...", "description": "..." } }
+        """
+        targets = {}
+        
+        if not schema:
+            return targets
+            
+        # Handle array root mapping (special case)
+        if schema.get("type") == "array" and not prefix:
+            targets["__root__"] = {
+                "type": "array",
+                "description": schema.get("description", "List of items")
+            }
+            # Also recurse if items are defined
+            if "items" in schema:
+                targets.update(
+                    SchemaDiscoveryService.flatten_schema_for_mapping(
+                        schema["items"], "" # Reset prefix for items as they map to 'item' properties
+                    )
+                )
+            return targets
+
+        if "properties" in schema:
+            for key, prop in schema["properties"].items():
+                full_path = f"{prefix}.{key}" if prefix else key
+                
+                targets[full_path] = {
+                    "type": prop.get("type", "any"),
+                    "description": prop.get("description", "")
+                }
+                
+                # Recurse for nested objects
+                if prop.get("type") == "object":
+                    targets.update(
+                        SchemaDiscoveryService.flatten_schema_for_mapping(prop, full_path)
+                    )
+                # Recurse for arrays of objects
+                elif prop.get("type") == "array" and "items" in prop and prop["items"].get("type") == "object":
+                     targets.update(
+                        SchemaDiscoveryService.flatten_schema_for_mapping(prop["items"], full_path)
+                    )
+                    
+        return targets
+
 
 def transform_value(value: Any, target_type: str) -> Any:
     """
@@ -515,7 +575,8 @@ class DryRunService:
         self,
         tool_id: int,
         pipeline: List[Dict[str, Any]],
-        model_name: Optional[str] = None
+        model_name: Optional[str] = None,
+        output_schema: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Start a new dry-run verification session.
@@ -527,7 +588,7 @@ class DryRunService:
         Returns:
             Session info with first step requirements
         """
-        session = session_manager.create_session(tool_id, pipeline, model_name)
+        session = session_manager.create_session(tool_id, pipeline, model_name, output_schema)
         
         # Analyze first step for required inputs
         required_inputs = self._get_required_inputs(session)
@@ -806,31 +867,29 @@ class DryRunService:
                     
                     print(f"[DEBUG DRYRUN] Finished LLM suggestion at {datetime.now()}", flush=True)
 
-                    # Convert LLM dict result to MappingSuggestion objects
-                    suggestions = []
-                    for param, val_obj in llm_mappings.items():
-                        # Extract details from rich object
-                        source = val_obj["value"] if isinstance(val_obj, dict) else val_obj
-                        reason = val_obj.get("reason", "AI Suggested") if isinstance(val_obj, dict) else "AI Suggested"
-                        inferred_type = val_obj.get("type") if isinstance(val_obj, dict) else None
-                        
+                    # Convert back to list format for frontend
+                    for target, mapping_info in llm_mappings.items():
+                        source = mapping_info.get("value", "")
+                        match_reason = mapping_info.get("reason", "LLM Suggested")
+                        confidence = 0.8 # Assume high confidence from LLM
+                        target_type = mapping_info.get("type", "string")
+
                         if source:
-                            # Lookup target type from schema (authoritative)
-                            t_type = "any"
-                            if param in target_params:
-                                t_type = target_params[param].get("type", "any")
-                            
-                            # If schema is generic "string" or "any" but LLM logic inferred a specific type (e.g. integer),
-                            # prefer the specific type. This handles cases where schema is missing, loose, or defaults to "any".
-                            if (t_type == "string" or t_type == "any") and inferred_type and inferred_type.lower() not in ("string", "any"):
-                                t_type = inferred_type
+                            # Strip brackets for raw path usage if needed, but UI uses them
+                            # The UI suggest_mappings expects source_path to be the raw variable name 
+                            # stored in accessible context, e.g. "step1.result.field".
+                            # The LLM returns "{{ step1.result.field }}".
+                            # We should strip the {{ }} for the 'source_path' property in MappingSuggestion
+                            clean_source = source
+                            if clean_source.startswith("{{") and clean_source.endswith("}}"):
+                                clean_source = clean_source[2:-2].strip()
                             
                             suggestions.append(MappingSuggestion(
-                                source_path=source.replace("{{ ", "").replace(" }}", ""), # Strip handlebars if present
-                                target_param=param,
-                                confidence=0.9, # High confidence for LLM guess
-                                match_reason=reason,
-                                target_type=t_type
+                                source_path=clean_source,
+                                target_param=target,
+                                confidence=confidence,
+                                match_reason=match_reason,
+                                target_type=target_type
                             ))
                      
                     # Validation: Ensure ALL target_params are represented in suggestions
@@ -846,6 +905,56 @@ class DryRunService:
                                 target_type=details.get("type", "string")
                             ))
             
+            # --- Output Schema Mapping Suggestions ---
+            output_suggestions = []
+            if session.output_schema:
+                try:
+                    # Flatten output schema to targets
+                    final_targets = self.schema_service.flatten_schema_for_mapping(session.output_schema)
+                    
+                    if final_targets:
+                        print(f"[DEBUG DRYRUN] Suggesting Output Mappings for {len(final_targets)} fields", flush=True)
+                        
+                        # Use same context (results of all steps so far)
+                        context = {}
+                        for k, v in session.context.items():
+                             if isinstance(v, dict) and "result" in v:
+                                  context[k] = str(v["result"])
+                             else:
+                                  context[k] = str(v)
+                        context[step_id] = str(result)
+
+                        from app.services import tools as tool_service
+                        
+                        llm_out_mappings = await tool_service.suggest_mappings(
+                            description="Map pipeline step outputs to the final Tool Output Schema",
+                            target_step_id="output_schema",
+                            target_input_schema=final_targets,
+                            available_context=context,
+                            model_name=session.model_name
+                        )
+                        
+                        for target, mapping_info in llm_out_mappings.items():
+                            source = mapping_info.get("value", "")
+                            match_reason = mapping_info.get("reason", "LLM Output Suggestion")
+                            confidence = 0.8
+                            target_type = mapping_info.get("type", "string")
+                            
+                            if source:
+                                clean_source = source
+                                if clean_source.startswith("{{") and clean_source.endswith("}}"):
+                                    clean_source = clean_source[2:-2].strip()
+                                
+                                output_suggestions.append(MappingSuggestion(
+                                    source_path=clean_source,
+                                    target_param=target,
+                                    confidence=confidence,
+                                    match_reason=match_reason,
+                                    target_type=target_type
+                                ))
+                except Exception as e:
+                    print(f"[DEBUG DRYRUN] Failed output schema suggestion: {e}", flush=True)
+
             print(f"[DEBUG DRYRUN] Final Mapping Suggestions (with types): {suggestions}", flush=True)
             
             session.status = DryRunStatus.PENDING_MAPPING
@@ -865,6 +974,16 @@ class DryRunService:
                         "target_type": s.target_type
                     }
                     for s in suggestions
+                ],
+                "output_mapping_suggestions": [
+                    {
+                        "source_path": s.source_path,
+                        "target_param": s.target_param,
+                        "confidence": s.confidence,
+                        "reason": s.match_reason,
+                        "target_type": s.target_type
+                    }
+                    for s in output_suggestions
                 ],
                 "has_next_step": next_step_index < len(session.pipeline)
             }

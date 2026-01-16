@@ -75,26 +75,50 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
     const [selectedModel, setSelectedModel] = useState<string>("")
     const [isLoadingModels, setIsLoadingModels] = useState(true)
 
-    // Fetch Models
+    // Fetch Models and Defaults
     useEffect(() => {
-        const fetchModels = async () => {
+        const fetchModelsAndDefaults = async () => {
             try {
-                const res = await fetch(`${API_URL}/config/presets`)
-                if (res.ok) {
-                    const data = await res.json()
-                    setModels(data.presets || [])
-                    if (data.presets?.length > 0) {
-                        setSelectedModel(data.presets[0].name)
-                    }
+                // Parallel fetch
+                const [presetsRes, defaultsRes] = await Promise.all([
+                    fetch(`${API_URL}/config/presets`),
+                    fetch(`${API_URL}/config/defaults`)
+                ])
+
+                let presetsFromApi: ModelPreset[] = []
+                let defaultLLM = ""
+
+                if (presetsRes.ok) {
+                    const data = await presetsRes.json()
+                    presetsFromApi = data.presets || []
+                    setModels(presetsFromApi)
                 }
+
+                if (defaultsRes.ok) {
+                    const data = await defaultsRes.json()
+                    defaultLLM = data.default_llm || ""
+                }
+
+                // Initial Selection Logic
+                if (tool && tool.configuration?.model) {
+                    // Case 1: Existing tool has saved model preference
+                    setSelectedModel(tool.configuration.model)
+                } else if (defaultLLM && presetsFromApi.some(p => p.name === defaultLLM)) {
+                    // Case 2: Use global default if it exists in presets
+                    setSelectedModel(defaultLLM)
+                } else if (presetsFromApi.length > 0) {
+                    // Case 3: Fallback to first available
+                    setSelectedModel(presetsFromApi[0].name)
+                }
+
             } catch (error) {
-                console.error("Failed to fetch model presets", error)
+                console.error("Failed to fetch model presets or defaults", error)
             } finally {
                 setIsLoadingModels(false)
             }
         }
-        fetchModels()
-    }, [])
+        fetchModelsAndDefaults()
+    }, [tool]) // Re-run when tool changes (loaded or reset)
 
     const getModelDisplayName = (preset: ModelPreset) => {
         if (preset.type === "local" && preset.model_name) {
@@ -173,6 +197,8 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                 setOutputMappings(tool.configuration.output_mappings)
             }
 
+            // NOTE: Model restoration is handled in the main fetchModelsAndDefaults effect 
+            // because it depends on having the model list available to validate.
         } else {
             // Reset for new tool
             setName("")
@@ -185,6 +211,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             setOutputSchema("")
             setIsToolVerified(false)
             setOutputMappings({})
+
+            // Resetting model to default is also handled in fetchModelsAndDefaults re-run
+            // or we can manually trigger a check here if needed, but the effect dependency on [tool] handles it.
         }
         setIsDirty(false)
     }, [tool])
@@ -588,7 +617,8 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                 pipeline,
                 input_schema: parsedInput,
                 output_schema: parsedOutput,
-                output_mappings: outputMappings
+                output_mappings: outputMappings,
+                model: selectedModel // Save selected model
             }
         }
         onSave(toolData)

@@ -724,7 +724,28 @@ class PipelineExecutor:
             async def run_pipeline():
                 nonlocal final_result
                 for i, step in enumerate(pipeline):
-                    step_id = step.get("step_id", f"step_{i}")
+                    # Align with DryRun naming: step{i} (no underscore) if running from array
+                    # But DryRun starts indices effectively at 0 (current_step_index)
+                    # Note: DryRun creates next_step_id = f"step{session.current_step_index + 1}"
+                    # This means step 0 is weird case.
+                    # Wait, if DryRun creates step indices 1-based for IDs?
+                    # The DryRun logic was: next_step_index = session.current_step_index + 1
+                    # If index is 0, next is 1. Next step ID is step1.
+                    # So pipeline[1] gets ID step1.
+                    # pipeline[0] gets ID... unknown?
+                    # But usually steps in pipeline have IDs if saved.
+                    
+                    # Safest bet: Use step{i} or step{i+1}?
+                    # If I use step_{i}, it definitely mismatches key "stepX".
+                    # Let's use step{i} (no underscore) as a baseline fix for now.
+                    step_id = step.get("step_id", f"step{i}")
+                    
+                    # IMPORTANT: Inject step_id back into step so execute_step can find it
+                    # This is critical for type transformation lookups which key off step_id
+                    if "step_id" not in step:
+                        step = step.copy() # Don't mutate original pipeline
+                        step["step_id"] = step_id
+
                     trace_item = {
                         "step_id": step_id,
                         "function_ref": step.get("function_ref"),

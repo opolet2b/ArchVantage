@@ -421,11 +421,12 @@ async def start_dry_run(
     
     pipeline = request.get("pipeline", [])
     model_name = request.get("model_name") # Extract selected model
+    output_schema = request.get("output_schema") # Extract output schema
     if not pipeline:
         raise HTTPException(status_code=400, detail="Pipeline is required")
     
     service = DryRunService(db)
-    result = await service.start_session(tool_id, pipeline, model_name=model_name)
+    result = await service.start_session(tool_id, pipeline, model_name=model_name, output_schema=output_schema)
     return result
 
 

@@ -353,7 +353,8 @@ export function DryRunWizard({
                     },
                     body: JSON.stringify({
                         pipeline: pipeline,
-                        model_name: selectedModel
+                        model_name: selectedModel,
+                        output_schema: outputSchema // Pass output schema for verification context
                     }),
                 }
             );
@@ -668,6 +669,50 @@ export function DryRunWizard({
                 setMappingSuggestions([]);
                 setAcceptedMappings({});
             }
+
+            // Handle Output Schema Mapping Suggestions from backend
+            if (data.output_mapping_suggestions?.length > 0) {
+                console.log("[DryRunWizard] Received Output Schema Suggestions:", data.output_mapping_suggestions);
+
+                // Update outputMappings ONLY for fields that are not yet mapped
+                // This preserves user choices if they changed something in previous steps
+                // or if they manually mapped something before.
+                // But given this is step-by-step, we might want to suggest agressively for the NEW fields found.
+
+                const newOutputMappings = { ...outputMappings };
+                const newTypeTransforms = { ...typeTransformations };
+
+                let hasChanges = false;
+                data.output_mapping_suggestions.forEach((s: MappingSuggestion) => {
+                    if (s.confidence >= 0.7 && !newOutputMappings[s.target_param]) {
+                        newOutputMappings[s.target_param] = s.source_path;
+                        hasChanges = true;
+
+                        // Also apply type transformation if available
+                        if (s.target_type) {
+                            const typeMap: Record<string, string> = {
+                                "string": "string",
+                                "integer": "integer",
+                                "number": "number",
+                                "boolean": "boolean",
+                                "json": "json",
+                                "object": "json",
+                                "array": "json"
+                            };
+                            const transform = typeMap[s.target_type.toLowerCase()];
+                            if (transform) {
+                                newTypeTransforms[`output.${s.target_param}`] = transform;
+                            }
+                        }
+                    }
+                });
+
+                if (hasChanges) {
+                    setOutputMappings(newOutputMappings);
+                    setTypeTransformations(newTypeTransforms);
+                }
+            }
+
             // Always go to mapping_review to allow output schema mapping
             setWizardState("mapping_review");
         } catch (err) {
