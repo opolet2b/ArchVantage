@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ArrowRight, Play, Wand2, CheckCircle2, AlertCircle, FileJson } from "lucide-react"
+import { ArrowRight, Play, Wand2, CheckCircle2, AlertCircle, FileJson, Lightbulb } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 
@@ -27,6 +27,7 @@ interface PipelineBuilderSectionProps {
     onVerify: () => void
     isGenerating: boolean
     isVerified: boolean
+    reasoning?: string
 }
 
 interface NodeDetail {
@@ -45,10 +46,13 @@ export function PipelineBuilderSection({
     setOutputSchema,
     onGenerate,
     onVerify,
+
     isGenerating,
-    isVerified
+    isVerified,
+    reasoning
 }: PipelineBuilderSectionProps) {
     const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null)
+    const [isReasoningOpen, setIsReasoningOpen] = useState(false)
     const [jsonContent, setJsonContent] = useState("")
     const [jsonError, setJsonError] = useState<string | null>(null)
     const [isJsonEditorOpen, setIsJsonEditorOpen] = useState(false)
@@ -109,7 +113,7 @@ export function PipelineBuilderSection({
     }
 
     return (
-        <div className="space-y-4 p-4 border rounded-lg bg-white dark:bg-slate-900 shadow-sm">
+        <div className="space-y-4 p-4 border rounded-lg bg-purple-50/50 dark:bg-purple-900/10 shadow-sm">
             <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium">3 - Implement Pipeline</h3>
                 <div className="flex gap-2">
@@ -141,6 +145,17 @@ export function PipelineBuilderSection({
                     >
                         <FileJson className="h-4 w-4" />
                     </Button>
+                    {reasoning && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setIsReasoningOpen(true)}
+                            className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400 hover:text-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+                            title="View AI Reasoning"
+                        >
+                            <Lightbulb className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -264,6 +279,25 @@ export function PipelineBuilderSection({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+
+            {/* Reasoning Dialog */}
+            <Dialog open={isReasoningOpen} onOpenChange={setIsReasoningOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Lightbulb className="h-5 w-5 text-yellow-500" />
+                            Pipeline Generation Reasoning
+                        </DialogTitle>
+                        <DialogDescription>
+                            See why the AI designed the pipeline this way.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-[60vh] overflow-y-auto">
+                        {reasoning}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+        </div >
     )
 }

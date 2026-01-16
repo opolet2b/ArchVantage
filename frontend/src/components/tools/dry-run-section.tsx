@@ -12,7 +12,7 @@ interface DryRunSectionProps {
 
 export function DryRunSection({ isVerified, onExecutePipeline, onDebugPipeline }: DryRunSectionProps) {
     return (
-        <div className="space-y-4 p-4 border rounded-lg bg-white dark:bg-slate-900 shadow-sm transition-all">
+        <div className="space-y-4 p-4 border rounded-lg bg-green-50/50 dark:bg-green-900/10 shadow-sm transition-all">
             <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium">4 - Dry-run & Execution</h3>
                 {isVerified && (

@@ -531,16 +531,16 @@ Do NOT just return {{"type": "object"}}. Be specific!
 
 OUTPUT FORMAT:
 Respond with valid JSON only containing:
-1. "pipeline" - the array of pipeline steps
+4. "reasoning" - A short explanation of the pipeline design.
 {output_2}
 {output_3}
 
-Now generate the pipeline for the user's description. Output ONLY valid JSON."""
+Now generate the pipeline for the user's description. Output ONLY valid JSON containing "reasoning", "pipeline" and schemas."""
 
     messages = [
         Message(
             role="system",
-            content="You are a pipeline generator. Output valid JSON only. No markdown, no explanations."
+            content="You are a pipeline generator. Output valid JSON only. You may include short explanations in the 'reasoning' field."
         ),
         Message(role="user", content=prompt)
     ]

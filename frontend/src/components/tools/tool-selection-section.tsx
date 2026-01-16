@@ -51,7 +51,7 @@ export function ToolSelectionSection({
     }
 
     return (
-        <div className="space-y-4 p-4 border rounded-lg bg-white dark:bg-slate-900 shadow-sm">
+        <div className="space-y-4 p-4 border rounded-lg bg-blue-50/50 dark:bg-blue-900/10 shadow-sm">
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-medium">2 - Select MCP Tools</h3>

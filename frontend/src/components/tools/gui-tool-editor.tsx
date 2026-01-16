@@ -67,6 +67,7 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
     const [isSaving, setIsSaving] = useState(false)
     const [outputMappings, setOutputMappings] = useState<Record<string, string>>({})
     const [typeTransformations, setTypeTransformations] = useState<Record<string, string>>({})
+    const [reasoning, setReasoning] = useState<string>("")
 
     // --- General State ---
     const [isDirty, setIsDirty] = useState(false)
@@ -200,6 +201,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             if (tool.configuration?.type_transformations) {
                 setTypeTransformations(tool.configuration.type_transformations)
             }
+            if (tool.configuration?.reasoning) {
+                setReasoning(tool.configuration.reasoning)
+            }
 
             // NOTE: Model restoration is handled in the main fetchModelsAndDefaults effect 
             // because it depends on having the model list available to validate.
@@ -212,11 +216,12 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             setConnectedServers([])
             setPipeline([])
             setInputSchema("")
+            setInputSchema("")
             setOutputSchema("")
-            setIsToolVerified(false)
             setIsToolVerified(false)
             setOutputMappings({})
             setTypeTransformations({})
+            setReasoning("")
 
             // Resetting model to default is also handled in fetchModelsAndDefaults re-run
             // or we can manually trigger a check here if needed, but the effect dependency on [tool] handles it.
@@ -549,6 +554,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             if (response.ok) {
                 const data = await response.json()
                 setPipeline(data.pipeline || [])
+                if (data.reasoning) {
+                    setReasoning(data.reasoning)
+                }
 
                 if (!existingInput && data.input_schema) {
                     setInputSchema(JSON.stringify(data.input_schema, null, 2))
@@ -625,6 +633,7 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                 output_schema: parsedOutput,
                 output_mappings: outputMappings,
                 type_transformations: typeTransformations,
+                reasoning: reasoning,
                 model: selectedModel // Save selected model
             }
         }
@@ -751,6 +760,7 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                     pipeline={pipeline} setPipeline={(p) => { setPipeline(p); setIsDirty(true); setIsToolVerified(false) }}
                     inputSchema={inputSchema} setInputSchema={(s) => { setInputSchema(s); setIsDirty(true) }}
                     outputSchema={outputSchema} setOutputSchema={(s) => { setOutputSchema(s); setIsDirty(true) }}
+                    reasoning={reasoning}
                     onGenerate={handleGeneratePipeline}
                     onVerify={() => {
                         if (!tool?.id) {
