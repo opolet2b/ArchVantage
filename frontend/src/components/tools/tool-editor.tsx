@@ -87,6 +87,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
     const [outputMappings, setOutputMappings] = useState<Record<string, string>>({})  // Output schema mappings from dry-run
     const [isDirty, setIsDirty] = useState(false)
     const [executionResult, setExecutionResult] = useState<any>(null)
+    const [typeTransformations, setTypeTransformations] = useState<Record<string, string>>({}) // Type transformations from dry-run
     const lastGeneratedSchema = useRef<string>("")
 
     useEffect(() => {
@@ -190,6 +191,12 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
             } else {
                 setOutputMappings({})
             }
+            // Load type transformations from configuration
+            if (tool.configuration?.type_transformations) {
+                setTypeTransformations(tool.configuration.type_transformations)
+            } else {
+                setTypeTransformations({})
+            }
             setIsSchemaManuallyEdited(false)
         } else {
             setFormData({
@@ -204,6 +211,7 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
             setInputSchema("")
             lastGeneratedSchema.current = ""
             setIsSchemaManuallyEdited(false)
+            setTypeTransformations({})
         }
         setIsDirty(false)
     }, [tool])
@@ -422,10 +430,34 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
             configuration.output_mappings = outputMappings
         }
 
-        const dataToSave = {
-            ...formData,
-            configuration
+        // Include type transformations from dry-run verification
+        if (Object.keys(typeTransformations).length > 0) {
+            configuration.type_transformations = typeTransformations
         }
+
+        // SMART SAVE LOGIC:
+        // Deep compare the new configuration with the existing tool.configuration.
+        // If they are identical, OMIT the configuration property from the payload.
+        // This ensures we don't overwrite the backend state (which might have been just updated by Dry Run)
+        // with the same data, or partial data.
+
+        // Use JSON.stringify for simple deep comparison (canonicalization isn't perfect but sufficient for strict equivalence)
+        const currentConfigString = JSON.stringify(tool?.configuration || {})
+        const newConfigString = JSON.stringify(configuration)
+
+        const dataToSave: any = {
+            ...formData
+        };
+
+        if (currentConfigString === newConfigString) {
+            console.log("[Smart Save] Configuration is identical to DB. Skipping overwrite.")
+            // Don't include configuration in the payload
+        } else {
+            console.log("[Smart Save] Configuration changed. Overwriting DB.")
+            // Include configuration
+            dataToSave.configuration = configuration
+        }
+
         onSave(dataToSave)
     }
 
@@ -1410,11 +1442,12 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                     <DryRunWizard
                         toolId={tool.id}
                         pipeline={pipeline}
+                        description={formData.description || ""}
                         inputSchema={inputSchema ? JSON.parse(inputSchema) : undefined}
                         outputSchema={outputSchema ? JSON.parse(outputSchema) : undefined}
                         open={showDryRunWizard}
                         onCancel={() => setShowDryRunWizard(false)}
-                        onComplete={(verifiedPipeline, capturedSchemas, newOutputMappings) => {
+                        onComplete={(verifiedPipeline, capturedSchemas, newOutputMappings, newTypeTransformations) => {
                             // Update pipeline with refined mappings
                             setPipeline(verifiedPipeline);
                             setIsToolVerified(true);
@@ -1426,6 +1459,13 @@ export function ToolEditor({ tool, onSave, onDelete }: ToolEditorProps) {
                                 // Save mappings to state - they will be included in configuration on save
                                 setOutputMappings(newOutputMappings);
                             }
+
+                            // Store type transformations in tool configuration
+                            if (Object.keys(newTypeTransformations).length > 0) {
+                                console.log("Type transformations:", newTypeTransformations);
+                                setTypeTransformations(newTypeTransformations);
+                            }
+
                             setIsDirty(true);
                         }}
                     />

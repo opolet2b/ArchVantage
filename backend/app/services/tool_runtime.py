@@ -638,6 +638,22 @@ class PipelineExecutor:
         # Resolve variables in arguments
         resolved_args = self.resolve_variables(arguments)
         
+        # Apply Type Transformations if configured (Crucial for fixing string-to-number mismatches)
+        if self.tool and self.tool.configuration:
+            type_transformations = self.tool.configuration.get("type_transformations", {})
+            if type_transformations:
+                # print(f"[DEBUG] Applying type transformations for {step_id}: {type_transformations}")
+                for arg_name, arg_value in resolved_args.items():
+                    # Check for specific step transformation: "step1.latitude"
+                    target_type = type_transformations.get(f"{step_id}.{arg_name}")
+                    
+                    if target_type:
+                        try:
+                            resolved_args[arg_name] = transform_value(arg_value, target_type)
+                            # print(f"[DEBUG] Transformed '{arg_name}': {arg_value} -> {resolved_args[arg_name]} ({target_type})")
+                        except Exception as e:
+                            print(f"[WARN] Failed to transform '{arg_name}': {e}")
+        
         # Apply Type Transformations if configured
         # This fixes issues where variables are resolved as strings but tool expects numbers
         if self.tool and self.tool.configuration:
@@ -924,6 +940,17 @@ class PipelineExecutor:
                 val = self._resolve_source_reference(source_ref)
                 
                 if val is not None:
+                    # Apply type type transformations for output fields
+                    transform_key = f"output.{target_path}"
+                    if self.tool and self.tool.configuration:
+                         type_transformations = self.tool.configuration.get("type_transformations", {})
+                         if transform_key in type_transformations:
+                             try:
+                                 target_type = type_transformations[transform_key]
+                                 val = transform_value(val, target_type)
+                             except Exception:
+                                 pass # Keep original value on failure
+
                     _set_nested_value(conformant_output, target_path, val)
         
         # Phase 2: Heuristic Filling (Top-Level Properties only, to preserve backward compatibility)

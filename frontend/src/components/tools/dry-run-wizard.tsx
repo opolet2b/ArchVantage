@@ -79,7 +79,8 @@ interface DryRunWizardProps {
     onComplete: (
         verifiedPipeline: PipelineStep[],
         schemas: Record<string, unknown>,
-        outputMappings: Record<string, string>
+        outputMappings: Record<string, string>,
+        typeTransformations: Record<string, string>
     ) => void;
     onCancel: () => void;
     open: boolean;
@@ -790,7 +791,7 @@ export function DryRunWizard({
 
     const handleComplete = () => {
         if (verifiedPipeline) {
-            onComplete(verifiedPipeline, capturedSchemas, outputMappings);
+            onComplete(verifiedPipeline, capturedSchemas, outputMappings, typeTransformations);
         }
     };
 
@@ -1116,21 +1117,6 @@ export function DryRunWizard({
                                                                 </option>
                                                             ))}
                                                         </select>
-                                                        {outputMappings[path] && (
-                                                            <select
-                                                                value={typeTransformations[`output.${path}`] || getSchemaType(def)}
-                                                                onChange={(e) => setTypeTransformations((prev) => ({ ...prev, [`output.${path}`]: e.target.value }))}
-                                                                className="w-28 h-9 px-2 rounded-md border border-input bg-background text-xs"
-                                                                title={`Output schema type: ${def.type || 'auto'}`}
-                                                            >
-                                                                <option value="auto">Auto</option>
-                                                                <option value="string">→ String</option>
-                                                                <option value="number">→ Number</option>
-                                                                <option value="integer">→ Integer</option>
-                                                                <option value="boolean">→ Boolean</option>
-                                                                <option value="json">→ JSON</option>
-                                                            </select>
-                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
@@ -1141,36 +1127,41 @@ export function DryRunWizard({
                         )
                         }
 
-                        {wizardState === "completed" && (
-                            <div className="flex flex-col items-center justify-center py-8 space-y-6">
-                                <div className="flex flex-col items-center justify-center">
-                                    <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
-                                    <h4 className="text-lg font-medium mb-2">Pipeline Verified Successfully!</h4>
-                                    <p className="text-muted-foreground text-center">All {totalSteps} steps verified.</p>
-                                </div>
 
-                                {!!finalOutput && (
-                                    <div className="w-full border rounded-lg p-4 bg-slate-50 dark:bg-slate-900/50">
-                                        <h5 className="text-sm font-medium mb-2 flex items-center gap-2">
-                                            <Zap className="h-4 w-4 text-purple-500" />
-                                            Pipeline Final Output
-                                        </h5>
-                                        <div className="overflow-auto max-h-96 w-full rounded border bg-background">
-                                            {renderOutput(finalOutput)}
-                                        </div>
+                        {
+                            wizardState === "completed" && (
+                                <div className="flex flex-col items-center justify-center py-8 space-y-6">
+                                    <div className="flex flex-col items-center justify-center">
+                                        <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
+                                        <h4 className="text-lg font-medium mb-2">Pipeline Verified Successfully!</h4>
+                                        <p className="text-muted-foreground text-center">All {totalSteps} steps verified.</p>
                                     </div>
-                                )}
-                            </div>
-                        )}
 
-                        {wizardState === "failed" && (
-                            <div className="flex flex-col items-center justify-center py-8">
-                                <XCircle className="h-12 w-12 text-red-500 mb-4" />
-                                <h4 className="text-lg font-medium mb-2">Verification Failed</h4>
-                                <p className="text-red-600 dark:text-red-400 text-center">{error}</p>
-                            </div>
-                        )}
-                    </div>
+                                    {!!finalOutput && (
+                                        <div className="w-full border rounded-lg p-4 bg-slate-50 dark:bg-slate-900/50">
+                                            <h5 className="text-sm font-medium mb-2 flex items-center gap-2">
+                                                <Zap className="h-4 w-4 text-purple-500" />
+                                                Pipeline Final Output
+                                            </h5>
+                                            <div className="overflow-auto max-h-96 w-full rounded border bg-background">
+                                                {renderOutput(finalOutput)}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        }
+
+                        {
+                            wizardState === "failed" && (
+                                <div className="flex flex-col items-center justify-center py-8">
+                                    <XCircle className="h-12 w-12 text-red-500 mb-4" />
+                                    <h4 className="text-lg font-medium mb-2">Verification Failed</h4>
+                                    <p className="text-red-600 dark:text-red-400 text-center">{error}</p>
+                                </div>
+                            )
+                        }
+                    </div >
 
                     {error && wizardState !== "failed" && (
                         <div className="text-sm text-red-600 dark:text-red-400 mt-2">{error}</div>
@@ -1204,8 +1195,8 @@ export function DryRunWizard({
                             <Button onClick={startSession}>Retry</Button>
                         )}
                     </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                </DialogContent >
+            </Dialog >
 
             <AlertDialog open={wizardState === "safety_warning"} onOpenChange={() => setWizardState("input_required")}>
                 <AlertDialogContent>

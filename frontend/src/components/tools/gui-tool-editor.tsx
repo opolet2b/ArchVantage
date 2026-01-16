@@ -66,6 +66,7 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
     const [isSuggesting, setIsSuggesting] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
     const [outputMappings, setOutputMappings] = useState<Record<string, string>>({})
+    const [typeTransformations, setTypeTransformations] = useState<Record<string, string>>({})
 
     // --- General State ---
     const [isDirty, setIsDirty] = useState(false)
@@ -196,6 +197,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             if (tool.configuration?.output_mappings) {
                 setOutputMappings(tool.configuration.output_mappings)
             }
+            if (tool.configuration?.type_transformations) {
+                setTypeTransformations(tool.configuration.type_transformations)
+            }
 
             // NOTE: Model restoration is handled in the main fetchModelsAndDefaults effect 
             // because it depends on having the model list available to validate.
@@ -210,7 +214,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
             setInputSchema("")
             setOutputSchema("")
             setIsToolVerified(false)
+            setIsToolVerified(false)
             setOutputMappings({})
+            setTypeTransformations({})
 
             // Resetting model to default is also handled in fetchModelsAndDefaults re-run
             // or we can manually trigger a check here if needed, but the effect dependency on [tool] handles it.
@@ -618,9 +624,30 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                 input_schema: parsedInput,
                 output_schema: parsedOutput,
                 output_mappings: outputMappings,
+                type_transformations: typeTransformations,
                 model: selectedModel // Save selected model
             }
         }
+
+        // SMART SAVE LOGIC:
+        // Deep compare the new configuration with the existing tool.configuration.
+        // If they are identical, OMIT the configuration property from the payload.
+        // This ensures we don't overwrite the backend state (which might have been just updated by Dry Run)
+        // with the same data, or partial data.
+
+        // Use JSON.stringify for simple deep comparison (canonicalization isn't perfect but sufficient for strict equivalence)
+        const currentConfigString = JSON.stringify(tool?.configuration || {})
+        // Ensure new config matches structure (handling undefined vs missing if needed via stringify behavior)
+        const newConfigString = JSON.stringify(toolData.configuration)
+
+        if (currentConfigString === newConfigString) {
+            console.log("[Smart Save] Configuration is identical to DB. Skipping overwrite.")
+            // Don't include configuration in the payload
+            delete toolData.configuration
+        } else {
+            console.log("[Smart Save] Configuration changed. Overwriting DB.")
+        }
+
         onSave(toolData)
     }
 
@@ -628,10 +655,12 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
     const handleDryRunComplete = (
         verifiedPipeline: any[],
         capturedSchemas: any,
-        mappings: Record<string, string>
+        mappings: Record<string, string>,
+        transformations: Record<string, string>
     ) => {
         setPipeline(verifiedPipeline)
         setOutputMappings(mappings)
+        setTypeTransformations(transformations)
         setIsToolVerified(true)
         setShowDryRunWizard(false)
         setIsDirty(true)

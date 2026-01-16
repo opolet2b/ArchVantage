@@ -9,6 +9,7 @@ User Confirmation: Required for mappings and destructive operations
 """
 import uuid
 import re
+import json
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
