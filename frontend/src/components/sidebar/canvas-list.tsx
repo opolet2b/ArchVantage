@@ -12,7 +12,8 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 
 import { useRouter, usePathname } from "next/navigation";
-import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw, Sparkles, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown } from "lucide-react";
+import { Map, MoreVertical, Trash2, Edit2, Plus, Lock, CheckSquare, X, ListChecks, Archive, Upload, Download, RotateCcw, Sparkles, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, Atom } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +56,43 @@ interface CanvasSummary {
 // Canvas List Component
 // =============================================================================
 
+// Custom Gyroscope Icon to match user preference
+const GyroscopeIcon = ({ className }: { className?: string }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+    >
+        {/* Outer Circle */}
+        <circle cx="12" cy="12" r="8" />
+
+        {/* Cardinal Dots/Connectors */}
+        <path d="M12 4V2" />
+        <circle cx="12" cy="1" r="1" fill="currentColor" stroke="none" />
+
+        <path d="M12 20V22" />
+        <circle cx="12" cy="23" r="1" fill="currentColor" stroke="none" />
+
+        <path d="M20 12H22" />
+        <circle cx="23" cy="12" r="1" fill="currentColor" stroke="none" />
+
+        <path d="M4 12H2" />
+        <circle cx="1" cy="12" r="1" fill="currentColor" stroke="none" />
+
+        {/* Inner Atom/Gyroscope Rings */}
+        <ellipse cx="12" cy="12" rx="6" ry="2" transform="rotate(45 12 12)" />
+        <ellipse cx="12" cy="12" rx="6" ry="2" transform="rotate(-45 12 12)" />
+
+        {/* Center Nucleus */}
+        <circle cx="12" cy="12" r="1.5" />
+    </svg>
+);
+
 export function CanvasList() {
     const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
     const [canvases, setCanvases] = useState<CanvasSummary[]>([]);
@@ -69,6 +107,7 @@ export function CanvasList() {
     const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
     const inputRef = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const { toast } = useToast();
     const router = useRouter();
     const pathname = usePathname();
 
@@ -114,13 +153,27 @@ export function CanvasList() {
             if (res.ok) {
                 const data = await res.json();
                 setCanvases(data);
-                // Set first canvas as active if none selected
-                if (data.length > 0 && !activeCanvasId) {
-                    setActiveCanvasId(data[0].id);
-                    // Dispatch event so CanvasView loads this canvas
-                    window.dispatchEvent(
-                        new CustomEvent("canvas-select", { detail: { canvasId: data[0].id } })
-                    );
+
+                // Determine if we should auto-select
+                // Check if URL already has a canvas ID
+                let targetId = activeCanvasId;
+                if (!targetId && pathname?.startsWith("/canvas/")) {
+                    const parts = pathname.split("/");
+                    if (parts.length >= 3) targetId = parts[2];
+                }
+
+                if (targetId) {
+                    setActiveCanvasId(targetId);
+                } else if (data.length > 0) {
+                    // Only auto-select first if we are in a mode that needs it (e.g. root) and no ID present
+                    // If we are on home page '/' and viewMode is canvas, maybe?
+                    // But for now, safer to only default if NOT on a specific canvas page.
+                    if (!pathname?.startsWith("/canvas/")) {
+                        setActiveCanvasId(data[0].id);
+                        window.dispatchEvent(
+                            new CustomEvent("canvas-select", { detail: { canvasId: data[0].id } })
+                        );
+                    }
                 }
             }
         } catch (err) {
@@ -563,11 +616,20 @@ export function CanvasList() {
                     <div className="text-xs font-semibold text-muted-foreground">
                         Canvases
                     </div>
-                    <div className="flex gap-1 items-center">
+                    <div className="flex items-center gap-1">
                         <Button
                             variant="ghost"
                             size="icon"
-                            className={cn("h-6 w-6", viewMode === 'archived' && "bg-accent text-accent-foreground")}
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground cursor-pointer"
+                            onClick={() => router.push("/spaces")}
+                            title="Analysis Spaces"
+                        >
+                            <GyroscopeIcon className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn("h-6 w-6 cursor-pointer", viewMode === 'archived' && "bg-accent text-accent-foreground")}
                             onClick={() => setViewMode(viewMode === 'active' ? 'archived' : 'active')}
                             title={viewMode === 'active' ? "Show Archived" : "Show Active"}
                         >
@@ -578,7 +640,7 @@ export function CanvasList() {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-5 w-5"
+                                    className="h-5 w-5 cursor-pointer"
                                     onClick={handleImportClick}
                                     title="Import Canvas"
                                 >
@@ -587,7 +649,7 @@ export function CanvasList() {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-5 w-5"
+                                    className="h-5 w-5 cursor-pointer"
                                     onClick={toggleSelectionMode}
                                     title="Select canvases"
                                 >
@@ -596,7 +658,7 @@ export function CanvasList() {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-5 w-5"
+                                    className="h-5 w-5 cursor-pointer"
                                     onClick={handleNewCanvas}
                                     title="New Canvas"
                                 >

@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@deck.gl/react": "^9.2.6",
+    "@luma.gl/engine": "^9.2.6",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.11",
@@ -29,7 +31,9 @@
     "@xyflow/react": "^12.9.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "deck.gl": "^9.2.6",
     "dom-to-image-more": "^3.7.2",
+    "html-to-image": "^1.11.13",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.554.0",
     "next": "16.0.3",

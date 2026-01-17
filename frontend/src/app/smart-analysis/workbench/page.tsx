@@ -20,9 +20,9 @@ import { useToast } from "@/components/ui/use-toast";
 // Fixed Pipeline Steps Definition
 const FIXED_STEPS: PipelineStep[] = [
     { id: "step_extractor", moduleId: "mod_extractor", type: "extractor", name: "Data Extractor", config: {}, description: "Extract specific sections or data points." },
-    { id: "step_agent", moduleId: "mod_agent", type: "agent", name: "AI Agent", config: {}, description: "Analyze content using a Persona and Framework." },
+    { id: "step_agent", moduleId: "mod_agent", type: "agent", name: "Analyzer", config: {}, description: "Analyze content using a Persona and Framework." },
     { id: "step_visualizer", moduleId: "mod_visualizer", type: "visualizer", name: "Visualizer", config: {}, description: "Generate structural visualizations (Graphs, Tables)." },
-    { id: "step_formatter", moduleId: "mod_formatter", type: "formatter", name: "Output Fmt", config: {}, description: "Format the analysis results (JSON, Markdown)." },
+    { id: "step_formatter", moduleId: "mod_formatter", type: "formatter", name: "Formater", config: {}, description: "Format the analysis results (JSON, Markdown)." },
 ];
 
 export default function StudioPage() {

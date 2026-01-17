@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench, HelpCircle, FileText, Map, Brain } from "lucide-react"
+import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench, HelpCircle, FileText, Map, Brain, Layers } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ConversationList } from "@/components/sidebar/conversation-list"
@@ -15,6 +15,7 @@ const navItems = [
     { href: "/workflow", icon: GitGraph, label: "Workflows" },
     { href: "/agents-tools", icon: Bot, label: "Agents and Tools" },
     { href: "/smart-analysis", icon: Brain, label: "Smart Analysis" },
+
     { href: "/templates", icon: FileText, label: "Templates" },
 
     { href: "/search", icon: Search, label: "Research" },

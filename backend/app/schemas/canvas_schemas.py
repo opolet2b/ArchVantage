@@ -90,6 +90,7 @@ class CanvasResponse(BaseModel):
     allowed_role_ids: List[int] = [] # Computed field, needs resolver
     owner_config: Optional[Dict[str, Any]] = None
     position: int = 0
+    analysis_space_id: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime]
 

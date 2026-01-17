@@ -62,6 +62,7 @@ export function StudioCanvas({ steps, selectedStepId, onSelectStep, onToggleStep
                                     <Switch
                                         checked={step.enabled !== false}
                                         onCheckedChange={(checked) => onToggleStep(step.id, checked)}
+                                        className="data-[state=checked]:bg-blue-600"
                                     />
                                 </div>
                             </div>

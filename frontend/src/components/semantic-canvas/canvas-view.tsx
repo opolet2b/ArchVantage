@@ -25,8 +25,10 @@ import {
     useReactFlow,
     EdgeTypes,
     MarkerType,
+    useNodesInitialized,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import domToImage from "dom-to-image-more";
 
 import { ThingNode } from "./nodes/thing-node";
 import { DomainNode } from "./nodes/domain-node";
@@ -45,7 +47,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw } from "lucide-react";
+import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
 import { SelectionProvider } from "./viewers/selection-context";
 import { useToast } from "@/components/ui/use-toast";
@@ -87,6 +89,7 @@ const edgeTypesMemo: EdgeTypes = {
 
 function CanvasViewInner() {
     const { fitView, getViewport, setViewport, screenToFlowPosition } = useReactFlow();
+    const nodesInitialized = useNodesInitialized();
     const { toast } = useToast();
 
     // Canvas store state
@@ -159,6 +162,8 @@ function CanvasViewInner() {
     }
     const [models, setModels] = React.useState<ModelPreset[]>([]);
     const [isLoadingModels, setIsLoadingModels] = React.useState(true);
+
+
 
     // Fetch available models and defaults on mount (only once)
     React.useEffect(() => {
@@ -481,6 +486,36 @@ function CanvasViewInner() {
     // React Flow state - initialized with current nodes
     const [nodes, setNodes, onNodesChange] = useNodesState(allNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(allEdges);
+
+    // Handle navigation to specific node via URL param
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        // Wait for React Flow to measure nodes (dimensions > 0)
+        if (!nodesInitialized) return;
+
+        const params = new URLSearchParams(window.location.search);
+        const targetNodeId = params.get('node');
+
+        if (targetNodeId && nodes.length > 0) {
+            const targetNode = nodes.find(n => n.id === targetNodeId);
+            if (targetNode) {
+                console.log(`[CanvasView] Focusing on requested node: ${targetNodeId}`);
+                selectThing(targetNodeId);
+
+                fitView({
+                    nodes: [{ id: targetNodeId }],
+                    duration: 1000,
+                    padding: 0.2,
+                    maxZoom: 2,
+                });
+
+                // Remove the param so we don't re-focus on updates or refresh
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, '', newUrl + `?focused=${targetNodeId}`);
+            }
+        }
+    }, [nodes, selectThing, fitView, nodesInitialized]);
 
     // Debounce timer for resize persistence
     const resizeTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
@@ -1771,6 +1806,50 @@ function CanvasViewInner() {
         if (e.target) e.target.value = "";
     };
 
+    const handleCaptureThumbnail = async () => {
+        const node = document.querySelector(".react-flow__viewport") as HTMLElement;
+        if (!node) return;
+
+        // Use a toast to indicate processing
+        toast({ title: "Capturing Preview", description: "Generating canvas thumbnail..." });
+
+        try {
+            const dataUrl = await domToImage.toPng(node, {
+                bgcolor: '#f8fafc', // match bg-slate-50
+                quality: 0.8,
+                // We capture the viewport transform div, so it respects current zoom/pan
+                // But typically users want a "clean" shot.
+                // If we grab .react-flow__viewport, we get the huge canvas layer.
+                // If we grab .react-flow (container), we get what's on screen (cropped).
+                // Let's grab the container for a true "thumbnail" of the current view.
+            });
+
+            // Actually, let's grab the container to avoid massive image generation of the infinite canvas
+            const containerNode = document.querySelector(".react-flow") as HTMLElement;
+            if (!containerNode) return;
+
+            const dataUrlContainer = await domToImage.toPng(containerNode, {
+                bgcolor: '#f8fafc',
+                quality: 0.8,
+                width: 800, // Force a reasonable thumbnail size? No, dom-to-image uses node size. 
+                // We can scale it down if needed, but let's just store the screenshot.
+                // Ideally we resize this before sending to server to save bandwidth/storage.
+            });
+
+            // Update settings (merge with existing)
+            const currentSettings = useCanvasStore.getState().canvasSettings || {};
+            await useCanvasStore.getState().updateCanvasSettings({
+                ...currentSettings,
+                thumbnail: dataUrlContainer
+            });
+
+            toast({ title: "Thumbnail Updated", description: "Canvas preview saved." });
+        } catch (error) {
+            console.error("Thumbnail capture failed:", error);
+            toast({ title: "Capture Failed", description: "Could not generate thumbnail.", variant: "destructive" });
+        }
+    };
+
     return (
         <div className="h-full w-full flex flex-col relative">
             {/* Canvas Header with Model Selector */}
@@ -1845,6 +1924,19 @@ function CanvasViewInner() {
                             </Select>
                         )}
                     </div>
+                </div>
+
+                <div className="flex items-center gap-2 border-l pl-4 ml-4">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-slate-500 hover:text-blue-600"
+                        onClick={handleCaptureThumbnail}
+                        title="Update Thumbnail"
+                    >
+                        <Camera className="h-4 w-4 mr-2" />
+                        Capture
+                    </Button>
                 </div>
 
                 {/* Sync All Button */}
@@ -2234,23 +2326,10 @@ export function CanvasView({ canvasId: propCanvasId }: CanvasViewProps) {
                 return;
             }
 
-            // Fetch user's canvases to see if any exist
-            const token = localStorage.getItem("token");
-            try {
-                const res = await fetch(`${API_URL}/canvases`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-
-                if (res.ok) {
-                    const canvases = await res.json();
-                    if (canvases.length > 0) {
-                        // Load the first existing canvas
-                        await loadCanvas(canvases[0].id);
-                    }
-                }
-            } catch (err) {
-                console.error("[CanvasView] Failed to fetch canvases:", err);
-            }
+            // Fetch logic removed to prevent race condition with deep linking.
+            // CanvasList (Sidebar) handles default selection on Home Page.
+            // CanvasPage handles selection on Deep Link.
+            if (mounted) setIsInitialized(true);
 
             if (mounted) setIsInitialized(true);
         };

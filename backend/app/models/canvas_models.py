@@ -154,6 +154,14 @@ class Canvas(Base):
         backref="canvases"
     )
 
+    # Analysis Space
+    analysis_space_id = Column(
+        String(36),
+        ForeignKey("analysis_spaces.id"),
+        nullable=True
+    )
+    analysis_space = relationship("AnalysisSpace", back_populates="canvases")
+
     @property
     def allowed_user_ids(self):
         return [u.id for u in self.allowed_users]
@@ -161,6 +169,35 @@ class Canvas(Base):
     @property
     def allowed_role_ids(self):
         return [r.id for r in self.allowed_roles]
+
+
+class AnalysisSpace(Base):
+    """
+    An Analysis Space is a container for multiple canvases.
+    It allows for grouping related analyses and visualizing them in 3D.
+    """
+    __tablename__ = "analysis_spaces"
+
+    id = Column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid
+    )
+    owner_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False
+    )
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, onupdate=datetime.utcnow)
+    
+    # Relationships
+    canvases = relationship("Canvas", back_populates="analysis_space", order_by="Canvas.position")
+    owner = relationship("User", backref="analysis_spaces")
 
 
 

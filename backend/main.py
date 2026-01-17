@@ -4,7 +4,7 @@ from app.routers import (
     chat, workflow, rag, search, research, config, conversation, 
     agents, auth, users, roles, oauth, tools, mcp_servers,
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
-    smart_template
+    smart_template, spaces
 )
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
@@ -81,6 +81,7 @@ app.include_router(assets.router, prefix="/api/v1/assets", tags=["assets"])
 app.include_router(prompts.router, prefix="/api/v1", tags=["prompts"])
 app.include_router(debug.router, prefix="/api/v1", tags=["debug"])
 app.include_router(smart_template.router, prefix="/api/v1", tags=["smart-templates"])
+app.include_router(spaces.router, prefix="/api/v1", tags=["spaces"])
 
 @app.get("/")
 def read_root():

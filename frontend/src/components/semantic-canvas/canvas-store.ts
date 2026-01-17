@@ -280,6 +280,10 @@ interface CanvasState {
     checkSyncStatus: (thingId: string) => Promise<{ status: "synced" | "changed" | "missing_source" | "no_path" | "error"; current_hash?: string; reason?: string }>;
     performSyncUpdate: (thingId: string, file?: File | null, useSourcePath?: boolean) => Promise<boolean | string>;
     syncAllThings: () => Promise<any[]>;
+
+    // External / Cross-Canvas Linking
+    addExternalLink: (sourceId: string, targetCanvasId: string, targetNodeId: string, targetTitle: string, targetCanvasName: string, type?: LinkType | string, label?: string) => Promise<void>;
+    removeExternalLink: (sourceId: string, targetNodeId: string) => Promise<void>;
 }
 
 /**
@@ -822,6 +826,49 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             console.error("[addDomain] Failed:", err);
             return null;
         }
+    },
+
+    // External Link Implementation
+    addExternalLink: async (sourceId, targetCanvasId, targetNodeId, targetTitle, targetCanvasName, type = "related", label = "") => {
+        const { things, updateThing } = get();
+        const sourceThing = things.find(t => t.id === sourceId);
+        if (!sourceThing) return;
+
+        const currentLinks = (sourceThing.content.external_links as any[]) || [];
+        // Avoid duplicates (checking targetNodeId)
+        if (currentLinks.some((l: any) => l.targetNodeId === targetNodeId)) return;
+
+        const newLink = {
+            targetCanvasId,
+            targetNodeId,
+            targetTitle,
+            targetCanvasName,
+            type,
+            label,
+            createdAt: new Date().toISOString()
+        };
+
+        const updatedLinks = [...currentLinks, newLink];
+
+        // Persist via updateThing (which handles optimistic update)
+        await updateThing(sourceId, {
+            content: {
+                ...sourceThing.content, external_links: updatedLinks
+            }
+        });
+    },
+
+    removeExternalLink: async (sourceId, targetNodeId) => {
+        const { things, updateThing } = get();
+        const sourceThing = things.find(t => t.id === sourceId);
+        if (!sourceThing) return;
+
+        const currentLinks = (sourceThing.content.external_links as any[]) || [];
+        const updatedLinks = currentLinks.filter((l: any) => l.targetNodeId !== targetNodeId);
+
+        await updateThing(sourceId, {
+            content: { ...sourceThing.content, external_links: updatedLinks }
+        });
     },
 
     // Update domain (persist to backend)

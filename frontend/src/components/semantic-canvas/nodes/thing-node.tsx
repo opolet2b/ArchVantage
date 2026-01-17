@@ -80,6 +80,15 @@ import { createPortal } from "react-dom";
 import { LinkTypeDialog } from "../link-type-dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { ExportDialog } from "../export-dialog";
+import { CrossCanvasLinkDialog } from "../cross-canvas-link-dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // ... (Existing icons/themes code unchanged) ...
 
@@ -484,6 +493,26 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     const links = useCanvasStore((state) => state.links);
     const { analyze, isLoading } = useAnalyze();
     const { setSelection } = useSelection();
+    const removeExternalLink = useCanvasStore(state => state.removeExternalLink);
+
+    // External Link State
+    const [crossCanvasLinkDialogOpen, setCrossCanvasLinkDialogOpen] = React.useState(false);
+
+    const externalLinks = (currentThing.content?.external_links as any[]) || [];
+    const hasExternalLinks = externalLinks.length > 0;
+
+    const handleOpenExternalCanvas = (canvasId: string, nodeId: string) => {
+        // We need to navigate to the canvas.
+        // Assuming we have a router or can switch canvas via store (but switching store only changes view, url might need update)
+        // For now, simpler approach: Redirect to URL
+        // Or finding if we have a proper client-side router hook?
+        // Using window.location for safety or router.push if available.
+        // Given 'use client' and typical Next.js:
+        // import { useRouter } from 'next/navigation'; -> not imported yet.
+        // I will use window.location.href = `/canvas/${canvasId}?node=${nodeId}` pattern if that's how it works?
+        // Actually, sidebar just expects navigation.
+        window.location.href = `/canvas/${canvasId}?node=${nodeId}`;
+    };
 
 
 
@@ -1108,10 +1137,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {
         setPendingFragment(fragment);
-        // Lazy load things
-        const allThings = useCanvasStore.getState().things;
-        setAvailableTargets(allThings.filter(t => t.id !== thing.id));
-        setLinkDialogOpen(true);
+        setCrossCanvasLinkDialogOpen(true);
     }, [thing.id]);
 
     // Link Type Dialog State
@@ -1957,6 +1983,60 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                 </button>
                             )}
 
+                        {/* External Links Badge / Action */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                    }}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 flex items-center gap-1",
+                                        hasExternalLinks ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-400 hover:text-blue-500"
+                                    )}
+                                    title={hasExternalLinks ? `${externalLinks.length} External Links` : "Link to External Canvas"}
+                                >
+                                    <ExternalLink className="h-4 w-4" />
+                                    {hasExternalLinks && <span className="text-[10px]">{externalLinks.length}</span>}
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>External Links</DropdownMenuLabel>
+                                {hasExternalLinks && (
+                                    <>
+                                        <DropdownMenuSeparator />
+                                        {externalLinks.map((link: any, idx: number) => (
+                                            <div key={idx} className="flex items-center justify-between gap-2 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-sm text-sm group">
+                                                <div
+                                                    className="cursor-pointer flex-1 truncate"
+                                                    onClick={() => handleOpenExternalCanvas(link.targetCanvasId, link.targetNodeId)}
+                                                    title={`Go to ${link.targetTitle} on ${link.targetCanvasName}`}
+                                                >
+                                                    <div className="font-medium truncate">{link.targetTitle}</div>
+                                                    <div className="text-xs text-muted-foreground truncate opacity-70">on {link.targetCanvasName}</div>
+                                                </div>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        removeExternalLink(thing.id, link.targetNodeId);
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded"
+                                                    title="Remove Link"
+                                                >
+                                                    <X className="h-3 w-3" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </>
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onSelect={() => setCrossCanvasLinkDialogOpen(true)}>
+                                    <Link className="h-4 w-4 mr-2" />
+                                    Add Link...
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+
                         {/* Export Button */}
                         <button
                             onClick={(e) => {
@@ -2077,51 +2157,8 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 </DialogContent>
             </Dialog >
 
-            {/* Link Target Selection Dialog */}
-            < Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen} >
-                <DialogContent className="sm:max-w-lg nodrag cursor-default">
-                    <DialogHeader>
-                        <DialogTitle>Link to another node</DialogTitle>
-                        <DialogDescription>
-                            Select a node to link this thing to.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="py-4">
-                        <Label>Select target node</Label>
-                        <div className="mt-2 space-y-2 max-h-[300px] overflow-auto px-1">
-                            {availableTargets.length === 0 ? (
-                                <div className="text-sm text-muted-foreground text-center py-4">
-                                    No other nodes on canvas to link to
-                                </div>
-                            ) : (
-                                availableTargets.map((target) => (
-                                    <Button
-                                        key={target.id}
-                                        variant="outline"
-                                        className="w-full justify-start text-left h-auto py-2 px-3 overflow-hidden"
-                                        onClick={() => handleLinkToTarget(target.id)}
-                                        title={target.title || target.type} // Tooltip for full name
-                                    >
-                                        <div className="truncate w-full">
-                                            <span className="font-medium">
-                                                {target.title || target.type}
-                                            </span>
-                                        </div>
-                                    </Button>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => {
-                            setLinkDialogOpen(false);
-                            setPendingFragment(null);
-                        }}>
-                            Cancel
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog >
+            {/* Link Target Selection Dialog - REPLACED by CrossCanvasLinkDialog */}
+            {/* < Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen} > ... </ Dialog > */}
             {/* Cascading Deletion Confirmation Dialog */}
             < Dialog open={deleteRegionDialogOpen} onOpenChange={setDeleteRegionDialogOpen} >
                 <DialogContent className="sm:max-w-md nodrag cursor-default">
@@ -2146,17 +2183,8 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
             </Dialog >
 
 
-            {/* Link Type Selection Dialog - Interjected before actual creation */}
-            < LinkTypeDialog
-                isOpen={linkTypeDialogOpen}
-                onClose={() => {
-                    setLinkTypeDialogOpen(false);
-                    setPendingFragment(null);
-                    setSelectedTargetId(null);
-                }}
-                onConfirm={handleConfirmLink}
-                mode="create"
-            />
+            {/* Link Type Selection Dialog - REPLACED by CrossCanvasLinkDialog */}
+            {/* < LinkTypeDialog ... /> */}
 
             {/* Content Preview Dialog */}
             < VectorizationPreviewDialog
@@ -2291,48 +2319,58 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 thing={currentThing}
             />
 
-            {/* Full Screen Portal */}
-            {isFullScreen && typeof document !== "undefined" && createPortal(
-                <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-950 flex flex-col animate-in fade-in zoom-in-95 duration-200">
-                    {/* Full Screen Header */}
-                    <div className={cn(
-                        "flex items-center gap-3 px-4 py-3 border-b shadow-sm flex-none",
-                        colorTheme.headerBg,
-                        colorTheme.headerBgDark
-                    )}>
-                        <Icon className={cn("h-5 w-5", colorTheme.iconColor)} />
+            {/* Cross Canvas Link Dialog */}
+            <CrossCanvasLinkDialog
+                open={crossCanvasLinkDialogOpen}
+                onOpenChange={setCrossCanvasLinkDialogOpen}
+                sourceThingId={thing.id}
+                sourceFragment={pendingFragment}
+            />
 
-                        <div className="flex-1 min-w-0">
-                            <h2 className="text-lg font-semibold truncate">
-                                {thing.title || getDefaultTitle()}
-                            </h2>
+            {/* Full Screen Portal */}
+            {
+                isFullScreen && typeof document !== "undefined" && createPortal(
+                    <div className="fixed inset-0 z-[100] bg-white dark:bg-slate-950 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+                        {/* Full Screen Header */}
+                        <div className={cn(
+                            "flex items-center gap-3 px-4 py-3 border-b shadow-sm flex-none",
+                            colorTheme.headerBg,
+                            colorTheme.headerBgDark
+                        )}>
+                            <Icon className={cn("h-5 w-5", colorTheme.iconColor)} />
+
+                            <div className="flex-1 min-w-0">
+                                <h2 className="text-lg font-semibold truncate">
+                                    {thing.title || getDefaultTitle()}
+                                </h2>
+                            </div>
+
+                            {/* Close / Restore Button */}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 gap-2 ml-auto"
+                                onClick={() => setIsFullScreen(false)}
+                            >
+                                <Minimize2 className="h-4 w-4" />
+                                <span className="hidden sm:inline">Exit Full Screen</span>
+                            </Button>
                         </div>
 
-                        {/* Close / Restore Button */}
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 gap-2 ml-auto"
-                            onClick={() => setIsFullScreen(false)}
-                        >
-                            <Minimize2 className="h-4 w-4" />
-                            <span className="hidden sm:inline">Exit Full Screen</span>
-                        </Button>
-                    </div>
-
-                    {/* Check if syncing is needed for correct content display */}
-                    {/* Main Content Area - Reusing render logic but ensuring container fits */}
-                    <div className="flex-1 min-h-0 overflow-hidden relative p-4 bg-slate-50 dark:bg-slate-900/50">
-                        <div className="h-full w-full max-w-7xl mx-auto bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
-                            {/* We wrap the content render in a strict container to ensure scrolling works inside it */}
-                            <div className="flex-1 min-h-0 relative">
-                                {renderFullContent()}
+                        {/* Check if syncing is needed for correct content display */}
+                        {/* Main Content Area - Reusing render logic but ensuring container fits */}
+                        <div className="flex-1 min-h-0 overflow-hidden relative p-4 bg-slate-50 dark:bg-slate-900/50">
+                            <div className="h-full w-full max-w-7xl mx-auto bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
+                                {/* We wrap the content render in a strict container to ensure scrolling works inside it */}
+                                <div className="flex-1 min-h-0 relative">
+                                    {renderFullContent()}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </div>,
-                document.body
-            )}
+                    </div>,
+                    document.body
+                )
+            }
         </>
     );
 }

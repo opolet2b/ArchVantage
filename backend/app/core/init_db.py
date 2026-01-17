@@ -232,6 +232,35 @@ def run_migrations(db: Session) -> None:
     except Exception as e:
         print(f"canvases owner_config migration check failed: {e}")
 
+    # Migration for canvases analysis_space_id
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='canvases'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            try:
+                result = db.execute(
+                    text("SELECT analysis_space_id FROM canvases LIMIT 1")
+                )
+                result.close()
+                print("Migration check: analysis_space_id column already exists in canvases.")
+            except Exception:
+                print("Adding 'analysis_space_id' column to canvases table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE canvases ADD COLUMN analysis_space_id VARCHAR(36)")
+                    )
+                    db.commit()
+                    print("Added 'analysis_space_id' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add analysis_space_id column: {alter_error}")
+                    db.rollback()
+    except Exception as e:
+        print(f"canvases analysis_space_id migration check failed: {e}")
+
 def init_db(db: Session) -> None:
     # 1. Create Default Roles
     roles = ["Admin", "User"]
