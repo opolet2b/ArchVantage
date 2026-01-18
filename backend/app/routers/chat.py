@@ -211,6 +211,10 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                         # Include label if present
                         if link.label:
                             res += f": \"{link.label}\""
+                        
+                        # Include description if present
+                        if link.description:
+                            res += f" ({link.description})"
                             
                         manifest_text += f"- \"{src}\" --[{res}]--> \"{tgt}\"\n"
                     

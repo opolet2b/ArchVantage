@@ -95,9 +95,13 @@ export interface CanvasLink {
     target_id: string;
     type: LinkType;
     label: string | null;
+    description: string | null;
     // Optional fragment references for linking specific content selections
     source_fragment: Record<string, unknown> | null;
     target_fragment: Record<string, unknown> | null;
+    target_canvas_id?: string | null;
+    target_thing_title?: string | null;
+    target_canvas_name?: string | null;
     created_at: string;
 }
 
@@ -226,8 +230,10 @@ interface CanvasState {
         targetId: string,
         type: LinkType,
         label?: string,
+        description?: string,
         sourceFragment?: Record<string, unknown>,
-        targetFragment?: Record<string, unknown>
+        targetFragment?: Record<string, unknown>,
+        targetCanvasId?: string
     ) => Promise<CanvasLink | null>;
     updateLink: (
         linkId: string,
@@ -282,8 +288,7 @@ interface CanvasState {
     syncAllThings: () => Promise<any[]>;
 
     // External / Cross-Canvas Linking
-    addExternalLink: (sourceId: string, targetCanvasId: string, targetNodeId: string, targetTitle: string, targetCanvasName: string, type?: LinkType | string, label?: string) => Promise<void>;
-    removeExternalLink: (sourceId: string, targetNodeId: string) => Promise<void>;
+    // Unified addLink handles this now
 }
 
 /**
@@ -697,7 +702,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add link between things
-    addLink: async (sourceId, targetId, type, label, sourceFragment, targetFragment) => {
+    addLink: async (sourceId, targetId, type, label, description, sourceFragment, targetFragment, targetCanvasId) => {
         const { canvasId } = get();
         const token = getAuthToken();
         if (!token || !canvasId) return null;
@@ -714,8 +719,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     target_id: targetId,
                     type,
                     label,
+                    description,
                     source_fragment: sourceFragment,
                     target_fragment: targetFragment,
+                    target_canvas_id: targetCanvasId,
                 }),
             });
 
@@ -828,48 +835,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
     },
 
-    // External Link Implementation
-    addExternalLink: async (sourceId, targetCanvasId, targetNodeId, targetTitle, targetCanvasName, type = "related", label = "") => {
-        const { things, updateThing } = get();
-        const sourceThing = things.find(t => t.id === sourceId);
-        if (!sourceThing) return;
 
-        const currentLinks = (sourceThing.content.external_links as any[]) || [];
-        // Avoid duplicates (checking targetNodeId)
-        if (currentLinks.some((l: any) => l.targetNodeId === targetNodeId)) return;
-
-        const newLink = {
-            targetCanvasId,
-            targetNodeId,
-            targetTitle,
-            targetCanvasName,
-            type,
-            label,
-            createdAt: new Date().toISOString()
-        };
-
-        const updatedLinks = [...currentLinks, newLink];
-
-        // Persist via updateThing (which handles optimistic update)
-        await updateThing(sourceId, {
-            content: {
-                ...sourceThing.content, external_links: updatedLinks
-            }
-        });
-    },
-
-    removeExternalLink: async (sourceId, targetNodeId) => {
-        const { things, updateThing } = get();
-        const sourceThing = things.find(t => t.id === sourceId);
-        if (!sourceThing) return;
-
-        const currentLinks = (sourceThing.content.external_links as any[]) || [];
-        const updatedLinks = currentLinks.filter((l: any) => l.targetNodeId !== targetNodeId);
-
-        await updateThing(sourceId, {
-            content: { ...sourceThing.content, external_links: updatedLinks }
-        });
-    },
 
     // Update domain (persist to backend)
     updateDomain: async (domainId, updates) => {

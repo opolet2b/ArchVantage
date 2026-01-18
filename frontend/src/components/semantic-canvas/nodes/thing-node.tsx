@@ -493,25 +493,21 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     const links = useCanvasStore((state) => state.links);
     const { analyze, isLoading } = useAnalyze();
     const { setSelection } = useSelection();
-    const removeExternalLink = useCanvasStore(state => state.removeExternalLink);
+
+    // removeExternalLink is no longer needed as we use deleteLink
+    // const removeExternalLink = useCanvasStore(state => state.removeExternalLink);
 
     // External Link State
     const [crossCanvasLinkDialogOpen, setCrossCanvasLinkDialogOpen] = React.useState(false);
 
-    const externalLinks = (currentThing.content?.external_links as any[]) || [];
+    const externalLinks = React.useMemo(() => {
+        return links.filter(l => l.source_id === thing.id && l.target_canvas_id && l.target_canvas_id !== canvasId);
+    }, [links, thing.id, canvasId]);
+
     const hasExternalLinks = externalLinks.length > 0;
 
-    const handleOpenExternalCanvas = (canvasId: string, nodeId: string) => {
-        // We need to navigate to the canvas.
-        // Assuming we have a router or can switch canvas via store (but switching store only changes view, url might need update)
-        // For now, simpler approach: Redirect to URL
-        // Or finding if we have a proper client-side router hook?
-        // Using window.location for safety or router.push if available.
-        // Given 'use client' and typical Next.js:
-        // import { useRouter } from 'next/navigation'; -> not imported yet.
-        // I will use window.location.href = `/canvas/${canvasId}?node=${nodeId}` pattern if that's how it works?
-        // Actually, sidebar just expects navigation.
-        window.location.href = `/canvas/${canvasId}?node=${nodeId}`;
+    const handleOpenExternalCanvas = (targetCanvasId: string, targetNodeId: string) => {
+        window.location.href = `/canvas/${targetCanvasId}?node=${targetNodeId}`;
     };
 
 
@@ -896,6 +892,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 newThing.id,
                 "derived_from",
                 "Analysis",
+                "Analysis result derived from this thing",
                 getFragmentData(sourceFragment), // Use smart label
                 undefined
             );
@@ -1143,6 +1140,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     // Link Type Dialog State
     const [linkTypeDialogOpen, setLinkTypeDialogOpen] = React.useState(false);
     const [selectedTargetId, setSelectedTargetId] = React.useState<string | null>(null);
+    const [pendingTargetCanvasId, setPendingTargetCanvasId] = React.useState<string | null>(null);
 
     // Handle selecting a target for the link
     const handleLinkToTarget = React.useCallback((targetId: string) => {
@@ -1155,22 +1153,25 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     }, [pendingFragment]);
 
     // Handle actual link creation after type selection
-    const handleConfirmLink = React.useCallback(async (type: LinkType, label?: string) => {
+    const handleConfirmLink = React.useCallback(async (type: LinkType, label: string, description: string) => {
         if (!pendingFragment || !selectedTargetId) return;
 
         await addLink(
             thing.id,
             selectedTargetId,
             type,
-            label, // Pass selected label (may be empty/undefined)
+            label,
+            description,
             getFragmentData(pendingFragment),
-            undefined
+            undefined,
+            pendingTargetCanvasId || undefined
         );
 
         setLinkTypeDialogOpen(false);
         setPendingFragment(null);
         setSelectedTargetId(null);
-    }, [thing.id, pendingFragment, selectedTargetId, addLink]);
+        setPendingTargetCanvasId(null);
+    }, [thing.id, pendingFragment, selectedTargetId, pendingTargetCanvasId, addLink]);
 
     // Handle creating result as new thing (from result dialog if we used that)
     const handleCreateThing = React.useCallback(async () => {
@@ -2005,32 +2006,49 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                 {hasExternalLinks && (
                                     <>
                                         <DropdownMenuSeparator />
-                                        {externalLinks.map((link: any, idx: number) => (
-                                            <div key={idx} className="flex items-center justify-between gap-2 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-sm text-sm group">
-                                                <div
-                                                    className="cursor-pointer flex-1 truncate"
-                                                    onClick={() => handleOpenExternalCanvas(link.targetCanvasId, link.targetNodeId)}
-                                                    title={`Go to ${link.targetTitle} on ${link.targetCanvasName}`}
-                                                >
-                                                    <div className="font-medium truncate">{link.targetTitle}</div>
-                                                    <div className="text-xs text-muted-foreground truncate opacity-70">on {link.targetCanvasName}</div>
+                                        {externalLinks.map((link, idx) => {
+                                            // Fallback titles if not present in link object (backend enhancement needed for titles)
+                                            const targetTitle = link.target_thing_title || "External Item";
+                                            const targetCanvasName = link.target_canvas_name || link.target_canvas_id?.slice(0, 8) + "...";
+
+                                            // Handle potential legacy format if we haven't migrated DB
+                                            // But for new links, we rely on CanvasLink properties.
+                                            // Note: target_id in CanvasLink IS the target node id.
+
+                                            return (
+                                                <div key={link.id || idx} className="flex items-center justify-between gap-2 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-sm text-sm group">
+                                                    <div
+                                                        className="cursor-pointer flex-1 truncate"
+                                                        onClick={() => {
+                                                            if (link.target_canvas_id) {
+                                                                handleOpenExternalCanvas(link.target_canvas_id, link.target_id);
+                                                            }
+                                                        }}
+                                                        title={`Go to ${targetTitle} on ${targetCanvasName}`}
+                                                    >
+                                                        <div className="font-medium truncate">{targetTitle}</div>
+                                                        <div className="text-xs text-muted-foreground truncate opacity-70">on {targetCanvasName}</div>
+                                                    </div>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            deleteLink(link.id);
+                                                        }}
+                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded"
+                                                        title="Remove Link"
+                                                    >
+                                                        <X className="h-3 w-3" />
+                                                    </button>
                                                 </div>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        removeExternalLink(thing.id, link.targetNodeId);
-                                                    }}
-                                                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded"
-                                                    title="Remove Link"
-                                                >
-                                                    <X className="h-3 w-3" />
-                                                </button>
-                                            </div>
-                                        ))}
+                                            )
+                                        })}
                                     </>
                                 )}
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onSelect={() => setCrossCanvasLinkDialogOpen(true)}>
+                                <DropdownMenuItem onSelect={() => {
+                                    setPendingFragment(fullThingFragment);
+                                    setCrossCanvasLinkDialogOpen(true);
+                                }}>
                                     <Link className="h-4 w-4 mr-2" />
                                     Add Link...
                                 </DropdownMenuItem>
@@ -2319,12 +2337,25 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 thing={currentThing}
             />
 
+            {/* Link Type Dialog - Re-added */}
+            <LinkTypeDialog
+                isOpen={linkTypeDialogOpen}
+                onClose={() => setLinkTypeDialogOpen(false)}
+                onConfirm={handleConfirmLink}
+                mode="create"
+            />
+
             {/* Cross Canvas Link Dialog */}
             <CrossCanvasLinkDialog
                 open={crossCanvasLinkDialogOpen}
                 onOpenChange={setCrossCanvasLinkDialogOpen}
                 sourceThingId={thing.id}
-                sourceFragment={pendingFragment}
+                onNodeSelected={(targetCanvasId, targetNodeId) => {
+                    setSelectedTargetId(targetNodeId);
+                    setPendingTargetCanvasId(targetCanvasId !== canvasId ? targetCanvasId : null);
+                    // Open Link Type Dialog
+                    setLinkTypeDialogOpen(true);
+                }}
             />
 
             {/* Full Screen Portal */}

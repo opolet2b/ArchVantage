@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { LinkType } from "./canvas-store";
 import { cn } from "@/lib/utils";
@@ -123,10 +124,11 @@ const LINK_TYPES: LinkTypeConfig[] = [
 interface LinkTypeDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (type: LinkType, label?: string) => void;
+    onConfirm: (type: LinkType, label: string, description: string) => void;
     onDelete?: () => void;
     initialType?: LinkType;
     initialLabel?: string;
+    initialDescription?: string;
     mode: "create" | "edit";
 }
 
@@ -141,21 +143,28 @@ export function LinkTypeDialog({
     onDelete,
     initialType = "related",
     initialLabel = "",
+    initialDescription = "",
     mode,
 }: LinkTypeDialogProps) {
     const [selectedType, setSelectedType] = React.useState<LinkType>(initialType);
     const [label, setLabel] = React.useState(initialLabel);
+    const [description, setDescription] = React.useState(initialDescription);
 
     // Reset state when dialog opens
     React.useEffect(() => {
         if (isOpen) {
             setSelectedType(initialType);
             setLabel(initialLabel);
+            setDescription(initialDescription);
         }
-    }, [isOpen, initialType, initialLabel]);
+    }, [isOpen, initialType, initialLabel, initialDescription]);
+
+    const isValid = label.trim().length > 0 && description.trim().length > 0;
 
     const handleConfirm = () => {
-        onConfirm(selectedType, label || undefined);
+        if (isValid) {
+            onConfirm(selectedType, label, description);
+        }
     };
 
     return (
@@ -207,16 +216,30 @@ export function LinkTypeDialog({
                         </div>
                     </div>
 
-                    {/* Optional Label */}
+                    {/* Label (Mandatory) */}
                     <div className="space-y-2">
-                        <Label>Label (optional)</Label>
+                        <Label>Label <span className="text-red-500">*</span></Label>
                         <Input
                             value={label}
                             onChange={(e) => setLabel(e.target.value)}
                             placeholder="e.g., 'supports', 'answers', 'summarizes'..."
                         />
                         <p className="text-xs text-muted-foreground">
-                            Add a custom label to describe this specific relationship.
+                            A short phrase to describe this relationship.
+                        </p>
+                    </div>
+
+                    {/* Description (Mandatory) */}
+                    <div className="space-y-2">
+                        <Label>Description <span className="text-red-500">*</span></Label>
+                        <Textarea
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            placeholder="Detailed explanation of why this link exists..."
+                            rows={3}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Provide context on why these items are related.
                         </p>
                     </div>
                 </div>
@@ -241,7 +264,7 @@ export function LinkTypeDialog({
                         <Button variant="outline" onClick={onClose}>
                             Cancel
                         </Button>
-                        <Button onClick={handleConfirm}>
+                        <Button onClick={handleConfirm} disabled={!isValid}>
                             {mode === "create" ? "Create Link" : "Update Link"}
                         </Button>
                     </div>

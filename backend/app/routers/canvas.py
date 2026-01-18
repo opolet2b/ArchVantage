@@ -139,6 +139,69 @@ def reorder_canvases(
     return {"status": "success"}
 
 
+def _enrich_links(db: Session, links: List[CanvasLink]) -> List[Dict[str, Any]]:
+    """
+    Enrich link objects with target titles and names for cross-canvas links.
+    Returns a list of dictionaries compatible with LinkResponse.
+    """
+    response_links = []
+    
+    # Identify cross-canvas targets for batch fetching
+    target_canvas_ids = set()
+    target_ids = set()
+    
+    # Pre-process to find what we need to fetch
+    for link in links:
+        if link.target_canvas_id:
+            target_canvas_ids.add(link.target_canvas_id)
+            target_ids.add(link.target_id)
+            
+    # Batch Fetch Maps
+    canvas_map = {}
+    if target_canvas_ids:
+        found_canvases = db.query(Canvas).filter(Canvas.id.in_(target_canvas_ids)).all()
+        canvas_map = {c.id: c.name for c in found_canvases}
+        
+    thing_map = {}
+    if target_ids:
+        # Try finding Things first
+        found_things = db.query(CanvasThing).filter(CanvasThing.id.in_(target_ids)).all()
+        for t in found_things:
+            thing_map[t.id] = t.title or t.type.value
+            
+        # Also check Domains if not found (since links can target domains)
+        missing_ids = target_ids - set(thing_map.keys())
+        if missing_ids:
+            found_domains = db.query(Domain).filter(Domain.id.in_(missing_ids)).all()
+            for d in found_domains:
+                thing_map[d.id] = d.name
+
+    # Transform and Enrich
+    for link in links:
+        # Convert SQLAlchemy model to dict (safe way)
+        l_dict = {
+            "id": link.id,
+            "canvas_id": link.canvas_id,
+            "source_id": link.source_id,
+            "target_id": link.target_id,
+            "type": link.type,
+            "label": link.label,
+            "source_fragment": link.source_fragment,
+            "target_fragment": link.target_fragment,
+            "target_canvas_id": link.target_canvas_id,
+            "created_at": link.created_at
+        }
+        
+        # Enrich if external
+        if link.target_canvas_id:
+             l_dict["target_canvas_name"] = canvas_map.get(link.target_canvas_id)
+             l_dict["target_thing_title"] = thing_map.get(link.target_id)
+             
+        response_links.append(l_dict)
+        
+    return response_links
+
+
 @router.get("/canvases/{canvas_id}", response_model=CanvasWithContents)
 def get_canvas(
     canvas_id: str,
@@ -164,7 +227,35 @@ def get_canvas(
             detail="Canvas not found"
         )
     
-    return canvas
+    # Manual construction of response to include enriched links
+    # Convert Canvas model to dict-like structure suitable for Pydantic
+    # Note: access lazily loaded relationships now
+    
+    # Enrich links
+    enriched_links = _enrich_links(db, canvas.links)
+    
+    # Use Pydantic's from_attributes mechanism partially by creating an instance
+    # OR simpler: return a dict matching the schema.
+    
+    response = CanvasWithContents(
+        id=canvas.id,
+        owner_id=canvas.owner_id,
+        name=canvas.name,
+        description=canvas.description,
+        viewport=canvas.viewport, # Pydantic handles JSON-to-Model conversion if defined? No, it's a dict in DB usually or JSON column
+        allowed_user_ids=[u.id for u in canvas.allowed_users],
+        allowed_role_ids=[r.id for r in canvas.allowed_roles],
+        owner_config=canvas.owner_config,
+        position=canvas.position,
+        analysis_space_id=canvas.analysis_space_id,
+        created_at=canvas.created_at,
+        updated_at=canvas.updated_at,
+        things=canvas.things, # Pydantic converts List[CanvasThing] to List[ThingResponse]
+        links=enriched_links, # Our enriched list of dicts
+        domains=canvas.domains
+    )
+    
+    return response
 
 
 @router.patch("/canvases/{canvas_id}", response_model=CanvasResponse)
@@ -1254,21 +1345,31 @@ def create_link(
         ).first()
 
     # Verify target exists (Thing OR Domain)
+    # If target_canvas_id is provided, check against that canvas.
+    # Otherwise check against the current canvas (local link).
+    target_check_canvas_id = request.target_canvas_id or canvas_id
+
     target = db.query(CanvasThing).filter(
         CanvasThing.id == request.target_id,
-        CanvasThing.canvas_id == canvas_id
+        CanvasThing.canvas_id == target_check_canvas_id
     ).first()
 
     if not target:
         target = db.query(Domain).filter(
             Domain.id == request.target_id,
-            Domain.canvas_id == canvas_id
+            Domain.canvas_id == target_check_canvas_id
         ).first()
     
-    if not source or not target:
+    if not source:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Source or target (Thing/Domain) not found on this canvas"
+            detail="Source (Thing/Domain) not found on this canvas"
+        )
+
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Target (Thing/Domain) not found on canvas {target_check_canvas_id}"
         )
     
     link = CanvasLink(
@@ -1277,13 +1378,30 @@ def create_link(
         target_id=request.target_id,
         type=ModelLinkType(request.type.value),
         label=request.label,
+        description=request.description,
         source_fragment=request.source_fragment,
-        target_fragment=request.target_fragment
+        target_fragment=request.target_fragment,
+        target_canvas_id=request.target_canvas_id
     )
     db.add(link)
     db.commit()
     db.refresh(link)
-    return link
+    # Enrich response if this is a cross-canvas link
+    response_link = LinkResponse.model_validate(link)
+    
+    if link.target_canvas_id:
+        # Fetch target canvas name
+        tgt_canvas = db.query(Canvas).filter(Canvas.id == link.target_canvas_id).first()
+        if tgt_canvas:
+            response_link.target_canvas_name = tgt_canvas.name
+            
+        # Fetch target object title (we already found 'target' above)
+        if hasattr(target, 'title'): # CanvasThing
+            response_link.target_thing_title = target.title or target.type.value
+        elif hasattr(target, 'name'): # Domain
+             response_link.target_thing_title = target.name
+
+    return response_link
 
 
 @router.patch(
@@ -1317,6 +1435,10 @@ def update_link(
     # Update label if provided (can be set to None with empty string)
     if request.label is not None:
         link.label = request.label if request.label else None
+
+    # Update description if provided
+    if request.description is not None:
+        link.description = request.description
     
     # Update fragments if provided
     if request.source_fragment is not None:

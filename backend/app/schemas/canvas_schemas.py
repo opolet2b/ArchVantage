@@ -185,7 +185,10 @@ class LinkCreate(BaseModel):
     source_id: str
     target_id: str
     type: LinkType = LinkType.RELATED
-    label: Optional[str] = None
+    label: str  # Mandatory
+    description: str  # Mandatory
+    # Optional target canvas ID for cross-canvas links
+    target_canvas_id: Optional[str] = None
     # Optional fragment references for linking specific content selections
     source_fragment: Optional[Dict[str, Any]] = None
     target_fragment: Optional[Dict[str, Any]] = None
@@ -198,7 +201,13 @@ class LinkResponse(BaseModel):
     source_id: str
     target_id: str
     type: LinkType
+    target_id: str
+    type: LinkType
     label: Optional[str]
+    description: Optional[str] = None
+    target_canvas_id: Optional[str] = None
+    target_thing_title: Optional[str] = None
+    target_canvas_name: Optional[str] = None
     source_fragment: Optional[Dict[str, Any]] = None
     target_fragment: Optional[Dict[str, Any]] = None
     created_at: datetime
@@ -211,6 +220,7 @@ class LinkUpdate(BaseModel):
     """Request to update a link."""
     type: Optional[LinkType] = None
     label: Optional[str] = None
+    description: Optional[str] = None
     source_fragment: Optional[Dict[str, Any]] = None
     target_fragment: Optional[Dict[str, Any]] = None
 

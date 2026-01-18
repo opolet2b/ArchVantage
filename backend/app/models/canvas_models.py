@@ -326,6 +326,11 @@ class CanvasLink(Base):
         default=LinkType.RELATED
     )
     label = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+
+    # New Field for Unified Link Storage
+    # If set, this link points to a node on a DIFFERENT canvas.
+    target_canvas_id = Column(String(36), nullable=True)
     
     # Optional fragment references for linking specific content selections
     # Format matches FragmentData schema:

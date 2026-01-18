@@ -519,6 +519,27 @@ class SmartTemplateService:
              
         # Create a single string context for templates that expect text
         combined_context = "\n\n".join([f"Item: {e['title']} ({e['type']})\n{e['content']}" for e in entities_data])
+
+        # Inject Graph Relationships
+        thing_ids = [t.id for t in things]
+        if thing_ids:
+             rels = db.query(CanvasLink).filter(
+                  CanvasLink.source_id.in_(thing_ids),
+                  CanvasLink.target_id.in_(thing_ids)
+             ).all()
+             
+             if rels:
+                  combined_context += "\n\nRELATIONSHIPS:\n"
+                  id_to_title = {t.id: t.title or t.type.value for t in things}
+                  for r in rels:
+                       src = id_to_title.get(r.source_id, "Unknown")
+                       tgt = id_to_title.get(r.target_id, "Unknown")
+                       lbl = r.type.value
+                       if r.label:
+                           lbl += f": {r.label}"
+                       if r.description:
+                           lbl += f" ({r.description})"
+                       combined_context += f"- {src} --[{lbl}]--> {tgt}\n"
              
         inputs = {
             "selection": entities_data,
@@ -689,6 +710,27 @@ class SmartTemplateService:
              
         # Create legacy context just in case (for generic nodes)
         combined_context = "\n\n".join([f"Item: {e['title']} ({e['type']})\n{e['content']}" for e in entities_data])
+        
+        # Inject Graph Relationships (Stream)
+        thing_ids = [t.id for t in things]
+        if thing_ids:
+             rels = db.query(CanvasLink).filter(
+                  CanvasLink.source_id.in_(thing_ids),
+                  CanvasLink.target_id.in_(thing_ids)
+             ).all()
+             
+             if rels:
+                  combined_context += "\n\nRELATIONSHIPS:\n"
+                  id_to_title = {t.id: t.title or t.type.value for t in things}
+                  for r in rels:
+                       src = id_to_title.get(r.source_id, "Unknown")
+                       tgt = id_to_title.get(r.target_id, "Unknown")
+                       lbl = r.type.value
+                       if r.label:
+                           lbl += f": {r.label}"
+                       if r.description:
+                           lbl += f" ({r.description})"
+                       combined_context += f"- {src} --[{lbl}]--> {tgt}\n"
         
         # Determine extraction instructions (try to find first Extractor step config)
         extraction_instructions = ExtractionInstructions(focus="Key information related to analysis goals")

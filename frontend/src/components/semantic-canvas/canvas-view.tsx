@@ -406,7 +406,10 @@ function CanvasViewInner() {
         // Group links by source-target pair to calculate offsets
         const groups: Record<string, typeof links> = {};
 
-        links.forEach(link => {
+        // Filter out cross-canvas links (they shouldn't be drawn as edges here)
+        const visibleLinks = links.filter(l => !l.target_canvas_id || l.target_canvas_id === canvasId);
+
+        visibleLinks.forEach(link => {
             const key = `${link.source_id}-${link.target_id}`;
             if (!groups[key]) groups[key] = [];
             groups[key].push(link);
@@ -741,13 +744,14 @@ function CanvasViewInner() {
 
     // Handle link creation with selected type
     const handleCreateLink = React.useCallback(
-        async (type: LinkType, label?: string) => {
+        async (type: LinkType, label: string, description: string) => {
             if (pendingConnection) {
                 await addLink(
                     pendingConnection.source,
                     pendingConnection.target,
                     type,
-                    label
+                    label,
+                    description
                 );
                 setPendingConnection(null);
                 setLinkDialogOpen(false);
@@ -771,7 +775,7 @@ function CanvasViewInner() {
 
     // Handle link update
     const handleUpdateLink = React.useCallback(
-        async (type: LinkType, label?: string) => {
+        async (type: LinkType, label: string, description: string) => {
             if (editingLink) {
                 // Update via API
                 const token = localStorage.getItem("token");
@@ -784,13 +788,13 @@ function CanvasViewInner() {
                                 Authorization: `Bearer ${token}`,
                                 "Content-Type": "application/json",
                             },
-                            body: JSON.stringify({ type, label }),
+                            body: JSON.stringify({ type, label, description }),
                         }
                     );
                     // Update local state
                     useCanvasStore.setState((state) => ({
                         links: state.links.map((l) =>
-                            l.id === editingLink.id ? { ...l, type, label: label || null } : l
+                            l.id === editingLink.id ? { ...l, type, label: label || null, description: description || null } : l
                         ),
                     }));
                 } catch (err) {
@@ -1283,7 +1287,9 @@ function CanvasViewInner() {
                         await addLink(
                             newThing.id,
                             sourceId,
-                            "derived_from" as any // Use derived_from relationship. 'newThing' is derived from 'source'
+                            "derived_from" as any,
+                            "Analysis Source",
+                            "Source item used for this analysis"
                         );
                     }
                 }
@@ -1611,7 +1617,7 @@ function CanvasViewInner() {
                 if (autoLinkTargets.length > 0) {
                     console.log(`[CanvasView] Auto-linking conversation to ${autoLinkTargets.length} targets`);
                     for (const target of autoLinkTargets) {
-                        await addLink(newThing.id, target.id, "related", "Context");
+                        await addLink(newThing.id, target.id, "related", "Context", "Context for this conversation");
                     }
                 }
             }
@@ -2058,6 +2064,7 @@ function CanvasViewInner() {
                         onDelete={editingLink ? handleDeleteLink : undefined}
                         initialType={editingLink?.type || "related"}
                         initialLabel={editingLink?.label || ""}
+                        initialDescription={editingLink?.description || ""}
                         mode={editingLink ? "edit" : "create"}
                     />
 

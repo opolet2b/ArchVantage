@@ -284,6 +284,7 @@ export function SelectableContent({
                 newThing.id,
                 "related", // User requested "related" type (and fixes 'generated' type error)
                 getFragmentLabel(sourceFragment), // Use smart label
+                "Analysis result generated from this fragment",
                 getFragmentData(sourceFragment),
                 undefined
             );
@@ -439,6 +440,7 @@ export function SelectableContent({
             targetId,
             "references",
             label,
+            "Reference to selected content",
             fragmentData,
             undefined
         );

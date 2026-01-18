@@ -632,58 +632,66 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
                 return [wx, wy, elevation];
             };
 
-            sourceCanvas.things.forEach(thing => {
-                // Check external links
-                if (thing.content && Array.isArray((thing.content as any).external_links)) {
-                    (thing.content as any).external_links.forEach((link: any) => {
-                        console.log("[SpaceViewer] Found external link:", link);
-                        const targetCanvas = fullCanvasData[link.targetCanvasId];
-                        if (!targetCanvas) return;
+            // Unified Link Iteration
+            if (sourceCanvas.links && Array.isArray(sourceCanvas.links)) {
+                sourceCanvas.links.forEach(link => {
+                    // Check if external link (has target_canvas_id and it points to another canvas)
+                    if (!link.target_canvas_id || link.target_canvas_id === sourceCanvas.id) return;
 
-                        const targetIndex = space.canvases.findIndex((c: any) => c.id === link.targetCanvasId);
-                        if (targetIndex === -1) return;
-                        const targetElevation = targetIndex * 200;
+                    console.log("[SpaceViewer] Found external link (unified):", link);
 
-                        const targetNode = targetCanvas.things.find(t => t.id === link.targetNodeId);
-                        if (!targetNode) return;
+                    const targetCanvas = fullCanvasData[link.target_canvas_id];
+                    if (!targetCanvas) return;
 
-                        // Center of nodes (using same defaults as getProjectedPos: 400x200)
-                        const sx = thing.position_x + (thing.width || 400) / 2;
-                        const sy = thing.position_y + (thing.height || 200) / 2;
-                        const tx = targetNode.position_x + (targetNode.width || 400) / 2;
-                        const ty = targetNode.position_y + (targetNode.height || 200) / 2;
+                    const targetIndex = space.canvases.findIndex((c: any) => c.id === link.target_canvas_id);
+                    if (targetIndex === -1) return;
+                    const targetElevation = targetIndex * 200;
 
-                        const start = getProjectedPos(sourceCanvas, sx, sy, sourceElevation);
-                        const rawEnd = getProjectedPos(targetCanvas, tx, ty, targetElevation);
+                    // Source Thing
+                    const thing = sourceCanvas.things.find(t => t.id === link.source_id);
+                    if (!thing) return;
 
-                        // Shorten Link for Arrow (10 units)
-                        let vx = rawEnd[0] - start[0];
-                        let vy = rawEnd[1] - start[1];
-                        let vz = rawEnd[2] - start[2];
-                        const len = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
-                        // Avoid over-shortening if link is tiny
-                        // Avoid over-shortening if link is tiny
-                        const shortenBy = Math.min(len - 1, 10);
+                    // Target Thing (target_id is the node ID)
+                    const targetNode = targetCanvas.things.find(t => t.id === link.target_id);
+                    if (!targetNode) return;
 
-                        const end = [
-                            rawEnd[0] - (vx / len) * shortenBy,
-                            rawEnd[1] - (vy / len) * shortenBy,
-                            rawEnd[2] - (vz / len) * shortenBy
-                        ];
+                    // Center of nodes (using same defaults as getProjectedPos: 400x200)
+                    const sx = thing.position_x + (thing.width || 400) / 2;
+                    const sy = thing.position_y + (thing.height || 200) / 2;
+                    const tx = targetNode.position_x + (targetNode.width || 400) / 2;
+                    const ty = targetNode.position_y + (targetNode.height || 200) / 2;
 
-                        arcs.push({
-                            source: start,
-                            target: end,
-                            type: link.type || 'related',
-                            label: link.label,
-                            sourceName: (thing.content as any)?.title || (thing.content as any)?.text || "Source Node",
-                            targetName: (targetNode.content as any)?.title || (targetNode.content as any)?.text || "Target Node",
-                            sourceCanvasName: sourceCanvas.name,
-                            targetCanvasName: targetCanvas.name
-                        });
+                    const start = getProjectedPos(sourceCanvas, sx, sy, sourceElevation);
+                    const rawEnd = getProjectedPos(targetCanvas, tx, ty, targetElevation);
+
+                    // Shorten Link for Arrow (10 units)
+                    let vx = rawEnd[0] - start[0];
+                    let vy = rawEnd[1] - start[1];
+                    let vz = rawEnd[2] - start[2];
+                    const len = Math.sqrt(vx * vx + vy * vy + vz * vz) || 1;
+
+                    // Avoid over-shortening if link is tiny
+                    const shortenBy = Math.min(len - 1, 10);
+
+                    const end = [
+                        rawEnd[0] - (vx / len) * shortenBy,
+                        rawEnd[1] - (vy / len) * shortenBy,
+                        rawEnd[2] - (vz / len) * shortenBy
+                    ];
+
+                    arcs.push({
+                        source: start,
+                        target: end,
+                        type: link.type || 'related',
+                        label: link.label,
+                        // Use titles if available, otherwise fallback
+                        sourceName: thing.title || (thing.content as any)?.title || (thing.content as any)?.text?.slice(0, 20) || "Source",
+                        targetName: targetNode.title || (targetNode.content as any)?.title || (targetNode.content as any)?.text?.slice(0, 20) || "Target",
+                        sourceCanvasName: sourceCanvas.name,
+                        targetCanvasName: targetCanvas.name
                     });
-                }
-            });
+                });
+            }
         });
 
         console.log("[SpaceViewer] Final Arcs count:", arcs.length);
