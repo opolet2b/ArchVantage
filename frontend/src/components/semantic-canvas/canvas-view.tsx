@@ -65,6 +65,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useConversation } from "@/lib/conversation-context";
 import { useViewMode } from "@/lib/view-mode-context";
+import { ContextualTrainer, TrainerStep } from "@/components/ui/contextual-trainer";
 
 // =============================================================================
 // Node Types
@@ -1948,6 +1949,7 @@ function CanvasViewInner() {
                 {/* Sync All Button */}
                 <div className="flex items-center gap-2 border-l pl-4 ml-4">
                     <Button
+                        id="canvas-sync-btn"
                         variant="ghost"
                         size="sm"
                         className="h-8 text-slate-500 hover:text-green-600"
@@ -1993,6 +1995,7 @@ function CanvasViewInner() {
             <div className="flex-1 flex overflow-hidden">
                 {/* Main Canvas Area */}
                 <div
+                    id="canvas-area"
                     className={cn(
                         "flex-1 relative",
                         isDraggingFile && "ring-4 ring-inset ring-blue-400 bg-blue-50/50 dark:bg-blue-950/30"
@@ -2261,9 +2264,35 @@ function CanvasViewInner() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <ContextualTrainer
+                workflowId="canvas_walkthrough"
+                steps={CANVAS_TRAINER_STEPS}
+            />
         </div >
     );
 }
+
+const CANVAS_TRAINER_STEPS: TrainerStep[] = [
+    {
+        targetId: "canvas-palette",
+        title: "Tools & Palette",
+        content: <p>Drag and drop items from here to create content on your canvas, including Notes, URLs, and new Conversations.</p>,
+        position: "left"
+    },
+    {
+        targetId: "canvas-area",
+        title: "Infinite Workspace",
+        content: <p>This is your infinite canvas. Double-click anywhere to create a note, or drag files directly onto the surface.</p>,
+        position: "top"
+    },
+    {
+        targetId: "canvas-sync-btn",
+        title: "Sync Files",
+        content: <p>If you've modified local files that are on the canvas, click this to re-process and update them.</p>,
+        position: "bottom"
+    }
+];
 
 // =============================================================================
 // Canvas View (with Provider)

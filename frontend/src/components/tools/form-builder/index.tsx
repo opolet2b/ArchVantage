@@ -19,6 +19,7 @@ import { Save, Eye, FileJson, FileInput } from "lucide-react"
 import { SchemaEditor } from "../schema-editor"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
 import { FormPreviewDialog } from "./form-preview-dialog"
+import { ContextualTrainer, TrainerStep } from "@/components/ui/contextual-trainer"
 
 interface FormBuilderProps {
     initialConfig?: {
@@ -336,7 +337,7 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
                             Form Title
                         </Label>
                         <Input
-                            id="form-title"
+                            id="form-title-input"
                             value={formTitle}
                             onChange={(e) => {
                                 setFormTitle(e.target.value)
@@ -362,7 +363,7 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
                 </div>
                 <div className="flex gap-2">
                     <HelpTooltip contentPath="tools/gui-builder" className="h-8 w-8 border" displayMode="dialog" />
-                    <Button variant="outline" size="sm" onClick={() => setShowPreview(true)}>
+                    <Button variant="outline" size="sm" onClick={() => setShowPreview(true)} id="preview-btn">
                         <Eye className="h-4 w-4 mr-2" />
                         Preview
                     </Button>
@@ -374,7 +375,7 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
                         <FileJson className="h-4 w-4 mr-2" />
                         Output Schema
                     </Button>
-                    <Button size="sm" onClick={handleSave} className={isDirty ? "relative" : ""}>
+                    <Button size="sm" onClick={handleSave} className={isDirty ? "relative" : ""} id="save-form-btn">
                         <Save className="h-4 w-4 mr-2" />
                         Save Form
                         {isDirty && (
@@ -388,32 +389,38 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
             </div>
 
             {/* Main content */}
-            <div className="flex flex-1 overflow-hidden">
-                <WidgetPalette onDragStart={handlePaletteDragStart} />
+            <div className="flex flex-1 overflow-hidden" id="form-builder-container">
+                <div id="widget-palette">
+                    <WidgetPalette onDragStart={handlePaletteDragStart} />
+                </div>
 
                 <div className="flex-1 flex flex-col">
-                    <GridToolbar
-                        onAddRow={handleAddRow}
-                        onAddCol={handleAddCol}
-                        onRemoveRow={handleRemoveRow}
-                        onRemoveCol={handleRemoveCol}
-                        onMergeCells={handleMergeCells}
-                        onSplitCell={handleSplit}
-                        canMerge={canMerge}
-                        canSplit={canSplit}
-                    />
-                    <GridCanvas
-                        rows={gridRows}
-                        cols={gridCols}
-                        widgets={widgets}
-                        selectedWidgetId={selectedWidgetId}
-                        selectedCell={selectedCell}
-                        onSelectWidget={setSelectedWidgetId}
-                        onSelectCell={setSelectedCell}
-                        onWidgetDrop={(w, cell) => handleCellDrop(cell.r, cell.c)}
-                        onDeleteWidget={handleDeleteWidget}
-                        onWidgetDragStart={setDraggedWidgetId}
-                    />
+                    <div id="grid-controls">
+                        <GridToolbar
+                            onAddRow={handleAddRow}
+                            onAddCol={handleAddCol}
+                            onRemoveRow={handleRemoveRow}
+                            onRemoveCol={handleRemoveCol}
+                            onMergeCells={handleMergeCells}
+                            onSplitCell={handleSplit}
+                            canMerge={canMerge}
+                            canSplit={canSplit}
+                        />
+                    </div>
+                    <div id="form-canvas" className="flex-1 overflow-auto">
+                        <GridCanvas
+                            rows={gridRows}
+                            cols={gridCols}
+                            widgets={widgets}
+                            selectedWidgetId={selectedWidgetId}
+                            selectedCell={selectedCell}
+                            onSelectWidget={setSelectedWidgetId}
+                            onSelectCell={setSelectedCell}
+                            onWidgetDrop={(w, cell) => handleCellDrop(cell.r, cell.c)}
+                            onDeleteWidget={handleDeleteWidget}
+                            onWidgetDragStart={setDraggedWidgetId}
+                        />
+                    </div>
                 </div>
 
                 <WidgetPropertiesPanel
@@ -456,6 +463,49 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
                 }}
                 onAutoGenerate={inferInputSchema}
             />
+            <ContextualTrainer
+                workflowId="form_builder_walkthrough"
+                steps={FORM_BUILDER_STEPS}
+            />
         </div>
     )
 }
+
+const FORM_BUILDER_STEPS: TrainerStep[] = [
+    {
+        targetId: "form-title-input",
+        title: "Name Your Form",
+        content: <p>Give your form a descriptive title. This will be shown to users.</p>,
+        position: "bottom"
+    },
+    {
+        targetId: "widget-palette",
+        title: "Palette",
+        content: <p>Drag and drop widgets from here onto the canvas to build your form.</p>,
+        position: "right"
+    },
+    {
+        targetId: "grid-controls",
+        title: "Grid Layout",
+        content: <p>Use these controls to add/remove rows and columns, or merge cells for complex layouts.</p>,
+        position: "bottom"
+    },
+    {
+        targetId: "form-canvas",
+        title: "Canvas",
+        content: <p>This is where you design your form. Drop widgets here and click them to edit properties.</p>,
+        position: "left"
+    },
+    {
+        targetId: "preview-btn",
+        title: "Preview",
+        content: <p>See how your form will look to the end user.</p>,
+        position: "bottom"
+    },
+    {
+        targetId: "save-form-btn",
+        title: "Save",
+        content: <p>Once you are happy with your design, save the form to make it available to agents.</p>,
+        position: "bottom"
+    }
+]

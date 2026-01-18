@@ -26,6 +26,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ContextualTrainer, TrainerStep } from "@/components/ui/contextual-trainer"
 
 interface GUIToolEditorProps {
     tool: Tool | null
@@ -695,7 +696,7 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                     </Button>
                 )}
 
-                <Button onClick={handleSaveTool} className="flex items-center gap-2">
+                <Button id="save-tool-btn" onClick={handleSaveTool} className="flex items-center gap-2">
                     <Save className="h-4 w-4" />
                     Save Tool
                 </Button>
@@ -813,6 +814,44 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                 toolId={tool?.id || 0}
                 inputSchema={inputSchema ? JSON.parse(inputSchema) : undefined}
             />
+
+            <ContextualTrainer
+                workflowId="tool_builder_walkthrough_refixed"
+                steps={TOOL_BUILDER_STEPS}
+            />
         </div>
     )
 }
+
+const TOOL_BUILDER_STEPS: TrainerStep[] = [
+    {
+        targetId: "tool-metadata-section",
+        title: "Tool Metadata",
+        content: <p>Start by giving your tool a name, description, and assigning it to a category.</p>,
+        position: "bottom"
+    },
+    {
+        targetId: "tool-selection-section",
+        title: "Select Tools",
+        content: <p>Discover and select functions from your connected MCP servers. You can drag servers from the list or use the Suggest button.</p>,
+        position: "bottom"
+    },
+    {
+        targetId: "pipeline-builder-section",
+        title: "Build Pipeline",
+        content: <p>Describe what you want the tool to do, and the AI will generate a pipeline of steps using the selected functions.</p>,
+        position: "bottom"
+    },
+    {
+        targetId: "dry-run-section",
+        title: "Verify & Text",
+        content: <p>Run a dry run to verify the pipeline works as expected before saving.</p>,
+        position: "top"
+    },
+    {
+        targetId: "save-tool-btn",
+        title: "Save Tool",
+        content: <p>Once verified, save your tool to make it available to agents.</p>,
+        position: "bottom"
+    }
+]

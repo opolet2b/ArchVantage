@@ -15,6 +15,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
+import { FormBuilder } from "@/components/tools/form-builder"
 
 export default function ToolsPage() {
     // Dirty state management
@@ -199,6 +200,17 @@ export default function ToolsPage() {
     // Determine if we should show GUI editor
     const isGUITool = selectedTool?.tool_type === "gui" || (!selectedTool && newToolType === "gui")
 
+    const handleSaveForm = (config: any) => {
+        // Map FormBuilder output to Tool structure
+        const toolData: Partial<Tool> = {
+            name: config.title, // Sync name with form title
+            description: selectedTool?.description || `GUI Form: ${config.title}`,
+            tool_type: "gui",
+            configuration: config
+        }
+        handleSaveTool(toolData)
+    }
+
     // Render the appropriate editor
     const renderEditor = () => {
         if (!selectedTool && !isCreating) {
@@ -206,6 +218,20 @@ export default function ToolsPage() {
                 <div className="flex-1 flex items-center justify-center text-muted-foreground">
                     Select a tool to view details or create a new one
                 </div>
+            )
+        }
+
+        if (isGUITool) {
+            return (
+                <FormBuilder
+                    key={selectedTool?.id || "new-gui"}
+                    initialConfig={selectedTool?.configuration ? {
+                        ...selectedTool.configuration,
+                        title: selectedTool.name // Ensure title syncs with tool name
+                    } : undefined}
+                    onSave={handleSaveForm}
+                    onDirtyChange={setIsDirty}
+                />
             )
         }
 

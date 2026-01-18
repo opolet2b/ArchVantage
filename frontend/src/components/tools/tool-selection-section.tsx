@@ -51,7 +51,7 @@ export function ToolSelectionSection({
     }
 
     return (
-        <div className="space-y-4 p-4 border rounded-lg bg-blue-50/50 dark:bg-blue-900/10 shadow-sm">
+        <div id="tool-selection-section" className="space-y-4 p-4 border rounded-lg bg-blue-50/50 dark:bg-blue-900/10 shadow-sm">
             <div className="flex items-center justify-between">
                 <div>
                     <h3 className="text-lg font-medium">2 - Select MCP Tools</h3>
@@ -66,6 +66,7 @@ export function ToolSelectionSection({
                     disabled={isSuggesting || !description}
                     title={!description ? "Enter a description first" : "Suggest relevant tools based on description"}
                     className="gap-2"
+                    id="suggest-tools-btn"
                 >
                     {isSuggesting ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -78,12 +79,13 @@ export function ToolSelectionSection({
 
             <div className="flex gap-6 h-[500px]">
                 {/* Left: Available Servers */}
-                <div className="w-1/3 flex flex-col gap-2 border-r pr-4">
+                <div id="mcp-server-list" className="w-1/3 flex flex-col gap-2 border-r pr-4">
                     <MCPServerList onDragStart={onDragStart} />
                 </div>
 
                 {/* Right: Drop Zone & Selected Servers */}
                 <div
+                    id="tools-drop-zone"
                     className="flex-1 flex flex-col gap-4 overflow-y-auto p-4 border-2 border-dashed rounded-lg bg-slate-50/50 dark:bg-slate-900/50 transition-colors hover:bg-slate-50 dark:hover:bg-slate-900"
                     onDrop={onDrop}
                     onDragOver={handleDragOver}

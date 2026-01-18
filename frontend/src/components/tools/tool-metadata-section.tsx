@@ -34,7 +34,7 @@ export function ToolMetadataSection({
     const [showPermissions, setShowPermissions] = useState(false)
 
     return (
-        <div className="space-y-4 p-4 border rounded-lg bg-slate-50 dark:bg-slate-900 shadow-sm">
+        <div id="tool-metadata-section" className="space-y-4 p-4 border rounded-lg bg-slate-50 dark:bg-slate-900 shadow-sm">
             <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium">1 - Purpose</h3>
             </div>

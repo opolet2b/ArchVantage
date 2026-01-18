@@ -219,7 +219,7 @@ export function CanvasPalette() {
 
 
     return (
-        <div className="w-64 border-l bg-slate-50/50 dark:bg-slate-900/50 flex flex-col h-full">
+        <div id="canvas-palette" className="w-64 border-l bg-slate-50/50 dark:bg-slate-900/50 flex flex-col h-full">
             <div className="p-4 border-b shrink-0">
                 <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                     <Layout className="h-4 w-4" />

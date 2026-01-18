@@ -113,7 +113,7 @@ export function PipelineBuilderSection({
     }
 
     return (
-        <div className="space-y-4 p-4 border rounded-lg bg-purple-50/50 dark:bg-purple-900/10 shadow-sm">
+        <div id="pipeline-builder-section" className="space-y-4 p-4 border rounded-lg bg-purple-50/50 dark:bg-purple-900/10 shadow-sm">
             <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium">3 - Implement Pipeline</h3>
                 <div className="flex gap-2">
@@ -123,6 +123,7 @@ export function PipelineBuilderSection({
                         onClick={onGenerate}
                         disabled={isGenerating}
                         className="flex items-center gap-2"
+                        id="generate-pipeline-btn"
                     >
                         <Wand2 className="h-4 w-4" />
                         {isGenerating ? "Generating..." : "Generate Pipeline"}
@@ -132,6 +133,7 @@ export function PipelineBuilderSection({
                         onClick={onVerify}
                         disabled={pipeline.length === 0}
                         className="flex items-center gap-2"
+                        id="verify-pipeline-btn"
                     >
                         {isVerified ? <CheckCircle2 className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                         Verify Pipeline
