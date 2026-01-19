@@ -8,7 +8,7 @@ import { PolygonLayer, TextLayer, BitmapLayer, IconLayer, SimpleMeshLayer } from
 import { spacesService, AnalysisSpace } from "@/lib/spaces-service";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/use-toast";
-import { ArrowUp, ArrowDown, Loader2 } from "lucide-react";
+import { ArrowUp, ArrowDown, Loader2, Trash2 } from "lucide-react";
 import { CanvasThumbnailGenerator } from "./canvas-thumbnail-generator";
 import { ArcLayer } from "@deck.gl/layers";
 import {
@@ -23,6 +23,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Canvas } from "../semantic-canvas/canvas-store";
 import { API_URL } from "@/lib/utils";
+import { LinkTypeDialog } from "../semantic-canvas/link-type-dialog";
+import { LinkType } from "../semantic-canvas/canvas-store";
+import { Button } from "@/components/ui/button";
 
 interface SpaceViewerProps {
     spaceId: string;
@@ -200,7 +203,11 @@ const generateTubeFaces = (arcs: any[]) => {
                 sourceName: arc.sourceName,
                 targetName: arc.targetName,
                 sourceCanvasName: arc.sourceCanvasName,
-                targetCanvasName: arc.targetCanvasName
+                targetCanvasName: arc.targetCanvasName,
+                label: arc.label,
+                description: arc.description,
+                originalLinkId: arc.id, // Pass ID
+                originalSourceCanvasId: arc.sourceCanvasId
             });
         }
 
@@ -230,6 +237,15 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
     const [pendingSpaceData, setPendingSpaceData] = useState<AnalysisSpace | null>(null);
 
 
+
+    // Link Editing State
+    const [editingLink, setEditingLink] = useState<{
+        id: string;
+        sourceCanvasId: string;
+        type: LinkType;
+        label: string;
+        description: string;
+    } | null>(null);
 
     // Use text-based or generated icon for arrows to avoid complex mesh imports
     const arrowIconUrl = React.useMemo(() => {
@@ -356,6 +372,35 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
         }
     }, [isProcessing, processingQueue, spaceId]);
 
+    const handleLinkUpdate = async (type: LinkType, label: string, description: string) => {
+        if (!editingLink) return;
+        try {
+            const token = localStorage.getItem("token");
+            const res = await fetch(`${API_URL}/canvases/${editingLink.sourceCanvasId}/links/${editingLink.id}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ type, label, description })
+            });
+
+            if (!res.ok) throw new Error("Failed to update link");
+
+            toast({ title: "Success", description: "Link updated" });
+            setEditingLink(null);
+
+            // Reload space to refresh view
+            // Actually, we need to refresh fullCanvasData because links are there
+            if (space) {
+                fetchFullDetails(space.canvases.map(c => c.id));
+            }
+        } catch (error) {
+            console.error(error);
+            toast({ title: "Error", description: "Failed to update link", variant: "destructive" });
+        }
+    };
+
     const handleMoveUp = async (index: number) => {
         if (!space || index >= space.canvases.length - 1) return; // Already at top
         const newCanvases = [...space.canvases];
@@ -388,6 +433,19 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
             console.error(error);
             toast({ title: "Error", description: "Failed to reorder", variant: "destructive" });
             loadSpace();
+        }
+    };
+
+    const handleRemoveCanvas = async (canvasId: string) => {
+        if (!space) return;
+        try {
+            await spacesService.removeCanvas(space.id, canvasId);
+            toast({ title: "Success", description: "Canvas removed from space" });
+            // Reload space to refresh list and 3D view
+            loadSpace();
+        } catch (error) {
+            console.error(error);
+            toast({ title: "Error", description: "Failed to remove canvas", variant: "destructive" });
         }
     };
 
@@ -682,8 +740,12 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
                     arcs.push({
                         source: start,
                         target: end,
+                        id: link.id, // Pass Link ID link.id
+                        sourceCanvasId: sourceCanvas.id, // Pass Source Canvas ID
                         type: link.type || 'related',
                         label: link.label,
+                        description: link.description, // Pass description
+                        // Use titles if available, otherwise fallback
                         // Use titles if available, otherwise fallback
                         sourceName: thing.title || (thing.content as any)?.title || (thing.content as any)?.text?.slice(0, 20) || "Source",
                         targetName: targetNode.title || (targetNode.content as any)?.title || (targetNode.content as any)?.text?.slice(0, 20) || "Target",
@@ -732,7 +794,44 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
                     if (d) {
                         toast({
                             title: "Link Details",
-                            description: `${d.sourceName} (${d.sourceCanvasName}) ➝ ${d.targetName} (${d.targetCanvasName})`,
+                            description: (
+                                <div className="max-h-[200px] overflow-y-auto pr-2 space-y-2 mt-2">
+                                    <div className="font-medium text-indigo-600">
+                                        {d.sourceName} <span className="text-slate-400 mx-1">→</span> {d.targetName}
+                                    </div>
+                                    <div className="text-xs text-slate-500">
+                                        {d.sourceCanvasName} <span className="mx-1">•</span> {d.targetCanvasName}
+                                    </div>
+                                    {d.label && (
+                                        <div className="text-sm border-l-2 border-indigo-200 pl-2 py-1 bg-slate-50/50 rounded-r">
+                                            <span className="font-semibold text-slate-700 block mb-0.5">Label</span>
+                                            {d.label}
+                                        </div>
+                                    )}
+                                    {d.description && (
+                                        <div className="text-sm border-l-2 border-indigo-200 pl-2 py-1 bg-slate-50/50 rounded-r">
+                                            <span className="font-semibold text-slate-700 block mb-0.5">Description</span>
+                                            {d.description}
+                                        </div>
+                                    )}
+                                    <div className="pt-2">
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="w-full text-xs h-7"
+                                            onClick={() => setEditingLink({
+                                                id: d.originalLinkId,
+                                                sourceCanvasId: d.originalSourceCanvasId,
+                                                type: d.type as LinkType,
+                                                label: d.label,
+                                                description: d.description
+                                            })}
+                                        >
+                                            Edit Link
+                                        </Button>
+                                    </div>
+                                </div>
+                            ),
                         });
                     }
                 },
@@ -822,6 +921,13 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
                                         >
                                             <ArrowDown className="w-3 h-3" />
                                         </button>
+                                        <button
+                                            onClick={() => handleRemoveCanvas(canvas.id)}
+                                            className="p-1 hover:bg-slate-200 hover:text-red-600 rounded"
+                                            title="Remove from Space"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                        </button>
                                     </div>
                                 </div>
                             );
@@ -864,6 +970,20 @@ export function SpaceViewer({ spaceId }: SpaceViewerProps) {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </div>
+
+
+            {editingLink && (
+                <LinkTypeDialog
+                    isOpen={!!editingLink}
+                    mode="edit"
+                    initialType={editingLink.type}
+                    initialLabel={editingLink.label}
+                    initialDescription={editingLink.description}
+                    onClose={() => setEditingLink(null)}
+                    onConfirm={handleLinkUpdate}
+                />
+            )
+            }
+        </div >
     );
 }

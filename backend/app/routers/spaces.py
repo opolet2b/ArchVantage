@@ -147,6 +147,11 @@ def remove_canvas_from_space(
     
     if canvas.analysis_space_id != space_id:
         raise HTTPException(status_code=400, detail="Canvas is not in this space")
+        
+    canvas.analysis_space_id = None
+    db.commit()
+    db.refresh(space)
+    return space
 
 @router.put("/{space_id}/reorder", response_model=AnalysisSpaceResponse)
 def reorder_canvases(

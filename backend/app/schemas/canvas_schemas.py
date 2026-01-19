@@ -201,8 +201,6 @@ class LinkResponse(BaseModel):
     source_id: str
     target_id: str
     type: LinkType
-    target_id: str
-    type: LinkType
     label: Optional[str]
     description: Optional[str] = None
     target_canvas_id: Optional[str] = None

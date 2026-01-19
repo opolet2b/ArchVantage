@@ -12,6 +12,11 @@ except:
     configured_path = None
 
 def find_db():
+    # Prioritize the specific user path
+    user_path = "c:/Users/opole/Downloads/ChatBotn/backend/db/sql_app.db"
+    if os.path.exists(user_path):
+        return user_path
+
     candidates = []
     if configured_path:
         candidates.append(configured_path)
@@ -57,6 +62,14 @@ def add_column():
             print("Column added successfully.")
         else:
             print("Column 'activity_type' already exists.")
+
+        if 'document_template_id' not in columns:
+            print("Adding 'document_template_id' column to 'smart_analysis_templates'...")
+            cursor.execute("ALTER TABLE smart_analysis_templates ADD COLUMN document_template_id VARCHAR NULL;")
+            conn.commit()
+            print("Column 'document_template_id' added successfully.")
+        else:
+            print("Column 'document_template_id' already exists.")
             
     except Exception as e:
         print(f"Error: {e}")

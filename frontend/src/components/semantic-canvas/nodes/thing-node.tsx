@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
-import { CanvasThing, ZoomLevel, useCanvasStore, LinkType } from "../canvas-store";
+import { CanvasThing, ZoomLevel, useCanvasStore, LinkType, CanvasLink } from "../canvas-store";
 import {
     MarkdownViewer,
     SpreadsheetViewer,
@@ -63,6 +63,7 @@ import {
     VectorizationPreviewDialog,
     ChartViewer,
 } from "../viewers";
+import { ExecutionPlanModal } from "../execution-plan-modal";
 import { SlideshowNode } from "./slideshow-node";
 import {
     Dialog,
@@ -499,6 +500,13 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
 
     // External Link State
     const [crossCanvasLinkDialogOpen, setCrossCanvasLinkDialogOpen] = React.useState(false);
+    const [editingExternalLink, setEditingExternalLink] = React.useState<CanvasLink | null>(null);
+
+    const handleUpdateExternalLink = async (type: LinkType, label: string, description: string) => {
+        if (!editingExternalLink) return;
+        await updateLink(editingExternalLink.id, { type, label, description });
+        setEditingExternalLink(null);
+    };
 
     const externalLinks = React.useMemo(() => {
         return links.filter(l => l.source_id === thing.id && l.target_canvas_id && l.target_canvas_id !== canvasId);
@@ -574,6 +582,32 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     // Vectorization Preview Dialog state
     const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false);
     const [previewContent, setPreviewContent] = React.useState<{ title: string, content: string, type: "image_description" | "scanned_pdf" | "text" }>({ title: "", content: "", type: "text" });
+
+    // Execution Plan Modal (Green Brain)
+    const [executionPlanOpen, setExecutionPlanOpen] = React.useState(false);
+
+    // Construct Execution Plan Data safely
+    const executionPlanData = React.useMemo(() => {
+        // Check if we have specific execution_plan in content (future proof)
+        if (thing.content?.execution_plan) return thing.content.execution_plan;
+
+        // Fallback: If we have agent_analysis (stringified JSON)
+        if (thing.content?.agent_analysis) {
+            try {
+                // Try to parse it if it looks like a plan, otherwise specific format
+                // For now, let's create a synthetic plan based on result existence
+                return {
+                    templateName: "Deep Analysis",
+                    nodes: [
+                        { id: "1", type: "extractor", label: "Smart Extractor", status: "completed", details: "Extracted relevant context." },
+                        { id: "2", type: "analyzer", label: "Deep Analyzer", status: "completed", details: "Analysis complete." }
+                    ]
+                };
+            } catch (e) { }
+        }
+        return null;
+    }, [thing.content]);
+
 
     // Handle opening preview
     const handleOpenPreview = async () => {
@@ -2032,6 +2066,16 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
+                                                            setEditingExternalLink(link);
+                                                        }}
+                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-blue-100 text-blue-500 rounded mr-1"
+                                                        title="Edit Link"
+                                                    >
+                                                        <Pencil className="h-3 w-3" />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
                                                             deleteLink(link.id);
                                                         }}
                                                         className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded"
@@ -2177,6 +2221,22 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
 
             {/* Link Target Selection Dialog - REPLACED by CrossCanvasLinkDialog */}
             {/* < Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen} > ... </ Dialog > */}
+            <LinkTypeDialog
+                isOpen={!!editingExternalLink}
+                onClose={() => setEditingExternalLink(null)}
+                onConfirm={handleUpdateExternalLink}
+                onDelete={() => {
+                    if (editingExternalLink) {
+                        deleteLink(editingExternalLink.id);
+                        setEditingExternalLink(null);
+                    }
+                }}
+                initialType={editingExternalLink?.type || "related"}
+                initialLabel={editingExternalLink?.label || ""}
+                initialDescription={editingExternalLink?.description || ""}
+                mode="edit"
+            />
+
             {/* Cascading Deletion Confirmation Dialog */}
             < Dialog open={deleteRegionDialogOpen} onOpenChange={setDeleteRegionDialogOpen} >
                 <DialogContent className="sm:max-w-md nodrag cursor-default">
@@ -2377,6 +2437,23 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             </div>
 
                             {/* Close / Restore Button */}
+                            {/* Green Brain (Deep Analysis Plan) */}
+                            {executionPlanData && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setExecutionPlanOpen(true);
+                                    }}
+                                    title="View Deep Analysis Plan"
+                                >
+                                    <BrainCircuit className="h-4 w-4" />
+                                </Button>
+                            )}
+
+                            {/* Existing Buttons */}
                             <Button
                                 variant="ghost"
                                 size="sm"

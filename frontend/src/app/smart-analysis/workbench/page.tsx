@@ -44,6 +44,10 @@ export default function StudioPage() {
     const [taxonomies, setTaxonomies] = useState<any[]>([]);
     const [selectedTaxonomyId, setSelectedTaxonomyId] = useState<string>("");
 
+    // Document Templates State
+    const [docTemplates, setDocTemplates] = useState<any[]>([]);
+    const [selectedDocTemplateId, setSelectedDocTemplateId] = useState<string>("none");
+
     const searchParams = useSearchParams();
     const templateId = searchParams.get("templateId");
 
@@ -51,17 +55,58 @@ export default function StudioPage() {
         const fetchData = async () => {
             try {
                 // Fetch Presets
-                const resPresets = await fetch(`${API_URL}/config/presets`);
+                const resPresets = await fetch(`${API_URL}/config/presets`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+                });
                 const dataPresets = await resPresets.json();
                 setPresets(dataPresets.presets || []);
 
                 // Fetch Taxonomies
                 let loadedTaxonomies: any[] = [];
-                const resTaxonomies = await fetch(`${API_URL}/smart-templates/taxonomies`);
+                const resTaxonomies = await fetch(`${API_URL}/smart-templates/taxonomies`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+                });
                 if (resTaxonomies.ok) {
                     const dataTaxonomies = await resTaxonomies.json();
                     setTaxonomies(dataTaxonomies);
                     loadedTaxonomies = dataTaxonomies;
+                }
+
+                // Fetch Document Templates Tree
+                const resTree = await fetch(`${API_URL}/templates/tree`, {
+                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+                });
+                if (resTree.ok) {
+                    const treeData = await resTree.json();
+                    // Helper to flatten the tree into a list with full paths
+                    const flatten = (nodes: any[], prefix = ""): any[] => {
+                        let result: any[] = [];
+                        nodes.forEach((n: any) => {
+                            // 1. If it's a template node (e.g. at root), add it
+                            if (n.type === 'template') {
+                                result.push({ ...n, pathName: prefix + n.name });
+                            }
+
+                            // 2. If it's a folder, process its contents
+                            if (n.type === 'folder') {
+                                const folderPath = prefix + n.name + " / ";
+
+                                // Process nested templates in this folder
+                                if (n.templates && Array.isArray(n.templates)) {
+                                    n.templates.forEach((t: any) => {
+                                        result.push({ ...t, pathName: folderPath + t.name });
+                                    });
+                                }
+
+                                // Recurse into subfolders
+                                if (n.children && Array.isArray(n.children)) {
+                                    result = [...result, ...flatten(n.children, folderPath)];
+                                }
+                            }
+                        });
+                        return result;
+                    };
+                    setDocTemplates(flatten(treeData.tree || []));
                 }
 
                 // Fetch Template if ID exists
@@ -108,6 +153,11 @@ export default function StudioPage() {
                         if (matchingTaxonomy) {
                             setSelectedTaxonomyId(matchingTaxonomy.id);
                         }
+
+                        // Set Document Template
+                        if (templateData.document_template_id) {
+                            setSelectedDocTemplateId(templateData.document_template_id);
+                        }
                     } else {
                         toast({ title: "Error", description: "Failed to load template.", variant: "destructive" });
                     }
@@ -118,6 +168,50 @@ export default function StudioPage() {
         };
         fetchData();
     }, [templateId]);
+
+    // Effect to toggle Deep Analysis Mode
+    useEffect(() => {
+        if (selectedDocTemplateId !== "none") {
+            // Deep Analysis Mode: Strict Constraints
+            setSteps((currentSteps) =>
+                currentSteps.map((s) => {
+                    // Always fallback to base fixed step to avoid suffix duplication
+                    const fixed = FIXED_STEPS.find((f) => f.type === s.type) || s;
+
+                    if (s.type === "agent") {
+                        return { ...s, name: "Deep Analyzer", description: "Constraints driven by Document Template." };
+                    }
+                    if (s.type === "visualizer" || s.type === "formatter") {
+                        return {
+                            ...s,
+                            name: fixed.name + " (Skipped)",
+                            description: "Bypassed in Deep Analysis mode.",
+                            enabled: false, // Explicitly disable at root level
+                            config: { ...s.config, disabled: true }
+                        };
+                    }
+                    return s;
+                })
+            );
+        } else {
+            // Reset to Standard
+            setSteps((currentSteps) =>
+                currentSteps.map((s) => {
+                    const fixed = FIXED_STEPS.find((f) => f.type === s.type);
+                    if (fixed) {
+                        return {
+                            ...s,
+                            name: fixed.name,
+                            description: fixed.description,
+                            enabled: true, // Re-enable
+                            config: { ...s.config, disabled: false }
+                        };
+                    }
+                    return s;
+                })
+            );
+        }
+    }, [selectedDocTemplateId]);
 
     const handleUpdateStep = (id: string, updates: Partial<PipelineStep>) => {
         setSteps(steps.map(s => s.id === id ? { ...s, ...updates } : s));
@@ -172,7 +266,8 @@ export default function StudioPage() {
                     steps, // Keep steps for Studio UI re-hydration
                     nodes, // Add Nodes for Canvas/Runtime compatibility
                     edges
-                }
+                },
+                document_template_id: selectedDocTemplateId === "none" ? null : selectedDocTemplateId
             };
 
             const url = templateId
@@ -183,7 +278,10 @@ export default function StudioPage() {
 
             const res = await fetch(url, {
                 method: method,
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`
+                },
                 body: JSON.stringify(payload),
             });
 
@@ -233,6 +331,20 @@ export default function StudioPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
+                    <div className="w-[200px]">
+                        <Select value={selectedDocTemplateId} onValueChange={setSelectedDocTemplateId}>
+                            <SelectTrigger className="h-8 text-xs border-dashed border-slate-300">
+                                <SelectValue placeholder="Select Document Template" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">Standard Analysis (No Template)</SelectItem>
+                                {docTemplates.map(t => (
+                                    <SelectItem key={t.id} value={t.id}>{t.pathName}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
                     <div className="w-[200px]">
                         <Select value={selectedPreset} onValueChange={setSelectedPreset}>
                             <SelectTrigger className="h-8 text-xs">
@@ -296,6 +408,29 @@ export default function StudioPage() {
                                         value={templateMeta.description}
                                         onChange={(e) => setTemplateMeta({ ...templateMeta, description: e.target.value })}
                                     />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="docTemplate">Deep Analysis Template (Optional)</Label>
+                                    <Select
+                                        value={selectedDocTemplateId}
+                                        onValueChange={setSelectedDocTemplateId}
+                                        disabled={selectedDocTemplateId !== "none"}
+                                    >
+                                        <SelectTrigger id="docTemplate">
+                                            <SelectValue placeholder="None (Standard Analysis)" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">None (Standard Analysis)</SelectItem>
+                                            {docTemplates.map((t: any) => (
+                                                <SelectItem key={t.id} value={t.id}>
+                                                    {t.pathName}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-[10px] text-muted-foreground">
+                                        Linking a template forces "Deep Analysis" mode (Strict Constraints).
+                                    </p>
                                 </div>
                             </div>
                             <DialogFooter>

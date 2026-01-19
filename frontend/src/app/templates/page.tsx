@@ -24,7 +24,8 @@ import {
     Sparkles,
     Loader2,
     Palette,
-    Code
+    Code,
+    Upload
 } from "lucide-react";
 import {
     Dialog,
@@ -47,6 +48,7 @@ import {
     parseYamlToSettings,
     settingsToYaml,
 } from "@/components/templates/theme-designer";
+import { TemplateStructureBuilder } from "@/components/templates/structure-builder";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
@@ -94,6 +96,11 @@ export default function TemplatesPage() {
     // LLM models state
     const [llmModels, setLlmModels] = useState<{ name: string, id: string }[]>([]);
     const [selectedLlm, setSelectedLlm] = useState<string>("default");
+
+    // Editor View Mode
+    // Link the "Visual/Code" view mode state
+    const [structureViewMode, setStructureViewMode] = useState<"visual" | "code">("visual");
+    const [templateName, setTemplateName] = useState("");
 
     // Fetch template tree
     const fetchTree = useCallback(async () => {
@@ -191,6 +198,7 @@ export default function TemplatesPage() {
             if (response.ok) {
                 const data = await response.json();
                 setSelectedTemplate(data);
+                setTemplateName(data.name);
 
                 // Parse content into theme and markdown
                 const { yaml, markdown } = parseTemplateContent(data.content || "");
@@ -214,6 +222,7 @@ export default function TemplatesPage() {
                     Authorization: `Bearer ${localStorage.getItem("token")}`,
                 },
                 body: JSON.stringify({
+                    name: templateName,
                     content: mergeContent(),
                 }),
             });
@@ -499,8 +508,12 @@ export default function TemplatesPage() {
                         {/* Editor Header */}
                         <div className="p-3 border-b flex items-center justify-between bg-white dark:bg-slate-900">
                             <div>
-                                <h3 className="font-semibold">{selectedTemplate.name}</h3>
-                                <p className="text-xs text-muted-foreground">{selectedTemplate.path}</p>
+                                <Input
+                                    value={templateName}
+                                    onChange={(e) => setTemplateName(e.target.value)}
+                                    className="font-semibold h-8 text-lg px-2 border-transparent hover:border-slate-200 focus:border-slate-300 w-[300px]"
+                                />
+                                <p className="text-xs text-muted-foreground px-2">{selectedTemplate.path}</p>
                             </div>
                             <div className="flex gap-2 items-center">
                                 {/* LLM Model Selector */}
@@ -559,17 +572,75 @@ export default function TemplatesPage() {
                                     />
                                 </TabsContent>
                                 <TabsContent value="markdown" className="flex-1 p-4 mt-0 overflow-auto">
-                                    <Textarea
-                                        className="w-full h-full min-h-[500px] font-mono text-sm resize-none"
-                                        style={{ fontVariantLigatures: "none" }}
-                                        value={markdownContent}
-                                        onChange={(e) => setMarkdownContent(e.target.value)}
-                                        placeholder={`# {{Title}}
+                                    {/* Sub-toolbar for Visual vs Code */}
+                                    <div className="flex items-center justify-end mb-4 gap-2">
+                                        {structureViewMode === "code" && (
+                                            <>
+                                                <input
+                                                    type="file"
+                                                    accept=".md,.markdown,.txt"
+                                                    className="hidden"
+                                                    id="import-markdown-input"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                            const reader = new FileReader();
+                                                            reader.onload = (event) => {
+                                                                const content = event.target?.result as string;
+                                                                setMarkdownContent(content);
+                                                            };
+                                                            reader.readAsText(file);
+                                                        }
+                                                        // Reset value to allow re-importing same file
+                                                        e.target.value = "";
+                                                    }}
+                                                />
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 text-xs"
+                                                    onClick={() => document.getElementById("import-markdown-input")?.click()}
+                                                >
+                                                    <Upload className="h-3 w-3 mr-1" />
+                                                    Import Markdown
+                                                </Button>
+                                                <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
+                                            </>
+                                        )}
+                                        <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-lg flex text-xs font-medium">
+                                            <button
+                                                className={`px-3 py-1 rounded-md transition-colors ${structureViewMode === "visual" ? "bg-white dark:bg-slate-600 shadow-sm text-slate-900 dark:text-slate-100" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+                                                onClick={() => setStructureViewMode("visual")}
+                                            >
+                                                Visual Builder
+                                            </button>
+                                            <button
+                                                className={`px-3 py-1 rounded-md transition-colors ${structureViewMode === "code" ? "bg-white dark:bg-slate-600 shadow-sm text-slate-900 dark:text-slate-100" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
+                                                onClick={() => setStructureViewMode("code")}
+                                            >
+                                                Raw Markdown
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {structureViewMode === "visual" ? (
+                                        <TemplateStructureBuilder
+                                            markdown={markdownContent}
+                                            onChange={setMarkdownContent}
+                                        />
+                                    ) : (
+                                        <Textarea
+                                            className="w-full h-full min-h-[500px] font-mono text-sm resize-none"
+                                            style={{ fontVariantLigatures: "none" }}
+                                            value={markdownContent}
+                                            onChange={(e) => setMarkdownContent(e.target.value)}
+                                            placeholder={`# {{Title}}
 <!-- INSTRUCTION: Write a title based on the input. -->
 
 ## Section
 <!-- INSTRUCTION: Describe what goes in this section. -->`}
-                                    />
+                                        />
+                                    )}
                                 </TabsContent>
                             </Tabs>
                         </div>

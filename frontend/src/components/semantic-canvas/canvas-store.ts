@@ -771,6 +771,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 body: JSON.stringify({
                     type: updates.type,
                     label: updates.label,
+                    description: updates.description,
                     source_fragment: updates.source_fragment,
                     target_fragment: updates.target_fragment
                 }),

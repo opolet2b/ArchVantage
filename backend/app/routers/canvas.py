@@ -186,6 +186,7 @@ def _enrich_links(db: Session, links: List[CanvasLink]) -> List[Dict[str, Any]]:
             "target_id": link.target_id,
             "type": link.type,
             "label": link.label,
+            "description": link.description,
             "source_fragment": link.source_fragment,
             "target_fragment": link.target_fragment,
             "target_canvas_id": link.target_canvas_id,
@@ -509,6 +510,7 @@ def export_canvas(
             "target_id": l.target_id,
             "type": l.type.value,
             "label": l.label,
+            "description": l.description,
             "source_fragment": l.source_fragment,
             "target_fragment": l.target_fragment
         }

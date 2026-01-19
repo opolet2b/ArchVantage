@@ -6,8 +6,9 @@ import remarkGfm from "remark-gfm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { Book, Settings, Wrench, Bot, GitGraph, FileText } from "lucide-react"
+import { Book, Settings, Wrench, Bot, GitGraph, FileText, LifeBuoy, RefreshCcw } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/components/ui/use-toast"
 
 // Define available help topics and their markdown paths
 const HELP_TOPICS = [
@@ -51,8 +52,18 @@ const HELP_TOPICS = [
         ]
     },
     {
+        id: "smart-analysis",
+        title: "Smart Analysis",
+        icon: FileText,
+        pages: [
+            { id: "sa-overview", title: "Overview", path: "smart-analysis/overview" },
+            { id: "sa-modules", title: "Workbench Modules", path: "smart-analysis/workbench_modules" },
+            { id: "sa-step-config", title: "Step Configuration", path: "smart-analysis/step_configuration" },
+        ]
+    },
+    {
         id: "settings",
-        title: "Settings & Config",
+        title: "Settings",
         icon: Settings,
         pages: [
             { id: "config-name", title: "Configuration", path: "settings/config_name" },
@@ -61,13 +72,11 @@ const HELP_TOPICS = [
         ]
     },
     {
-        id: "smart-analysis",
-        title: "Smart Analysis",
-        icon: FileText,
+        id: "troubleshooting",
+        title: "Troubleshooting",
+        icon: LifeBuoy,
         pages: [
-            { id: "sa-overview", title: "Overview", path: "smart-analysis/overview" },
-            { id: "sa-modules", title: "Workbench Modules", path: "smart-analysis/workbench_modules" },
-            { id: "sa-step-config", title: "Step Configuration", path: "smart-analysis/step_configuration" },
+            { id: "reset-tours", title: "Reset Guided Tours", path: "special/reset-tours" } // special path prefix
         ]
     }
 ]
@@ -77,9 +86,45 @@ export default function HelpPage() {
     const [activePage, setActivePage] = useState(HELP_TOPICS[0].pages[0])
     const [content, setContent] = useState("")
     const [isLoading, setIsLoading] = useState(false)
+    const { toast } = useToast()
+
+    const handleResetTours = () => {
+        // Find keys to remove
+        const keysToRemove = []
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i)
+            if (key && key.startsWith("trainer_dismissed_")) {
+                keysToRemove.push(key)
+            }
+        }
+
+        if (keysToRemove.length === 0) {
+            toast({
+                title: "No Hidden Tours",
+                description: "All guided tours are already active.",
+            })
+            return
+        }
+
+        // Remove keys
+        keysToRemove.forEach(key => localStorage.removeItem(key))
+
+        toast({
+            title: "Tours Reset",
+            description: `Successfully reactivated ${keysToRemove.length} guided tours.`,
+        })
+
+        // Force a small delay then reload to ensure persistence clearing takes effect
+        setTimeout(() => {
+            window.location.reload()
+        }, 1000)
+    }
 
     // Fetch markdown content when page changes
     useEffect(() => {
+        // Skip fetch for special pages
+        if (activePage.path.startsWith("special/")) return
+
         const fetchContent = async () => {
             setIsLoading(true)
             try {
@@ -157,7 +202,30 @@ export default function HelpPage() {
                             <CardTitle className="text-2xl">{activePage.title}</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {isLoading ? (
+                            {activePage.id === "reset-tours" ? (
+                                <div className="space-y-6">
+                                    <div className="prose dark:prose-invert max-w-none text-sm text-foreground">
+                                        <p>
+                                            If you have previously dismissed the interactive guided tours (by checking "Don't show this guide again")
+                                            and would like to see them again, you can reset your preferences here.
+                                        </p>
+                                        <p>
+                                            This will reactivate <strong>all</strong> context guides across the application, including:
+                                        </p>
+                                        <ul>
+                                            <li>Canvas Workspace Tour</li>
+                                            <li>Tool Builder Walkthrough</li>
+                                            <li>Agent Builder Guide</li>
+                                        </ul>
+                                    </div>
+                                    <div className="pt-4 border-t">
+                                        <Button onClick={handleResetTours} className="gap-2">
+                                            <RefreshCcw className="h-4 w-4" />
+                                            Reset All Guided Tours
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : isLoading ? (
                                 <div className="space-y-4 animate-pulse">
                                     <div className="h-4 bg-slate-200 rounded w-3/4"></div>
                                     <div className="h-4 bg-slate-200 rounded w-1/2"></div>

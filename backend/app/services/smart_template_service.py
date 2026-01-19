@@ -835,8 +835,77 @@ class SmartTemplateService:
         print(f"[SmartTemplate] Inputs Model: {inputs.get('model')}")
         
         # 4. Execute
+        pipeline_config_to_use = template.pipeline_config
+        
+        # --- DEEP ANALYSIS INTEGRATION ---
+        if template.document_template_id:
+            print(f"[SmartTemplate] Deep Analysis Mode Detected (DocTemplateID: {template.document_template_id})")
+            from app.services.template_service import template_service
+            from app.models.template import Template as DocTemplate
+            
+            # 1. Fetch Document Template
+            doc_template = db.query(DocTemplate).filter(DocTemplate.id == template.document_template_id).first()
+            if doc_template:
+                # 2. Parse & Validate
+                from app.services.template_parser import template_parser
+                # Use synchronous validate for now or assume content is valid if saved
+                # In a real async flow, we might want to run ai_validate here or during template save.
+                
+                # 3. Construct Deep Analysis Graph (Extractor -> Deep Analyzer)
+                # We dynamically build the graph to enforce the 4-step modification (Visualizer/Formatter disabled)
+                print(f"[SmartTemplate] Building Dynamic Deep Analysis Pipeline...")
+                
+                # Base System Prompt from Blueprint
+                blueprint = template_parser.parse(doc_template.content or "")
+                constraints_text = "\n".join([f"- {c}" for c in blueprint.constraints])
+                sections_text = "\n".join([f"## {s.title}\n" + "\n".join([f"  * INSTRUCTION: {i.text}" for i in s.instructions]) for s in blueprint.sections])
+                
+                deep_system_prompt = f"""You are a Deep Analysis Engine.
+You must strictly follow the provided Template Blueprint.
+
+# BLUEPRINT CONSTRAINTS
+{constraints_text}
+
+# REQUIRED SECTIONS & INSTRUCTIONS
+{sections_text}
+
+# FORMATTING
+Your output must be a Markdown document following the exact structure of the sections above.
+Do not include any other text (like "Here is the report").
+"""
+                # Construct Pipeline
+                # Reuse existing extractor config if available, or default
+                extractor_step = next((s for s in template.pipeline_config.get("steps", []) if "extractor" in s.get("type", "").lower()), None)
+                if not extractor_step:
+                     extractor_step = {
+                         "id": "step_1",
+                         "type": "extractor",
+                         "label": "Smart Extractor",
+                         "config": {"focus": "Relevant data for analysis"} # Default
+                     }
+                
+                # Deep Analyzer Step
+                analyzer_step = {
+                    "id": "step_2",
+                    "type": "analyzer",
+                    "label": "Deep Analyzer",
+                    "config": {
+                        "systemPrompt": deep_system_prompt,
+                        "model": request.model
+                    }
+                }
+                
+                pipeline_config_to_use = {
+                    "steps": [extractor_step, analyzer_step],
+                    "edges": [] # Implicit linear flow in AgentRuntime for 'steps'
+                }
+                print(f"[SmartTemplate] Dynamic Pipeline Configured: Extractor -> Analyzer (System Prompt Len: {len(deep_system_prompt)})")
+                
+            else:
+                 print(f"[SmartTemplate] WARNING: Document Template ID {template.document_template_id} not found in DB.")
+
         blueprint_mock = {
-            "graph": template.pipeline_config,
+            "graph": pipeline_config_to_use,
             "id": template.id
         }
         
@@ -877,6 +946,7 @@ class SmartTemplateService:
                          # The current logic will produce an empty node. 
 
 
+
                     # 1. Identify the *actual* final node (last executed step)
                     target_node_id = full_state.get("last_executed_node") or full_state.get("current_node")
                     
@@ -885,49 +955,93 @@ class SmartTemplateService:
                     thing_content = {"text": "", "markdown": ""}
                     thing_title = f"Analysis: {template.name}"
                     
-                    # Get Current Node info
-                    # Prefer last_executed_node (set by runtime) as current_node might be None (end of flow)
-                    current_node_id = full_state.get("last_executed_node") or full_state.get("current_node")
-                    current_node_params = {}
-                    
-                    if current_node_id and template.pipeline_config:
-                        # Find node in pipeline config
-                        nodes = template.pipeline_config.get("nodes", {})
-                        steps = template.pipeline_config.get("steps", []) # Check for linear steps format
-
-                        # 1. Try "nodes" (Graph format)
-                        if isinstance(nodes, list) and nodes: # Array format
-                             for n in nodes:
-                                 if n.get("id") == current_node_id:
-                                     current_node_params = n.get("data", {}).get("params", {}) or n.get("params", {})
-                                     break
-                        elif isinstance(nodes, dict) and nodes: # Dict format
-                             node_def = nodes.get(current_node_id, {})
-                             current_node_params = node_def.get("data", {}).get("params", {}) or node_def.get("params", {})
+                    # --- DEEP ANALYSIS RESULT HANDLING ---
+                    if template.document_template_id:
+                        print(f"[SmartTemplate] Processing Deep Analysis Result for DocTemplate: {template.document_template_id}")
                         
-                        # 2. Try "steps" (Linear format) if no params found yet
-                        if not current_node_params and isinstance(steps, list):
-                            print(f"[SmartTemplate] Checking {len(steps)} steps for params...")
-                            for s in steps:
-                                if s.get("id") == current_node_id:
-                                    current_node_params = s.get("params", {})
-                                    print(f"[SmartTemplate] Found node in STEPS! Params keys: {current_node_params.keys()}")
-                                    break
+                        # 1. Extract Generated Content
+                        generated_content = ""
+                        if isinstance(current_output, dict):
+                            # Try standard keys first
+                            generated_content = (
+                                current_output.get("generated_markdown") or 
+                                current_output.get("text") or 
+                                current_output.get("content") or 
+                                current_output.get("result") or
+                                str(current_output)
+                            )
+                        else:
+                            generated_content = str(current_output)
                         
-                        if not current_node_params:
-                             print(f"[SmartTemplate] WARNING: Params not found in nodes OR steps for ID: {current_node_id}")
+                        # 2. Enrich Content with Execution Plan
+                        # FE expects 'execution_plan' in content to show Green Brain
+                        # Runtime returns 'steps' in the final result object
+                        execution_plan = final_result.get("steps") or full_state.get("execution_plan") or []
+                        
+                        thing_content = {
+                            "text": generated_content,
+                            "markdown": generated_content,
+                            "execution_plan": execution_plan,
+                            "agent_analysis": execution_plan, # Legacy/Safety
+                            "is_deep_analysis": True
+                        }
+                        
+                        # Set default title if empty
+                        if not thing_title:
+                            thing_title = f"Deep Analysis: {template.name}"
+                            
+                        # Skip standard resolution
+                        print(f"[SmartTemplate] Deep Analysis Content Prepared. Length: {len(generated_content)}")
+                        
+                        # (Optional) Verify we have what we need
+                        if not execution_plan:
+                            print("[SmartTemplate] WARNING: No execution_plan found in full_state for Deep Analysis!")
 
-                    print(f"[SmartTemplate] Final Node Params: {current_node_params.keys()}")
+                    # --- STANDARD ANALYSIS HANDLING (Legacy) ---
+                    else:
+                        # Get Current Node info
+                        # Prefer last_executed_node (set by runtime) as current_node might be None (end of flow)
+                        current_node_id = full_state.get("last_executed_node") or full_state.get("current_node")
+                        current_node_params = {}
+                        
+                        if current_node_id and template.pipeline_config:
+                            # Find node in pipeline config
+                            nodes = template.pipeline_config.get("nodes", {})
+                            steps = template.pipeline_config.get("steps", []) # Check for linear steps format
 
-                    # Helper to resolve format from DB or string
-                    def resolve_fmt_type(fmt_val):
-                        if not fmt_val: return None, None
-                        # Try DB lookup if it looks like a UUID (len 36)
-                        if len(str(fmt_val)) == 36:
-                             fmt_obj = db.query(models.SmartOutputFormat).filter(models.SmartOutputFormat.id == str(fmt_val)).first()
-                             if fmt_obj:
-                                 return fmt_obj.type.lower(), fmt_obj.extension.lower()
-                        return "unknown", str(fmt_val).lower()
+                            # 1. Try "nodes" (Graph format)
+                            if isinstance(nodes, list) and nodes: # Array format
+                                 for n in nodes:
+                                     if n.get("id") == current_node_id:
+                                         current_node_params = n.get("data", {}).get("params", {}) or n.get("params", {})
+                                         break
+                            elif isinstance(nodes, dict) and nodes: # Dict format
+                                 node_def = nodes.get(current_node_id, {})
+                                 current_node_params = node_def.get("data", {}).get("params", {}) or node_def.get("params", {})
+                            
+                            # 2. Try "steps" (Linear format) if no params found yet
+                            if not current_node_params and isinstance(steps, list):
+                                print(f"[SmartTemplate] Checking {len(steps)} steps for params...")
+                                for s in steps:
+                                    if s.get("id") == current_node_id:
+                                        current_node_params = s.get("params", {})
+                                        print(f"[SmartTemplate] Found node in STEPS! Params keys: {current_node_params.keys()}")
+                                        break
+                            
+                            if not current_node_params:
+                                 print(f"[SmartTemplate] WARNING: Params not found in nodes OR steps for ID: {current_node_id}")
+
+                        print(f"[SmartTemplate] Final Node Params: {current_node_params.keys()}")
+
+                        # Helper to resolve format from DB or string
+                        def resolve_fmt_type(fmt_val):
+                            if not fmt_val: return None, None
+                            # Try DB lookup if it looks like a UUID (len 36)
+                            if len(str(fmt_val)) == 36:
+                                 fmt_obj = db.query(models.SmartOutputFormat).filter(models.SmartOutputFormat.id == str(fmt_val)).first()
+                                 if fmt_obj:
+                                     return fmt_obj.type.lower(), fmt_obj.extension.lower()
+                            return "unknown", str(fmt_val).lower()
 
                     # 3. Parameter-Based Type Resolution
                     

@@ -1861,7 +1861,7 @@ function CanvasViewInner() {
         <div className="h-full w-full flex flex-col relative">
             {/* Canvas Header with Model Selector */}
             <div className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0">
-                <div className="flex items-center">
+                <div id="canvas-model-selectors" className="flex items-center">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Brain className="h-4 w-4" />
                         <span>Model:</span>
@@ -2279,6 +2279,12 @@ const CANVAS_TRAINER_STEPS: TrainerStep[] = [
         title: "Tools & Palette",
         content: <p>Drag and drop items from here to create content on your canvas, including Notes, URLs, and new Conversations.</p>,
         position: "left"
+    },
+    {
+        targetId: "canvas-model-selectors",
+        title: "AI & Vision Models",
+        content: <p>Select which AI models to use for this canvas. You can choose different models for text generation (LLM) and image analysis (Vision).</p>,
+        position: "bottom"
     },
     {
         targetId: "canvas-area",
