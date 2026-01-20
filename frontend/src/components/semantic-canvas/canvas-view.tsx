@@ -1129,6 +1129,14 @@ function CanvasViewInner() {
                     setPendingDropPos(position);
                     setShowMCPToolDialog(true);
                     break;
+                case "archimate_tool":
+                    await addThing(
+                        "archimate_tool",
+                        {},
+                        position,
+                        "ArchiMate Importer"
+                    );
+                    break;
             }
             return;
         }

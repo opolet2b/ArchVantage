@@ -17,6 +17,10 @@ from app.services.agent_primitives.llm_decision import LLMDecisionPrimitive
 from app.services.agent_primitives.extractor import ExtractorPrimitive
 from app.services.agent_primitives.document_converter import DocumentConverterPrimitive
 from app.services.agent_primitives.llm_generation import LLMGenerationPrimitive
+from app.services.agent_primitives.planner import PlannerPrimitive
+from app.services.agent_primitives.compiler import CompilerPrimitive
+from app.services.agent_primitives.auditor import AuditorPrimitive
+from app.services.agent_primitives.refiner import RefinerPrimitive
 
 # Registry of all available primitives
 PRIMITIVE_REGISTRY = {
@@ -32,6 +36,10 @@ PRIMITIVE_REGISTRY = {
     "DOCUMENT_CONVERTER": DocumentConverterPrimitive,
     "EXTRACTOR": ExtractorPrimitive,
     "LLM_GENERATION": LLMGenerationPrimitive,
+    "PLANNER": PlannerPrimitive,
+    "COMPILER": CompilerPrimitive,
+    "AUDITOR": AuditorPrimitive,
+    "REFINER": RefinerPrimitive,
     # Legacy aliases
     "AGENT": LLMGenerationPrimitive,
     "ANALYZER": LLMGenerationPrimitive,

@@ -37,7 +37,8 @@ export type ToolType =
     | "domain"
     | "conversation"
     | "import_conversation"
-    | "mcp_tool";
+    | "mcp_tool"
+    | "archimate_tool";
 
 export interface CanvasTool {
     id: ToolType;
@@ -104,6 +105,12 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         name: "MCP Tool",
         icon: <Server className="h-4 w-4" />,
         description: "Connect to external tools"
+    },
+    {
+        id: "archimate_tool",
+        name: "ArchiMate Tool",
+        icon: <Import className="h-4 w-4" />,
+        description: "Import ArchiMate XML"
     },
 
 ];

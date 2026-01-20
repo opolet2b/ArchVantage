@@ -912,32 +912,138 @@ Your output must be a Markdown document following the exact structure of the sec
 Do not include any other text (like "Here is the report").
 """
                 # Construct Pipeline
-                # Reuse existing extractor config if available, or default
+                # Reuse existing extractor config for Step 1 (Shared)
                 extractor_step = next((s for s in template.pipeline_config.get("steps", []) if "extractor" in s.get("type", "").lower()), None)
                 if not extractor_step:
                      extractor_step = {
-                         "id": "step_1",
+                         "id": "step_1_extractor",
                          "type": "extractor",
-                         "label": "Smart Extractor",
-                         "config": {"focus": "Relevant data for analysis"} # Default
+                         "label": "Context Loader",
+                         "config": {"focus": "Relevant data for analysis"}
                      }
+                else:
+                     extractor_step["id"] = "step_1_extractor"
+                     extractor_step["label"] = "Context Loader (Shared)"
+
+                # Step 2: Planner
+                planner_step = {
+                    "id": "step_2_planner",
+                    "type": "PLANNER",
+                    "label": "Deep Planner",
+                    "params": {
+                        "template": doc_template.content,
+                        "context": "{{ variables.step_1_extractor }}",
+                        "target_variable": "research_plan"
+                    }
+                }
+
+                # Step 3: Loop (Research & Write)
+                # Inner Sub-Graph
+                inner_researcher = {
+                    "id": "sec_researcher",
+                    "type": "EXTRACTOR", # Use Extractor as Researcher
+                    "label": "Section Researcher",
+                    "params": {
+                        "instruction": "Focus: {{ variables.section_item.focus }}\n\nTask: Extract all information relevant to this focus.",
+                        "source_text": "{{ variables.step_1_extractor }}", # Use global context
+                        "target_variable": "section_findings"
+                    }
+                }
+                inner_writer = {
+                    "id": "sec_writer",
+                    "type": "LLM_GENERATION",
+                    "label": "Section Writer",
+                    "params": {
+                        "system_prompt": "You are a Report Writer. Write the designated section based on the findings.",
+                        "prompt": """
+SECTION TITLE: {{ variables.section_item.title }}
+INSTRUCTION: {{ variables.section_item.instruction }}
+
+RESEARCH FINDINGS:
+{{ variables.section_findings }}
+
+TASK: Write the full text for this section (Markdown). 
+CRITICAL: You MUST start your response with the exact Header:
+# {{ variables.section_item.title }}
+(Adjust # based on hierarchy if needed, but the Title Text must be exact).
+""",
+                        "target_variable": "section_output",
+                        "output_format": "markdown"
+                    }
+                }
+                sub_graph = {
+                    "nodes": [inner_researcher, inner_writer],
+                    "edges": [{"source": "sec_researcher", "target": "sec_writer"}]
+                }
                 
-                # Deep Analyzer Step
-                analyzer_step = {
-                    "id": "step_2",
-                    "type": "analyzer",
-                    "label": "Deep Analyzer",
-                    "config": {
-                        "systemPrompt": deep_system_prompt,
-                        "model": request.model
+                loop_step = {
+                    "id": "step_3_loop",
+                    "type": "FOREACH",
+                    "label": "Deep Research Loop",
+                    "params": {
+                        "items": "research_plan",
+                        "iterator_var": "section_item",
+                        "subprocess_graph": sub_graph,
+                        "output_variable": "section_reports" 
+                    }
+                }
+
+                # Step 4: Compiler
+                compiler_step = {
+                     "id": "step_4_compiler",
+                     "type": "COMPILER",
+                     "label": "Document Compiler",
+                     "params": {
+                         "sections": "section_reports",
+                         "plan_variable": "research_plan",
+                         "target_variable": "compiled_draft"
+                     }
+                }
+
+                # Step 5: Auditor
+                auditor_step = {
+                    "id": "step_5_auditor",
+                    "type": "AUDITOR",
+                    "label": "Quality Auditor",
+                    "params": {
+                        "document": "{{ variables.compiled_draft }}",
+                        "template": doc_template.content,
+                        "target_variable": "audit_result"
                     }
                 }
                 
-                pipeline_config_to_use = {
-                    "steps": [extractor_step, analyzer_step],
-                    "edges": [] # Implicit linear flow in AgentRuntime for 'steps'
+                # Step 6: Refiner (Conditional)
+                refiner_step = {
+                    "id": "step_6_refiner",
+                    "type": "REFINER",
+                    "label": "Refiner",
+                    "params": {
+                        "document": "{{ variables.compiled_draft }}",
+                        "critique": "{{ variables.audit_result.critique }}",
+                        "context": "{{ variables.step_1_extractor }}",
+                        "target_variable": "final_document"
+                    }
                 }
-                print(f"[SmartTemplate] Dynamic Pipeline Configured: Extractor -> Analyzer (System Prompt Len: {len(deep_system_prompt)})")
+
+                # Edges
+                edges = [
+                    {"source": "step_1_extractor", "target": "step_2_planner"},
+                    {"source": "step_2_planner", "target": "step_3_loop"},
+                    {"source": "step_3_loop", "target": "step_4_compiler"},
+                    {"source": "step_4_compiler", "target": "step_5_auditor"},
+                    # Conditional Edge: If Rejected -> Refiner
+                    {
+                        "source": "step_5_auditor",
+                        "condition": "'approved' not in str(variables.get('audit_result', {}).get('status', '')).lower()",
+                        "target": "step_6_refiner"
+                    }
+                ]
+                
+                pipeline_config_to_use = {
+                    "nodes": [extractor_step, planner_step, loop_step, compiler_step, auditor_step, refiner_step],
+                    "edges": edges
+                }
+                print(f"[SmartTemplate] Dynamic Pipeline Configured: Deep Research Flow (Nodes: {len(pipeline_config_to_use['nodes'])})")
                 
             else:
                  print(f"[SmartTemplate] WARNING: Document Template ID {template.document_template_id} not found in DB.")
@@ -1002,17 +1108,27 @@ Do not include any other text (like "Here is the report").
                         
                         # 1. Extract Generated Content
                         generated_content = ""
-                        if isinstance(current_output, dict):
-                            # Try standard keys first
-                            generated_content = (
-                                current_output.get("generated_markdown") or 
-                                current_output.get("text") or 
-                                current_output.get("content") or 
-                                current_output.get("result") or
-                                str(current_output)
-                            )
-                        else:
-                            generated_content = str(current_output)
+                        
+                        # Check deep analysis variables first (Refiner > Compiler)
+                        variables = full_state.get("variables", {})
+                        if "final_document" in variables and isinstance(variables["final_document"], str):
+                             generated_content = variables["final_document"]
+                        elif "compiled_draft" in variables and isinstance(variables["compiled_draft"], str):
+                             generated_content = variables["compiled_draft"]
+
+                        # Fallback to standard output keys if not found
+                        if not generated_content:
+                            if isinstance(current_output, dict):
+                                # Try standard keys first
+                                generated_content = (
+                                    current_output.get("generated_markdown") or 
+                                    current_output.get("text") or 
+                                    current_output.get("content") or 
+                                    current_output.get("result") or
+                                    str(current_output)
+                                )
+                            else:
+                                generated_content = str(current_output)
                         
                         # 2. Enrich Content with Execution Plan
                         # FE expects 'execution_plan' in content to show Green Brain

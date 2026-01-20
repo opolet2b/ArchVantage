@@ -235,6 +235,12 @@ ANALYSIS INSTRUCTIONS:
 OUTPUT REQUIREMENT:
 Do not write a standard text report. Capture your analysis findings, summary, and sections into the following JSON schema.
 
+CRITICAL QUALITY RULES:
+1. DETAIL IS PARAMOUNT: Do not summarize if detail is available. The user wants a deep, 70-page equivalent analysis, not a 1-page summary.
+2. USE EVIDENCE: Cite specific findings from the Data Context.
+3. BE EXHAUSTIVE: If the instructions ask for "Risk Analysis", provide a full breakdown of risks, impacts, and mitigations.
+4. "formatted_output" should contains the FULL, RICH MARKDOWN content for this section.
+
 CRITICAL: The instructions likely ask for a specific visual format (e.g. "Desired Output: Markdown Table").
 You MUST place this formatted text (Markdown Table, List, etc.) into the 'formatted_output' field. Do NOT leave it null.
 
@@ -346,24 +352,39 @@ Schema:
                         # 1. Try 'analysis_results.formatted_output' (Standard)
                         ar = agent_output_data.get("analysis_results", {})
                         if isinstance(ar, dict):
+                            # COMBINED OUTPUT: Construct comprehensive Markdown
+                            # We want Summary + Sections + Formatted Output (if any)
+                            
+                            # 1. Start with Summary
+                            fallback_md = ""
+                            if ar.get("summary"):
+                                fallback_md += f"### Summary\n{ar.get('summary')}\n\n"
+                            
+                            # 2. Add Formatted Output (Tables, Code, etc.)
                             if ar.get("formatted_output"):
-                                final_content_str = ar.get("formatted_output")
-                            # FALLBACK: Construct Markdown from Structured Data
-                            elif ar.get("summary") or ar.get("sections"):
-                                print(f"[LLM_PRIM] Missing 'formatted_output'. Constructing fallback Markdown.")
-                                fallback_md = f"# Analysis Report\n\n**Summary**\n{ar.get('summary', 'No summary provided.')}\n\n"
+                                fallback_md += f"{ar.get('formatted_output')}\n\n"
                                 
-                                sections = ar.get("sections", [])
-                                if isinstance(sections, list):
-                                    for s in sections:
-                                        if isinstance(s, dict):
-                                            title = s.get("title", "Section")
-                                            fallback_md += f"## {title}\n"
-                                            for finding in s.get("findings", []):
+                            # 3. Add Detailed Sections
+                            sections = ar.get("sections", [])
+                            if isinstance(sections, list):
+                                for s in sections:
+                                    if isinstance(s, dict):
+                                        title = s.get("title", "Analysis")
+                                        fallback_md += f"#### {title}\n"
+                                        
+                                        # Findings
+                                        findings = s.get("findings", [])
+                                        if findings:
+                                            for finding in findings:
                                                 fallback_md += f"- {finding}\n"
-                                            fallback_md += "\n"
-                                
-                                final_content_str = fallback_md
+                                        fallback_md += "\n"
+                                        
+                                        # Evidence?
+                                        evidence = s.get("supporting_evidence", [])
+                                        if evidence:
+                                            fallback_md += f"*(Evidence: {', '.join(evidence)})*\n\n"
+                            
+                            final_content_str = fallback_md
                         
                         # 2. Try direct keys
                         elif agent_output_data.get("formatted_output"):

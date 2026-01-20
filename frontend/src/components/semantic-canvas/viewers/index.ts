@@ -21,3 +21,5 @@ export { useAnalyze } from "./use-analyze";
 export { VectorizationPreviewDialog } from "./vectorization-preview-dialog";
 export type { Fragment, TextFragment, CellFragment, RegionFragment, MessageFragment } from "./types";
 export type { LLMAction } from "./selection-toolbar";
+export { ArchiMateToolViewer } from "./archimate-tool-viewer";
+export { ArchiMateElementViewer } from "./archimate-element-viewer";

@@ -68,20 +68,30 @@ class PDFService:
                         if obj.type == 3: # Image
                             image_count += 1
                         elif obj.type == 2: # Path
+                            # Heuristic: Filter out simple lines (separators, table borders)
+                            # Get bounding box
+                            bbox = obj.get_pos() # (left, bottom, right, top)
+                            if bbox:
+                                width = abs(bbox[2] - bbox[0])
+                                height = abs(bbox[3] - bbox[1])
+                                
+                                # Ignore checks:
+                                # 1. Very thin lines (horizontal or vertical) < 3 points
+                                # 2. Very small dots < 2x2 points
+                                if (width < 3 or height < 3) or (width < 2 and height < 2):
+                                    continue
+                                    
                             path_count += 1
                             
                     # Heuristic: 
-                    # - Any image is worth checking (unless it's a tiny icon? Hard to tell size without detailed analysis)
-                    # - Many paths (>10) suggests a chart/graph.
-                    # FIX: Increased threshold to avoid triggering on logos/icons (single images).
-                    # Now requires at least 2 images OR significant vector paths.
-                    if image_count > 2 or path_count > 15:
+                    # - Any image is worth checking? No, increase to > 2 to avoid logos.
+                    # - Significant paths (>15 was too low for tables).
+                    # - FIX: Only trigger if > 50 significant paths (complex charts) OR > 2 images.
+                    if image_count > 2 or path_count > 50:
                         visual_pages.append(i)
                         
                 except Exception as e:
                     print(f"[PDFService] Error inspecting page {i}: {e}")
-                    # If inspection fails (e.g. encrypted), assume visual to be safe?
-                    # Or skip? Let's skip to be safe.
                     pass
                     
             print(f"[PDFService] Identified {len(visual_pages)}/{len(pdf)} visual pages in {file_path}")

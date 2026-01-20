@@ -57,6 +57,8 @@ class ThingType(str, Enum):
     URL = "url"
     SLIDESHOW = "slideshow"
     MCP_TOOL = "mcp_tool"
+    ARCHIMATE_TOOL = "archimate_tool"
+    ARCHIMATE_ELEMENT = "archimate_element"
 
 
 class RAGStatus(str, Enum):

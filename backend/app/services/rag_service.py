@@ -36,9 +36,11 @@ class RAGService:
         from app.services.config_service import config_service
         self.config_service = config_service
         
+        self.init_error = None
         self._initialize_rag()
 
     def _initialize_rag(self):
+        self.init_error = None # Clear previous error
         try:
             # Load RAG Config
             config = self.config_service.get_config()
@@ -87,22 +89,25 @@ class RAGService:
                     
                     # specific args for OpenAI
                     embed_args = {
-                        "model": model,
-                        "api_key": api_key
+                        "model_name": model,
                     }
+                    if api_key:
+                        embed_args["api_key"] = api_key
                     if api_base:
                         embed_args["api_base"] = api_base
                         
                     Settings.embed_model = OpenAIEmbedding(**embed_args)
                     print(f"[RAGService] Configured OpenAI Embedding: {model}")
                 except ImportError:
-                    print("[RAGService] Error: OpenAI provider selected but `llama-index-embeddings-openai` not installed. RAG features disabled.")
-                    # Do not fallback to Ollama for remote configurations
+                    msg = "OpenAI provider selected but `llama-index-embeddings-openai` not installed."
+                    print(f"[RAGService] Error: {msg}")
+                    self.init_error = msg
                     self.index = None
                     return
                 except Exception as e:
-                    print(f"[RAGService] Error configuring OpenAI: {e}. RAG features disabled.")
-                     # Do not fallback to Ollama for remote configurations
+                    msg = f"Error configuring OpenAI Embedding: {str(e)}"
+                    print(f"[RAGService] {msg}")
+                    self.init_error = msg
                     self.index = None
                     return
             else:
@@ -186,8 +191,11 @@ class RAGService:
             
             self._initialized = True
         except Exception as e:
+            self.init_error = f"Initialization Exception: {str(e)}"
             print(f"RAGService initialization failed: {e}")
             print("RAG features will be disabled.")
+            import traceback
+            traceback.print_exc()
             self.chroma_client = None
             self.chroma_collection = None
             self.vector_store = None
@@ -213,6 +221,7 @@ class RAGService:
             )
         except Exception as e:
             print(f"[RAGService] Failed to configure Ollama: {e}")
+            self.init_error = f"Ollama Configuration Failed: {e}"
             # Fallback to local default?
 
 
@@ -249,8 +258,9 @@ class RAGService:
         print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, Vision: {enable_vision})")
         
         if self.index is None:
-             print("[RAGService] Ingestion blocked: RAG Index is not initialized.")
-             return {"status": "error", "error": "RAG Service is not initialized. Please check your Embedding Model settings or API Key."}
+             error_msg = self.init_error or "RAG Service is not initialized. Please check your Embedding Model settings or API Key."
+             print(f"[RAGService] Ingestion blocked: {error_msg}")
+             return {"status": "error", "error": error_msg}
 
         try:
             # Check magic bytes for legacy OLE files first

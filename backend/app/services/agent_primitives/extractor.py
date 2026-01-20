@@ -86,6 +86,7 @@ class ExtractorPrimitive(BasePrimitive):
         target_variable = params.get("target_variable")
         schema = params.get("schema", {})
         model = variables.get("model") or params.get("model", "gpt-4o")
+        extraction_mode = "semantic" # Default initialization to prevent UnboundLocalError
 
         # 3. Resolve Source Text
         source_text = params.get("source_text")
@@ -261,6 +262,8 @@ CRITICAL INSTRUCTIONS:
 1. You MUST return a valid JSON object matching 'ExtractorOutput'.
 2. The 'extracted_elements' list must contain items where 'source_id' matches the Asset ID provided in the text.
 3. 'content_type' should be 'text' unless specific images/tables are extracted.
+4. EXHAUSTIVE EXTRACTION REQUIRED: Do not summarize. Extract ALL relevant details, quotes, and data points that support the user's focus.
+5. Better to extract too much than too little. The downstream writer needs deep detail.
 """
 
             # Mode-Specific Instructions

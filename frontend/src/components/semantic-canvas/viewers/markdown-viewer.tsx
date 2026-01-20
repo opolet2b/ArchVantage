@@ -33,6 +33,15 @@ interface MarkdownViewerProps {
 // Markdown Viewer Component
 // =============================================================================
 
+// React Flow and Store imports
+import { useReactFlow } from "reactflow";
+import { useCanvasStore } from "../canvas-store";
+import { ExternalLink } from "lucide-react";
+
+// =============================================================================
+// Markdown Viewer Component
+// =============================================================================
+
 export function MarkdownViewer({
     content,
     onSelect,
@@ -41,6 +50,14 @@ export function MarkdownViewer({
 }: MarkdownViewerProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const lastMousePos = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+    // React Flow hooks for camera control
+    // Note: useReactFlow must be used within ReactFlowProvider. 
+    // If MarkdownViewer is used outside, this might throw or return null.
+    // Assuming context availability given its usage in ThingNode.
+    const { fitView } = useReactFlow();
+    const selectThing = useCanvasStore(state => state.selectThing);
+    const things = useCanvasStore(state => state.things);
 
     // Track mouse position for toolbar placement
     const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
@@ -80,6 +97,13 @@ export function MarkdownViewer({
         onSelect(fragment, position);
     }, [onSelect, selectionEnabled]);
 
+    // Pre-process content to make Evidence citations clickable
+    const processedContent = React.useMemo(() => {
+        if (!content) return "";
+        // Replace (Evidence: <uuid>) with [Evidence: <uuid>](#evidence-<uuid>)
+        return content.replace(/\(Evidence:\s*([a-f0-9-]+)\)/gi, "[Evidence: $1](#evidence-$1)");
+    }, [content]);
+
     return (
         <div
             ref={containerRef}
@@ -101,10 +125,40 @@ export function MarkdownViewer({
                         if (!props.src) return null;
                         // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
                         return <img {...props} />;
+                    },
+                    a: ({ href, children, ...props }) => {
+                        if (href?.startsWith("#evidence-")) {
+                            const evidenceId = href.replace("#evidence-", "");
+                            const thing = things.find(t => t.id === evidenceId);
+                            const label = thing?.title || "Evidence";
+
+                            return (
+                                <button
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        console.log("Zooming to Evidence:", evidenceId);
+                                        // Trigger Zoom and Select
+                                        try {
+                                            selectThing(evidenceId);
+                                            fitView({ nodes: [{ id: evidenceId }], duration: 800, padding: 0.2 });
+                                        } catch (err) {
+                                            console.warn("Failed to zoom to evidence (provider missing?):", err);
+                                        }
+                                    }}
+                                    title={`Jump to Source: ${label}`}
+                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors mx-1 cursor-pointer align-baseline border border-blue-200 dark:border-blue-800"
+                                >
+                                    <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                    <span className="truncate max-w-[150px]">{label}</span>
+                                </button>
+                            );
+                        }
+                        return <a href={href} {...props}>{children}</a>;
                     }
                 }}
             >
-                {content}
+                {processedContent}
             </ReactMarkdown>
         </div>
     );

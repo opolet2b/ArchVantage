@@ -28,7 +28,9 @@ export type ThingType =
     | "agent_result"
     | "url"
     | "slideshow"
-    | "mcp_tool";
+    | "mcp_tool"
+    | "archimate_tool"
+    | "archimate_element";
 
 /**
  * Types of relationships between things.

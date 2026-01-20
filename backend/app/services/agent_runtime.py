@@ -315,7 +315,22 @@ class AgentRuntime:
         for edge in edges:
             condition = edge.condition if hasattr(edge, 'condition') else edge.get('condition')
             if condition:
-                # TODO: Evaluate condition
+                # Evaluate condition
+                try:
+                    # Create safe eval context
+                    # Expose 'result' (PrimitiveResult output) and 'variables' (State)
+                    eval_ctx = {
+                        "result": result.output if result else {}, 
+                        "variables": state.get("variables", {})
+                    }
+                    # Basic safety: No builtins
+                    if eval(condition, {"__builtins__": {}}, eval_ctx):
+                        print(f"[RUNTIME] Condition matched: '{condition}' -> {edge.target}")
+                        return edge.target if hasattr(edge, 'target') else edge.get('target')
+                except Exception as e:
+                    print(f"[RUNTIME] Condition evaluation failed for '{condition}': {e}")
+                
+                # Fallthrough behavior
                 pass
             else:
                 # Unconditional edge
@@ -498,9 +513,85 @@ class AgentRuntime:
                         if not key.startswith('_'):
                             state["variables"][key] = value
                 state["current_output"] = result.output
+
+            # --- FOREACH SUB-GRAPH EXECUTION ---
+            if result.success and isinstance(result.output, dict) and "_foreach_subprocess" in result.output:
+                try:
+                    subprocess_def = result.output["_foreach_subprocess"]
+                    items = result.output.get("_foreach_items", [])
+                    iterator_var = result.output.get("_foreach_iterator", "item")
+                    index_var = result.output.get("_foreach_index", "index")
+                    
+                    # Find target output variable (key that is not internal)
+                    target_output_var = next((k for k in result.output.keys() if not k.startswith("_")), "foreach_results")
+                    
+                    print(f"[RUNTIME] executing ForEach Sub-Graph for {len(items)} items...")
+                    
+                    subprocess_results = []
+                    subprocess_histories = [] # Capture sub-histories for visualization
+                    
+                    for idx, item in enumerate(items):
+                         # Prepare Sub-State
+                         # Inherit variables from parent
+                         sub_inputs = state["variables"].copy() 
+                         sub_inputs[iterator_var] = item
+                         sub_inputs[index_var] = idx
+                         
+                         # Create temporary Blueprint for sub-runtime
+                         sub_blueprint = {"graph": subprocess_def}
+                         
+                         # Instantiate Sub-Runtime
+                         # We use the same DB session
+                         sub_runtime = AgentRuntime(sub_blueprint, self.db)
+                         
+                         # Execute recursively
+                         # We use execute() to await completion (blocking the parent step)
+                         sub_res = await sub_runtime.execute(sub_inputs)
+                         
+                         # Collect outputs
+                         item_out = sub_res.get("outputs", {})
+                         
+                         # DEBUG: Force capture of all new variables if outputs is empty
+                         if not item_out and sub_res.get("execution_state"):
+                             print(f"[RUNTIME DEBUG] Sub-process outputs empty. Attempting to harvest new variables manually.")
+                             final_vars = sub_res.get("execution_state", {})
+                             item_out = {
+                                 k: v for k, v in final_vars.items() 
+                                 if k not in sub_inputs and not k.startswith("_")
+                             }
+                             print(f"[RUNTIME DEBUG] Harvested: {list(item_out.keys())}")
+                         
+                         print(f"[RUNTIME DEBUG] Loop Iteration {idx} Outputs: {list(item_out.keys())}")
+                         subprocess_results.append(item_out)
+                         
+                         # Collect History
+                         item_history = sub_res.get("full_state", {}).get("history", [])
+                         subprocess_histories.append(item_history)
+                         
+                    # Update Parent State with Aggregated Results
+                    state["variables"][target_output_var] = subprocess_results
+                    state["variables"]["_debug_foreach_last"] = subprocess_results # DEBUG ARTIFACT
+                    
+                    state["current_output"] = result.output 
+                    result.output[target_output_var] = subprocess_results
+                    result.output["_foreach_subhistories"] = subprocess_histories
+                    
+                    print(f"[RUNTIME] ForEach Complete. Aggregated {len(subprocess_results)} results into '{target_output_var}'.")
+
+                except Exception as e:
+                    print(f"[RUNTIME] ForEach Sub-Execution Failed: {e}")
+                    state["error"] = f"ForEach Execution Error: {str(e)}"
+                    yield {"type": "error", "content": str(e)}
+                    break
+            # -----------------------------------
             
+            # Retrieve node definition for history
+            current_node_def = self.nodes.get(current_node)
+
             state["history"].append({
                 "node": current_node,
+                "label": current_node_def.get("label") if current_node_def else "",
+                "type": current_node_def.get("type") if current_node_def else "",
                 "success": result.success,
                 "output": result.output,
                 "error": result.error
