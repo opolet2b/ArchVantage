@@ -27,3 +27,11 @@ Orchestrate complex Business logic with agents (That can be real persons or AI a
 Configure your environment.
 - **Local Models**: Run agents privately using Ollama.
 - **Remote APIs**: Connect to powerful cloud models like GPT-4.
+
+## 🖼️ Adding Images
+You can include images in these help pages!
+1. Place your image in `frontend/public/help/images/`.
+2. Link it in your markdown:
+   ```markdown
+   ![Description](images/your-image.png)
+   ```

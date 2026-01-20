@@ -16,6 +16,7 @@ class ConfigRequest(BaseModel):
     service_api_key: Optional[str] = None
     model_api_key: Optional[str] = None
     is_vision: Optional[bool] = False
+    is_embedding: Optional[bool] = False # New flag for embedding models
     is_sequential: Optional[bool] = False # New flag for local models
     context_window: Optional[int] = 4096 # Default context window
 
@@ -57,14 +58,18 @@ def delete_preset(preset_name: str):
 class DefaultsRequest(BaseModel):
     default_llm: Optional[str] = None
     default_vision: Optional[str] = None
+    default_embedding: Optional[str] = None
+    reset_db: bool = False
 
 @router.get("/config/defaults")
 def get_defaults():
     llm_preset = config_service.get_default_llm_preset()
     vision_preset = config_service.get_default_vision_preset()
+    embedding_preset = config_service.get_default_embedding_preset()
     return {
         "default_llm": llm_preset["name"] if llm_preset else None,
-        "default_vision": vision_preset["name"] if vision_preset else None
+        "default_vision": vision_preset["name"] if vision_preset else None,
+        "default_embedding": embedding_preset["name"] if embedding_preset else None
     }
 
 @router.post("/config/defaults")
@@ -73,6 +78,20 @@ def set_defaults(request: DefaultsRequest):
         config_service.set_default_llm_preset(request.default_llm)
     if request.default_vision:
         config_service.set_default_vision_preset(request.default_vision)
+    
+    if request.default_embedding:
+        # Save default preference
+        config_service.set_default_embedding_preset(request.default_embedding)
+        
+        # Trigger RAG update
+        # We need to fetch the preset object to pass it? Or just the name? 
+        # RAG service might need the full object.
+        # Let's let RAG service resolve the name using config_service.
+        try:
+             rag_service.update_embedding_model(request.default_embedding, request.reset_db)
+        except Exception as e:
+            print(f"Error updating embedding model: {e}")
+            
     return {"status": "success"}
 
 # Keep old endpoint for temporary frontend compatibility if needed, 
@@ -121,6 +140,8 @@ def test_database_connection(request: DatabaseConfigRequest):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+from app.services.rag_service import rag_service
+
 class RagConfigRequest(BaseModel):
     embedding_provider: str = "ollama"  # "ollama", "openai", "huggingface"
     embedding_model: str = "nomic-embed-text" 
@@ -129,6 +150,7 @@ class RagConfigRequest(BaseModel):
     chunk_size: int = 1000
     chunk_overlap: int = 200
     enable_metadata: bool = False # Toggle Title/Summary extraction
+    reset_db: bool = True # Force DB reset by default for safety
 
 @router.get("/config/rag")
 def get_rag_config():
@@ -145,7 +167,21 @@ def get_rag_config():
 
 @router.post("/config/rag")
 def save_rag_config(request: RagConfigRequest):
+    print(f"Update RAG Config. Reset DB: {request.reset_db}")
     config = config_service.get_config()
-    config["rag_config"] = request.dict()
+    
+    # Exclude temporary flag from persistence
+    config_dict = request.dict()
+    reset_required = config_dict.pop("reset_db", True)
+    
+    config["rag_config"] = config_dict
     config_service.save_config(config)
-    return {"status": "success", "config": request.dict(), "warning": "Requires Re-indexing for changes to take effect."}
+    
+    if reset_required:
+        rag_service.reset_db()
+        msg = "Configuration saved and Database reset."
+    else:
+        rag_service.reload_config()
+        msg = "Configuration hot-reloaded (No DB reset)."
+        
+    return {"status": "success", "config": config_dict, "message": msg}

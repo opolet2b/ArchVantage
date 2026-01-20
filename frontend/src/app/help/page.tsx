@@ -6,9 +6,16 @@ import remarkGfm from "remark-gfm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { Book, Settings, Wrench, Bot, GitGraph, FileText, LifeBuoy, RefreshCcw } from "lucide-react"
+import { Book, Settings, Wrench, Bot, GitGraph, FileText, LifeBuoy, RefreshCcw, Layout, ZoomIn, ZoomOut, Maximize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/components/ui/use-toast"
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog"
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 // Define available help topics and their markdown paths
 const HELP_TOPICS = [
@@ -18,6 +25,15 @@ const HELP_TOPICS = [
         icon: Book,
         pages: [
             { id: "overview", title: "Overview", path: "overview" },
+        ]
+    },
+    {
+        id: "canvases",
+        title: "Canvases",
+        icon: Layout,
+        pages: [
+            { id: "canvas-overview", title: "Overview", path: "canvases/overview" },
+            { id: "canvas-things", title: "Things", path: "canvases/things" },
         ]
     },
     {
@@ -233,7 +249,116 @@ export default function HelpPage() {
                                 </div>
                             ) : (
                                 <div className="prose dark:prose-invert max-w-none text-sm text-foreground">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        urlTransform={(url) => {
+                                            if (url.startsWith("http") || url.startsWith("/") || url.startsWith("#")) return url;
+                                            return `/help/${url}`;
+                                        }}
+                                        components={{
+                                            img: ({ src, alt }) => {
+                                                if (!src) return null;
+                                                // Create a mini-component for state isolation
+                                                const PanZoomImage = () => {
+                                                    const [scale, setScale] = useState(1);
+                                                    const [position, setPosition] = useState({ x: 0, y: 0 });
+                                                    const [isDragging, setIsDragging] = useState(false);
+                                                    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+                                                    const handleZoomIn = () => setScale(s => Math.min(s + 0.5, 4));
+                                                    const handleZoomOut = () => setScale(s => Math.max(s - 0.5, 1));
+                                                    const handleReset = () => {
+                                                        setScale(1);
+                                                        setPosition({ x: 0, y: 0 });
+                                                    };
+
+                                                    const handleWheel = (e: React.WheelEvent) => {
+                                                        e.stopPropagation();
+                                                        if (e.deltaY < 0) handleZoomIn();
+                                                        else handleZoomOut();
+                                                    };
+
+                                                    const handleMouseDown = (e: React.MouseEvent) => {
+                                                        if (scale > 1) {
+                                                            setIsDragging(true);
+                                                            setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+                                                        }
+                                                    };
+
+                                                    const handleMouseMove = (e: React.MouseEvent) => {
+                                                        if (isDragging && scale > 1) {
+                                                            setPosition({
+                                                                x: e.clientX - dragStart.x,
+                                                                y: e.clientY - dragStart.y
+                                                            });
+                                                        }
+                                                    };
+
+                                                    const handleMouseUp = () => setIsDragging(false);
+
+                                                    return (
+                                                        <Dialog>
+                                                            <TooltipProvider>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <DialogTrigger asChild>
+                                                                            <img
+                                                                                src={src}
+                                                                                alt={alt}
+                                                                                className="rounded-md border shadow-sm cursor-zoom-in hover:opacity-90 transition-opacity max-w-full"
+                                                                            />
+                                                                        </DialogTrigger>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent>
+                                                                        <p>Click to expand</p>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
+                                                            <DialogContent className="max-w-[90vw] max-h-[90vh] w-[90vw] h-[90vh] p-0 overflow-hidden bg-transparent border-none shadow-none flex items-center justify-center outline-none">
+                                                                {/* Controls */}
+                                                                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-slate-900/80 p-2 rounded-lg shadow-xl backdrop-blur-sm border border-slate-700">
+                                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:bg-slate-700 hover:text-white" onClick={handleZoomOut}>
+                                                                        <ZoomOut className="h-4 w-4" />
+                                                                    </Button>
+                                                                    <span className="text-xs text-slate-300 min-w-[3rem] text-center">{Math.round(scale * 100)}%</span>
+                                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:bg-slate-700 hover:text-white" onClick={handleZoomIn}>
+                                                                        <ZoomIn className="h-4 w-4" />
+                                                                    </Button>
+                                                                    <div className="w-px h-4 bg-slate-600 mx-1" />
+                                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:bg-slate-700 hover:text-white" onClick={handleReset} title="Reset View">
+                                                                        <Maximize2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </div>
+
+                                                                {/* Image Container */}
+                                                                <div
+                                                                    className={cn(
+                                                                        "w-full h-full flex items-center justify-center overflow-hidden",
+                                                                        scale > 1 ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+                                                                    )}
+                                                                    onWheel={handleWheel}
+                                                                    onMouseDown={handleMouseDown}
+                                                                    onMouseMove={handleMouseMove}
+                                                                    onMouseUp={handleMouseUp}
+                                                                    onMouseLeave={handleMouseUp}
+                                                                >
+                                                                    <img
+                                                                        src={src}
+                                                                        alt={alt}
+                                                                        className="max-w-full max-h-full object-contain transition-transform duration-100 ease-out select-none pointer-events-none"
+                                                                        style={{
+                                                                            transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                            </DialogContent>
+                                                        </Dialog>
+                                                    );
+                                                };
+                                                return <PanZoomImage />;
+                                            }
+                                        }}
+                                    >
                                         {content}
                                     </ReactMarkdown>
                                 </div>

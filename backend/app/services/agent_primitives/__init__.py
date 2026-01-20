@@ -34,6 +34,7 @@ PRIMITIVE_REGISTRY = {
     "LLM_GENERATION": LLMGenerationPrimitive,
     # Legacy aliases
     "AGENT": LLMGenerationPrimitive,
+    "ANALYZER": LLMGenerationPrimitive,
     "VISUALIZER": TextTemplatePrimitive,
     "VIZUALISER": TextTemplatePrimitive, # Handle potential typo
     "FORMATTER": TextTemplatePrimitive,

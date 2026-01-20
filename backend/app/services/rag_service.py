@@ -44,8 +44,33 @@ class RAGService:
             config = self.config_service.get_config()
             rag_config = config.get("rag_config", {})
             
-            provider = rag_config.get("embedding_provider", "ollama")
-            model = rag_config.get("embedding_model", "nomic-embed-text")
+            # --- Resolve Embedding Model from Preset (Priority) ---
+            embedding_preset = self.config_service.get_default_embedding_preset()
+            
+            if embedding_preset:
+                # Use Preset
+                model = embedding_preset.get("model_name")
+                preset_type = embedding_preset.get("type")
+                
+                if preset_type == "remote":
+                    provider = "openai"
+                    # Map Preset fields to RAG usage
+                    api_key = embedding_preset.get("model_api_key") or embedding_preset.get("service_api_key")
+                    api_base = embedding_preset.get("api_url")
+                else:
+                    provider = "ollama"
+                    api_key = None
+                    api_base = None
+                    
+                print(f"[RAGService] Using Default Embedding Preset: {embedding_preset.get('name')} ({provider}/{model})")
+            else:
+                # Fallback to legacy rag_config
+                provider = rag_config.get("embedding_provider", "ollama")
+                model = rag_config.get("embedding_model", "nomic-embed-text")
+                api_key = rag_config.get("embedding_api_key")
+                api_base = None
+                print(f"[RAGService] No Default Embedding Preset. Using legacy config: {provider}/{model}")
+
             parsing_strategy = rag_config.get("parsing_strategy", "recursive")
             chunk_size = int(rag_config.get("chunk_size", 512)) # Lower default to 512
             chunk_overlap = int(rag_config.get("chunk_overlap", 50))
@@ -57,21 +82,29 @@ class RAGService:
             if provider == "openai":
                 try:
                     from llama_index.embeddings.openai import OpenAIEmbedding
-                    api_key = rag_config.get("embedding_api_key")
                     if not api_key:
                         print("[RAGService] Warning: OpenAI provider selected but no API Key found.")
                     
-                    Settings.embed_model = OpenAIEmbedding(
-                        model=model,
-                        api_key=api_key
-                    )
+                    # specific args for OpenAI
+                    embed_args = {
+                        "model": model,
+                        "api_key": api_key
+                    }
+                    if api_base:
+                        embed_args["api_base"] = api_base
+                        
+                    Settings.embed_model = OpenAIEmbedding(**embed_args)
                     print(f"[RAGService] Configured OpenAI Embedding: {model}")
                 except ImportError:
-                    print("[RAGService] Error: OpenAI provider selected but `llama-index-embeddings-openai` not installed. Falling back to Ollama.")
-                    self._configure_ollama(model)
+                    print("[RAGService] Error: OpenAI provider selected but `llama-index-embeddings-openai` not installed. RAG features disabled.")
+                    # Do not fallback to Ollama for remote configurations
+                    self.index = None
+                    return
                 except Exception as e:
-                    print(f"[RAGService] Error configuring OpenAI: {e}. Falling back to Ollama.")
-                    self._configure_ollama(model)
+                    print(f"[RAGService] Error configuring OpenAI: {e}. RAG features disabled.")
+                     # Do not fallback to Ollama for remote configurations
+                    self.index = None
+                    return
             else:
                  # Default to Ollama
                  self._configure_ollama(model)
@@ -214,6 +247,11 @@ class RAGService:
 
     def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None, enable_vision: bool = True):
         print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, Vision: {enable_vision})")
+        
+        if self.index is None:
+             print("[RAGService] Ingestion blocked: RAG Index is not initialized.")
+             return {"status": "error", "error": "RAG Service is not initialized. Please check your Embedding Model settings or API Key."}
+
         try:
             # Check magic bytes for legacy OLE files first
             with open(file_path, 'rb') as f:
@@ -309,6 +347,9 @@ class RAGService:
         Ingest a PowerPoint file using its pre-extracted JSON structure.
         Delegates to the specialized SlideshowIngestor.
         """
+        if self.index is None:
+             return {"status": "error", "error": "RAG Service is not initialized."}
+
         try:
             from app.services.rag.slideshow_ingestor import slideshow_ingestor
             
@@ -329,6 +370,9 @@ class RAGService:
         Ingest raw text directly into the index.
         Useful for image descriptions or other generated content.
         """
+        if self.index is None:
+             return {"status": "error", "error": "RAG Service is not initialized."}
+
         try:
             # Create a Document object
             doc = Document(text=text, metadata=metadata or {})
@@ -568,12 +612,32 @@ class RAGService:
 
     def reset_db(self):
         try:
-            self.chroma_client.delete_collection("chatbot_rag")
-            self.chroma_collection = self.chroma_client.create_collection("chatbot_rag")
+            print("[RAGService] Resetting Vector Database...")
+            # Use the same collection name as initialization
+            self.chroma_client.delete_collection("chatbot_rag_v2")
+            self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
             
             # Re-initialize index (using new settings if any)
             self._initialize_rag()
+            print("[RAGService] Database reset complete.")
         except Exception as e:
             print(f"Error resetting DB: {e}")
+
+    def update_embedding_model(self, preset_name: str, reset_db: bool = False):
+        """
+        Updates the embedding model based on the new preset.
+        If reset_db is True, clears vector store and re-indexes.
+        Otherwise, attempts hot-reload (experimental for compatible dimensions).
+        """
+        print(f"[RAGService] Updating embedding model to preset: {preset_name} (Reset DB: {reset_db})")
+        if reset_db:
+            self.reset_db()
+        else:
+            self.reload_config()
+
+    def reload_config(self):
+        """Re-initializes RAG components with latest config without resetting data."""
+        print("[RAGService] Reloading configuration...")
+        self._initialize_rag()
 
 rag_service = RAGService()

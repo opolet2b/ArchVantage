@@ -68,6 +68,19 @@ class ExtractorPrimitive(BasePrimitive):
         # 1. Initialize variables
         variables = state.get("variables", {})
         
+        # DEBUG: Unconditional Input Trace
+        print(f"[EXTRACTOR] Execute Start. Params: {list(params.keys())}")
+        if "extractor_input" in variables:
+            ei = variables["extractor_input"]
+            print(f"[EXTRACTOR] Found 'extractor_input' in variables.")
+            if isinstance(ei, dict) and "assets" in ei:
+                print(f"[EXTRACTOR] Assets count: {len(ei.get('assets', []))}")
+                for i, a in enumerate(ei.get("assets", [])):
+                    content_preview = str(a.get("content", ""))[:50]
+                    print(f"[EXTRACTOR] Asset {i}: ID={a.get('id')} Type={a.get('type')} ContentLen={len(a.get('content', ''))} Preview={content_preview}")
+        else:
+            print("[EXTRACTOR] 'extractor_input' NOT found in variables.")
+        
         # 2. Resolve parameters
         instruction = self.resolve_variables(params.get("instruction", ""), state)
         target_variable = params.get("target_variable")
@@ -134,6 +147,12 @@ class ExtractorPrimitive(BasePrimitive):
                      print(f"[EXTRACTOR] Using 'extractor_input' from strict contract.")
                      assets = ext_input["assets"]
                      
+                     # DEBUG: Verify Assets Content
+                     print(f"[EXTRACTOR] Processing {len(assets)} assets from input.")
+                     for i, a in enumerate(assets):
+                         c_len = len(a.get("content") or "")
+                         print(f"[EXTRACTOR] Asset {i} ID: {a.get('id')} Content Len: {c_len}")
+
                      # --- ASSET SCOPE VALIDATION ---
                      asset_scope = params.get("asset_scope", "single") # Default to single
                      asset_count = len(assets)

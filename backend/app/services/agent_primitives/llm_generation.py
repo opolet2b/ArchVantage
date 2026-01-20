@@ -74,7 +74,8 @@ class LLMGenerationPrimitive(BasePrimitive):
             model = global_model or param_model
             
             print(f"[LLM_PRIM] Resolved Model: {model} (Global: {global_model}, Param: {param_model})")
-            instruction = params.get("instruction", "")
+            # Smart Template Fix: Some templates pass 'systemPrompt' instead of 'instruction'
+            instruction = params.get("instruction") or params.get("systemPrompt") or ""
             input_context_var = params.get("input_context", "")
             send_context_to_llm = params.get("send_context_to_llm", True)
             output_var = params.get("output_variable", "llm_output")
@@ -155,9 +156,47 @@ class LLMGenerationPrimitive(BasePrimitive):
             # STRICT CONTRACT MODE
             # If we have 'extractor_output' from previous node, we enforce AgentOutput schema
             extractor_out = variables.get("extractor_output")
-            # Also check if we are in a strict pipeline context (optional, but good safety)
+            
+            # SMART FALLBACK check
+            # If extractor_output is present but effectively "empty" (e.g. valid JSON but no elements),
+            # AND we have a massive text chunk in current_output (from Text Mode extractor),
+            # we should prefer the TEXT context.
+            use_strict_context = False
             
             if extractor_out:
+                use_strict_context = True
+                if isinstance(extractor_out, dict):
+                    elements = extractor_out.get("extracted_elements")
+                    if elements is not None and len(elements) == 0:
+                        print(f"[LLM_PRIM] Strict Mode Check: 'extractor_output' has 0 elements.")
+                        
+                        # 1. Try 'current_output' if it's a string (Text Mode)
+                        current_out = state.get("current_output")
+                        if isinstance(current_out, str) and len(current_out) > 50:
+                             print(f"[LLM_PRIM] Strict Mode Override: Using 'current_output' text (len {len(current_out)}).")
+                             use_strict_context = False
+                             if not input_context: input_context = current_out
+                        
+                        # 2. Try 'extractor_input' raw assets (Strict Mode Source)
+                        elif "extractor_input" in variables:
+                             ei = variables["extractor_input"]
+                             if isinstance(ei, dict) and "assets" in ei:
+                                 # Reconstruct text from assets
+                                 texts = []
+                                 for a in ei["assets"]:
+                                     if a.get("content"):
+                                         texts.append(a.get("content"))
+                                 
+                                 full_text = "\n\n".join(texts)
+                                 if len(full_text) > 50:
+                                     print(f"[LLM_PRIM] Strict Mode Override: Reconstructed text from 'extractor_input' assets (len {len(full_text)}).")
+                                     use_strict_context = False
+                                     if not input_context: input_context = full_text
+
+            
+            # Also check if we are in a strict pipeline context (optional, but good safety)
+            
+            if extractor_out and use_strict_context:
                 try:
                     from app.schemas.smart_contracts import AgentOutput, AgentConfiguration, ExtractorOutput
                     
@@ -300,11 +339,52 @@ Schema:
                     
                     print(f"[LLM_PRIM] Saved 'agent_output' to variables. Type: {type(state['variables']['agent_output'])}")
                     
+                    # EXTRACT CONTENT (Markdown Extraction)
+                    # We want the 'result' of this node to be the Formatted Report, not the raw JSON
+                    final_content_str = agent_output_data
+                    if isinstance(agent_output_data, dict):
+                        # 1. Try 'analysis_results.formatted_output' (Standard)
+                        ar = agent_output_data.get("analysis_results", {})
+                        if isinstance(ar, dict):
+                            if ar.get("formatted_output"):
+                                final_content_str = ar.get("formatted_output")
+                            # FALLBACK: Construct Markdown from Structured Data
+                            elif ar.get("summary") or ar.get("sections"):
+                                print(f"[LLM_PRIM] Missing 'formatted_output'. Constructing fallback Markdown.")
+                                fallback_md = f"# Analysis Report\n\n**Summary**\n{ar.get('summary', 'No summary provided.')}\n\n"
+                                
+                                sections = ar.get("sections", [])
+                                if isinstance(sections, list):
+                                    for s in sections:
+                                        if isinstance(s, dict):
+                                            title = s.get("title", "Section")
+                                            fallback_md += f"## {title}\n"
+                                            for finding in s.get("findings", []):
+                                                fallback_md += f"- {finding}\n"
+                                            fallback_md += "\n"
+                                
+                                final_content_str = fallback_md
+                        
+                        # 2. Try direct keys
+                        elif agent_output_data.get("formatted_output"):
+                             final_content_str = agent_output_data.get("formatted_output")
+                        elif agent_output_data.get("generated_markdown"):
+                             final_content_str = agent_output_data.get("generated_markdown")
+                        elif agent_output_data.get("text"):
+                             final_content_str = agent_output_data.get("text")
+                    
+                    # Convert to string if still dict/list (Final Fallback)
+                    if isinstance(final_content_str, (dict, list)):
+                        import json
+                        final_content_str = json.dumps(final_content_str, indent=2)
+
                     return PrimitiveResult(
                         success=True,
                         output={
-                            output_var: agent_output_data,
-                            "agent_output": agent_output_data,
+                            output_var: final_content_str, # The Markdown Report
+                            "text": final_content_str, # Standard Key for SmartTemplate
+                            "generated_markdown": final_content_str, # Standard Key for SmartTemplate
+                            "agent_output": agent_output_data, # The Full Data Object
                             "_raw": agent_output_data # Consistency
                         }
                     )

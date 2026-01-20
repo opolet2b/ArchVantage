@@ -483,8 +483,46 @@ class SmartTemplateService:
              else:
                  content_summary = str(content)
 
+        elif thing.type.value == "document":
+             print(f"[ContentResolution] Resolving Document explicitly (Retry).")
+             # Retry resolving from Asset ID if it was missed earlier or failed RAG
+             if content.get("asset_id") and not content_summary:
+                 try:
+                     asset_id = content.get("asset_id")
+                     asset = db.query(Asset).filter(Asset.id == asset_id).first()
+                     if asset:
+                         f_path = asset_service.get_storage_path(asset)
+                         
+                         # Ensure Absolute Path
+                         abs_path = os.path.abspath(str(f_path)) if f_path else None
+                         print(f"[ContentResolution] Asset {asset_id} Path: {abs_path} (Exists: {os.path.exists(abs_path) if abs_path else 'N/A'})")
+
+                         if abs_path and os.path.exists(abs_path):
+                              try:
+                                  documents = SimpleDirectoryReader(input_files=[abs_path]).load_data()
+                                  if documents:
+                                      content_summary = "\n\n".join([d.text for d in documents])
+                                      print(f"[ContentResolution] Document Explicit Read Success. Len: {len(content_summary)}")
+                                  else:
+                                      print(f"[ContentResolution] SimpleDirectoryReader returned no documents.")
+                              except Exception as load_err:
+                                  print(f"[ContentResolution] SimpleDirectoryReader Failed: {load_err}")
+                                  content_summary = f"Error loading content: {load_err}"
+                         else:
+                              print(f"[ContentResolution] File path resolution failed or file missing.")
+                 except Exception as e:
+                     print(f"[ContentResolution] Document Retry Failed: {e}")
+             
+             if not content_summary:
+                  content_summary = f"Document: {thing.title}\n(Content could not be loaded. Asset ID: {content.get('asset_id')})"
+
         else:
-             print(f"[ContentResolution] Fallback to raw JSON dump.")
+             print(f"[ContentResolution] Fallback to raw JSON dump. Type: {thing.type.value}")
+             # DEBUG: Why are we here?
+             print(f"[ContentResolution] Content keys: {list(content.keys()) if isinstance(content, dict) else 'Not Dict'}")
+             if content.get("asset_id"):
+                 print(f"[ContentResolution] CRITICAL: Asset ID {content.get('asset_id')} present but file resolution failed!")
+                 
              content_summary = str(content)
              
         print(f"[ContentResolution] Final resolved content length: {len(content_summary)}")
@@ -955,6 +993,9 @@ Do not include any other text (like "Here is the report").
                     thing_content = {"text": "", "markdown": ""}
                     thing_title = f"Analysis: {template.name}"
                     
+                    # Initialize default params to avoid UnboundLocalError
+                    current_node_params = {}
+
                     # --- DEEP ANALYSIS RESULT HANDLING ---
                     if template.document_template_id:
                         print(f"[SmartTemplate] Processing Deep Analysis Result for DocTemplate: {template.document_template_id}")
@@ -1301,7 +1342,7 @@ Do not include any other text (like "Here is the report").
                         
                     # Extract Text/Markdown Content (Default or if explicit TEXT)
                     # Extract Text/Markdown Content (Default or if explicit TEXT)
-                    if thing_type == ThingType.TEXT:
+                    if thing_type == ThingType.TEXT and not template.document_template_id:
                          if isinstance(current_output, dict):
                             raw = current_output
                             # Check for specific 'formatted_output' (SWOT table etc) from Agent

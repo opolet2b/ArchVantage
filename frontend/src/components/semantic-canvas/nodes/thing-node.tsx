@@ -40,7 +40,8 @@ import {
     Download,
     Pencil,
     Save,
-    X
+    X,
+    Sparkles
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -1868,7 +1869,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             </button>
                         )}
 
-                        {/* Agent Analysis Indicator (Green Brain) */}
+                        {/* Agent Analysis Indicator (Orange Bot) */}
                         {(thing.content as any)?.agent_analysis && (
                             <div
                                 className="flex items-center cursor-pointer hover:opacity-80 mr-2"
@@ -1886,7 +1887,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     setPreviewDialogOpen(true);
                                 }}
                             >
-                                <BrainCircuit className="h-4 w-4 text-green-500" />
+                                <Bot className="h-4 w-4 text-orange-500" />
                             </div>
                         )}
 
@@ -2437,19 +2438,19 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             </div>
 
                             {/* Close / Restore Button */}
-                            {/* Green Brain (Deep Analysis Plan) */}
+                            {/* Deep Analysis Plan (Purple Sparkles) */}
                             {executionPlanData && (
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                                    className="h-6 w-6 text-purple-600 hover:text-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/20"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         setExecutionPlanOpen(true);
                                     }}
                                     title="View Deep Analysis Plan"
                                 >
-                                    <BrainCircuit className="h-4 w-4" />
+                                    <Sparkles className="h-4 w-4" />
                                 </Button>
                             )}
 
