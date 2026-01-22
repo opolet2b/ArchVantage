@@ -145,7 +145,7 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
             foundElements.forEach(el => {
                 const id = el["@_identifier"] || el["@_id"];
                 const type = el["@_xsi:type"] || el["type"];
-                const name = el["name"] ? (typeof el["name"] === 'object' ? el["name"]["#text"] : el["name"]) : (el["label"] || "Unnamed");
+                const name = el["name"] ? (typeof el["name"] === 'object' ? el["name"]["#text"] : el["name"]) : (el["label"] ? (typeof el["label"] === 'object' ? el["label"]["#text"] : el["label"]) : "Unnamed");
 
                 if (id) {
                     elementsMap[id] = { id, type, name };
@@ -190,22 +190,33 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
             const foundViews: any[] = [];
 
             const traverseForViews = (node: any) => {
-                if (!node) return;
+                if (!node || typeof node !== 'object') return;
+
+                // Handle arrays by iterating
+                if (Array.isArray(node)) {
+                    node.forEach(item => traverseForViews(item));
+                    return;
+                }
+
                 Object.keys(node).forEach(key => {
-                    if (key.includes("diagrams") || key.includes("views")) {
-                        // Check inside
-                        const container = node[key];
-                        // Usually Views > Diagrams > View
-                        Object.keys(container).forEach(ckey => {
-                            if (ckey.includes("view")) {
-                                const vs = asArray(container[ckey]);
-                                vs.forEach((v: any) => foundViews.push(v));
-                            }
-                        });
-                    }
-                    if (key.includes("view") && !key.includes("views")) { // Single view entry
-                        const vs = asArray(node[key]);
+                    const value = node[key];
+                    const lowerKey = key.toLowerCase();
+
+                    // Detect View elements
+                    // Look for 'view' tag or 'diagram' tag
+                    if (lowerKey === 'view' || lowerKey.endsWith(':view') ||
+                        lowerKey === 'diagram' || lowerKey.endsWith(':diagram')) {
+
+                        const vs = asArray(value);
                         vs.forEach((v: any) => foundViews.push(v));
+                        // Do not recurse INSIDE a view (it doesn't contain views)
+                        return;
+                    }
+
+                    // Recurse into children (folders, lists, etc)
+                    // We only recurse if it's an object/array
+                    if (typeof value === 'object') {
+                        traverseForViews(value);
                     }
                 });
             };
@@ -215,7 +226,7 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
 
             foundViews.forEach(v => {
                 const vid = v["@_identifier"] || v["@_id"];
-                const vname = v["name"] ? (typeof v["name"] === 'object' ? v["name"]["#text"] : v["name"]) : "Unnamed View";
+                const vname = v["name"] ? (typeof v["name"] === 'object' ? v["name"]["#text"] : v["name"]) : (v["label"] ? (typeof v["label"] === 'object' ? v["label"]["#text"] : v["label"]) : "Unnamed View");
 
                 const nodes: AMViewNode[] = [];
                 const links: AMViewConnection[] = [];
@@ -224,42 +235,54 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                     // child is typically <node> or <connection>
                     // <node identifier="..." elementRef="..." xsi:type="..." x="..." y="..." w="..." h="..." >
 
-                    // We need bounds. Sometimes passed as <bounds x... />
+                    // We need bounds. Sometimes passed as <bounds x... /> or directly on the node
                     const bounds = child["bounds"] || child["uk.ac.bolton.archimate.editor:bounds"];
-                    // Support different notations if possible, but spec says <bounds>
 
-                    if (child["@_elementRef"]) {
+                    // Robust check for elementRef (case insensitive check for XML attributes usually lowers keys in some parsers, but here checking both)
+                    const elementRef = child["@_elementRef"] || child["@_elementref"];
+
+                    if (elementRef) {
                         // It's a Node
                         const nid = child["@_identifier"] || child["@_id"];
-                        const ref = child["@_elementRef"];
+                        const ref = elementRef;
                         let x = 0, y = 0, w = 120, h = 60;
 
                         if (bounds) {
-                            x = parseInt(bounds["@_x"] || "0");
-                            y = parseInt(bounds["@_y"] || "0");
-                            w = parseInt(bounds["@_width"] || "120");
-                            h = parseInt(bounds["@_height"] || "60");
+                            x = parseInt(bounds["@_x"] || "0") || 0;
+                            y = parseInt(bounds["@_y"] || "0") || 0;
+                            w = parseInt(bounds["@_width"] || "120") || 120;
+                            h = parseInt(bounds["@_height"] || "60") || 60;
+                        } else {
+                            // Try direct attributes
+                            if (child["@_x"]) x = parseInt(child["@_x"]) || 0;
+                            if (child["@_y"]) y = parseInt(child["@_y"]) || 0;
+                            if (child["@_w"]) w = parseInt(child["@_w"]) || 120;
+                            if (child["@_h"]) h = parseInt(child["@_h"]) || 60;
                         }
 
                         nodes.push({ id: nid, elementRef: ref, x, y, w, h, type: child["@_xsi:type"] });
                     }
 
-                    if (child["@_relationshipRef"]) {
+                    const relationshipRef = child["@_relationshipRef"] || child["@_relationshipref"];
+
+                    if (relationshipRef) {
                         // It's a Connection
                         const lid = child["@_identifier"] || child["@_id"];
-                        const ref = child["@_relationshipRef"];
-                        const src = child["@_source"];
-                        const tgt = child["@_target"];
-                        links.push({ id: lid, relationshipRef: ref, sourceId: src, targetId: tgt });
+                        const ref = relationshipRef;
+                        const source = child["@_source"];
+                        const target = child["@_target"];
+                        links.push({ id: lid, relationshipRef: ref, sourceId: source, targetId: target });
                     } else if (child["sourceConnection"]) {
                         // Sometimes connections are nested in nodes in Archi format
                         const conns = asArray(child["sourceConnection"]);
                         conns.forEach((c: any) => {
                             const lid = c["@_identifier"] || c["@_id"];
-                            const ref = c["@_relationshipRef"];
+                            const ref = c["@_relationshipRef"] || c["@_relationshipref"];
                             const src = c["@_source"];
                             const tgt = c["@_target"];
-                            links.push({ id: lid, relationshipRef: ref, sourceId: src, targetId: tgt });
+                            if (ref) {
+                                links.push({ id: lid, relationshipRef: ref, sourceId: src, targetId: tgt });
+                            }
                         });
                     }
 
@@ -380,6 +403,101 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                 // Auto-close the importer tool
                 deleteThing(thing.id);
 
+            } else if (selectedViewId === "ALL_VIEWS") {
+                // Import All Views Mode
+                // Start below the importer tool to avoid overlap
+                let currentYOffset = (thing.height || 400) + 100;
+                const viewGap = 150;
+                let totalElements = 0;
+
+                for (const view of parsedModel.views) {
+                    // Create View Header
+                    await addThing(
+                        "text",
+                        { text: `## ${view.name}\n\n*Imported View*` },
+                        { x: thing.position_x, y: thing.position_y + currentYOffset },
+                        view.name
+                    );
+
+                    // Add space for header
+                    const headerHeight = 100;
+                    const contentStartY = currentYOffset + headerHeight;
+
+                    // Calculate view bounds to determine offset for next view
+                    let maxY = 0;
+
+                    // 1. Create Things for this view
+                    for (const vNode of view.nodes) {
+                        const elementDef = parsedModel.elements[vNode.elementRef];
+                        if (!elementDef) continue;
+
+                        const SCALE_FACTOR = 2.5;
+                        const width = (vNode.w || 120) * SCALE_FACTOR;
+                        const height = (vNode.h || 60) * SCALE_FACTOR;
+
+                        // Track bounds
+                        const bottomY = (vNode.y * SCALE_FACTOR) + height;
+                        if (bottomY > maxY) maxY = bottomY;
+
+                        const newThing = await addThing(
+                            "archimate_element",
+                            {
+                                name: elementDef.name,
+                                type: elementDef.type,
+                                originalId: elementDef.id,
+                                viewNodeId: vNode.id,
+                                viewId: view.id
+                            },
+                            {
+                                x: thing.position_x + (vNode.x * SCALE_FACTOR),
+                                y: thing.position_y + contentStartY + (vNode.y * SCALE_FACTOR)
+                            },
+                            elementDef.name,
+                            width,
+                            height
+                        );
+
+                        if (newThing) {
+                            elementThingMap[vNode.id] = newThing.id;
+                            totalElements++;
+                        }
+                    }
+
+                    // 2. Create Links for this view
+                    for (const vConn of view.connections) {
+                        const relDef = parsedModel.relationships[vConn.relationshipRef];
+                        const sourceThingId = elementThingMap[vConn.sourceId];
+                        const targetThingId = elementThingMap[vConn.targetId];
+
+                        if (sourceThingId && targetThingId) {
+                            let linkType: LinkType = "related";
+                            const archType = relDef?.type?.toLowerCase() || "";
+
+                            if (archType.includes("composition")) linkType = "contains";
+                            else if (archType.includes("aggregation")) linkType = "contains";
+                            else if (archType.includes("realization")) linkType = "derived_from";
+                            else if (archType.includes("triggering")) linkType = "triggers";
+                            else if (archType.includes("flow")) linkType = "triggers";
+                            else if (archType.includes("access")) linkType = "references";
+
+                            await addLink(
+                                sourceThingId,
+                                targetThingId,
+                                linkType,
+                                relDef?.type || "Association",
+                                ""
+                            );
+                        }
+                    }
+
+                    // Increment offset for next view, ensuring at least some gap even if empty
+                    // Bounds + Header + Gap
+                    currentYOffset += (headerHeight + Math.max(maxY, 100) + viewGap);
+                }
+
+                toast({ title: "Import Successful", description: `Imported ${parsedModel.views.length} views with ${totalElements} elements.` });
+                deleteThing(thing.id);
+
             } else {
                 // Existing View-Based Import Logic
                 const view = parsedModel.views.find(v => v.id === selectedViewId);
@@ -392,8 +510,9 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
 
                     // Enforce minimum size if XML has weird values (or -1)
                     // ArchiMate tools sometimes use negative for auto-size, or simple small bounds
-                    const width = Math.max(vNode.w || 180, 180);
-                    const height = Math.max(vNode.h || 180, 180);
+                    const SCALE_FACTOR = 2.5;
+                    const width = (vNode.w || 120) * SCALE_FACTOR;
+                    const height = (vNode.h || 60) * SCALE_FACTOR;
 
                     const newThing = await addThing(
                         "archimate_element",
@@ -403,7 +522,7 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                             originalId: elementDef.id,
                             viewNodeId: vNode.id
                         },
-                        { x: thing.position_x + vNode.x, y: thing.position_y + vNode.y },
+                        { x: thing.position_x + (vNode.x * SCALE_FACTOR), y: thing.position_y + (vNode.y * SCALE_FACTOR) },
                         elementDef.name,
                         width,
                         height
@@ -506,6 +625,9 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                                 <SelectContent>
                                     <SelectItem value="ALL_ELEMENTS" className="font-semibold border-b">
                                         Import All Elements (Grid Layout)
+                                    </SelectItem>
+                                    <SelectItem value="ALL_VIEWS" className="font-semibold border-b">
+                                        Import All Views (Vertical Stack)
                                     </SelectItem>
                                     {parsedModel.views.map(v => (
                                         <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>

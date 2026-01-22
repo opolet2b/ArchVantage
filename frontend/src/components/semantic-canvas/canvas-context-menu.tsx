@@ -17,6 +17,11 @@ import {
     TrendingUp,
     Grid3X3,
     GitCompare,
+    ChevronsUp,
+    ChevronsDown,
+    ChevronUp,
+    ChevronDown,
+    Layers,
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -221,6 +226,41 @@ export function CanvasContextMenu({
                     <Target className="mr-2 h-4 w-4" />
                     <span>Identify Purpose</span>
                 </DropdownMenuItem>
+
+                <DropdownMenuItem onClick={() => handleAction("arrange_things")}>
+                    <Grid3X3 className="mr-2 h-4 w-4" />
+                    <span>Arrange Things</span>
+                </DropdownMenuItem>
+
+                <DropdownMenuSeparator />
+
+                {/* Z-Order Controls - Only for selection context */}
+                {context === "selection" && (
+                    <DropdownMenuSub>
+                        <DropdownMenuSubTrigger>
+                            <Layers className="mr-2 h-4 w-4" />
+                            <span>Reorder</span>
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent>
+                            <DropdownMenuItem onClick={() => handleAction("reorder_front")}>
+                                <ChevronsUp className="mr-2 h-4 w-4" />
+                                <span>Bring to Front</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAction("reorder_forward")}>
+                                <ChevronUp className="mr-2 h-4 w-4" />
+                                <span>Bring Forward</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAction("reorder_backward")}>
+                                <ChevronDown className="mr-2 h-4 w-4" />
+                                <span>Send Backward</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleAction("reorder_back")}>
+                                <ChevronsDown className="mr-2 h-4 w-4" />
+                                <span>Send to Back</span>
+                            </DropdownMenuItem>
+                        </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                )}
 
                 <DropdownMenuSeparator />
 

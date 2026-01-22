@@ -235,6 +235,58 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 "You are a helpful assistant with access to a Semantic Canvas.\n" +
                 context_data_text
             )
+
+            # --- DEBUG LOGGING TO FILE ---
+            try:
+                import os
+                from datetime import datetime
+                
+                # Ensure logs directory exists
+                log_dir = "data/logs"
+                if not os.path.exists(log_dir):
+                    os.makedirs(log_dir)
+                
+                # Generate filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"{log_dir}/context_debug_{conversation_id}_{timestamp}.txt"
+                
+                with open(filename, "w", encoding="utf-8") as f:
+                    f.write(f"DEBUG LOG FOR CONVERSATION: {conversation_id}\n")
+                    f.write(f"TIMESTAMP: {timestamp}\n")
+                    f.write(f"LAST USER MESSAGE: {last_user_message}\n")
+                    f.write("="*80 + "\n\n")
+                    
+                    f.write("--- EXECUTION LOG ---\n")
+                    for line in debug_log:
+                        f.write(f"{line}\n")
+                    f.write("\n")
+                    
+                    f.write("--- LINKED ITEMS SUMMARY ---\n")
+                    for item in linked_items_summary:
+                        f.write(f"- [{item['type']}] {item['title']} (ID: {item['id']})\n")
+                    f.write("\n")
+                    
+                    f.write("--- CITATIONS (USED IN CONTEXT) ---\n")
+                    for cid in used_citation_ids:
+                         f.write(f"- {cid}\n")
+                    f.write("\n")
+
+                    f.write("--- MANIFEST TEXT ---\n")
+                    f.write(manifest_text)
+                    f.write("\n")
+                    
+                    f.write("--- FULL CONTEXT DATA (LLM INPUT) ---\n")
+                    f.write(context_data_text)
+                    f.write("\n" + "="*80 + "\n")
+                    
+                debug_log.append(f"EXTENSIVE DEBUG LOG WRITTEN TO: {filename}")
+                print(f"[ContextDebug] Log saved to {filename}")
+                
+            except Exception as e:
+                err_msg = f"Failed to write debug log file: {str(e)}"
+                debug_log.append(err_msg)
+                print(f"[ContextDebug] Error: {err_msg}")
+            # -----------------------------
             
             return {
                 "system_prompt_addendum": system_prompt, # Keeping for debug

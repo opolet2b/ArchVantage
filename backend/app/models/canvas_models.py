@@ -259,6 +259,7 @@ class CanvasThing(Base):
     # Display settings
     title = Column(String(255), nullable=True)
     color = Column(String(20), nullable=True)  # Custom header color
+    z_index = Column(Float, nullable=False, default=0.0) # Z-Order
     collapsed = Column(Boolean, default=False)
 
     # Iconify feature - reduce thing to icon representation
@@ -387,6 +388,7 @@ class Domain(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     color = Column(String(7), default="#6366f1")  # Hex color
+    z_index = Column(Float, nullable=False, default=-1.0) # Z-Order (-1 default to stay behind things)
     
     # Position and size (auto-calculated from children)
     position_x = Column(Float, default=0.0)

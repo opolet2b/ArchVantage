@@ -134,7 +134,9 @@ class ThingCreate(BaseModel):
     size: Optional[Size] = None
     domain_id: Optional[str] = None
     title: Optional[str] = None
+    title: Optional[str] = None
     color: Optional[str] = None
+    z_index: float = 0.0
 
 
 class ThingUpdate(BaseModel):
@@ -144,7 +146,9 @@ class ThingUpdate(BaseModel):
     size: Optional[Size] = None
     domain_id: Optional[str] = None
     title: Optional[str] = None
+    title: Optional[str] = None
     color: Optional[str] = None
+    z_index: Optional[float] = None
     collapsed: Optional[bool] = None
     # Iconify feature fields
     iconified: Optional[bool] = None
@@ -165,7 +169,9 @@ class ThingResponse(BaseModel):
     summaries: Dict[str, str]
     summaries: Dict[str, str]
     title: Optional[str]
+    title: Optional[str]
     color: Optional[str] = None
+    z_index: float = 0.0
     collapsed: bool
     rag_status: str = "none"
     # Iconify feature fields
@@ -235,6 +241,7 @@ class DomainCreate(BaseModel):
     name: str
     description: str  # Mandatory as per user request
     color: str = "#6366f1"
+    z_index: float = -1.0
     position: Position = Field(default_factory=Position)
     parent_id: Optional[str] = None
 
@@ -244,6 +251,7 @@ class DomainUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = None
+    z_index: Optional[float] = None
     position: Optional[Position] = None
     parent_id: Optional[str] = None
     width: Optional[float] = None
@@ -258,6 +266,7 @@ class DomainResponse(BaseModel):
     name: str
     description: Optional[str]
     color: str
+    z_index: float
     position_x: float
     position_y: float
     width: float

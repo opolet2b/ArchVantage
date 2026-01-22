@@ -78,6 +78,7 @@ export interface CanvasThing {
     summaries: Record<string, string>;
     title: string | null;
     color: string | null;
+    z_index: number;
     collapsed: boolean;
     rag_status: RAGStatus;
     // Iconify feature fields
@@ -117,6 +118,7 @@ export interface Domain {
     name: string;
     description: string | null;
     color: string;
+    z_index: number;
     position_x: number;
     position_y: number;
     width: number;
@@ -177,6 +179,8 @@ interface CanvasState {
     // Selection
     selectedThingIds: string[];
     selectedDomainIds: string[];
+    selectionMode: "hand" | "selection";
+    setSelectionMode: (mode: "hand" | "selection") => void;
 
     // Loading states
     isLoading: boolean;
@@ -225,6 +229,7 @@ interface CanvasState {
     addServerThing: (thing: CanvasThing) => void;
     deleteThing: (thingId: string) => Promise<void>;
     moveThing: (thingId: string, x: number, y: number, width?: number, height?: number) => void;
+    moveThings: (updates: { id: string; x: number; y: number; width?: number; height?: number }[]) => void;
 
     // Link actions
     addLink: (
@@ -241,6 +246,7 @@ interface CanvasState {
         linkId: string,
         updates: Partial<CanvasLink>
     ) => Promise<void>;
+    updateThings: (updates: { id: string; updates: Partial<CanvasThing> }[]) => Promise<void>;
     deleteLink: (linkId: string) => Promise<void>;
 
     // Domain actions
@@ -248,7 +254,8 @@ interface CanvasState {
         name: string,
         description: string,
         position: { x: number; y: number },
-        color?: string
+        color?: string,
+        parentId?: string | null
     ) => Promise<Domain | null>;
     updateDomain: (
         domainId: string,
@@ -262,9 +269,11 @@ interface CanvasState {
         height?: number
     ) => void;
     deleteDomain: (domainId: string) => Promise<void>;
+    getHierarchyDepth: (domainId: string) => number;
     addThingToDomain: (thingId: string, domainId: string) => Promise<void>;
     removeThingFromDomain: (thingId: string) => Promise<void>;
     checkThingInDomain: (thingId: string, x: number, y: number) => string | null;
+    checkDomainInDomain: (domainId: string, x: number, y: number) => string | null;
 
     // Selection
     selectThing: (thingId: string, multi?: boolean) => void;
@@ -281,6 +290,9 @@ interface CanvasState {
     // Semantic Discovery
     discoverLinks: (thingIds: string[], domainIds: string[]) => Promise<{ links_created: number; domains_updated: number; details: any[] } | null>;
 
+    // Z-Order Management
+    reorderItem: (id: string, action: "front" | "back" | "forward" | "backward") => Promise<void>;
+
     // Smart Analysis Template Execution
     executeAnalysisTemplate: (templateId: string, thingIds: string[], domainIds: string[]) => Promise<any>;
 
@@ -288,6 +300,11 @@ interface CanvasState {
     checkSyncStatus: (thingId: string) => Promise<{ status: "synced" | "changed" | "missing_source" | "no_path" | "error"; current_hash?: string; reason?: string }>;
     performSyncUpdate: (thingId: string, file?: File | null, useSourcePath?: boolean) => Promise<boolean | string>;
     syncAllThings: () => Promise<any[]>;
+
+    // Automatic Assignment Helpers
+    isContained: (inner: { x: number, y: number, width: number, height: number }, outer: Domain) => boolean;
+    findEnclosingDomain: (x: number, y: number, width: number, height: number) => string | null;
+    recalculateDomainAssignments: () => Promise<void>;
 
     // External / Cross-Canvas Linking
     // Unified addLink handles this now
@@ -317,6 +334,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     zoomLevel: "full",
     selectedThingIds: [],
     selectedDomainIds: [],
+    selectionMode: "hand", // Default to hand (pan) for better touch/trackpad experience
+    setSelectionMode: (mode) => set({ selectionMode: mode }),
     isLoading: false,
     error: null,
 
@@ -487,6 +506,62 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
     },
 
+    // Check if a box is contained in another box
+    isContained: (inner: { x: number, y: number, width: number, height: number }, outer: Domain) => {
+        const outerRight = outer.position_x + outer.width;
+        const outerBottom = outer.position_y + outer.height;
+        const innerRight = inner.x + inner.width;
+        const innerBottom = inner.y + inner.height;
+
+        return (
+            inner.x >= outer.position_x &&
+            inner.y >= outer.position_y &&
+            innerRight <= outerRight &&
+            innerBottom <= outerBottom
+        );
+    },
+
+    // Find the best matching domain for a thing (Top-most Z-index that fully contains it)
+    findEnclosingDomain: (x: number, y: number, width: number, height: number): string | null => {
+        const { domains } = get();
+        // Filter to only fully containing domains
+        const candidates = domains.filter(d =>
+            get().isContained({ x, y, width, height }, d)
+        );
+
+        if (candidates.length === 0) return null;
+
+        // Sort by Z-Index descending (Top Most first)
+        // Note: Domains usually have negative Z, but logic holds: higher is closer to 0 (top)
+        candidates.sort((a, b) => b.z_index - a.z_index);
+
+        return candidates[0].id;
+    },
+
+    // Recalculate domain assignments for ALL things (triggered on domain changes)
+    recalculateDomainAssignments: async () => {
+        const { things } = get();
+        const updates: { id: string; updates: { domain_id: string | null } }[] = [];
+
+        for (const thing of things) {
+            const w = thing.width || 400;
+            const h = thing.height || 300;
+
+            const newDomainId = get().findEnclosingDomain(thing.position_x, thing.position_y, w, h);
+            const current = thing.domain_id || null;
+            const next = newDomainId || null;
+
+            if (current !== next) {
+                updates.push({ id: thing.id, updates: { domain_id: next } });
+            }
+        }
+
+        if (updates.length > 0) {
+            console.log(`[Store] Recalculating domains: updating ${updates.length} things`);
+            await get().updateThings(updates);
+        }
+    },
+
     // Add thing to canvas
     addThing: async (type, content, position, title, width, height, domainId, color) => {
         const { canvasId } = get();
@@ -495,6 +570,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         if (!token || !canvasId) {
             console.error("[Store] Missing token or canvasId");
             return null;
+        }
+
+        // Automatic Domain Assignment if not specified
+        let finalDomainId = domainId;
+        if (!finalDomainId) {
+            const w = width ?? 400;
+            const h = height ?? 400;
+            finalDomainId = get().findEnclosingDomain(position.x, position.y, w, h) || undefined;
+            if (finalDomainId) {
+                console.log(`[Store] Auto-assigned thing to domain: ${finalDomainId}`);
+            }
         }
 
         try {
@@ -512,7 +598,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 size: { width: width ?? 400, height: height ?? 400 },
                 title,
                 color,
-                domain_id: domainId,
+                domain_id: finalDomainId,
             };
 
             console.log("[Store] addThing payload content:", payload.content);
@@ -559,11 +645,37 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
         // Optimistic update
         const currentThings = get().things;
+        // Check for domain re-assignment if position/size changed
+        let newDomainId: string | undefined | null = updates.domain_id;
+
+        // If position/size are being updated, we must re-evaluate domain containment automatically
+        // UNLESS domain_id is explicitly being set (e.g. manual drop)
+        if (updates.domain_id === undefined &&
+            (updates.position_x !== undefined || updates.position_y !== undefined || updates.width !== undefined || updates.height !== undefined)) {
+
+            const target = currentThings.find(t => t.id === thingId);
+            if (target) {
+                const x = updates.position_x ?? target.position_x;
+                const y = updates.position_y ?? target.position_y;
+                const w = updates.width ?? target.width ?? 400;
+                const h = updates.height ?? target.height ?? 300; // Use reasonable default if null
+
+                const autoDomain = get().findEnclosingDomain(x, y, w, h);
+
+                // If assignment changed, include it in updates (null means removed from domain)
+                if (autoDomain !== target.domain_id) {
+                    newDomainId = autoDomain;
+                    console.log(`[Store] Auto-reassigned thing ${thingId} to domain: ${newDomainId}`);
+                }
+            }
+        }
+
         const optimisticThings = currentThings.map((t) => {
             if (t.id === thingId) {
                 return {
                     ...t,
                     ...updates,
+                    domain_id: newDomainId !== undefined ? newDomainId : t.domain_id,
                     // Preserve existing values if not updated
                     content: updates.content || t.content,
                     position_x: updates.position_x ?? t.position_x,
@@ -603,6 +715,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                         collapsed: updates.collapsed,
                         iconified: updates.iconified,
                         pre_iconify_size: updates.pre_iconify_size,
+                        domain_id: newDomainId // Include auto-calculated domain
                     }),
                 }
             );
@@ -702,6 +815,99 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             ),
         });
     },
+    // Batch move things (atomic local update)
+    moveThings: (updates) => {
+        const updateMap = new Map(updates.map(u => [u.id, u]));
+        set({
+            things: get().things.map((t) => {
+                const update = updateMap.get(t.id);
+                if (update) {
+                    return {
+                        ...t,
+                        position_x: update.x,
+                        position_y: update.y,
+                        width: update.width ?? t.width,
+                        height: update.height ?? t.height,
+                    };
+                }
+                return t;
+            }),
+        });
+    },
+
+    // Batch update things (Atomic Optimistic + Parallel API)
+    updateThings: async (updates) => {
+        const { canvasId, things } = get();
+        const token = localStorage.getItem("token");
+        if (!token || !canvasId) return;
+
+        // 1. Atomic Optimistic Update
+        const updatesMap = new Map(updates.map(u => [u.id, u.updates]));
+
+        const newThings = things.map(t => {
+            const update = updatesMap.get(t.id);
+            if (update) {
+                return {
+                    ...t,
+                    ...update,
+                    // Ensure nested objects if any are merged correctly? 
+                    // for now simple shallow merge of properties matches updateThing logic
+                };
+            }
+            return t;
+        });
+
+        set({ things: newThings });
+
+        // 2. Parallel API Calls
+        // We do not await individual updateThing calls to avoid N sets.
+        // We construct fetches manually.
+        try {
+            await Promise.all(updates.map(async ({ id, updates }) => {
+                const res = await fetch(
+                    `${API_URL}/canvases/${canvasId}/things/${id}`,
+                    {
+                        method: "PATCH",
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            // Map internal keys to API keys if needed
+                            content: updates.content,
+                            position: (updates.position_x !== undefined || updates.position_y !== undefined)
+                                ? {
+                                    x: updates.position_x,
+                                    y: updates.position_y
+                                }
+                                : undefined,
+                            size: (updates.width !== undefined || updates.height !== undefined)
+                                ? {
+                                    width: updates.width,
+                                    height: updates.height
+                                }
+                                : undefined,
+                            title: updates.title,
+                            color: updates.color,
+                            collapsed: updates.collapsed,
+                            iconified: updates.iconified,
+                            domain_id: updates.domain_id // Allow domain_id update
+                        }),
+                    }
+                );
+
+                if (!res.ok) {
+                    console.error(`Failed to update thing ${id}:`, await res.text());
+                    // We rely on refreshThings() or subsequent updates to fix sync if this fails.
+                    // Doing a partial revert for batch is complex.
+                }
+            }));
+        } catch (error) {
+            console.error("Batch update failed:", error);
+            // Verify state with server?
+            get().refreshThings();
+        }
+    },
 
     // Add link between things
     addLink: async (sourceId, targetId, type, label, description, sourceFragment, targetFragment, targetCanvasId) => {
@@ -791,11 +997,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add domain
-    addDomain: async (name, description, position, color = "#6366f1") => {
+    addDomain: async (name, description, position, color = "#6366f1", parentId = null) => {
         const { canvasId } = get();
         const token = getAuthToken();
 
-        console.log("[addDomain] Creating domain:", { name, description, position, color });
+        console.log("[addDomain] Creating domain:", { name, description, position, color, parentId });
         console.log("[addDomain] canvasId:", canvasId, "token:", !!token);
 
         if (!token) {
@@ -817,7 +1023,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ name, description, position, color }),
+                body: JSON.stringify({ name, description, position, color, parent_id: parentId }),
             });
 
             console.log("[addDomain] Response status:", res.status);
@@ -831,6 +1037,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             const domain: Domain = await res.json();
             console.log("[addDomain] Domain created:", domain);
             set({ domains: [...get().domains, domain] });
+
+            // Trigger batch update for things inside this new domain
+            get().recalculateDomainAssignments();
+
             return domain;
         } catch (err) {
             console.error("[addDomain] Failed:", err);
@@ -853,7 +1063,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 ? {
                     ...d,
                     ...updates,
-                    // Handle nested updates/patches if necessary (e.g. partial position)
+                    // ... (rest properties) ...
                     position_x: updates.position_x !== undefined ? updates.position_x : d.position_x,
                     position_y: updates.position_y !== undefined ? updates.position_y : d.position_y,
                     width: updates.width !== undefined ? updates.width : d.width,
@@ -865,6 +1075,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 : d
         );
         set({ domains: optimisticDomains });
+
+        // Trigger batch update (Spatial changes might affect assignments)
+        if (updates.position_x !== undefined || updates.position_y !== undefined || updates.width !== undefined || updates.height !== undefined) {
+            get().recalculateDomainAssignments();
+        }
 
         try {
             const res = await fetch(
@@ -935,6 +1150,59 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return null;
     },
 
+    // Check if a domain is inside another domain, return parent domain ID or null
+    // Excludes self, current parent, and descendants to prevent circular references
+    // Returns the INNERMOST (deepest) domain that contains the point
+    checkDomainInDomain: (domainId: string, x: number, y: number) => {
+        const { domains } = get();
+        const draggedDomain = domains.find(d => d.id === domainId);
+        if (!draggedDomain) return null;
+
+        // Get all descendant IDs to prevent circular nesting
+        const getDescendantIds = (parentId: string): string[] => {
+            const children = domains.filter(d => d.parent_id === parentId);
+            return children.flatMap(c => [c.id, ...getDescendantIds(c.id)]);
+        };
+        const descendantIds = getDescendantIds(domainId);
+
+        // Helper to get depth of a domain
+        const getDepth = (dId: string): number => {
+            let depth = 0;
+            let current = domains.find(d => d.id === dId);
+            while (current && current.parent_id) {
+                depth++;
+                current = domains.find(d => d.id === current!.parent_id);
+                if (depth > 100) break;
+            }
+            return depth;
+        };
+
+        // Find ALL containing domains (not just first)
+        const containingDomains: Array<{ id: string; depth: number }> = [];
+
+        for (const domain of domains) {
+            // Skip self, descendants, and current parent
+            if (domain.id === domainId) continue;
+            if (descendantIds.includes(domain.id)) continue;
+            if (domain.id === draggedDomain.parent_id) continue;
+
+            // Check if center of dragged domain is inside this domain
+            if (
+                x >= domain.position_x &&
+                x <= domain.position_x + (domain.width || 300) &&
+                y >= domain.position_y - 40 &&
+                y <= domain.position_y + (domain.height || 200)
+            ) {
+                containingDomains.push({ id: domain.id, depth: getDepth(domain.id) });
+            }
+        }
+
+        // Return the innermost (deepest) domain
+        if (containingDomains.length === 0) return null;
+        containingDomains.sort((a, b) => b.depth - a.depth);
+        return containingDomains[0].id;
+    },
+
     // Delete domain
     deleteDomain: async (domainId) => {
         const { canvasId, domains, things } = get();
@@ -947,16 +1215,35 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 headers: { Authorization: `Bearer ${token}` },
             });
 
-            // Remove domain and un-group its things
+            // Remove domain locally
             set({
                 domains: domains.filter((d) => d.id !== domainId),
-                things: things.map((t) =>
-                    t.domain_id === domainId ? { ...t, domain_id: null } : t
-                ),
+                // Don't manually un-group; let recalculate handle it (finding parent or null)
             });
+
+            // Re-calculate assignments (Things in deleted domain fall to parent or nothing)
+            get().recalculateDomainAssignments();
+
         } catch (err) {
             console.error("Failed to delete domain:", err);
         }
+    },
+
+    // Get hierarchy depth for a domain (0 = root, 1 = child of root, etc.)
+    getHierarchyDepth: (domainId: string) => {
+        const { domains } = get();
+        let depth = 0;
+        let current = domains.find(d => d.id === domainId);
+
+        // Walk up the parent chain
+        while (current && current.parent_id) {
+            depth++;
+            current = domains.find(d => d.id === current!.parent_id);
+            // Safety: prevent infinite loops
+            if (depth > 100) break;
+        }
+
+        return depth;
     },
 
     // Add thing to domain
@@ -1305,6 +1592,124 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         } catch (e) {
             console.error("Sync All failed", e);
             return [];
+        }
+    },
+
+    // Z-Order Management Implementation
+    reorderItem: async (id: string, action: "front" | "back" | "forward" | "backward") => {
+        const state = get();
+        const things = state.things;
+        const domains = state.domains;
+
+        let isThing = true;
+        let item: CanvasThing | Domain | undefined = things.find((t) => t.id === id);
+
+        if (!item) {
+            item = domains.find((d) => d.id === id);
+            isThing = false;
+        }
+
+        if (!item) return; // Item not found
+
+        const currentZ = item.z_index;
+        let newZ = currentZ;
+
+        if (isThing) {
+            // Logic for Things (z >= 0)
+            const allZ = things.map(t => t.z_index).sort((a, b) => a - b);
+            const maxZ = allZ.length > 0 ? allZ[allZ.length - 1] : 0;
+            const minZ = allZ.length > 0 ? allZ[0] : 0; // But strictly >= 0
+
+            if (action === "front") {
+                newZ = maxZ + 1;
+            } else if (action === "back") {
+                // Send to back of stack, but >= 0.
+                // We shift everything else up? Or just set to 0 and shift others?
+                // Simplest strategy: Set to 0. If collision, we might need to re-normalize all things?
+                // Or: Set to minZ - 1. But clamp at 0?
+                // If minZ is 5, we can use 4.
+                // If minZ is 0, we can use -1 INVALID.
+                // Correction: Z-Index for things can be anything >= 0.
+                // If strictly >= 0, then "Send to Back" sets to 0.
+                // And we must ensure no other thing is < 1?
+                // Efficient approach: Set to `minZ - 1`. If `minZ - 1 < 0`, we shift ALL items up by `abs(minZ - 1)`.
+                // Or simply float logic: `minZ / 2`.
+
+                if (minZ <= 0) {
+                    // Need to shift everyone up to make room at 0?
+                    // Or use a very small epsilon? No, floats.
+                    // minZ - 1 might be negative.
+                    // Let's settle on: Things Z is arbitrary, but conceptually "above domains".
+                    // User said "minimum index will always be 0 for things".
+                    // So we CANNOT go below 0.
+                    // If we are already at 0, we can't go lower.
+                    // Unless we re-index everything else to +1.
+
+                    // Implementation: Set newZ = 0.
+                    // Then, find all things with z <= 0, and increment them.
+                    newZ = 0;
+                    // But this requires batch updating others.
+                    // Let's stick to simple change first:
+                    newZ = 0.0;
+                    // Then we trigger a normalization pass if many collisions?
+                    // Let's implement simpler: `minZ - 1`. If < 0, set to 0, AND shift all others +1.
+
+                    // Actually, if we just shift all others up, it works.
+                } else {
+                    newZ = minZ - 1;
+                }
+            } else if (action === "forward") {
+                // Find next neighbor
+                const above = allZ.find(z => z > currentZ);
+                if (above !== undefined) {
+                    newZ = above + 0.1; // Naive insert
+                    // Better: average
+                    // But easier: `current + 1`. If collision, it renders on top by array order?
+                    // Let's swap with neighbor?
+                    // Finding the specific item above is better.
+                    // For now, `currentZ + 1` is safe enough for sparse usage.
+                    newZ = currentZ + 1;
+                } else {
+                    newZ = currentZ + 1;
+                }
+            } else if (action === "backward") {
+                newZ = Math.max(0, currentZ - 1);
+            }
+
+            // Apply Update
+            if (newZ !== currentZ) {
+                // Check Bounds
+                if (newZ < 0) {
+                    // Must shift world up
+                    const shift = Math.abs(newZ);
+                    // Batch update all things z + shift + 1?
+                    // For MVP: JUST UPDATE THIS THING. If it collides at 0, that's life.
+                    newZ = 0;
+                }
+
+                await get().updateThing(item.id, { z_index: newZ });
+            }
+
+        } else {
+            // Logic for Domains (z <= -1)
+            const allZ = domains.map(d => d.z_index).sort((a, b) => a - b);
+            const maxZ = allZ.length > 0 ? allZ[allZ.length - 1] : -1;
+            const minZ = allZ.length > 0 ? allZ[0] : -1;
+
+            if (action === "front") {
+                newZ = -1.0;
+            } else if (action === "back") {
+                newZ = minZ - 1.0;
+            } else if (action === "forward") {
+                newZ = Math.min(-1, currentZ + 1);
+            } else if (action === "backward") {
+                newZ = currentZ - 1;
+            }
+
+            // Apply Update
+            if (newZ !== currentZ) {
+                await get().updateDomain(item.id, { z_index: newZ });
+            }
         }
     }
 }));

@@ -38,6 +38,7 @@ import { useCanvasStore, getZoomLevel, LinkType, CanvasLink } from "./canvas-sto
 
 import { LinkTypeDialog } from "./link-type-dialog";
 import { MCPToolConfigDialog, MCPToolConfig } from "./mcp-tool-config-dialog";
+import { layoutService } from "./services/layout-service";
 import { cn, API_URL } from "@/lib/utils";
 import {
     Select,
@@ -47,7 +48,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera } from "lucide-react";
+import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera, Hand, MousePointer2 } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
 import { SelectionProvider } from "./viewers/selection-context";
 import { useToast } from "@/components/ui/use-toast";
@@ -104,7 +105,9 @@ function CanvasViewInner() {
         updateViewport,
         saveViewport,
         moveThing,
+        moveThings,
         updateThing,
+        updateThings,
         addThing,
         deleteThing,
         addLink,
@@ -125,6 +128,9 @@ function CanvasViewInner() {
         addDomain,
         setVisionModel,
         setSelectedItems,
+        selectionMode,
+        setSelectionMode,
+        getHierarchyDepth,
     } = useCanvasStore();
 
     // Model state from store
@@ -291,6 +297,7 @@ function CanvasViewInner() {
             onResizeEnd: handleThingResize,
         },
         draggable: true,
+        zIndex: thing.z_index ?? 0, // Use stored z_index
         // Include width/height if thing has been resized or use default for heavy types (skip for iconified)
         style: (!thing.iconified) ? {
             width: thing.width ?? 400, // Default width if not set to prevent auto-resize to content
@@ -298,9 +305,9 @@ function CanvasViewInner() {
         } : undefined,
     })), [things, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing, handleThingResize]);
 
-    // Handle domain update (name and description)
-    const handleDomainUpdate = React.useCallback((domainId: string, updates: { name: string; description: string }) => {
-        updateDomain(domainId, updates);
+    // Handle domain update (name, description, color)
+    const handleDomainUpdate = React.useCallback((domainId: string, updates: { name?: string; description?: string; color?: string }) => {
+        updateDomain(domainId, updates as any);
     }, [updateDomain]);
 
     // Handle node right-click (context menu) - Replaces manual domain handlers
@@ -357,26 +364,36 @@ function CanvasViewInner() {
         updateDomain(domainId, { width, height });
     }, [updateDomain]);
 
-    const domainNodes: Node[] = React.useMemo(() => domains.map((domain) => ({
-        id: domain.id,
-        type: "domain",
-        selected: selectedDomainIds.includes(domain.id),
-        position: { x: domain.position_x, y: domain.position_y },
-        data: {
-            domain,
-            zoomLevel,
-            onUpdate: handleDomainUpdate,
-            onContextMenu: handleDomainContextMenu,
-            onResizeEnd: handleDomainResize,
-        },
-        draggable: true,
-        selectable: true,
-        zIndex: -1, // Behind things
-        style: {
-            width: domain.width || 300,
-            height: domain.height || 200,
-        },
-    })), [domains, zoomLevel, handleDomainUpdate, handleDomainResize, selectedDomainIds]);
+    const domainNodes: Node[] = React.useMemo(() => domains.map((domain) => {
+        // Calculate hierarchy depth
+        const depth = getHierarchyDepth(domain.id);
+        // Find parent name if exists
+        const parent = domain.parent_id ? domains.find(d => d.id === domain.parent_id) : null;
+        const parentName = parent?.name;
+
+        return {
+            id: domain.id,
+            type: "domain",
+            selected: selectedDomainIds.includes(domain.id),
+            position: { x: domain.position_x, y: domain.position_y },
+            data: {
+                domain,
+                zoomLevel,
+                depth,
+                parentName,
+                onUpdate: handleDomainUpdate,
+                onContextMenu: handleDomainContextMenu,
+                onResizeEnd: handleDomainResize,
+            },
+            draggable: true,
+            selectable: true,
+            zIndex: domain.z_index ?? -1, // Use stored z_index (always <= -1)
+            style: {
+                width: domain.width || 300,
+                height: domain.height || 200,
+            },
+        };
+    }), [domains, zoomLevel, handleDomainUpdate, handleDomainResize, selectedDomainIds, getHierarchyDepth]);
 
     // Combine nodes (memoized)
     const allNodes = React.useMemo(() =>
@@ -575,14 +592,24 @@ function CanvasViewInner() {
             return;
         }
 
-        const domainsKey = JSON.stringify(domains.map(d => ({ id: d.id, x: d.position_x, y: d.position_y, w: d.width, h: d.height })));
-        // Include content.regions length or similar hash to trigger updates on region changes
+        const domainsKey = JSON.stringify(domains.map(d => ({
+            id: d.id,
+            x: d.position_x,
+            y: d.position_y,
+            w: d.width,
+            h: d.height,
+            c: d.color,
+            n: d.name,
+            d: d.description,
+            z: d.z_index
+        })));
         const thingsKey = JSON.stringify(things.map(t => ({
             id: t.id,
             x: t.position_x,
             y: t.position_y,
             w: t.width,
             h: t.height,
+            z: t.z_index,
             iconified: t.iconified,
             rag_status: t.rag_status,
             updated_at: t.updated_at,
@@ -607,125 +634,242 @@ function CanvasViewInner() {
         setEdges(allEdges);
     }, [allEdges, setEdges]);
 
-    // Track domain drag start position
-    const dragStartPosRef = React.useRef<{ id: string; x: number; y: number } | null>(null);
-
-    // Handle node drag start - capture starting position for domains
-    const onNodeDragStart = React.useCallback(
-        (_: React.MouseEvent, node: Node) => {
-            if (node.type === "domain") {
-                dragStartPosRef.current = {
-                    id: node.id,
-                    x: node.position.x,
-                    y: node.position.y,
-                };
-            }
+    // Handle selection drag events (for Pointer Mode multi-select)
+    const onSelectionDragStart = React.useCallback(
+        (_: React.MouseEvent, nodes: Node[]) => {
+            // No-op for now, just symmetry
         },
         []
     );
 
+    const onSelectionDragStop = React.useCallback(
+        async (_: React.MouseEvent, nodes: Node[]) => {
+            // Re-use the "Direct Position Reading" logic
+            // Prepare SINGLE Batch Update Payload using DIRECT positions
+            const updates = nodes
+                .filter(n => n.type === 'thing')
+                .map(n => {
+                    // Check domain membership using the NODE'S current position
+                    const targetDomainId = checkThingInDomain(
+                        n.id,
+                        n.position.x,
+                        n.position.y
+                    );
+
+                    // Map to update payload
+                    return {
+                        id: n.id,
+                        updates: {
+                            position_x: n.position.x,
+                            position_y: n.position.y,
+                            domain_id: targetDomainId
+                        }
+                    };
+                });
+
+            if (updates.length > 0) {
+                await updateThings(updates);
+            }
+        },
+        [updateThings, checkThingInDomain]
+    );
+
+    // Track domain drag start position
+    const dragStartPosRef = React.useRef<{ id: string; x: number; y: number } | null>(null);
+
+    // Handle node drag start - capture starting position for domains AND things
+    const onNodeDragStart = React.useCallback(
+        (_: React.MouseEvent, node: Node) => {
+            // Track start position for ANY node type to support delta calculations in onDragStop
+            dragStartPosRef.current = {
+                id: node.id,
+                x: node.position.x,
+                y: node.position.y,
+            };
+        },
+        [] // Dependency array for onNodeDragStart
+    );
+
+    // Handle node drag end - save position
     // Handle node drag end - save position
     const onNodeDragStop = React.useCallback(
         async (_: React.MouseEvent, node: Node) => {
+
             if (node.type === "thing") {
-                // Move the thing
-                moveThing(node.id, node.position.x, node.position.y);
+                const startPos = dragStartPosRef.current;
 
-                // Check if thing was dropped inside a domain
-                const domainId = checkThingInDomain(
-                    node.id,
-                    node.position.x,
-                    node.position.y
-                );
-
-                // Get current thing to check if domain changed
-                const thing = things.find(t => t.id === node.id);
-                console.log("[DragStop] Thing:", node.id);
-                console.log("[DragStop] New position:", node.position.x, node.position.y);
-                console.log("[DragStop] Found in domain:", domainId);
-                console.log("[DragStop] Thing's current domain_id:", thing?.domain_id);
-
-                if (thing) {
-                    if (domainId && thing.domain_id !== domainId) {
-                        // Add to new domain
-                        console.log("[DragStop] Adding to domain:", domainId);
-                        await addThingToDomain(node.id, domainId);
-                    } else if (!domainId && thing.domain_id) {
-                        // Remove from domain
-                        console.log("[DragStop] Removing from domain:", thing.domain_id);
-                        await removeThingFromDomain(node.id);
-                    }
+                // Safety check: ensure we have a start position for the dragged node
+                // (This now works for Things too, thanks to the fix in onNodeDragStart)
+                if (!startPos || startPos.id !== node.id) {
+                    return;
                 }
 
-                // Persist position to backend
-                await updateThing(node.id, {
-                    position_x: node.position.x,
-                    position_y: node.position.y,
+                const deltaX = node.position.x - startPos.x;
+                const deltaY = node.position.y - startPos.y;
+
+                let nodesToProcess: { id: string; x: number; y: number }[] = [];
+
+                // 1. Identify Items & Calculate New Positions
+                if (node.selected && selectedThingIds.length > 1) {
+                    // Multi-Select: Calculate position for EACH item based on Delta
+                    const selectedThings = things.filter(t => selectedThingIds.includes(t.id));
+
+                    nodesToProcess = selectedThings.map(t => ({
+                        id: t.id,
+                        x: t.position_x + deltaX,
+                        y: t.position_y + deltaY
+                    }));
+                } else {
+                    // Single Select: Use the node's final position directly (Delta also works and is consistent)
+                    nodesToProcess = [{
+                        id: node.id,
+                        x: node.position.x,
+                        y: node.position.y
+                    }];
+                }
+
+                // 2. Process Domain Logic for EACH Item (Loop of "Single Selects")
+                const updates = nodesToProcess.map(n => {
+                    // Check domain membership using the CALCULATED valid position
+                    const targetDomainId = checkThingInDomain(
+                        n.id,
+                        n.x,
+                        n.y
+                    );
+
+                    // Return update payload
+                    return {
+                        id: n.id,
+                        updates: {
+                            position_x: n.x,
+                            position_y: n.y,
+                            domain_id: targetDomainId
+                        }
+                    };
                 });
+
+                // 3. Atomic Batch Update
+                await updateThings(updates);
+
+                // Reset drag start
+                dragStartPosRef.current = null;
+
             } else if (node.type === "domain") {
-                // Calculate how much the domain moved
+                // Domain Drag Logic (Delta based for children)
                 const startPos = dragStartPosRef.current;
+                const domain = domains.find(d => d.id === node.id);
 
                 if (startPos && startPos.id === node.id) {
                     const deltaX = node.position.x - startPos.x;
                     const deltaY = node.position.y - startPos.y;
 
-                    // Only move things if there was actual movement
                     if (deltaX !== 0 || deltaY !== 0) {
-                        // Move all things that belong to this domain
-                        const domainThings = things.filter(t => t.domain_id === node.id);
+                        // Get FRESH state from store to avoid stale closure issues
+                        const freshDomains = useCanvasStore.getState().domains;
+                        const freshThings = useCanvasStore.getState().things;
 
-                        // Update React Flow nodes immediately for smooth visual update
-                        setNodes((nds) => nds.map((n) => {
-                            if (n.type === "thing") {
-                                const thing = domainThings.find(t => t.id === n.id);
-                                if (thing) {
-                                    return {
-                                        ...n,
-                                        position: {
-                                            x: n.position.x + deltaX,
-                                            y: n.position.y + deltaY,
-                                        },
-                                    };
+                        // Helper to get all descendant domain IDs recursively
+                        const getAllDescendantDomainIds = (parentId: string): string[] => {
+                            const children = freshDomains.filter(d => d.parent_id === parentId);
+                            return children.flatMap(c => [c.id, ...getAllDescendantDomainIds(c.id)]);
+                        };
+
+                        const descendantDomainIds = getAllDescendantDomainIds(node.id);
+                        const allDomainIds = [node.id, ...descendantDomainIds];
+
+                        // Get all things in this domain AND all descendant domains
+                        const allThingsToMove = freshThings.filter(t =>
+                            t.domain_id && allDomainIds.includes(t.domain_id)
+                        );
+
+                        // Move things along with domain
+                        if (allThingsToMove.length > 0) {
+                            const thingUpdates = allThingsToMove.map(t => ({
+                                id: t.id,
+                                updates: {
+                                    position_x: t.position_x + deltaX,
+                                    position_y: t.position_y + deltaY
                                 }
-                            }
-                            return n;
-                        }));
-
-                        // Update store immediately (synchronous)
-                        for (const thing of domainThings) {
-                            const newX = thing.position_x + deltaX;
-                            const newY = thing.position_y + deltaY;
-                            moveThing(thing.id, newX, newY);
+                            }));
+                            updateThings(thingUpdates);
                         }
 
-                        // Batch backend updates in parallel (fire and forget)
-                        Promise.all(
-                            domainThings.map((thing) =>
-                                updateThing(thing.id, {
-                                    position_x: thing.position_x + deltaX,
-                                    position_y: thing.position_y + deltaY,
-                                })
-                            )
-                        ).catch(err => console.error("[Domain Drag] Failed to persist thing positions:", err));
+                        // Move all child domains along with parent (use moveDomain for immediate local update)
+                        if (descendantDomainIds.length > 0) {
+                            for (const childDomainId of descendantDomainIds) {
+                                const childDomain = freshDomains.find(d => d.id === childDomainId);
+                                if (childDomain) {
+                                    // Use moveDomain for immediate local update
+                                    moveDomain(
+                                        childDomainId,
+                                        childDomain.position_x + deltaX,
+                                        childDomain.position_y + deltaY,
+                                        childDomain.width,
+                                        childDomain.height
+                                    );
+                                    // Also persist to backend
+                                    updateDomain(childDomainId, {
+                                        position_x: childDomain.position_x + deltaX,
+                                        position_y: childDomain.position_y + deltaY
+                                    }).catch(err =>
+                                        console.error(`[Domain Drag] Failed to persist child domain ${childDomainId}:`, err)
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
 
-                // Move domain immediately
-                moveDomain(node.id, node.position.x, node.position.y);
+                // Check for domain nesting (dropped inside another domain?)
+                const checkDomainInDomain = useCanvasStore.getState().checkDomainInDomain;
+                const centerX = node.position.x + ((domain?.width || 300) / 2);
+                const centerY = node.position.y + ((domain?.height || 200) / 2);
+                const newParentId = checkDomainInDomain(node.id, centerX, centerY);
 
-                // Persist domain position (fire and forget)
-                updateDomain(node.id, {
+                // Check if domain was dragged OUT of its parent
+                const wasInParent = domain?.parent_id;
+                let shouldClearParent = false;
+
+                if (wasInParent && !newParentId) {
+                    // Check if still inside old parent bounds
+                    const oldParent = domains.find(d => d.id === wasInParent);
+                    if (oldParent) {
+                        const stillInside = (
+                            centerX >= oldParent.position_x &&
+                            centerX <= oldParent.position_x + (oldParent.width || 300) &&
+                            centerY >= oldParent.position_y - 40 &&
+                            centerY <= oldParent.position_y + (oldParent.height || 200)
+                        );
+                        if (!stillInside) {
+                            shouldClearParent = true;
+                        }
+                    }
+                }
+
+                // Build update payload
+                const domainUpdate: { position_x: number; position_y: number; parent_id?: string | null } = {
                     position_x: node.position.x,
                     position_y: node.position.y,
-                }).catch(err => console.error("[Domain Drag] Failed to persist domain position:", err));
+                };
+
+                if (newParentId && newParentId !== domain?.parent_id) {
+                    domainUpdate.parent_id = newParentId;
+                    console.log(`[Domain Drag] Nesting domain ${node.id} inside ${newParentId}`);
+                } else if (shouldClearParent) {
+                    domainUpdate.parent_id = null;
+                    console.log(`[Domain Drag] Un-nesting domain ${node.id} from parent`);
+                }
+
+                // Persist domain position and parent
+                updateDomain(node.id, domainUpdate).catch(err =>
+                    console.error("[Domain Drag] Failed to persist domain position:", err)
+                );
 
                 // Clear drag start
                 dragStartPosRef.current = null;
             }
         },
-        [moveThing, moveDomain, updateThing, updateDomain, checkThingInDomain,
-            addThingToDomain, removeThingFromDomain, things, setNodes]
+        [updateThings, updateDomain, checkThingInDomain, things, selectedThingIds, domains]
     );
 
     // Handle new connections - open dialog to select type
@@ -1309,6 +1453,63 @@ function CanvasViewInner() {
                 toast({ title: "Analysis Failed", variant: "destructive" });
             }
 
+        } else if (action.startsWith("reorder_")) {
+            // Z-Order Reordering Actions
+            const reorderAction = action.replace("reorder_", "") as "front" | "back" | "forward" | "backward";
+            const { selectedThingIds, selectedDomainIds, reorderItem } = useCanvasStore.getState();
+
+            // Reorder all selected things and domains
+            const allIds = [...selectedThingIds, ...selectedDomainIds];
+
+            if (allIds.length === 0) {
+                toast({ title: "Nothing Selected", description: "Select items to reorder." });
+                return;
+            }
+
+            for (const id of allIds) {
+                await reorderItem(id, reorderAction);
+            }
+
+            toast({ title: "Reordered", description: `Items moved ${reorderAction}.` });
+
+        } else if (action === "arrange_things") {
+            const { selectedThingIds, things, selectedDomainIds, loadCanvas, canvasId } = useCanvasStore.getState();
+            let tIds: string[] | undefined = undefined;
+
+            if (context === "selection") {
+                tIds = [...selectedThingIds];
+                const thingsInDomains = things.filter(t => t.domain_id && selectedDomainIds.includes(t.domain_id)).map(t => t.id);
+                tIds = [...new Set([...tIds, ...thingsInDomains])];
+            } else if (context === "domain" && domainId) {
+                tIds = things.filter(t => t.domain_id === domainId).map(t => t.id);
+            } else {
+                // Canvas context -> All things (pass undefined to service)
+                tIds = undefined;
+            }
+
+            if (tIds && tIds.length === 0) {
+                toast({ title: "Nothing to arrange", description: "No items selected." });
+                return;
+            }
+
+            toast({ title: "Arranging Things", description: "Calculating optimal layout..." });
+
+            try {
+                if (canvasId) {
+                    await layoutService.arrange({
+                        canvas_id: canvasId,
+                        thing_ids: tIds
+                    });
+
+                    // Refresh canvas
+                    await loadCanvas(canvasId);
+                    toast({ title: "Arrangement Complete", description: "Layout updated." });
+                }
+            } catch (e) {
+                console.error("Layout failed", e);
+                toast({ title: "Layout Failed", description: "Could not arrange things.", variant: "destructive" });
+            }
+
         } else if (action.startsWith("execute_template:")) {
             const templateId = action.split(":")[1];
             const { selectedThingIds, selectedDomainIds, things, domains, selectedModel, visionModel } = useCanvasStore.getState();
@@ -1582,10 +1783,35 @@ function CanvasViewInner() {
     const handleAddDomain = async () => {
         if (!domainName.trim() || !domainDescription.trim()) return;
 
+        const dropPos = pendingDropPos || getCenterPosition();
+
+        // Detect if dropping inside an existing domain
+        const checkDomainInDomain = useCanvasStore.getState().checkDomainInDomain;
+        // Use a temporary ID to check (we don't have the real ID yet)
+        // We need a simpler check that just finds containing domain
+        let parentId: string | null = null;
+        for (const domain of domains) {
+            if (
+                dropPos.x >= domain.position_x &&
+                dropPos.x <= domain.position_x + (domain.width || 300) &&
+                dropPos.y >= domain.position_y - 40 &&
+                dropPos.y <= domain.position_y + (domain.height || 200)
+            ) {
+                // Check if this domain is deeper than current candidate
+                const depth = getHierarchyDepth(domain.id);
+                const currentDepth = parentId ? getHierarchyDepth(parentId) : -1;
+                if (depth > currentDepth) {
+                    parentId = domain.id;
+                }
+            }
+        }
+
         await addDomain(
             domainName,
             domainDescription,
-            pendingDropPos || getCenterPosition()
+            dropPos,
+            "#6366f1",
+            parentId
         );
 
         setDomainName("");
@@ -1941,6 +2167,28 @@ function CanvasViewInner() {
                     </div>
                 </div>
 
+                {/* Selection Mode Toggle */}
+                <div className="flex items-center gap-1 border-l pl-4 ml-4 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-md">
+                    <Button
+                        variant={selectionMode === "hand" ? "secondary" : "ghost"}
+                        size="sm"
+                        className={cn("h-8 w-8 p-0", selectionMode === "hand" && "bg-white dark:bg-slate-700 shadow-sm")}
+                        onClick={() => setSelectionMode("hand")}
+                        title="Hand Tool (Pan) - Hold Shift to Select"
+                    >
+                        <Hand className="h-4 w-4" />
+                    </Button>
+                    <Button
+                        variant={selectionMode === "selection" ? "secondary" : "ghost"}
+                        size="sm"
+                        className={cn("h-8 w-8 p-0", selectionMode === "selection" && "bg-white dark:bg-slate-700 shadow-sm")}
+                        onClick={() => setSelectionMode("selection")}
+                        title="Pointer Tool (Select) - Drag to Select"
+                    >
+                        <MousePointer2 className="h-4 w-4" />
+                    </Button>
+                </div>
+
                 <div className="flex items-center gap-2 border-l pl-4 ml-4">
                     <Button
                         variant="ghost"
@@ -2044,10 +2292,14 @@ function CanvasViewInner() {
                         minZoom={0.1}
                         maxZoom={2}
                         defaultViewport={viewport}
-                        selectNodesOnDrag={true}
-                        selectionOnDrag={true}
-                        selectionKeyCode="Shift"
-                        multiSelectionKeyCode="Shift"
+                        // Mode-dependent props
+                        onSelectionDragStart={onSelectionDragStart}
+                        onSelectionDragStop={onSelectionDragStop}
+                        selectNodesOnDrag={true} // Allow moving all selected items
+                        panOnDrag={selectionMode === "hand" ? true : [1, 2]} // In selection mode, pan with middle/right mouse only (or space)
+                        selectionOnDrag={selectionMode === "selection"} // Enable drag selection without key in selection mode
+                        selectionKeyCode={selectionMode === "selection" ? null : "Shift"} // No key needed in selection mode; Shift in hand mode
+                        multiSelectionKeyCode="Shift" // Always Shift for adding to selection
                         nodesDraggable={true}
                         nodesConnectable={true}
                         elementsSelectable={true}
