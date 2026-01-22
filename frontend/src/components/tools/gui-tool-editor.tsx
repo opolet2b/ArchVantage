@@ -678,9 +678,9 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
 
 
     return (
-        <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-50/30 dark:bg-black/10">
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-muted/30">
             {/* Header */}
-            <div className="flex items-center gap-4 p-4 border-b bg-white dark:bg-slate-900 sticky top-0 z-10">
+            <div className="flex items-center gap-4 p-4 border-b bg-background sticky top-0 z-10">
                 {onBack && (
                     <Button variant="ghost" size="icon" onClick={onBack}>
                         <ArrowLeft className="h-4 w-4" />
@@ -705,7 +705,7 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                 <div className="flex items-center gap-2 border-l pl-4 ml-2">
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm" className="gap-2">
+                            <Button variant="outline" size="sm" className="gap-2 bg-background">
                                 <Settings className="h-4 w-4" />
                                 {selectedModelName}
                                 <ChevronDown className="h-3 w-3" />
@@ -721,7 +721,7 @@ export function GUIToolEditor({ tool, onSave, onDelete, onBack, onDirtyChange }:
                                     <DropdownMenuItem
                                         key={model.name}
                                         onClick={() => setSelectedModel(model.name)}
-                                        className={selectedModel === model.name ? "bg-slate-100 dark:bg-slate-800" : ""}
+                                        className={selectedModel === model.name ? "bg-accent text-accent-foreground" : ""}
                                     >
                                         {getModelDisplayName(model)}
                                     </DropdownMenuItem>

@@ -130,7 +130,7 @@ export function BuilderCanvas() {
     const nodesWithHighlight = useMemo(() => {
         return nodes.map((node) => ({
             ...node,
-            className: node.id === activeNodeId ? "ring-2 ring-green-500 ring-offset-2" : "",
+            className: node.id === activeNodeId ? "ring-2 ring-primary ring-offset-2" : "",
         }));
     }, [nodes, activeNodeId]);
 
@@ -204,9 +204,9 @@ export function BuilderCanvas() {
                 {/* Empty State */}
                 {nodes.length === 0 && (
                     <Panel position="top-center" className="mt-20">
-                        <div className="text-center p-8 bg-white/80 dark:bg-slate-900/80 backdrop-blur rounded-xl border">
-                            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 flex items-center justify-center">
-                                <svg className="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <div className="text-center p-8 bg-card/80 backdrop-blur rounded-xl border border-border">
+                            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center">
+                                <svg className="w-8 h-8 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                                 </svg>
                             </div>

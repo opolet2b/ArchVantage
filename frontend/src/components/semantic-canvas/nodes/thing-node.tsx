@@ -19,7 +19,7 @@ import {
     Database,
     Table,
     Bot,
-    Link,
+    Link as LinkIcon,
     ExternalLink,
     Type,
     Minimize2,
@@ -41,7 +41,9 @@ import {
     Pencil,
     Save,
     X,
-    Sparkles
+    Sparkles,
+    Lock,
+    RefreshCw
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -124,7 +126,7 @@ const thingIcons: Record<string, React.ElementType> = {
     database: Database,
     table: Table,
     agent_result: Bot,
-    url: Link,
+    url: LinkIcon,
     slideshow: Presentation,
 };
 
@@ -251,6 +253,9 @@ interface ThingNodeData {
 export function ThingNode(props: NodeProps<ThingNodeData>) {
     const { id, data, selected: isSelected } = props;
     const { toast } = useToast();
+    const hiddenNodeLinks = useCanvasStore(state => state.hiddenNodeLinks);
+    const toggleNodeLinks = useCanvasStore(state => state.toggleNodeLinks);
+    const linksHidden = hiddenNodeLinks.includes(props.data.thing.id);
 
     // Destructure data from React Flow
     const {
@@ -344,6 +349,115 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         } catch (error) {
             console.error("Sync failed", error);
             setSyncStatus('error');
+        }
+    };
+
+    // =============================================================================
+    // Transclusion Logic
+    // =============================================================================
+
+
+
+    // Refresh Transcluded Nodes (Bulk)
+    // This is a "soft" refresh - mainly re-fetching for the viewer blocks.
+    // In our React architecture, store updates propagate automatically. 
+    // This button serves as a manual trigger to re-sync ensures or potentially fetch deep content if we implemented lazy loading.
+    // For now, it provides visual feedback.
+    const [isRefreshingNodes, setIsRefreshingNodes] = React.useState(false);
+    const handleRefreshNodes = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setIsRefreshingNodes(true);
+        // Simulate refresh delay or trigger actual store refresh
+        await useCanvasStore.getState().refreshThings();
+        setTimeout(() => setIsRefreshingNodes(false), 800);
+        toast({
+            title: "Nodes Refreshed",
+            description: "Transcluded content has been updated.",
+            duration: 1000,
+        });
+    };
+
+    // Transclusion State Logic
+    const handleTransclusionStateChange = async (nodeId: string, newState: any) => {
+        const currentTransclusions = (thing.content as any).transclusions || {};
+
+        // If locking, we need to capture the snapshot if not already present
+        if (newState.locked && !newState.snapshot) {
+            const targetThing = useCanvasStore.getState().things.find(t => t.id === nodeId);
+            if (targetThing) {
+                // Snapshot relevant fields
+                newState.snapshot = {
+                    title: targetThing.title,
+                    type: targetThing.type,
+                    content: targetThing.content
+                };
+            }
+        }
+
+        const updatedTransclusions = {
+            ...currentTransclusions,
+            [nodeId]: {
+                ...newState,
+                last_updated: new Date().toISOString()
+            }
+        };
+
+        // Persist
+        await updateThing(thing.id, {
+            content: {
+                ...thing.content,
+                transclusions: updatedTransclusions
+            }
+        });
+    };
+
+    // Drag and Drop Handler for Transclusion Insertion
+    const handleTextareaDrop = async (e: React.DragEvent<HTMLTextAreaElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 1. Get text content
+        const data = e.dataTransfer.getData("application/reactflow/node");
+        if (!data) return;
+
+        try {
+            const nodeData = JSON.parse(data);
+            const droppedNodeId = nodeData.id;
+
+            if (droppedNodeId === thing.id) {
+                toast({ title: "Cannot transclude self", variant: "destructive" });
+                return;
+            }
+
+            // 2. Insert at cursor position
+            const textarea = e.currentTarget;
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const text = textarea.value;
+
+            const transclusionTag = `{{node:${droppedNodeId}}}`;
+
+            // Insert text
+            const newText = text.substring(0, start) + transclusionTag + text.substring(end);
+
+            // Update local state
+            setEditedContent(newText);
+
+            // Focus and move cursor after tag
+            setTimeout(() => {
+                textarea.focus();
+                const newCursorPos = start + transclusionTag.length;
+                textarea.setSelectionRange(newCursorPos, newCursorPos);
+            }, 0);
+
+            // Notify user
+            toast({
+                title: "Node Transcluded",
+                description: "Reference inserted at cursor.",
+            });
+
+        } catch (err) {
+            console.error("Failed to parse dropped node data", err);
         }
     };
 
@@ -1384,6 +1498,54 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                 className="flex-1 min-h-0 font-mono text-sm resize-none bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus-visible:ring-1"
                                 placeholder="Enter text content..."
                                 autoFocus
+                                onDrop={handleTextareaDrop}
+                                onDragOver={(e) => e.preventDefault()}
+                                onClick={() => {
+                                    // Ghost Mode Placement
+                                    const ghostId = useCanvasStore.getState().transclusionGhostId;
+                                    if (ghostId) {
+                                        // Prevent self-reference
+                                        if (ghostId === thing.id) {
+                                            toast({ title: "Cannot transclude self", variant: "destructive", duration: 2000 });
+                                            useCanvasStore.getState().setTransclusionGhostId(null);
+                                            return;
+                                        }
+
+                                        // Insert tag at cursor position
+                                        // Since onClick fires after focus, we can rely on current cursor pos or just append if needed
+                                        // But simple append or insert at selection is better.
+                                        // Note: we don't have direct ref to textarea element here easily without refactor.
+                                        // But we can use the state 'editedContent' and do a simpler append for now 
+                                        // OR trust that the user clicked where they wanted.
+
+                                        /* 
+                                           Ideally we want exact cursor placement. 
+                                           But 'onClick' doesn't give us the Selection range directly unless we access the element.
+                                           Let's accept that for this iteration, appending or replacing selection might require a Ref.
+                                           Actually, we can use document.activeElement if it is this textarea.
+                                        */
+
+                                        setTimeout(() => {
+                                            const active = document.activeElement as HTMLTextAreaElement;
+                                            if (active && active.tagName === "TEXTAREA" && active.value === editedContent) {
+                                                const start = active.selectionStart;
+                                                const end = active.selectionEnd;
+                                                const tag = `{{node:${ghostId}}}`;
+                                                const newText = active.value.substring(0, start) + tag + active.value.substring(end);
+
+                                                setEditedContent(newText);
+
+                                                // Clear ghost
+                                                useCanvasStore.getState().setTransclusionGhostId(null);
+
+                                                toast({ title: "Transclusion Inserted", description: "Linked content placed at cursor." });
+                                            }
+                                        }, 10);
+                                    }
+                                }}
+                                style={{
+                                    cursor: useCanvasStore.getState().transclusionGhostId ? "copy" : "text"
+                                }}
                             />
                             <div className="text-xs text-muted-foreground mt-1 px-1">
                                 Markdown supported. Press Save icon in header to apply.
@@ -1414,7 +1576,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                     }
                 }
 
-                const showAsMarkdown = thing.type === "agent_result" || (isMarkdown(textVal) && !highlight);
+                const showAsMarkdown = thing.type === "agent_result" || ((isMarkdown(textVal) || textVal.includes("{{node:")) && !highlight);
 
                 return (
                     <div className="flex flex-col h-full overflow-hidden">
@@ -1439,6 +1601,8 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                         content={textVal}
                                         className="h-full prose-sm dark:prose-invert"
                                         onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                        transclusionStates={(thing.content as any).transclusions}
+                                        onTransclusionStateChange={handleTransclusionStateChange}
                                     />
                                 ) : (
                                     <TextViewer
@@ -1911,6 +2075,29 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             )
                         )}
 
+
+
+                        {/* Link/Ghost Mode Button */}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const isGhost = useCanvasStore.getState().transclusionGhostId === thing.id;
+                                useCanvasStore.getState().setTransclusionGhostId(isGhost ? null : thing.id);
+                                toast({
+                                    title: isGhost ? "Link Mode Cancelled" : "Link Mode Active",
+                                    description: isGhost ? "" : "Click inside a Text Node editor to place this reference.",
+                                    duration: 3000
+                                });
+                            }}
+                            className={cn(
+                                "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
+                                useCanvasStore.getState().transclusionGhostId === thing.id ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30" : "text-slate-300 hover:text-purple-400"
+                            )}
+                            title="Pick up to Transclude (Ghost Mode)"
+                        >
+                            <LinkIcon className="h-3.5 w-3.5" />
+                        </button>
+
                         {/* Thinking Toggle - Only if thinking content exists */}
                         {/* Thinking Toggle - Only if thinking content exists */}
                         {hasThinking && (
@@ -2055,6 +2242,20 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                         </button>
 
+                        {/* Refresh Transclusions Button (Text Node) */}
+                        {thing.type === "text" && (
+                            <button
+                                onClick={handleRefreshNodes}
+                                className={cn(
+                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                    isRefreshingNodes && "animate-spin text-blue-500"
+                                )}
+                                title="Refresh Transcluded Content"
+                            >
+                                <RefreshCw className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                            </button>
+                        )}
+
                         {/* Sync Button (if asset exists) */}
                         {thing.content?.asset_id && (
                             <button
@@ -2084,6 +2285,21 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     <BrainCircuit className="h-4 w-4 text-slate-400 hover:text-green-500" />
                                 </button>
                             )}
+
+                        {/* Toggle Link Visibility */}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                toggleNodeLinks(thing.id);
+                            }}
+                            className={cn(
+                                "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                linksHidden ? "text-slate-400" : "text-slate-400 hover:text-blue-500"
+                            )}
+                            title={linksHidden ? "Show Connected Links" : "Hide Connected Links"}
+                        >
+                            {linksHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
 
                         {/* External Links Badge / Action */}
                         <DropdownMenu>
@@ -2160,7 +2376,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     setPendingFragment(fullThingFragment);
                                     setCrossCanvasLinkDialogOpen(true);
                                 }}>
-                                    <Link className="h-4 w-4 mr-2" />
+                                    <LinkIcon className="h-4 w-4 mr-2" />
                                     Add Link...
                                 </DropdownMenuItem>
                             </DropdownMenuContent>

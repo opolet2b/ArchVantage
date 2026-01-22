@@ -306,8 +306,19 @@ interface CanvasState {
     findEnclosingDomain: (x: number, y: number, width: number, height: number) => string | null;
     recalculateDomainAssignments: () => Promise<void>;
 
+    // Link Visibility Management
+    showLinks: boolean;
+    hiddenNodeLinks: string[]; // List of node IDs with hidden links
+    toggleShowLinks: () => void;
+    toggleNodeLinks: (nodeId: string) => void;
+
+
     // External / Cross-Canvas Linking
     // Unified addLink handles this now
+
+    // Transclusion Ghost Mode
+    transclusionGhostId: string | null;
+    setTransclusionGhostId: (id: string | null) => void;
 }
 
 /**
@@ -338,6 +349,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     setSelectionMode: (mode) => set({ selectionMode: mode }),
     isLoading: false,
     error: null,
+
+    // Transclusion Ghost Mode
+    transclusionGhostId: null,
+    setTransclusionGhostId: (id) => set({ transclusionGhostId: id }),
+
+    // Link Visibility
+    showLinks: true,
+    hiddenNodeLinks: [],
+    toggleShowLinks: () => set(state => ({ showLinks: !state.showLinks })),
+    toggleNodeLinks: (nodeId) => set(state => {
+        const isHidden = state.hiddenNodeLinks.includes(nodeId);
+        return {
+            hiddenNodeLinks: isHidden
+                ? state.hiddenNodeLinks.filter(id => id !== nodeId)
+                : [...state.hiddenNodeLinks, nodeId]
+        };
+    }),
 
     // Selected model for canvas operations
     selectedModel: null,

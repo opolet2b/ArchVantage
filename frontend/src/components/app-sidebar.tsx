@@ -53,11 +53,11 @@ export function AppSidebar() {
     }
 
     return (
-        <div className="flex flex-col h-screen w-64 border-r bg-slate-50/50 dark:bg-slate-900/50 py-4 gap-4 overflow-y-auto">
+        <div className="flex flex-col h-screen w-64 border-r bg-sidebar border-sidebar-border py-4 gap-4 overflow-y-auto text-sidebar-foreground">
             <div className="px-4 flex items-center justify-between">
                 <div className="font-bold text-xl">AI Chat</div>
                 {viewMode === "chat" && (
-                    <Button variant="ghost" size="icon" onClick={handleNewChat} title="New Chat">
+                    <Button variant="ghost" size="icon" onClick={handleNewChat} title="New Chat" className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
                         <Plus className="h-5 w-5" />
                     </Button>
                 )}
@@ -65,11 +65,11 @@ export function AppSidebar() {
 
             {/* View Mode Toggle - Always Visible */}
             <div className="px-2">
-                <div className="flex gap-1 bg-slate-200 dark:bg-slate-800 rounded-lg p-1">
+                <div className="flex gap-1 bg-sidebar-accent/50 rounded-lg p-1">
                     <Button
                         variant={viewMode === "canvas" ? "default" : "ghost"}
                         size="sm"
-                        className="flex-1 gap-2"
+                        className="flex-1 gap-2 data-[state=active]:bg-background data-[state=active]:text-foreground"
                         onClick={handleSwitchToCanvas}
                     >
                         <Map className="h-4 w-4" />
@@ -93,7 +93,7 @@ export function AppSidebar() {
                     <Link href="/">
                         <Button
                             variant={pathname === "/" ? "secondary" : "ghost"}
-                            className="w-full justify-start gap-2"
+                            className="w-full justify-start gap-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                             onClick={() => setActiveConversationId(null)}
                         >
                             <MessageSquare className="h-4 w-4" />
@@ -114,8 +114,8 @@ export function AppSidebar() {
                             className={cn(
                                 "w-full justify-start gap-2 transition-colors",
                                 pathname === item.href
-                                    ? "bg-[#4F46E5] text-white hover:bg-[#4338CA] hover:text-white"
-                                    : "hover:bg-slate-200 dark:hover:bg-slate-800"
+                                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                                    : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                             )}
                         >
                             <item.icon className="h-4 w-4" />
@@ -126,7 +126,7 @@ export function AppSidebar() {
 
                 <Button
                     variant="ghost"
-                    className="w-full justify-start gap-2 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50"
+                    className="w-full justify-start gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
                     onClick={logout}
                 >
                     <LogOut className="h-4 w-4" />

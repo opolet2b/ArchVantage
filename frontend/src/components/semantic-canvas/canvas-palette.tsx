@@ -226,7 +226,7 @@ export function CanvasPalette() {
 
 
     return (
-        <div id="canvas-palette" className="w-64 border-l bg-slate-50/50 dark:bg-slate-900/50 flex flex-col h-full">
+        <div id="canvas-palette" className="w-64 border-l bg-sidebar flex flex-col h-full">
             <div className="p-4 border-b shrink-0">
                 <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                     <Layout className="h-4 w-4" />
@@ -245,14 +245,14 @@ export function CanvasPalette() {
                         draggable
                         onDragStart={(e) => handleDragStartWithColor(e, tool)}
                         className={cn(
-                            "group flex items-center gap-3 p-3 rounded-lg border bg-white dark:bg-slate-800",
-                            "hover:border-blue-400 hover:shadow-sm transition-all cursor-grab active:cursor-grabbing",
-                            "dark:border-slate-700 dark:hover:border-blue-500",
+                            "group flex items-center gap-3 p-3 rounded-lg border bg-card",
+                            "hover:border-primary hover:shadow-sm transition-all cursor-grab active:cursor-grabbing",
+                            "border-border",
                             "relative"
                         )}
                         style={{ borderLeftColor: toolColors[tool.id], borderLeftWidth: "4px" }}
                     >
-                        <div className="p-2 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                        <div className="p-2 rounded-md bg-muted text-muted-foreground">
                             {tool.icon}
                         </div>
                         <div className="flex flex-col flex-1">
@@ -266,11 +266,11 @@ export function CanvasPalette() {
                                 onOpenChange={(isOpen) => handlePopoverOpenChange(tool.id, isOpen)}
                             >
                                 <PopoverTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full p-0 hover:bg-slate-100 dark:hover:bg-slate-700">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full p-0 hover:bg-muted">
                                         <div className="relative">
                                             <Palette className="h-4 w-4 text-muted-foreground absolute -top-1 -right-1 opacity-50" />
                                             <div
-                                                className="w-5 h-5 rounded-full border-2 border-white dark:border-slate-800 shadow-sm ring-1 ring-slate-200 dark:ring-slate-700"
+                                                className="w-5 h-5 rounded-full border-2 border-background shadow-sm ring-1 ring-border"
                                                 style={{ backgroundColor: toolColors[tool.id] || "#fff" }}
                                             />
                                         </div>

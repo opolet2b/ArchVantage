@@ -2,6 +2,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom"; // Import Portal
 import { Download, FileDown, Loader2, FileType } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,11 +22,15 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CanvasThing } from "./canvas-store";
+import { CanvasThing, useCanvasStore } from "./canvas-store";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
 import domToImage from "dom-to-image-more";
+import { MarkdownViewer } from "./viewers/markdown-viewer"; // Import MarkdownViewer
+import { SpreadsheetViewer } from "./viewers/spreadsheet-viewer";
+import { ImageViewer } from "./viewers/image-viewer";
+import { PDFViewer } from "./viewers/pdf-viewer";
 
 
 interface ExportDialogProps {
@@ -40,6 +45,10 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
     const [filename, setFilename] = React.useState("");
     const [format, setFormat] = React.useState<ExportFormat | "">("");
     const [isExporting, setIsExporting] = React.useState(false);
+
+    // Preview state for visual PDF generation
+    const [previewContent, setPreviewContent] = React.useState<any | null>(null);
+    const previewRef = React.useRef<HTMLDivElement>(null);
 
     // Determine available formats based on thing type
     const availableFormats = React.useMemo<ExportFormat[]>(() => {
@@ -75,13 +84,62 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
         }
     }, [open, thing, availableFormats]);
 
+    // Transclusion Resolver
+    const resolveTranscludedContent = (rawContent: any): any => {
+        // Deep copy to avoid mutating original
+        let content = JSON.parse(JSON.stringify(rawContent));
+
+        let text = "";
+        let textField = "";
+
+        if (typeof content.text === "string") { text = content.text; textField = "text"; }
+        else if (typeof content.content === "string") { text = content.content; textField = "content"; }
+        else if (typeof content.text_content === "string") { text = content.text_content; textField = "text_content"; }
+        else if (typeof content.full_text === "string") { text = content.full_text; textField = "full_text"; }
+        else if (typeof content.markdown === "string") { text = content.markdown; textField = "markdown"; }
+
+        if (!text || !textField) return content; // No text field found to resolve
+
+        const regex = /\{\{node:\s*([a-f0-9-]+)\s*\}\}/gi;
+
+        // Use replace with callback
+        const resolvedText = text.replace(regex, (match: string, uuid: string) => {
+            // 1. Check Snapshot (Locked)
+            const transclusionState = (thing.content as any).transclusions?.[uuid];
+            if (transclusionState?.locked && transclusionState?.snapshot) {
+                const snap = transclusionState.snapshot;
+                const snapBody = snap.content?.text || snap.content?.content || JSON.stringify(snap.content);
+                return `\n\n${snapBody}\n\n`;
+            }
+
+            // 2. Check Live Store
+            const liveThing = useCanvasStore.getState().things.find(t => t.id === uuid);
+            if (liveThing) {
+                const c = liveThing.content as any;
+                const body = c.markdown || c.text || c.content || c.full_text || c.text_content || JSON.stringify(c);
+                return `\n\n${body}\n\n`;
+            }
+
+            return match; // Not found, keep tag
+        });
+
+        // Update the specific field
+        content[textField] = resolvedText;
+        return content;
+    };
+
     const handleExport = async () => {
         if (!format) return;
         setIsExporting(true);
 
         try {
             const safeFilename = filename.replace(/[^a-z0-9_\-\s]/gi, '_');
-            const content = thing.content;
+            // Resolve transclusions for text-based formats ONLY
+            // For PDF (Visual), we want to keep tags so MarkdownViewer renders TransclusionBlock components
+            let content = thing.content;
+            if (["txt", "md", "html"].includes(format)) {
+                content = resolveTranscludedContent(content);
+            }
 
             switch (format) {
                 case "json":
@@ -110,7 +168,50 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                     } else if (thing.type === "agent_result" && (content as any)?.visualizer_output?.visual_payload) {
                         await exportVisualizerPDF(thing.id, content, safeFilename);
                     } else {
-                        exportTextPDF(content, safeFilename);
+                        // Use Visual Export for Text/MD to preserve formatting
+                        // 1. Resolve Transclusions (Already done in 'content' var)
+
+                        // Determine content payload based on type
+                        let payload: any = content;
+
+                        // Detect Spreadsheet/Table (including CSV files uploaded as documents)
+                        const isSpreadsheet =
+                            thing.type === 'table' ||
+                            thing.title?.toLowerCase().match(/\.(csv|xlsx?)$/) ||
+                            (typeof content === 'object' && (content.csv || content.data));
+
+                        if (isSpreadsheet) {
+                            payload = content; // Pass full object including 'data' or 'csv'
+                        } else if (thing.type === 'image') {
+                            payload = content;
+                        } else if (thing.type === 'text' || thing.type === 'document' || thing.type === 'conversation' || thing.type === 'message') {
+                            // Extract text
+                            let textToRender = "";
+                            if (typeof content.text === "string") textToRender = content.text;
+                            else if (typeof content.content === "string") textToRender = content.content;
+                            else if (typeof content.markdown === "string") textToRender = content.markdown;
+                            else textToRender = JSON.stringify(content, null, 2);
+                            payload = textToRender;
+                        } else {
+                            // Default fallback
+                            payload = JSON.stringify(content, null, 2);
+                        }
+
+                        // 2. Set Preview State to trigger render
+                        setPreviewContent(payload);
+
+                        // 3. Wait for render (Next Tick + Image Load Buffer)
+                        await new Promise(r => setTimeout(r, 1000)); // Wait for React render
+
+                        // 4. Capture
+                        if (previewRef.current) {
+                            await exportVisualPDF(previewRef.current, safeFilename);
+                        } else {
+                            // Fallback if ref missing
+                            exportTextPDF(content, safeFilename);
+                        }
+
+                        setPreviewContent(null);
                     }
                     break;
             }
@@ -225,6 +326,10 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
             rawContent = JSON.stringify(rawContent, null, 2);
         }
 
+        // Basic HTML structure - note: this doesn't render markdown to HTML tags unless we parse it.
+        // But the user requested PDF rendering mainly. HTML export is text-based usually.
+        // If we wanted rendered HTML, we'd need a parser. For now, wrap in pre.
+
         const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -232,7 +337,7 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
     <title>${filename}</title>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; padding: 2rem; max-width: 800px; margin: 0 auto; line-height: 1.5; }
-        pre { background: #f4f4f5; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        pre { background: #f4f4f5; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; white-space: pre-wrap; }
         code { font-family: monospace; }
         .metadata { color: #666; font-size: 0.875rem; marginBottom: 1rem; }
     </style>
@@ -247,6 +352,141 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
 
         downloadFile(html, `${filename}.html`, "text/html");
     };
+
+    const exportVisualPDF = async (element: HTMLElement, filename: string) => {
+        const doc = new jsPDF({
+            orientation: "portrait",
+            unit: "pt",
+            format: "a4"
+        });
+
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 20;
+        const availableWidth = pageWidth - (margin * 2);
+        const availableHeight = pageHeight - (margin * 2);
+
+        try {
+            // High DPI Capture
+            // Note: We need to ensure the element is visible. Portal placement helps.
+            const imgData = await domToImage.toPng(element, {
+                bgcolor: '#ffffff',
+                width: 760, // A4 width logic matches our fixed width container
+                scale: 2 // High resolution
+            });
+
+            // --- Smart Slicing Logic ---
+
+            // 1. Load Image for processing
+            const img = new Image();
+            img.src = imgData;
+            await new Promise((resolve) => { img.onload = resolve; });
+
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            if (!ctx) throw new Error("Canvas context failed");
+
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+
+            // Calculate ratios
+            const imgAspectRatio = img.width / img.height;
+            // PDF: We fit width to availableWidth.
+            // Height in PDF points = (img.height * availableWidth) / img.width
+            // But we work in Pixel Space for slicing.
+
+            const pdfToPxRatio = img.width / availableWidth;
+            const pageHeightInPx = availableHeight * pdfToPxRatio;
+
+            let currentY = 0;
+            let remainingHeight = img.height;
+
+            // Loop to create pages
+            while (remainingHeight > 0) {
+                if (currentY > 0) doc.addPage();
+
+                let sliceHeight = Math.min(remainingHeight, pageHeightInPx);
+
+                // If we are cutting midway, try to find a white gap
+                if (remainingHeight > pageHeightInPx) {
+                    // Check standard cut line
+                    const cutY = currentY + pageHeightInPx;
+
+                    // Backtrack to find whitespace (up to 20% of page height)
+                    // We check a horizontal line for "all white" (or close to white)
+                    // Pixel check: 4 bytes per pixel (R,G,B,A)
+                    const searchRange = Math.floor(pageHeightInPx * 0.2);
+                    const data = ctx.getImageData(0, Math.floor(cutY - searchRange), canvas.width, searchRange);
+                    const pixels = data.data;
+                    const width = canvas.width;
+                    const height = searchRange;
+
+                    // Scan from bottom (cutY) upwards
+                    let foundBreak = false;
+                    for (let row = height - 1; row >= 0; row--) {
+                        let isRowWhite = true;
+                        // Sample checks for performance (every 5th pixel)
+                        // Ignore left/right margins (50px) to avoid borders/scrollbars blocking the break
+                        for (let col = 50; col < width - 50; col += 5) {
+                            const i = (row * width + col) * 4;
+                            const r = pixels[i];
+                            const g = pixels[i + 1];
+                            const b = pixels[i + 2];
+                            // Check for darkness (text is dark, white bg is 255)
+                            // Threshold: if any pixel is < 240, it's not white
+                            if (r < 240 || g < 240 || b < 240) {
+                                isRowWhite = false;
+                                break;
+                            }
+                        }
+
+                        if (isRowWhite) {
+                            // Found a break!
+                            // Actual Y relative to currentY is: (cutY - searchRange) + row
+                            // But `row` is local to the imageData block.
+                            // The block starts at `cutY - searchRange`.
+                            // So BreakY = (cutY - searchRange) + row
+                            sliceHeight = (cutY - searchRange) + row - currentY;
+                            foundBreak = true;
+                            // Add a small padding buffer so we don't cut right on the edge of next line
+                            sliceHeight -= 5;
+                            break;
+                        }
+                    }
+
+                    if (!foundBreak) {
+                        console.warn("No suitable page break found, cutting strictly.");
+                        // sliceHeight remains pageHeightInPx
+                    }
+                }
+
+                // Create a canvas for the slice
+                const sliceCanvas = document.createElement("canvas");
+                sliceCanvas.width = canvas.width;
+                sliceCanvas.height = sliceHeight;
+                const sliceCtx = sliceCanvas.getContext("2d");
+                if (sliceCtx) {
+                    sliceCtx.drawImage(canvas, 0, currentY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+                    const sliceData = sliceCanvas.toDataURL("image/png");
+
+                    // Add to PDF
+                    // Calculate final PDF height for this slice
+                    const slicePdfHeight = (sliceHeight * availableWidth) / canvas.width;
+                    doc.addImage(sliceData, 'PNG', margin, margin, availableWidth, slicePdfHeight);
+                }
+
+                currentY += sliceHeight;
+                remainingHeight -= sliceHeight;
+            }
+
+            doc.save(`${filename}.pdf`);
+
+        } catch (e) {
+            console.error("Visual PDF generation failed", e);
+            exportTextPDF(element.innerText, filename); // Fallback
+        }
+    }
 
     const exportVisualizerPDF = async (thingId: string, content: any, filename: string) => {
         const doc = new jsPDF({
@@ -455,63 +695,186 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
     };
 
     return (
-        <Dialog open={open} onOpenChange={(val) => !isExporting && onOpenChange(val)}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Export {thing.type === 'slideshow' ? 'Slideshow' : 'Thing'}</DialogTitle>
-                    <DialogDescription>
-                        Choose a format to download this content.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="filename" className="text-right">
-                            Filename
-                        </Label>
-                        <Input
-                            id="filename"
-                            value={filename}
-                            onChange={(e) => setFilename(e.target.value)}
-                            className="col-span-3"
-                        />
+        <>
+            <Dialog open={open} onOpenChange={(val) => !isExporting && onOpenChange(val)}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Export {thing.type === 'slideshow' ? 'Slideshow' : 'Thing'}</DialogTitle>
+                        <DialogDescription>
+                            Choose a format to download this content.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="filename" className="text-right">
+                                Filename
+                            </Label>
+                            <Input
+                                id="filename"
+                                value={filename}
+                                onChange={(e) => setFilename(e.target.value)}
+                                className="col-span-3"
+                            />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="format" className="text-right">
+                                Format
+                            </Label>
+                            <Select value={format} onValueChange={(v) => setFormat(v as ExportFormat)}>
+                                <SelectTrigger className="col-span-3">
+                                    <SelectValue placeholder="Select format" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {availableFormats.map(fmt => (
+                                        <SelectItem key={fmt} value={fmt} className="uppercase">
+                                            {fmt}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
                     </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="format" className="text-right">
-                            Format
-                        </Label>
-                        <Select value={format} onValueChange={(v) => setFormat(v as ExportFormat)}>
-                            <SelectTrigger className="col-span-3">
-                                <SelectValue placeholder="Select format" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {availableFormats.map(fmt => (
-                                    <SelectItem key={fmt} value={fmt} className="uppercase">
-                                        {fmt}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isExporting}>
-                        Cancel
-                    </Button>
-                    <Button onClick={handleExport} disabled={!format || isExporting}>
-                        {isExporting ? (
-                            <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Exporting...
-                            </>
-                        ) : (
-                            <>
-                                <Download className="mr-2 h-4 w-4" />
-                                Export
-                            </>
-                        )}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isExporting}>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleExport} disabled={!format || isExporting}>
+                            {isExporting ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Exporting...
+                                </>
+                            ) : (
+                                <>
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Export
+                                </>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Hidden Preview Container for Visual Export */}
+            {previewContent && createPortal(
+                <div
+                    ref={previewRef}
+                    style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        width: "750px", // Approx A4 text width (leaving margins)
+                        backgroundColor: "white",
+                        padding: "40px",
+                        zIndex: -9999,
+                        visibility: "visible",
+                    }}
+                    className="prose prose-sm dark:prose-invert max-w-none text-black bg-white export-preview-container"
+                    id="export-preview-container"
+                >
+                    <style>{`
+                        #export-preview-container > div {
+                            border: none !important;
+                            box-shadow: none !important;
+                        }
+
+                        /* Transclusion Card: Remove "Ugly" borders/shadows */
+                        #export-preview-container .transclusion-container {
+                            border: none !important;
+                            box-shadow: none !important;
+                            background: transparent !important;
+                            margin: 1rem 0 !important;
+                        }
+                        #export-preview-container .transclusion-container > span:first-child {
+                            /* Header of transclusion card */
+                            display: none !important;
+                        }
+                        #export-preview-container .transclusion-container > span:last-child {
+                            /* Footer of transclusion card */
+                            display: none !important;
+                        }
+
+                        /* Table Wrapper: EXPAND full height (remove scroll) */
+                        #export-preview-container .transclusion-table-wrapper {
+                            height: auto !important;
+                            max-height: none !important;
+                            border: none !important;
+                        }
+
+                        /* Tables: Force nice grid borders */
+                        #export-preview-container table {
+                            border-collapse: collapse !important;
+                            width: 100% !important;
+                            margin: 0.5rem 0 !important;
+                            font-size: 10px !important; /* Smaller text for spreadsheet data */
+                        }
+                        #export-preview-container th {
+                            background-color: #f9fafb !important;
+                            font-weight: 600 !important;
+                            text-align: left !important;
+                        }
+                        #export-preview-container th,
+                        #export-preview-container td {
+                            border: 1px solid #d1d5db !important; /* Tailwind gray-300 */
+                            padding: 4px 8px !important;
+                        }
+
+                        /* Markdown Elements */
+                        #export-preview-container h1 {
+                            border-bottom: 2px solid #e5e7eb !important;
+                            padding-bottom: 0.5rem !important;
+                            margin-bottom: 1rem !important;
+                        }
+                        #export-preview-container pre {
+                            background-color: #f3f4f6 !important;
+                            border-radius: 0.25rem !important;
+                            padding: 0.5rem !important;
+                        }
+                        #export-preview-container :not(pre) > code {
+                            background-color: #f3f4f6 !important;
+                            padding: 0.1rem 0.3rem !important;
+                            border-radius: 0.25rem !important;
+                        }
+                    `}</style>
+                    <h1 className="text-2xl font-bold mb-4">{thing.title || "Export"}</h1>
+
+                    {/* Render appropriate viewer based on thing type */}
+                    {(
+                        thing.type === "table" ||
+                        thing.title?.toLowerCase().match(/\.(csv|xlsx?)$/) ||
+                        (previewContent && typeof previewContent === 'object' && (previewContent.csv || previewContent.data))
+                    ) && previewContent ? (
+                        <div className="transclusion-table-wrapper w-full relative border rounded overflow-hidden">
+                            <SpreadsheetViewer
+                                content={
+                                    typeof previewContent === "string" ? previewContent :
+                                        (previewContent.csv || previewContent.markdown || previewContent.url || previewContent.file_path || previewContent.content || "")
+                                }
+                                initialData={previewContent.data as any[][]}
+                                selectionEnabled={false}
+                                className="w-full h-full bg-white dark:bg-slate-900"
+                                exportMode={true}
+                            />
+                        </div>
+                    ) : (thing.type === "image") && previewContent ? (
+                        <div className="w-full relative flex justify-center">
+                            <ImageViewer
+                                src={previewContent.url || previewContent.file_path || (previewContent.image_asset_id ? `/api/v1/assets/${previewContent.image_asset_id}` : "")}
+                                alt={thing.title || "Image"}
+                                selectionEnabled={false}
+                                className="max-w-full"
+                            />
+                        </div>
+                    ) : ((thing.type === "document" || thing.type === "text") &&
+                        (previewContent && typeof previewContent !== "string" && (previewContent.file_path || previewContent.url || "").toLowerCase().endsWith(".pdf"))) ? (
+                        /* PDF Document Export - Render Visual PDF */
+                        <MarkdownViewer content={previewContent || ""} selectionEnabled={false} className="w-full" exportMode={true} />
+                    ) : (
+                        <MarkdownViewer content={previewContent || ""} selectionEnabled={false} className="w-full" exportMode={true} />
+                    )}
+                </div>,
+                document.body
+            )}
+        </>
     );
 }

@@ -127,11 +127,11 @@ export function SelectionToolbar({
                 className={cn(
                     "fixed z-50 flex items-center gap-1 p-1",
                     "bg-white dark:bg-slate-800 rounded-lg shadow-lg border",
-                    "bg-white dark:bg-slate-800 rounded-lg shadow-lg border",
+                    "bg-popover text-popover-foreground rounded-lg shadow-lg border",
                     // Visual feedback for region selection or text selection (unless disabled)
                     (!disableHighlight && (fragment.type === "region" || fragment.type === "text"))
                         ? "border-2 border-green-500 shadow-green-500/20"
-                        : "border-slate-200 dark:border-slate-700",
+                        : "border-border",
                     "animate-in fade-in-0 zoom-in-95 duration-150"
                 )}
                 style={{
@@ -207,7 +207,7 @@ export function SelectionToolbar({
                         </Tooltip>
 
                         {/* Divider */}
-                        <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
+                        <div className="w-px h-5 bg-border mx-1" />
 
                         {/* Link */}
                         {onLink && (

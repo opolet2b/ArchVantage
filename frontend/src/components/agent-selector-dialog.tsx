@@ -172,14 +172,14 @@ export function AgentSelectorDialog({
                                     onClick={() => handleSelectAgent(agent)}
                                     className={cn(
                                         "w-full text-left p-3 rounded-lg border border-transparent",
-                                        "hover:bg-slate-100 dark:hover:bg-slate-800",
-                                        "hover:border-purple-200 dark:hover:border-purple-800",
+                                        "hover:bg-muted/50",
+                                        "hover:border-primary/20",
                                         "transition-all duration-150 group"
                                     )}
                                 >
                                     <div className="flex items-start gap-3">
-                                        <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/10 to-blue-500/10 group-hover:from-purple-500/20 group-hover:to-blue-500/20 transition-colors">
-                                            <Bot className="h-4 w-4 text-purple-600" />
+                                        <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                                            <Bot className="h-4 w-4 text-primary" />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="font-medium text-sm truncate">

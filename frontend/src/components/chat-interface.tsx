@@ -648,8 +648,8 @@ export function ChatInterface() {
     return (
         <>
             <div className="flex h-[calc(100vh-2rem)] w-full max-w-5xl mx-auto p-4">
-                <Card className="flex flex-col w-full h-full shadow-xl border-slate-200 dark:border-slate-800">
-                    <CardHeader className="px-6 py-4 border-b bg-slate-50/50 dark:bg-slate-900/50">
+                <Card className="flex flex-col w-full h-full shadow-xl border-border bg-card">
+                    <CardHeader className="px-6 py-4 border-b bg-muted/50">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <Avatar className="h-10 w-10 border-2 border-primary/10">
@@ -688,7 +688,7 @@ export function ChatInterface() {
                         </div>
                     </CardHeader>
 
-                    <CardContent className="flex-1 p-0 overflow-hidden relative bg-slate-50/30 dark:bg-slate-950/30">
+                    <CardContent className="flex-1 p-0 overflow-hidden relative bg-muted/10">
                         <ScrollArea ref={scrollAreaRef} className="h-full p-6">
                             <div className="flex flex-col gap-6 pb-4">
                                 {messages.map((message, index) => (
@@ -706,8 +706,8 @@ export function ChatInterface() {
                                             )}
                                         >
                                             <Avatar className={cn("h-8 w-8 mt-1",
-                                                message.role === "user" ? "bg-blue-600" :
-                                                    message.role === "agent" ? "bg-purple-600" : "bg-slate-600"
+                                                message.role === "user" ? "bg-primary" :
+                                                    message.role === "agent" ? "bg-purple-600" : "bg-muted-foreground"
                                             )}>
                                                 <AvatarFallback className="text-white">
                                                     {message.role === "user" ? <User className="h-4 w-4" /> :
@@ -750,8 +750,8 @@ export function ChatInterface() {
                                                     className={cn(
                                                         "rounded-2xl px-4 py-3 text-sm shadow-sm",
                                                         message.role === "user"
-                                                            ? "bg-blue-600 text-white rounded-tr-none"
-                                                            : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-tl-none"
+                                                            ? "bg-primary text-primary-foreground rounded-tr-none"
+                                                            : "bg-card border border-border rounded-tl-none"
                                                     )}
                                                 >
                                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>

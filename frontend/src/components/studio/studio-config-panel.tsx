@@ -167,7 +167,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
 
     if (!selectedStep) {
         return (
-            <div className="w-80 border-l bg-muted/10 h-full p-6 flex flex-col items-center justify-center text-muted-foreground text-center">
+            <div className="w-80 border-l bg-sidebar h-full p-6 flex flex-col items-center justify-center text-muted-foreground text-center">
                 <p className="text-sm">Select a step in the canvas to configure it.</p>
             </div>
         );
@@ -223,10 +223,10 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                 <Label className="text-xs font-bold text-muted-foreground uppercase">Asset Scope</Label>
                                 <HelpTooltip contentPath="smart-analysis/asset_scope" />
                             </div>
-                            <div className="flex bg-slate-100 rounded-lg p-1">
+                            <div className="flex bg-muted rounded-lg p-1">
                                 <button
                                     className={`flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-all ${selectedStep.config?.asset_scope !== 'multiple'
-                                        ? "bg-white text-blue-600 shadow-sm"
+                                        ? "bg-card text-primary shadow-sm"
                                         : "text-muted-foreground hover:text-foreground"
                                         }`}
                                     onClick={() => handleUpdateConfig("asset_scope", "single")}
@@ -235,7 +235,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                 </button>
                                 <button
                                     className={`flex-1 text-xs font-medium py-1.5 px-3 rounded-md transition-all ${selectedStep.config?.asset_scope === 'multiple'
-                                        ? "bg-white text-blue-600 shadow-sm"
+                                        ? "bg-card text-primary shadow-sm"
                                         : "text-muted-foreground hover:text-foreground"
                                         }`}
                                     onClick={() => handleUpdateConfig("asset_scope", "multiple")}
@@ -297,7 +297,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                     <Button
                                         size="sm"
                                         variant="outline"
-                                        className="h-6 text-[10px] px-2 gap-1 text-blue-600 hover:text-blue-700 border-blue-200 hover:bg-blue-50"
+                                        className="h-6 text-[10px] px-2 gap-1 text-primary hover:text-primary/80 border-primary/20 hover:bg-primary/10"
                                         onClick={() => handleSuggestObjective("extractor-focus")}
                                         disabled={isSuggesting}
                                     >
@@ -322,7 +322,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                     <Button
                                         size="sm"
                                         variant="outline"
-                                        className="h-6 text-[10px] px-2 gap-1 text-blue-600 hover:text-blue-700 border-blue-200 hover:bg-blue-50"
+                                        className="h-6 text-[10px] px-2 gap-1 text-primary hover:text-primary/80 border-primary/20 hover:bg-primary/10"
                                         onClick={() => handleSuggestObjective("extractor-exclude")}
                                         disabled={isSuggesting}
                                     >
@@ -348,7 +348,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-6 text-[10px] px-2 gap-1 text-blue-600 hover:text-blue-700 border-blue-200 hover:bg-blue-50"
+                                    className="h-6 text-[10px] px-2 gap-1 text-primary hover:text-primary/80 border-primary/20 hover:bg-primary/10"
                                     onClick={() => handleSuggestObjective("extractor")}
                                     disabled={isSuggesting}
                                 >
@@ -450,7 +450,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-6 text-[10px] px-2 gap-1 text-purple-600 hover:text-purple-700 border-purple-200 hover:bg-purple-50"
+                                    className="h-6 text-[10px] px-2 gap-1 text-primary hover:text-primary/80 border-primary/20 hover:bg-primary/10"
                                     onClick={() => handleSuggestObjective("agent")}
                                     disabled={isSuggesting}
                                 >
@@ -462,7 +462,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                 placeholder="Describe what the agent should analyze or achieve..."
                                 value={selectedStep.config?.objective || ""}
                                 onChange={(e) => handleUpdateConfig("objective", e.target.value)}
-                                className="min-h-[100px] border-l-2 border-l-purple-500"
+                                className="min-h-[100px] border-l-2 border-l-primary"
                             />
                             <p className="text-[10px] text-muted-foreground">The primary prompt for the agent. Other fields will provide context for the suggestion.</p>
                         </div>
@@ -605,7 +605,7 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                 }
             />
 
-            <div className="p-4 border-t bg-slate-50">
+            <div className="p-4 border-t bg-muted/30">
                 <Button className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg shadow-indigo-200 uppercase font-bold tracking-wide text-xs h-10">
                     Apply Step Config
                 </Button>

@@ -48,7 +48,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera, Hand, MousePointer2 } from "lucide-react";
+import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera, Hand, MousePointer2, Link as LinkIcon, Unlink } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
 import { SelectionProvider } from "./viewers/selection-context";
 import { useToast } from "@/components/ui/use-toast";
@@ -131,6 +131,9 @@ function CanvasViewInner() {
         selectionMode,
         setSelectionMode,
         getHierarchyDepth,
+        showLinks,
+        hiddenNodeLinks,
+        toggleShowLinks,
     } = useCanvasStore();
 
     // Model state from store
@@ -425,7 +428,20 @@ function CanvasViewInner() {
         const groups: Record<string, typeof links> = {};
 
         // Filter out cross-canvas links (they shouldn't be drawn as edges here)
-        const visibleLinks = links.filter(l => !l.target_canvas_id || l.target_canvas_id === canvasId);
+        // AND apply global/local visibility filters
+        const visibleLinks = links.filter(l => {
+            // 1. Cross-canvas check
+            if (l.target_canvas_id && l.target_canvas_id !== canvasId) return false;
+
+            // 2. Global switch
+            if (!showLinks) return false;
+
+            // 3. Per-node switch (hide if EITHER end is hidden)
+            if (hiddenNodeLinks.includes(l.source_id)) return false;
+            if (hiddenNodeLinks.includes(l.target_id)) return false;
+
+            return true;
+        });
 
         visibleLinks.forEach(link => {
             const key = `${link.source_id}-${link.target_id}`;
@@ -502,11 +518,20 @@ function CanvasViewInner() {
         });
 
         return edges;
-    }, [links]);
+    }, [links, showLinks, hiddenNodeLinks]);
 
     // React Flow state - initialized with current nodes
     const [nodes, setNodes, onNodesChange] = useNodesState(allNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(allEdges);
+
+    // Sync stores with React Flow state
+    React.useEffect(() => {
+        setNodes(allNodes);
+    }, [allNodes, setNodes]);
+
+    React.useEffect(() => {
+        setEdges(allEdges);
+    }, [allEdges, setEdges]);
 
     // Handle navigation to specific node via URL param
     React.useEffect(() => {
@@ -751,6 +776,66 @@ function CanvasViewInner() {
                 // 3. Atomic Batch Update
                 await updateThings(updates);
 
+                // =============================================================================
+                // Transclusion Drop Logic
+                // =============================================================================
+                // Check if we dropped this node onto a Textarea (Text Node Editor)
+                // Since React Flow intercepts the drag, the native onDrop on the textarea won't fire for existing nodes.
+                // We manually check the element under the mouse cursor.
+                try {
+                    // We need the mouse event object to get clientX/Y. 
+                    // onNodeDragStop signature is (event, node).
+                    // The event passed to onNodeDragStop is a MouseEvent.
+                    const mouseEvent = _ as React.MouseEvent;
+                    const targetEl = document.elementFromPoint(mouseEvent.clientX, mouseEvent.clientY);
+
+                    if (targetEl && targetEl.tagName === "TEXTAREA") {
+                        const textarea = targetEl as HTMLTextAreaElement;
+                        // Dispatch a custom drop event or modify value directly
+                        // To be safe and reuse the logic in ThingNode, we can try to dispatch a 'drop' event
+                        // But DataTransfer is read-only in synthetic events usually.
+
+                        // Let's just modify the value directly for reliability here
+                        const start = textarea.selectionStart;
+                        const end = textarea.selectionEnd;
+                        const text = textarea.value;
+                        const droppedNodeId = node.id;
+
+                        // Prevent self-reference
+                        // We need to find the ID of the node containing this textarea. 
+                        // We can look up the tree or check data attributes.
+                        const parentNode = textarea.closest('[data-thing-id]');
+                        const targetThingId = parentNode?.getAttribute('data-thing-id');
+
+                        if (targetThingId && targetThingId !== droppedNodeId) {
+                            const transclusionTag = `{{node:${droppedNodeId}}}`;
+                            const newText = text.substring(0, start) + transclusionTag + text.substring(end);
+
+                            // Update the textarea value
+                            // React controlled components need the setter, but triggering an 'input' event usually works
+                            // or we can try to use the native value setter
+                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+                            if (nativeInputValueSetter) {
+                                nativeInputValueSetter.call(textarea, newText);
+                                const inputEvent = new Event('input', { bubbles: true });
+                                textarea.dispatchEvent(inputEvent);
+
+                                // Restore cursor
+                                const newCursorPos = start + transclusionTag.length;
+                                textarea.setSelectionRange(newCursorPos, newCursorPos);
+                                textarea.focus();
+
+                                toast({
+                                    title: "Node Transcluded",
+                                    description: `Inserted reference to ${node.data.thing.title || "Node"}`,
+                                });
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Transclusion drop detection failed", err);
+                }
+
                 // Reset drag start
                 dragStartPosRef.current = null;
 
@@ -867,6 +952,12 @@ function CanvasViewInner() {
 
                 // Clear drag start
                 dragStartPosRef.current = null;
+            } else if (node.type === "thing") {
+                // ... Existing Thing Drag Logic ... (This block was already handled above in the original code, but we must integrate hit testing here)
+                // Wait, the original code had "if (node.type === 'thing')" FIRST.
+                // I need to be careful with the replacement range to not overwrite the existing logic incorrectly.
+                // The provided original code for this block is lines 723-781.
+                // I should inject the hit test logic inside the "if (node.type === 'thing')" block, specifically at the end before resetting dragStartPosRef.
             }
         },
         [updateThings, updateDomain, checkThingInDomain, things, selectedThingIds, domains]
@@ -1070,6 +1161,38 @@ function CanvasViewInner() {
         },
         [clearSelection]
     );
+
+    // =============================================================================
+    // Ghost Mode Logic (Mouse Tracking)
+    // =============================================================================
+    const transclusionGhostId = useCanvasStore((state) => state.transclusionGhostId);
+    const ghostThing = transclusionGhostId ? things.find(t => t.id === transclusionGhostId) : null;
+    const [ghostPos, setGhostPos] = React.useState<{ x: number, y: number } | null>(null);
+
+    React.useEffect(() => {
+        if (!transclusionGhostId) {
+            setGhostPos(null);
+            return;
+        }
+
+        const handleMouseMove = (e: MouseEvent) => {
+            setGhostPos({ x: e.clientX, y: e.clientY });
+        };
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                useCanvasStore.getState().setTransclusionGhostId(null);
+            }
+        };
+
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("keydown", handleKeyDown);
+
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [transclusionGhostId]);
 
     // Drag-and-drop file handling state
     const [isDraggingFile, setIsDraggingFile] = React.useState(false);
@@ -2202,7 +2325,20 @@ function CanvasViewInner() {
                     </Button>
                 </div>
 
-                {/* Sync All Button */}
+                {/* Global Link Visibility Toggle */}
+                <div className="flex items-center gap-2 border-l pl-4 ml-4">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn("h-8 text-slate-500 hover:text-blue-600", !showLinks && "text-slate-400 opacity-50")}
+                        onClick={toggleShowLinks}
+                        title={showLinks ? "Hide All Links" : "Show All Links"}
+                    >
+                        {showLinks ? <LinkIcon className="h-4 w-4 mr-2" /> : <Unlink className="h-4 w-4 mr-2" />}
+                        {showLinks ? "Links On" : "Links Off"}
+                    </Button>
+                </div>
+
                 <div className="flex items-center gap-2 border-l pl-4 ml-4">
                     <Button
                         id="canvas-sync-btn"
@@ -2529,6 +2665,20 @@ function CanvasViewInner() {
                 workflowId="canvas_walkthrough"
                 steps={CANVAS_TRAINER_STEPS}
             />
+
+            {/* Ghost Element Overlay */}
+            {ghostThing && ghostPos && (
+                <div
+                    className="fixed pointer-events-none z-50 flex items-center gap-2 px-3 py-2 bg-white/90 dark:bg-slate-800/90 backdrop-blur border-2 border-purple-500 rounded-lg shadow-xl transform -translate-x-1/2 -translate-y-1/2"
+                    style={{ left: ghostPos.x, top: ghostPos.y }}
+                >
+                    <LinkIcon className="w-4 h-4 text-purple-500 animate-pulse" />
+                    <div className="flex flex-col">
+                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100">{ghostThing.title || "Untitled"}</span>
+                        <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">Click a Text editor to place</span>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

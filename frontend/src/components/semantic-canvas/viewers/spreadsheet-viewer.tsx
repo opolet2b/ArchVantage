@@ -32,6 +32,8 @@ interface SpreadsheetViewerProps {
     highlight?: { range?: string } | null;
     /** Direct data array injection (bypasses parsing) */
     initialData?: any[][];
+    /** Whether to render in export/print mode (all rows, no controls) */
+    exportMode?: boolean;
 }
 
 // =============================================================================
@@ -46,6 +48,7 @@ export function SpreadsheetViewer({
     selectionEnabled = true,
     highlight,
     initialData,
+    exportMode = false,
 }: SpreadsheetViewerProps) {
     const [data, setData] = React.useState<any[][]>(initialData || []);
     const [headers, setHeaders] = React.useState<string[]>([]);
@@ -57,6 +60,12 @@ export function SpreadsheetViewer({
     const [error, setError] = React.useState<string | null>(null);
     const [page, setPage] = React.useState(0);
     const PAGE_SIZE = 100;
+
+    const paginatedData = React.useMemo(() => {
+        if (!data) return [];
+        if (exportMode) return data;
+        return data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    }, [data, page, exportMode]);
 
     const workbookRef = React.useRef<XLSX.WorkBook | null>(null);
 
@@ -466,7 +475,6 @@ export function SpreadsheetViewer({
     }
 
     const totalPages = Math.ceil(data.length / PAGE_SIZE);
-    const paginatedData = data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
     return (
         <div className={cn("flex flex-col h-full", className)}>
@@ -491,7 +499,7 @@ export function SpreadsheetViewer({
             )}
 
             {/* Table */}
-            <div className="flex-1 overflow-auto max-w-full relative">
+            <div className={cn("flex-1 max-w-full relative", exportMode ? "overflow-visible" : "overflow-auto")}>
                 <table className="min-w-max border-collapse text-xs">
                     <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 z-10 shadow-sm">
                         <tr>
@@ -517,7 +525,7 @@ export function SpreadsheetViewer({
                     </thead>
                     <tbody>
                         {paginatedData.map((row, index) => {
-                            const rowIndex = page * PAGE_SIZE + index;
+                            const rowIndex = exportMode ? index : (page * PAGE_SIZE + index);
                             return (
                                 <tr key={rowIndex} className="hover:bg-slate-50 dark:hover:bg-slate-900">
                                     <td
@@ -564,8 +572,8 @@ export function SpreadsheetViewer({
                 </table>
             </div>
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
+            {/* Pagination Controls - Hide in Export Mode */}
+            {!exportMode && totalPages > 1 && (
                 <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800 border-t shrink-0">
                     <div className="text-xs text-muted-foreground">
                         Page {page + 1} of {totalPages} ({data.length} rows)

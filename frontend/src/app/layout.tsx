@@ -17,6 +17,8 @@ import { AuthGuard } from "@/components/auth-guard"
 
 import { Toaster } from "@/components/ui/toaster"
 
+import { StyleProvider } from "@/lib/style-provider"
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,20 +27,22 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ViewModeProvider>
-          <ConversationProvider>
-            <AuthProvider>
-              <AuthGuard>
-                <div className="flex h-screen overflow-hidden bg-background">
-                  <AppSidebar />
-                  <main className="flex-1 overflow-y-auto">
-                    {children}
-                  </main>
-                </div>
-              </AuthGuard>
-            </AuthProvider>
-          </ConversationProvider>
-        </ViewModeProvider>
+        <StyleProvider>
+          <ViewModeProvider>
+            <ConversationProvider>
+              <AuthProvider>
+                <AuthGuard>
+                  <div className="flex h-screen overflow-hidden bg-background transition-colors duration-300">
+                    <AppSidebar />
+                    <main className="flex-1 overflow-y-auto">
+                      {children}
+                    </main>
+                  </div>
+                </AuthGuard>
+              </AuthProvider>
+            </ConversationProvider>
+          </ViewModeProvider>
+        </StyleProvider>
         <Toaster />
       </body>
     </html>

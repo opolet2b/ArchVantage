@@ -42,9 +42,36 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes accordion-down {
+    from {
+      height: 0
+    }
+
+    to {
+      height: var(--radix-accordion-content-height)
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height)
+    }
+
+    to {
+      height: 0
+    }
+  }
 }
 
-:root {
+/* ========================================= */
+/* DEFAULT STYLE */
+/* ========================================= */
+:root,
+:root[data-style="default"] {
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -79,7 +106,7 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
+.dark:where(:root, :root[data-style="default"]) {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -111,6 +138,297 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* ========================================= */
+/* APPLE GLASSMORPHISM */
+/* ========================================= */
+/* ========================================= */
+/* APPLE GLASSMORPHISM (Cupertino) */
+/* ========================================= */
+:root[data-style="glass"] {
+  --radius: 1.25rem;
+
+  /* Transparent base for gradient visibility */
+  --background: transparent;
+  --foreground: oklch(0 0 0);
+
+  /* Very translucent cards */
+  --card: oklch(1 0 0 / 0.3);
+  --card-foreground: oklch(0 0 0);
+
+  --popover: oklch(1 0 0 / 0.4);
+  --popover-foreground: oklch(0 0 0);
+
+  /* Vibrant Apple Blue */
+  --primary: oklch(0.55 0.25 260);
+  --primary-foreground: oklch(1 0 0);
+
+  --secondary: oklch(1 0 0 / 0.3);
+  --secondary-foreground: oklch(0 0 0);
+
+  --muted: oklch(1 0 0 / 0.3);
+  --muted-foreground: oklch(0.5 0 0);
+
+  --accent: oklch(1 0 0 / 0.2);
+  --accent-foreground: oklch(0 0 0);
+
+  --destructive: oklch(0.6 0.25 25);
+
+  --border: oklch(1 1 1 / 0.2);
+  --input: oklch(1 1 1 / 0.2);
+  --ring: oklch(0.55 0.25 260 / 0.5);
+
+  --sidebar: oklch(0.98 0 0 / 0.4);
+  --sidebar-foreground: oklch(0 0 0);
+  --sidebar-primary: oklch(0.55 0.25 260);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(1 0 0 / 0.3);
+  --sidebar-accent-foreground: oklch(0 0 0);
+  --sidebar-border: oklch(1 1 1 / 0.1);
+  --sidebar-ring: oklch(0.55 0.25 260 / 0.5);
+}
+
+/* Glass Enhancement: Mesh Gradients & Global Blur */
+:root[data-style="glass"] body {
+  /* Pastel Mesh Gradient */
+  background-image:
+    radial-gradient(at 0% 0%, oklch(0.9 0.1 200) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, oklch(0.9 0.15 320) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, oklch(0.9 0.1 240) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, oklch(0.9 0.15 50) 0px, transparent 50%);
+  background-color: oklch(0.98 0.01 240);
+  /* Fallback base */
+  background-attachment: fixed;
+  background-size: cover;
+}
+
+/* Force backdrop blur on all major surfaces in glass mode */
+:root[data-style="glass"] .bg-background,
+:root[data-style="glass"] .bg-card,
+:root[data-style="glass"] .bg-popover,
+:root[data-style="glass"] .bg-sidebar,
+:root[data-style="glass"] .bg-muted {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.dark:where(:root[data-style="glass"]) {
+  /* Dark Mode - Deep Space Gray Base */
+  --background: transparent;
+  --foreground: oklch(1 0 0);
+
+  --card: oklch(0.15 0.05 260 / 0.3);
+  --card-foreground: oklch(1 0 0);
+
+  --popover: oklch(0.15 0.05 260 / 0.4);
+  --popover-foreground: oklch(1 0 0);
+
+  /* Neon Blue */
+  --primary: oklch(0.65 0.25 260);
+  --primary-foreground: oklch(1 0 0);
+
+  --secondary: oklch(1 1 1 / 0.1);
+  --secondary-foreground: oklch(1 0 0);
+
+  --muted: oklch(1 1 1 / 0.1);
+  --muted-foreground: oklch(0.8 0 0);
+
+  --accent: oklch(1 1 1 / 0.15);
+  --accent-foreground: oklch(1 0 0);
+
+  --destructive: oklch(0.6 0.25 25);
+
+  --border: oklch(1 1 1 / 0.15);
+  --input: oklch(1 1 1 / 0.15);
+  --ring: oklch(0.65 0.25 260 / 0.5);
+
+  --sidebar: oklch(0.1 0.05 260 / 0.3);
+  --sidebar-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(0.65 0.25 260);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(1 1 1 / 0.1);
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-border: oklch(1 1 1 / 0.1);
+  --sidebar-ring: oklch(0.65 0.25 260 / 0.5);
+}
+
+/* Dark Glass Gradients */
+.dark:where(:root[data-style="glass"]) body {
+  background-image:
+    radial-gradient(at 0% 0%, oklch(0.2 0.3 280) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, oklch(0.2 0.3 340) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, oklch(0.2 0.3 220) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, oklch(0.2 0.3 160) 0px, transparent 50%);
+  background-color: oklch(0.05 0.02 260);
+  /* Deep dark base */
+}
+
+/* ========================================= */
+/* GOOGLE MATERIAL YOU EXPRESSIVE */
+/* ========================================= */
+:root[data-style="material"] {
+  --radius: 1.5rem;
+  /* Pill shapes */
+
+  --background: oklch(0.98 0.01 100);
+  /* Warm tint */
+  --foreground: oklch(0.2 0.02 100);
+  --card: oklch(0.96 0.02 100);
+  /* Surface Container */
+  --card-foreground: oklch(0.2 0.02 100);
+  --popover: oklch(0.96 0.02 100);
+  --popover-foreground: oklch(0.2 0.02 100);
+  --primary: oklch(0.65 0.2 140);
+  /* Green/Teal Primary */
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.9 0.05 140);
+  /* Secondary Container */
+  --secondary-foreground: oklch(0.2 0.05 140);
+  --muted: oklch(0.94 0.02 100);
+  --muted-foreground: oklch(0.4 0.02 100);
+  --accent: oklch(0.9 0.05 140);
+  --accent-foreground: oklch(0.2 0.05 140);
+  --destructive: oklch(0.6 0.2 20);
+  --border: oklch(0.85 0.02 100);
+  --input: oklch(0.9 0.02 100);
+  --ring: oklch(0.65 0.2 140);
+
+  --sidebar: oklch(0.94 0.02 100);
+  /* Surface Container Low */
+  --sidebar-foreground: oklch(0.2 0.02 100);
+  --sidebar-primary: oklch(0.65 0.2 140);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.85 0.05 140);
+  --sidebar-accent-foreground: oklch(0.2 0.05 140);
+  --sidebar-border: oklch(0.85 0.02 100);
+  --sidebar-ring: oklch(0.65 0.2 140);
+}
+
+.dark:where(:root[data-style="material"]) {
+  --background: oklch(0.1 0.01 100);
+  --foreground: oklch(0.9 0.02 100);
+  --card: oklch(0.15 0.02 100);
+  --card-foreground: oklch(0.9 0.02 100);
+  --popover: oklch(0.15 0.02 100);
+  --popover-foreground: oklch(0.9 0.02 100);
+  --primary: oklch(0.75 0.15 140);
+  /* Lighter Green */
+  --primary-foreground: oklch(0.1 0.05 140);
+  --secondary: oklch(0.25 0.05 140);
+  --secondary-foreground: oklch(0.9 0.05 140);
+  --muted: oklch(0.2 0.02 100);
+  --muted-foreground: oklch(0.7 0.02 100);
+  --accent: oklch(0.25 0.05 140);
+  --accent-foreground: oklch(0.9 0.05 140);
+  --destructive: oklch(0.7 0.15 20);
+  --border: oklch(0.3 0.02 100);
+  --input: oklch(0.2 0.02 100);
+  --ring: oklch(0.75 0.15 140);
+
+  --sidebar: oklch(0.12 0.02 100);
+  --sidebar-foreground: oklch(0.9 0.02 100);
+  --sidebar-primary: oklch(0.75 0.15 140);
+  --sidebar-primary-foreground: oklch(0.1 0.05 140);
+  --sidebar-accent: oklch(0.25 0.05 140);
+  --sidebar-accent-foreground: oklch(0.9 0.05 140);
+  --sidebar-border: oklch(0.3 0.02 100);
+  --sidebar-ring: oklch(0.75 0.15 140);
+}
+
+/* ========================================= */
+/* MICROSOFT FLUENT */
+/* ========================================= */
+/* ========================================= */
+/* MICROSOFT FLUENT (WinUI 3) */
+/* ========================================= */
+:root[data-style="fluent"] {
+  --radius: 0.375rem;
+  /* Sharper (6px) - standard Windows */
+
+  /* Light Mode - Mica-like */
+  --background: oklch(0.97 0.01 240);
+  --foreground: oklch(0.1 0 0);
+
+  /* Cards are solid or high opacity in Fluent, separated by borders/shadows */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.1 0 0);
+
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.1 0 0);
+
+  /* Windows Blue */
+  --primary: oklch(0.45 0.2 265);
+  --primary-foreground: oklch(1 0 0);
+
+  --secondary: oklch(0.96 0 0);
+  --secondary-foreground: oklch(0.1 0 0);
+
+  --muted: oklch(0.94 0 0);
+  --muted-foreground: oklch(0.4 0 0);
+
+  --accent: oklch(0.92 0 0);
+  --accent-foreground: oklch(0.1 0 0);
+
+  --destructive: oklch(0.6 0.2 25);
+
+  /* Crisper, slightly darker borders for definition */
+  --border: oklch(0.85 0 0);
+  --input: oklch(0.85 0 0);
+  --ring: oklch(0.45 0.2 265);
+
+  --sidebar: oklch(0.94 0.01 240);
+  /* Distinct left pane */
+  --sidebar-foreground: oklch(0.1 0 0);
+  --sidebar-primary: oklch(0.45 0.2 265);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.9 0 0);
+  --sidebar-accent-foreground: oklch(0.1 0 0);
+  --sidebar-border: oklch(0.85 0 0);
+  --sidebar-ring: oklch(0.45 0.2 265);
+}
+
+.dark:where(:root[data-style="fluent"]) {
+  /* Dark Mica */
+  --background: oklch(0.12 0.02 240);
+  --foreground: oklch(1 0 0);
+
+  /* Dark Acrylic-like surface */
+  --card: oklch(0.16 0.02 240);
+  --card-foreground: oklch(1 0 0);
+
+  --popover: oklch(0.16 0.02 240);
+  --popover-foreground: oklch(1 0 0);
+
+  /* Lighter Blue */
+  --primary: oklch(0.6 0.18 265);
+  --primary-foreground: oklch(0 0 0);
+
+  --secondary: oklch(0.2 0.02 240);
+  --secondary-foreground: oklch(1 0 0);
+
+  --muted: oklch(0.18 0.02 240);
+  --muted-foreground: oklch(0.65 0 0);
+
+  --accent: oklch(0.22 0.02 240);
+  --accent-foreground: oklch(1 0 0);
+
+  --destructive: oklch(0.6 0.2 25);
+
+  /* Visible borders in dark mode */
+  --border: oklch(1 1 1 / 0.15);
+  --input: oklch(1 1 1 / 0.15);
+  --ring: oklch(0.6 0.18 265);
+
+  --sidebar: oklch(0.1 0.02 240);
+  --sidebar-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(0.6 0.18 265);
+  --sidebar-primary-foreground: oklch(0 0 0);
+  --sidebar-accent: oklch(0.2 0.02 240);
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-border: oklch(1 1 1 / 0.1);
+  --sidebar-ring: oklch(0.6 0.18 265);
 }
 
 @layer base {

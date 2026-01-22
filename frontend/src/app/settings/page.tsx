@@ -10,10 +10,11 @@ import { RagSettingsTab } from "@/components/settings/rag-settings-tab"
 import { DebugSettingsTab } from "@/components/settings/debug-settings-tab"
 import { PromptsSettingsTab } from "@/components/settings/prompts-settings-tab"
 import { DatabaseSettingsTab } from "@/components/settings/database-settings-tab"
+import { StylingSettingsTab } from "@/components/settings/styling-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, Server, FolderOpen, FileText, Database, Bug } from "lucide-react"
+import { Users, Server, FolderOpen, FileText, Database, Bug, Palette } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -59,6 +60,14 @@ export default function SettingsPage() {
                             onClick={() => handleTabChange("model")}
                         >
                             Model Configuration
+                        </Button>
+                        <Button
+                            variant={activeTab === "styling" ? "secondary" : "ghost"}
+                            className="justify-start gap-2"
+                            onClick={() => handleTabChange("styling")}
+                        >
+                            <Palette className="h-4 w-4" />
+                            Styling
                         </Button>
                         <Button
                             variant={activeTab === "rag" ? "secondary" : "ghost"}
@@ -138,6 +147,7 @@ export default function SettingsPage() {
 
                     <main className="flex-1">
                         {activeTab === "model" && <ModelConfig />}
+                        {activeTab === "styling" && <StylingSettingsTab />}
                         {activeTab === "rag" && <RagSettingsTab />}
                         {activeTab === "debug" && <DebugSettingsTab />}
                         {(activeTab === "users" ||

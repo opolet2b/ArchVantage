@@ -54,6 +54,8 @@ interface PDFViewerProps {
     onOverlayResize?: (id: string, x: number, y: number, width: number, height: number) => void;
     /** Callback when an overlay is deleted */
     onOverlayDelete?: (id: string) => void;
+    /** Whether to render in export mode */
+    exportMode?: boolean;
 }
 
 // =============================================================================
@@ -71,6 +73,7 @@ export function PDFViewer({
     selectionEnabled = true,
     onOverlayResize,
     onOverlayDelete,
+    exportMode = false,
     ...props
 }: PDFViewerProps) {
     const [numPages, setNumPages] = React.useState<number>(0);
@@ -435,7 +438,7 @@ export function PDFViewer({
 
     if (error) {
         return (
-            <div className={cn("flex flex-col items-center justify-center p-4 gap-2", className)}>
+            <span className={cn("flex flex-col items-center justify-center p-4 gap-2", className)}>
                 <span className="text-sm text-red-500">{error}</span>
                 <button
                     onClick={handleLoad}
@@ -443,95 +446,90 @@ export function PDFViewer({
                 >
                     Retry
                 </button>
-            </div>
+            </span>
         );
     }
 
     if (!isLoaded && !fileSrc) {
         return (
-            <div className={cn("flex items-center justify-center p-4 bg-slate-50 dark:bg-slate-800", className)}>
+            <span className={cn("flex items-center justify-center p-4 bg-slate-50 dark:bg-slate-800", className)}>
                 {/* Initial loading state waiting for fetch */}
                 <span className="text-sm text-muted-foreground">Preparing document...</span>
-            </div>
+            </span>
         );
     }
 
     return (
-        <div className={cn("flex flex-col h-full", className)}>
-            {/* Controls */}
-            <div className="flex items-center justify-between p-2 border-b bg-slate-50 dark:bg-slate-800">
-                {/* Page navigation */}
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={goToPrevPage}
-                        disabled={pageNumber <= 1}
-                    >
-                        <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm">
-                        Page {pageNumber} of {numPages}
+        <span className={cn("flex flex-col h-full", className)}>
+            {/* Controls - Hide in Export Mode */}
+            {!exportMode && (
+                <span className="flex items-center justify-between p-2 border-b bg-slate-50 dark:bg-slate-800">
+                    {/* Page navigation */}
+                    <span className="flex items-center gap-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={goToPrevPage}
+                            disabled={pageNumber <= 1}
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm">
+                            Page {pageNumber} of {numPages}
+                        </span>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={goToNextPage}
+                            disabled={pageNumber >= numPages}
+                        >
+                            <ChevronRight className="h-4 w-4" />
+                        </Button>
                     </span>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={goToNextPage}
-                        disabled={pageNumber >= numPages}
-                    >
-                        <ChevronRight className="h-4 w-4" />
-                    </Button>
-                </div>
 
-                {/* Zoom controls */}
-                <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" onClick={zoomOut}>
-                        <ZoomOut className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm">
-                        {scale === "page-width" ? "Auto" : `${Math.round(scale * 100)}%`}
+                    {/* Zoom controls */}
+                    <span className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={zoomOut}>
+                            <ZoomOut className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm">
+                            {scale === "page-width" ? "Auto" : `${Math.round(scale * 100)}%`}
+                        </span>
+                        <Button variant="ghost" size="sm" onClick={zoomIn}>
+                            <ZoomIn className="h-4 w-4" />
+                        </Button>
                     </span>
-                    <Button variant="ghost" size="sm" onClick={zoomIn}>
-                        <ZoomIn className="h-4 w-4" />
-                    </Button>
-                </div>
 
-                {/* Mode Toggles */}
-                <div className="flex items-center gap-1 border-l pl-2 ml-2">
-                    <Button
-                        variant={mode === "text" ? "secondary" : "ghost"}
-                        size="sm"
-                        onClick={() => setMode("text")}
-                        title="Text Selection Mode"
-                        className={mode === "text" ? "bg-slate-200 dark:bg-slate-700" : ""}
-                    >
-                        <MousePointer2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                        variant={mode === "region" ? "secondary" : "ghost"}
-                        size="sm"
-                        onClick={() => setMode("region")}
-                        title="Region Selection Mode"
-                        className={mode === "region" ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : ""}
-                    >
-                        <Crop className="h-4 w-4" />
-                    </Button>
-                </div>
-            </div>
+                    {/* Mode Toggles */}
+                    <span className="flex items-center gap-1 border-l pl-2 ml-2">
+                        <Button
+                            variant={mode === "text" ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setMode("text")}
+                            title="Text Selection Mode"
+                            className={mode === "text" ? "bg-slate-200 dark:bg-slate-700" : ""}
+                        >
+                            <MousePointer2 className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant={mode === "region" ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setMode("region")}
+                            title="Region Selection Mode"
+                            className={mode === "region" ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : ""}
+                        >
+                            <Crop className="h-4 w-4" />
+                        </Button>
+                    </span>
+                </span>
+            )}
 
             {/* PDF content */}
-            <div
+            <span
                 className={cn(
-                    "flex-1 overflow-auto flex justify-center bg-slate-200 dark:bg-slate-900",
+                    "flex-1 overflow-auto flex justify-center bg-slate-200 dark:bg-slate-900 block",
                     mode === "text" ? "select-text" : "select-none"
                 )}
-                // We handle region selection via the overlay layer now, but text selection locally?
-                // The overlay layer captures events if we put it ON TOP.
-                // We should put OverlayLayer INSIDE the Page Wrapper.
-                // Text selection needs native events. InteractiveOverlayLayer stops propagation if enabled?
-                // No, it only stops if it handles it.
-                // We need to disable OverlayLayer pointer events if mode === "text"?
-                // Or pass `selectionEnabled={mode === 'region'}`
                 onMouseUp={() => { if (mode === "text") handleTextSelection(); }}
             >
                 <Document
@@ -539,44 +537,62 @@ export function PDFViewer({
                     onLoadSuccess={onDocumentLoadSuccess}
                     onLoadError={onDocumentLoadError}
                     loading={
-                        <div className="flex items-center justify-center p-8">
+                        <span className="flex items-center justify-center p-8 block w-full">
                             <span className="text-sm text-muted-foreground">Loading PDF...</span>
-                        </div>
+                        </span>
                     }
                 >
-                    <div ref={pageContainerRef} className="relative mx-auto w-fit">
-                        {/* We Wrap the Page with InteractiveOverlayLayer */}
-                        <InteractiveOverlayLayer
-                            overlays={currentOverlays as RegionFragment[]}
-                            selectionEnabled={mode === "region" && selectionEnabled}
-                            onSelectionComplete={handleSelectionComplete}
-                            onOverlayAction={handleOverlayAction}
-                            activeOverlayId={activeOverlayId}
-                        >
-                            <Page
-                                pageNumber={pageNumber}
-                                scale={typeof scale === "number" ? scale : undefined}
-                                width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
-                                className={cn(
-                                    "shadow-lg mx-auto",
-                                    // Pointer events for text selection if needed
-                                    // mode === "region" && "pointer-events-none" // OverlayLayer handles region events, but we need text selection
-                                )}
-                                onRenderError={(error) => {
-                                    // Ignore harmless cancellation errors during resize/navigation
-                                    if (error.name === 'AbortException' || error.message.includes('cancelled')) {
-                                        return;
-                                    }
-                                    console.error('Page render error:', error);
-                                }}
-                                renderTextLayer={selectionEnabled && mode === "text"}
-                                renderAnnotationLayer={false}
-                            />
-                        </InteractiveOverlayLayer>
-                    </div>
+                    <span ref={pageContainerRef} className="relative mx-auto w-fit block">
+                        {exportMode && numPages > 0 ? (
+                            /* Export Mode: Render ALL Pages sequentially */
+                            <span className="flex flex-col gap-4">
+                                {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
+                                    <Page
+                                        key={pageNum}
+                                        pageNumber={pageNum}
+                                        scale={typeof scale === "number" ? scale : undefined}
+                                        width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
+                                        className="shadow-lg mx-auto"
+                                        renderTextLayer={false}
+                                        renderAnnotationLayer={false}
+                                        onRenderError={(error) => {
+                                            if (error.name === 'AbortException' || error.message.includes('cancelled')) return;
+                                            console.error(`Page ${pageNum} render error:`, error);
+                                        }}
+                                    />
+                                ))}
+                            </span>
+                        ) : (
+                            /* Interactive Mode: Render Single Page with Overlays */
+                            <InteractiveOverlayLayer
+                                overlays={currentOverlays as RegionFragment[]}
+                                selectionEnabled={mode === "region" && selectionEnabled}
+                                onSelectionComplete={handleSelectionComplete}
+                                onOverlayAction={handleOverlayAction}
+                                activeOverlayId={activeOverlayId}
+                            >
+                                <Page
+                                    pageNumber={pageNumber}
+                                    scale={typeof scale === "number" ? scale : undefined}
+                                    width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
+                                    className={cn(
+                                        "shadow-lg mx-auto",
+                                    )}
+                                    onRenderError={(error) => {
+                                        if (error.name === 'AbortException' || error.message.includes('cancelled')) {
+                                            return;
+                                        }
+                                        console.error('Page render error:', error);
+                                    }}
+                                    renderTextLayer={selectionEnabled && mode === "text"}
+                                    renderAnnotationLayer={false}
+                                />
+                            </InteractiveOverlayLayer>
+                        )}
+                    </span>
                 </Document>
-            </div >
-        </div >
+            </span>
+        </span>
     );
 }
 

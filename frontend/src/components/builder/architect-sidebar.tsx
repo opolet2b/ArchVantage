@@ -95,7 +95,7 @@ export function ArchitectSidebar() {
 
     if (isCollapsed) {
         return (
-            <div className="w-12 border-r bg-slate-50 dark:bg-slate-900 flex flex-col items-center py-4">
+            <div className="w-12 border-r bg-sidebar flex flex-col items-center py-4">
                 <Button
                     variant="ghost"
                     size="icon"
@@ -112,7 +112,7 @@ export function ArchitectSidebar() {
     }
 
     return (
-        <div className="w-80 border-r bg-slate-50 dark:bg-slate-900 flex flex-col shrink-0">
+        <div className="w-80 border-r bg-sidebar flex flex-col shrink-0">
             {/* Header */}
             <div className="flex items-center justify-between p-3 border-b">
                 <div className="flex items-center gap-2">
@@ -149,7 +149,7 @@ export function ArchitectSidebar() {
             <div className="border-b">
                 <button
                     onClick={() => setShowToolSelector(!showToolSelector)}
-                    className="flex items-center justify-between w-full p-3 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    className="flex items-center justify-between w-full p-3 hover:bg-sidebar-accent transition-colors"
                 >
                     <div className="flex items-center gap-2">
                         <Wrench className="h-4 w-4 text-purple-600" />
@@ -183,7 +183,7 @@ export function ArchitectSidebar() {
                                 {availableTools.map((tool) => (
                                     <label
                                         key={tool.id}
-                                        className="flex items-start gap-2 p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                        className="flex items-start gap-2 p-2 rounded hover:bg-sidebar-accent cursor-pointer"
                                     >
                                         <input
                                             type="checkbox"
@@ -226,19 +226,19 @@ export function ArchitectSidebar() {
                         <div className="mt-4 space-y-2 text-left">
                             <button
                                 onClick={() => setInputValue("Create an agent that fetches weather data and sends email alerts when temperature exceeds 30°C")}
-                                className="w-full p-2 text-xs text-left bg-white dark:bg-slate-800 rounded border hover:border-purple-300 transition-colors"
+                                className="w-full p-2 text-xs text-left bg-background rounded border hover:border-primary transition-colors"
                             >
                                 🌡️ Weather alert agent
                             </button>
                             <button
                                 onClick={() => setInputValue("Build a customer support agent that can search a knowledge base and escalate to humans when needed")}
-                                className="w-full p-2 text-xs text-left bg-white dark:bg-slate-800 rounded border hover:border-purple-300 transition-colors"
+                                className="w-full p-2 text-xs text-left bg-background rounded border hover:border-primary transition-colors"
                             >
                                 🎧 Customer support agent
                             </button>
                             <button
                                 onClick={() => setInputValue("Create an agent that monitors an API endpoint and logs changes to a database")}
-                                className="w-full p-2 text-xs text-left bg-white dark:bg-slate-800 rounded border hover:border-purple-300 transition-colors"
+                                className="w-full p-2 text-xs text-left bg-background rounded border hover:border-primary transition-colors"
                             >
                                 📊 API monitoring agent
                             </button>
@@ -298,11 +298,11 @@ export function ArchitectSidebar() {
                                         <>
                                             <button
                                                 onClick={() => handleStartEdit(msg.id, msg.content)}
-                                                className="opacity-0 group-hover:opacity-100 self-center p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-opacity"
+                                                className="opacity-0 group-hover:opacity-100 self-center p-1 rounded hover:bg-muted transition-opacity"
                                                 title="Edit and regenerate"
                                                 disabled={isGenerating}
                                             >
-                                                <Pencil className="h-3.5 w-3.5 text-slate-500" />
+                                                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                                             </button>
                                             <div
                                                 className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-blue-600 text-white"
@@ -314,14 +314,14 @@ export function ArchitectSidebar() {
                                 ) : (
                                     // Assistant message
                                     <div
-                                        className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 border"
+                                        className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-background border"
                                     >
                                         {msg.content}
                                     </div>
                                 )}
 
                                 {msg.role === "user" && editingMessageId !== msg.id && (
-                                    <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0">
+                                    <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0">
                                         <User className="h-3.5 w-3.5" />
                                     </div>
                                 )}
@@ -333,7 +333,7 @@ export function ArchitectSidebar() {
                                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
                                     <Loader2 className="h-3.5 w-3.5 text-white animate-spin" />
                                 </div>
-                                <div className="bg-white dark:bg-slate-800 border rounded-lg px-3 py-2 text-sm">
+                                <div className="bg-background border rounded-lg px-3 py-2 text-sm">
                                     <span className="text-muted-foreground">Generating blueprint...</span>
                                 </div>
                             </div>

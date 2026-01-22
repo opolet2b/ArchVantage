@@ -27,6 +27,14 @@ interface MarkdownViewerProps {
     className?: string;
     /** Whether selection is enabled */
     selectionEnabled?: boolean;
+    /** Transclusion locking state map */
+    transclusionStates?: Record<string, any>;
+    /** Callback to update transclusion state */
+    onTransclusionStateChange?: (nodeId: string, state: any) => void;
+    /** Optional components override for ReactMarkdown */
+    components?: Record<string, React.ElementType>;
+    /** Whether to render in export mode */
+    exportMode?: boolean;
 }
 
 // =============================================================================
@@ -37,6 +45,7 @@ interface MarkdownViewerProps {
 import { useReactFlow } from "reactflow";
 import { useCanvasStore } from "../canvas-store";
 import { ExternalLink } from "lucide-react";
+import { TransclusionBlock } from "./transclusion-block";
 
 // =============================================================================
 // Markdown Viewer Component
@@ -47,6 +56,10 @@ export function MarkdownViewer({
     onSelect,
     className,
     selectionEnabled = true,
+    transclusionStates,
+    onTransclusionStateChange,
+    components,
+    exportMode = false,
 }: MarkdownViewerProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const lastMousePos = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -57,6 +70,13 @@ export function MarkdownViewer({
     // Assuming context availability given its usage in ThingNode.
     const { fitView } = useReactFlow();
     const selectThing = useCanvasStore(state => state.selectThing);
+    // Needed to identify host node? We don't strictly have hostNodeId prop here.
+    // We can try to infer it if necessary, or just skip self-cycle check for now (or pass it down later).
+    // Actually, ThingNode uses SelectableContent which wraps MarkdownViewer.
+    // We might need to pass `thingId` as a prop to MarkdownViewer to enable proper cycle check.
+    // For now, let's keep it optional.
+
+    // We need 'things' to resolve Evidence names
     const things = useCanvasStore(state => state.things);
 
     // Track mouse position for toolbar placement
@@ -97,11 +117,28 @@ export function MarkdownViewer({
         onSelect(fragment, position);
     }, [onSelect, selectionEnabled]);
 
-    // Pre-process content to make Evidence citations clickable
+    // Pre-process content to make Evidence citations clickable AND handle Transclusions
     const processedContent = React.useMemo(() => {
         if (!content) return "";
-        // Replace (Evidence: <uuid>) with [Evidence: <uuid>](#evidence-<uuid>)
-        return content.replace(/\(Evidence:\s*([a-f0-9-]+)\)/gi, "[Evidence: $1](#evidence-$1)");
+        let processed = content;
+
+        // 1. Evidence: Replace (Evidence: <uuid>) with [Evidence: <uuid>](#evidence-<uuid>)
+        processed = processed.replace(/\(Evidence:\s*([a-f0-9-]+)\)/gi, "[Evidence: $1](#evidence-$1)");
+
+        // 2. Transclusions: Replace {{node:<uuid>}} with [Transclusion:<uuid>](transclude:<uuid>)
+        // We use a simplified regex detecting the guid
+        const regex = /\{\{node:\s*([a-f0-9-]+)\s*\}\}/gi;
+        const hasMatch = regex.test(processed);
+        if (hasMatch) {
+            console.log("[MarkdownViewer] Found transclusion tags. Processing...");
+        }
+        processed = processed.replace(regex, "[Transclusion: $1](transclude:$1)");
+
+        if (hasMatch) {
+            console.log("[MarkdownViewer] Processed content:", processed.substring(0, 200) + "...");
+        }
+
+        return processed;
     }, [content]);
 
     return (
@@ -120,13 +157,57 @@ export function MarkdownViewer({
         >
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
+                urlTransform={(url) => {
+                    if (url.startsWith("transclude:")) return url;
+                    return url;
+                }}
                 components={{
+                    ...components,
+                    // Map <p> to <div> to allow block-level transclusions (tables, etc.) invalid inside <p>
+                    p: ({ children }) => <div className="mb-4">{children}</div>,
                     img: (props) => {
+                        if (components?.img) {
+                            const CustomImg = components.img as any;
+                            return <CustomImg {...props} />;
+                        }
                         if (!props.src) return null;
                         // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
                         return <img {...props} />;
                     },
                     a: ({ href, children, ...props }) => {
+                        // Handle Transclusions
+                        if (href?.startsWith("transclude:")) {
+                            const nodeId = href.replace("transclude:", "");
+
+                            // Retrieve locking state
+                            const state = transclusionStates?.[nodeId];
+                            const isLocked = state?.locked === true;
+                            const snapshot = state?.snapshot;
+
+                            return (
+                                <TransclusionBlock
+                                    nodeId={nodeId}
+                                    hostNodeId="" // hostId not strictly needed if circular check is done by simpler ID compare or recursive depth
+                                    isLocked={isLocked}
+                                    snapshotContent={snapshot}
+                                    exportMode={exportMode}
+                                    onToggleLock={() => {
+                                        if (onTransclusionStateChange) {
+                                            // Toggle lock state
+                                            const newState = {
+                                                ...state,
+                                                locked: !isLocked,
+                                                // If we are locking (was unlocked), we expect parent to capture snapshot.
+                                                // If we are unlocking, we clear or ignore snapshot.
+                                            };
+                                            onTransclusionStateChange(nodeId, newState);
+                                        }
+                                    }}
+                                />
+                            );
+                        }
+
+                        // Handle Evidence
                         if (href?.startsWith("#evidence-")) {
                             const evidenceId = href.replace("#evidence-", "");
                             const thing = things.find(t => t.id === evidenceId);
@@ -154,6 +235,8 @@ export function MarkdownViewer({
                                 </button>
                             );
                         }
+
+                        // Default Link
                         return <a href={href} {...props}>{children}</a>;
                     }
                 }}

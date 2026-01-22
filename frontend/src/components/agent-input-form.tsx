@@ -212,7 +212,7 @@ export function AgentInputForm({
             </div>
 
             {!hasProperties && (
-                <div className="text-sm text-muted-foreground py-4 text-center bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                <div className="text-sm text-muted-foreground py-4 text-center bg-muted/50 rounded-lg">
                     This agent has no required inputs
                 </div>
             )}
