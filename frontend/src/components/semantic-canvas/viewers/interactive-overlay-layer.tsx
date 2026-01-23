@@ -333,7 +333,6 @@ function OverlayItem({ overlay, isActive, containerDims, onAction }: OverlayItem
                 // IMPORTANT: Stop propagation to prevent "Creation Point" / Drawing mode from triggering on background
                 e.stopPropagation();
                 onAction('click', e);
-                console.log("[OverlayItem] MouseDown (Selected via MouseDown)");
             }}
         >
             {isActive && (

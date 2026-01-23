@@ -105,8 +105,6 @@ export function ImageViewer({
                             console.error("[ImageViewer] Failed to parse URL:", e);
                         }
                     }
-
-                    console.log("[ImageViewer] Fetching with auth:", urlToFetch);
                     const res = await fetch(urlToFetch, { headers: token ? { "Authorization": `Bearer ${token}` } : {} });
                     if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
 

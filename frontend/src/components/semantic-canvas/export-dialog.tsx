@@ -368,15 +368,12 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
 
         try {
             // DEBUG: Log HTML structure to identify grey frame sources
-            console.log("[ExportDialog] Pre-capture HTML:", element.innerHTML.substring(0, 2000));
-
             // DEBUG: Find all elements with non-transparent backgrounds
             const allElements = element.querySelectorAll('*');
             allElements.forEach((el) => {
                 const style = window.getComputedStyle(el);
                 const bg = style.backgroundColor;
                 if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'rgb(255, 255, 255)') {
-                    console.log("[ExportDialog] Element with background:", el.tagName, el.className, "bg:", bg);
                 }
             });
 
@@ -399,9 +396,6 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                     return (rect.top - parentRect.top) * scale;
                 })
                 .sort((a, b) => a - b);
-
-            console.log("[ExportDialog] Forced page breaks detected at (px):", forcedBreakYPositions);
-
             // 2. Load Image for processing
             const img = new Image();
             img.src = imgData;
@@ -434,7 +428,6 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                 const forcedBreakInPage = forcedBreakYPositions.find(y => y > currentY + 10 && y < currentY + pageHeightInPx);
 
                 if (forcedBreakInPage) {
-                    console.log(`[ExportDialog] Applying forced break at ${forcedBreakInPage}px`);
                     sliceHeight = forcedBreakInPage - currentY;
                     foundBreak = true;
                 } else if (remainingHeight > pageHeightInPx) {

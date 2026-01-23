@@ -245,7 +245,6 @@ export function MarkdownViewer({
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
-                                        console.log("Zooming to Evidence:", evidenceId);
                                         // Trigger Zoom and Select
                                         try {
                                             selectThing(evidenceId);

@@ -211,7 +211,6 @@ export function CanvasPalette() {
     };
 
     const handleDragStartWithColor = (e: React.DragEvent, tool: CanvasTool) => {
-        console.log("[CanvasPalette] Drag Start (With Color):", tool.id);
         // Set drag data
         e.dataTransfer.setData("application/semantic-canvas-tool", tool.id);
 

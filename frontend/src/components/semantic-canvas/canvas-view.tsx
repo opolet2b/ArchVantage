@@ -142,8 +142,6 @@ function CanvasViewInner() {
     // const setVisionModel = useCanvasStore((state) => state.setVisionModel);
 
     // Debug render
-    console.log(`[CanvasView] RENDER STATE: Rendering CanvasViewInner for canvas: ${canvasId}`);
-
     // Polling for processing items (RAG status)
     const refreshThings = useCanvasStore((state) => state.refreshThings);
 
@@ -153,7 +151,6 @@ function CanvasViewInner() {
         );
 
         if (hasProcessingItems) {
-            console.log("[CanvasView] Polling for processing items...");
             const interval = setInterval(() => {
                 refreshThings();
             }, 3000); // Poll every 3 seconds
@@ -167,7 +164,6 @@ function CanvasViewInner() {
     // This ensures we start at the right place when switching canvases
     React.useEffect(() => {
         if (canvasId && viewport) {
-            console.log("[CanvasView] Restoring viewport:", viewport);
             setViewport(viewport);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,7 +172,6 @@ function CanvasViewInner() {
     // Save viewport on unmount to capture final state (prevents debouncing loss)
     React.useEffect(() => {
         return () => {
-            console.log("[CanvasView] Unmounting, saving viewport...");
             saveViewport();
         };
     }, [saveViewport]);
@@ -281,7 +276,6 @@ function CanvasViewInner() {
 
     // Handle thing resize end
     const handleThingResize = React.useCallback((thingId: string, width: number, height: number) => {
-        console.log(`[CanvasView] Thing resized: ${thingId} to ${width}x${height}`);
         updateThing(thingId, { width, height });
     }, [updateThing]);
 
@@ -335,7 +329,6 @@ function CanvasViewInner() {
     // Handle node right-click (context menu) - Replaces manual domain handlers
     const onNodeContextMenu = React.useCallback(
         (event: React.MouseEvent, node: Node) => {
-            console.log("[CanvasView] onNodeContextMenu fired for node:", node.id, node.type);
             event.preventDefault();
             // Critical: Stop propagation so the pane context menu doesn't fire and overwrite state
             event.stopPropagation();
@@ -365,7 +358,6 @@ function CanvasViewInner() {
     // for complex custom nodes with z-indexing layers.
     const handleDomainContextMenu = React.useCallback(
         (event: React.MouseEvent, domainId: string) => {
-            console.log(`[CanvasView] handleDomainContextMenu fired for ${domainId}`);
             // Find the node object to pass to onNodeContextMenu
             const mockNode: Node = {
                 id: domainId,
@@ -382,7 +374,6 @@ function CanvasViewInner() {
     // Convert domains to React Flow nodes (memoized, rendered behind things)
     // Handle domain resize end
     const handleDomainResize = React.useCallback((domainId: string, width: number, height: number) => {
-        console.log(`[CanvasView] Domain resized: ${domainId} to ${width}x${height}`);
         updateDomain(domainId, { width, height });
     }, [updateDomain]);
 
@@ -565,7 +556,6 @@ function CanvasViewInner() {
         if (targetNodeId && nodes.length > 0) {
             const targetNode = nodes.find(n => n.id === targetNodeId);
             if (targetNode) {
-                console.log(`[CanvasView] Focusing on requested node: ${targetNodeId}`);
                 selectThing(targetNodeId);
 
                 fitView({
@@ -632,7 +622,6 @@ function CanvasViewInner() {
     React.useEffect(() => {
         // Skip sync during resize to prevent state overwrites
         if (isResizingRef.current) {
-            console.log("[CanvasView] Skipping sync during resize");
             return;
         }
 
@@ -667,7 +656,6 @@ function CanvasViewInner() {
 
         // Only update if something actually changed
         if (domainsKey !== prevDomainsRef.current || thingsKey !== prevThingsRef.current) {
-            console.log("[CanvasView] Syncing nodes - domains:", domains.length, "things:", things.length);
             prevDomainsRef.current = domainsKey;
             prevThingsRef.current = thingsKey;
             setNodes(allNodes);
@@ -958,10 +946,8 @@ function CanvasViewInner() {
 
                 if (newParentId && newParentId !== domain?.parent_id) {
                     domainUpdate.parent_id = newParentId;
-                    console.log(`[Domain Drag] Nesting domain ${node.id} inside ${newParentId}`);
                 } else if (shouldClearParent) {
                     domainUpdate.parent_id = null;
-                    console.log(`[Domain Drag] Un-nesting domain ${node.id} from parent`);
                 }
 
                 // Persist domain position and parent
@@ -1087,7 +1073,6 @@ function CanvasViewInner() {
                 const targetThing = things.find(t => t.id === link.target_id);
                 // Only cascade if it's a text/result node and relation is derived_from/related
                 if (targetThing && (targetThing.type === "text" || targetThing.type === "agent_result")) {
-                    console.log(`[CanvasView] Cascade deleting orphan result: ${targetThing.id}`);
                     await deleteThing(targetThing.id);
                 }
             }
@@ -1135,7 +1120,6 @@ function CanvasViewInner() {
     // Handle canvas rights-click (context menu)
     const handlePaneContextMenu = React.useCallback(
         (event: React.MouseEvent) => {
-            console.log("[CanvasView] handlePaneContextMenu fired (Background)");
             event.preventDefault();
 
             // CHECK FOR SELECTION OVERSHOOT:
@@ -1162,7 +1146,6 @@ function CanvasViewInner() {
             const hasSelection = selectedThingIds.length > 0 || selectedDomainIds.length > 0;
 
             if (hasSelection && isSelectionClick) {
-                console.log("[CanvasView] Right-click on selection visual. Preserving selection.");
                 setContextMenuPosition({ x: event.clientX, y: event.clientY });
                 setContextMenuContext("selection");
                 setContextMenuDomainId(undefined);
@@ -1336,7 +1319,6 @@ function CanvasViewInner() {
 
         // Check for Tool Drop (from Palette)
         const toolType = event.dataTransfer.getData("application/semantic-canvas-tool");
-        console.log("[CanvasView] Drop Event. ToolType:", toolType);
         const color = event.dataTransfer.getData("application/semantic-canvas-color") || undefined;
         if (toolType) {
             const { clientX, clientY } = event;
@@ -1491,7 +1473,6 @@ function CanvasViewInner() {
 
     // Handle Context Menu Actions
     const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string, fragment?: any) => {
-        console.log(`[CanvasView] handleContextMenuAction: ${action}, context: ${context}`);
         // toast({ title: "Debug Action", description: action }); // Removed debug toast
 
         if (action === "discover_links") {
@@ -1528,7 +1509,6 @@ function CanvasViewInner() {
             // Call store
             const result = await discoverLinks(tIds, dIds);
             if (result) {
-                console.log(`[DiscoverLinks] Created ${result.links_created} links.`);
             }
         } else if (action === "summary_analysis" || action === "identify_purpose") {
             const { selectedThingIds, selectedDomainIds, analyzeBatch, addThing, addLink, selectedModel } = useCanvasStore.getState();
@@ -1562,12 +1542,9 @@ function CanvasViewInner() {
             const result = await analyzeBatch(tIds, apiAction as "summarize" | "identify_purpose", selectedModel || undefined);
 
             if (result) {
-                console.log("[SummaryAnalysis] Result received:", result.slice(0, 100) + "...");
                 // Create a text note with the result
                 // Calculate position relative to selection or center
                 let pos = getCenterPosition();
-                console.log("[SummaryAnalysis] Adding thing at:", pos);
-
                 const newThing = await addThing(
                     "text",
                     { text: `**${action === "identify_purpose" ? "Purposes" : "Summary"} Analysis**\n\n${result}` },
@@ -1576,7 +1553,6 @@ function CanvasViewInner() {
                 );
 
                 if (newThing) {
-                    console.log(`[SummaryAnalysis] Created thing ${newThing.id}. Linking to ${tIds.length} sources...`);
                     // Link new thing to all source things
                     for (const sourceId of tIds) {
                         await addLink(
@@ -1698,8 +1674,6 @@ function CanvasViewInner() {
             } else if (!fragment && hasVisualContent) {
                 activeModel = visionModel || selectedModel;
             }
-
-            console.log(`[ExecuteTemplateStream] Template: ${templateId}, Model: ${activeModel} (Vision trigger: ${hasVisualContent || (fragment && fragment.type === "region")})`);
             updateToast({ id: toastId, description: `Starting pipeline (Model: ${activeModel || 'Default'})...` });
 
             try {
@@ -1992,7 +1966,6 @@ function CanvasViewInner() {
                 // Auto-link logic (Link to ALL drop targets, including domains)
                 // This satisfies "Linked with the domain" requirement
                 if (autoLinkTargets.length > 0) {
-                    console.log(`[CanvasView] Auto-linking conversation to ${autoLinkTargets.length} targets`);
                     for (const target of autoLinkTargets) {
                         await addLink(newThing.id, target.id, "related", "Context", "Context for this conversation");
                     }
@@ -2820,7 +2793,6 @@ export function CanvasView({ canvasId: propCanvasId }: CanvasViewProps) {
 
     // Show login prompt if not authenticated
     if (authError || (!isInitialized && !hasToken)) {
-        console.log("[CanvasView] RENDER STATE: Auth Error or Not Initialized + No Token", { authError, isInitialized, hasToken });
         return (
             <div className="h-full w-full flex items-center justify-center">
                 <div className="text-center space-y-4">
@@ -2840,7 +2812,6 @@ export function CanvasView({ canvasId: propCanvasId }: CanvasViewProps) {
 
     // Only show loading if we haven't initialized AND we don't have a canvas yet
     if (!isInitialized && !storeCanvasId) {
-        console.log("[CanvasView] RENDER STATE: Loading (isInitialized=false && !storeCanvasId)");
         return (
             <div className="h-full w-full flex items-center justify-center">
                 <div className="flex flex-col items-center space-y-4">
@@ -2881,8 +2852,6 @@ export function CanvasView({ canvasId: propCanvasId }: CanvasViewProps) {
             </div>
         );
     }
-
-    console.log("[CanvasView] RENDER STATE: Rendering CanvasViewInner for canvas:", storeCanvasId);
     return (
         <SelectionProvider>
             <ReactFlowProvider>

@@ -44,7 +44,6 @@ export function SlideshowNode({
         const isCompleted = thing.rag_status === 'completed' && thing.content?.slides;
 
         if (isEmbedded || isCompleted) {
-            console.log("[SlideshowNode] Syncing content from prop update:", thing.rag_status);
             setJsonContent({
                 ...progressThing.content,
                 // regions: overlays || progressThing.content.regions // Don't merge here, do it in render
@@ -81,7 +80,6 @@ export function SlideshowNode({
                         if (hasStatusChanged && updatedThing.rag_status === 'completed') {
                             // Use DB content directly to update viewer immediately
                             if (updatedThing.content && updatedThing.content.slides) {
-                                console.log("[SlideshowNode] Analysis completed, updating content from DB polling...");
                                 setJsonContent({ ...updatedThing.content });
                             }
                         }

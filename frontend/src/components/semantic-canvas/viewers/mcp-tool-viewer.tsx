@@ -81,12 +81,8 @@ export function MCPToolViewer({ thing, onResize }: MCPToolViewerProps) {
             .catch(e => console.error("Failed to set running status:", e));
 
         try {
-            console.log("[MCP] Starting execution:", content.tool_name, "Server:", content.server_id);
-
             // Resolve inputs
             const finalArgs = resolveMappings()
-            console.log("[MCP] Resolved args:", finalArgs);
-
             const token = localStorage.getItem("token")
 
             // Setup timeout
@@ -118,8 +114,6 @@ export function MCPToolViewer({ thing, onResize }: MCPToolViewerProps) {
                 }
 
                 const data = await res.json()
-                console.log("[MCP] Execution success:", data);
-
                 await updateThing(thing.id, {
                     content: {
                         ...content,

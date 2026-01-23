@@ -86,7 +86,13 @@ const PRESET_COLORS = [
     "#f43f5e", // Rose
 ];
 
-export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
+/**
+ * DomainNode - Memoized for performance optimization.
+ * 
+ * Prevents unnecessary re-renders when canvas state changes but this
+ * specific node's props remain the same.
+ */
+export const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
     const { domain, zoomLevel, onUpdate, onContextMenu, depth = 0, parentName } = data;
     const [isEditing, setIsEditing] = React.useState(false);
     const [editName, setEditName] = React.useState(domain.name);
@@ -407,5 +413,5 @@ export function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
             )}
         </>
     );
-}
+});
 

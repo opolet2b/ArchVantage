@@ -585,7 +585,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
 
         if (updates.length > 0) {
-            console.log(`[Store] Recalculating domains: updating ${updates.length} things`);
             await get().updateThings(updates);
         }
     },
@@ -594,7 +593,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     addThing: async (type, content, position, title, width, height, domainId, color) => {
         const { canvasId } = get();
         const token = getAuthToken();
-        console.log(`[Store] addThing called. Type: ${type}, CanvasId: ${canvasId}`);
         if (!token || !canvasId) {
             console.error("[Store] Missing token or canvasId");
             return null;
@@ -607,12 +605,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             const h = height ?? 400;
             finalDomainId = get().findEnclosingDomain(position.x, position.y, w, h) || undefined;
             if (finalDomainId) {
-                console.log(`[Store] Auto-assigned thing to domain: ${finalDomainId}`);
             }
         }
 
         try {
-            console.log(`[Store] Sending POST to /canvases/${canvasId}/things`);
             const payload = {
                 type,
                 content: typeof content === 'object' ? {
@@ -628,9 +624,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 color,
                 domain_id: finalDomainId,
             };
-
-            console.log("[Store] addThing payload content:", payload.content);
-
             const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
                 method: "POST",
                 headers: {
@@ -639,9 +632,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 },
                 body: JSON.stringify(payload),
             });
-
-            console.log(`[Store] POST response status: ${res.status}`);
-
             if (!res.ok) {
                 const errorText = await res.text();
                 console.error(`[Store] Failed to add thing: ${res.status} ${errorText}`);
@@ -649,7 +639,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             }
 
             const thing: CanvasThing = await res.json();
-            console.log(`[Store] Thing added successfully: ${thing.id}`);
             set({ things: [...get().things, thing] });
             return thing;
         } catch (err) {
@@ -693,7 +682,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 // If assignment changed, include it in updates (null means removed from domain)
                 if (autoDomain !== target.domain_id) {
                     newDomainId = autoDomain;
-                    console.log(`[Store] Auto-reassigned thing ${thingId} to domain: ${newDomainId}`);
                 }
             }
         }
@@ -770,7 +758,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             // Dispatch potential conversation update event for UI sync
             if (updates.title && serverUpdated.type === "conversation") {
-                console.log("[CanvasStore] Dispatching conversation-updated event for", serverUpdated.id);
                 // We dispatch the event with the THING ID. The listener should resolve the Conversation ID if needed, 
                 // but usually for our app the thing ID effectively maps or we can just refresh the list.
                 // However, the side-bar list uses CONVERSATION IDs.
@@ -1028,10 +1015,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     addDomain: async (name, description, position, color = "#6366f1", parentId = null) => {
         const { canvasId } = get();
         const token = getAuthToken();
-
-        console.log("[addDomain] Creating domain:", { name, description, position, color, parentId });
-        console.log("[addDomain] canvasId:", canvasId, "token:", !!token);
-
         if (!token) {
             console.error("[addDomain] No auth token available");
             return null;
@@ -1043,8 +1026,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
         try {
             const url = `${API_URL}/canvases/${canvasId}/domains`;
-            console.log("[addDomain] POST to:", url);
-
             const res = await fetch(url, {
                 method: "POST",
                 headers: {
@@ -1053,9 +1034,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 },
                 body: JSON.stringify({ name, description, position, color, parent_id: parentId }),
             });
-
-            console.log("[addDomain] Response status:", res.status);
-
             if (!res.ok) {
                 const errorText = await res.text();
                 console.error("[addDomain] Error response:", errorText);
@@ -1063,7 +1041,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             }
 
             const domain: Domain = await res.json();
-            console.log("[addDomain] Domain created:", domain);
             set({ domains: [...get().domains, domain] });
 
             // Trigger batch update for things inside this new domain
@@ -1099,6 +1076,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     name: updates.name !== undefined ? updates.name : d.name,
                     description: updates.description !== undefined ? updates.description : d.description,
                     color: updates.color !== undefined ? updates.color : d.color,
+                    // FIX: Include parent_id in optimistic update for hierarchy support
+                    parent_id: updates.parent_id !== undefined ? updates.parent_id : d.parent_id,
                 }
                 : d
         );
@@ -1127,6 +1106,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                         color: updates.color,
                         width: updates.width,
                         height: updates.height,
+                        // FIX: Include parent_id in API call for hierarchy persistence
+                        parent_id: updates.parent_id,
                     }),
                 }
             );
@@ -1366,7 +1347,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         if (!token || !canvasId || thingIds.length === 0) return null;
 
         try {
-            console.log(`[CanvasStore] Analyzing batch: ${thingIds.length} items. Action: ${action}. Model: ${model}`);
             const response = await fetch(`${API_URL}/canvases/${canvasId}/analyze-batch`, {
                 method: "POST",
                 headers: {
@@ -1486,9 +1466,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         const targetThings = things.filter(t => thingIds.includes(t.id));
         const hasVisual = targetThings.some(t => t.type === "image" || t.type === "video" || t.type === "slideshow");
         const activeModel = hasVisual ? (visionModel || selectedModel) : selectedModel;
-
-        console.log(`[CanvasStore] Executing template ${templateId} on canvas ${canvasId}. Model: ${activeModel} (Vision: ${hasVisual})`);
-
         try {
             const res = await fetch(
                 `${API_URL}/canvases/${canvasId}/execute-template`,
@@ -1514,8 +1491,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             }
 
             const result = await res.json();
-            console.log("[CanvasStore] Template execution result:", result);
-
             get().refreshThings();
 
             set({ isLoading: false });

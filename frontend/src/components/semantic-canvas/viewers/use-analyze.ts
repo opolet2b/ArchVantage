@@ -55,8 +55,6 @@ export function useAnalyze(): UseAnalyzeReturn {
 
             setIsLoading(true);
             setError(null);
-            console.log(`[useAnalyze] Starting analysis for thing: ${thingId}, action: ${action}`);
-
             try {
                 const token = localStorage.getItem("token");
                 if (!token) {

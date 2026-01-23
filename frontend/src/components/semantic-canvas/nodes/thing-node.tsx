@@ -252,7 +252,13 @@ interface ThingNodeData {
     onResizeEnd?: (thingId: string, width: number, height: number) => void;
 }
 
-export function ThingNode(props: NodeProps<ThingNodeData>) {
+/**
+ * ThingNode - Memoized for performance optimization.
+ * 
+ * Prevents unnecessary re-renders when canvas state changes but this
+ * specific node's props remain the same.
+ */
+export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNodeData>) {
     const { id, data, selected: isSelected } = props;
     const { toast } = useToast();
     const hiddenNodeLinks = useCanvasStore(state => state.hiddenNodeLinks);
@@ -944,20 +950,14 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         const updatedRegions = [...currentRegions, newRegion];
 
         // Update thing content
-        console.log(`[ThingNode] Creating region:`, newRegion);
         await updateThing(thing.id, {
             content: { ...freshThing.content, regions: updatedRegions }
         });
-        console.log(`[ThingNode] Region creation update sent.`);
     }, [thing, updateThing]);
 
     // Handle cascading delete of region and related content
     const handleConfirmDeleteRegion = React.useCallback(async () => {
-        console.log("[ThingNode] handleConfirmDeleteRegion called. RegionToDelete:", regionToDelete);
         if (!regionToDelete) return;
-
-        console.log("[ThingNode] Current links:", links);
-
         // 1. Identify related links
         const relatedLinks = links.filter(l => {
             const isSource = l.source_id === thing.id;
@@ -966,28 +966,20 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
 
             // Log matches for debugging
             if (isSource && (fragIdMatch || labelMatch)) {
-                console.log("[ThingNode] Found related link:", l);
             }
 
             return isSource && (fragIdMatch || labelMatch);
         });
-
-        console.log("[ThingNode] Related links to delete:", relatedLinks.length);
-
         // 2. Identify related things
         const relatedThingIds = relatedLinks.map(l => l.target_id);
-        console.log("[ThingNode] Related things to delete:", relatedThingIds);
-
         // 3. Delete related links
         for (const link of relatedLinks) {
-            console.log("[ThingNode] Deleting link:", link.id);
             await deleteLink(link.id);
         }
 
         // 4. Delete related things
         const deleteThing = useCanvasStore.getState().deleteThing;
         for (const tId of relatedThingIds) {
-            console.log("[ThingNode] Deleting thing:", tId);
             await deleteThing(tId);
         }
 
@@ -995,15 +987,10 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         // refetch thing to ensure we have latest content (avoid race with deleteLink updates if any)
         const freshThing = useCanvasStore.getState().things.find(t => t.id === thing.id) || thing;
         const currentRegions = (freshThing.content.regions as any[]) || [];
-
-        console.log("[ThingNode] Current regions before delete:", currentRegions);
         const updatedRegions = currentRegions.filter((r, idx) => {
             const rId = r.id || `region-${idx}`;
             return String(rId) !== String(regionToDelete);
         });
-
-        console.log("[ThingNode] Updated regions count:", updatedRegions.length);
-
         await updateThing(thing.id, {
             content: { ...freshThing.content, regions: updatedRegions }
         });
@@ -1187,13 +1174,9 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
             if (fragment.type === "region") {
                 modelToUse = visionModel || selectedModel;
                 const regionFrag = fragment as RegionFragment;
-
-                console.log("[ThingNode] Processing region fragment for analysis:", regionFrag);
-
                 // If content is empty/missing but we have coordinates, cropping is needed
                 // The ImageViewer usually sets content="", so we check that.
                 if ((!regionFrag.content || regionFrag.content.length < 100) && thing.content.file_path) {
-                    console.log("[ThingNode] Content missing. Fetching full image for cropping...");
                     const base64Full = await fetchImageAsBase64(thing.content.file_path as string);
 
                     if (base64Full) {
@@ -1208,9 +1191,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     const y = (regionFrag.y / 100) * img.naturalHeight;
                                     const w = (regionFrag.width / 100) * img.naturalWidth;
                                     const h = (regionFrag.height / 100) * img.naturalHeight;
-
-                                    console.log(`[ThingNode] Cropping image. Nat: ${img.naturalWidth}x${img.naturalHeight}. Region: ${x},${y},${w},${h}`);
-
                                     // Ensure valid dimensions
                                     if (w <= 0 || h <= 0) {
                                         console.warn("[ThingNode] Invalid crop dimensions, resolving full image.");
@@ -1239,7 +1219,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                 ...regionFrag,
                                 content: croppedBase64
                             };
-                            console.log("[ThingNode] Cropping successful. Content length:", finalFragment.content?.length);
                         } catch (e) {
                             console.error("Failed to crop image", e);
                             finalFragment = { ...fragment, content: base64Full };
@@ -1274,7 +1253,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         // Note: Dialog stays OPEN with loading state now
 
         try {
-            console.log("[ThingNode] Starting analysis...");
             let finalFragment = fullThingFragment;
             let modelToUse = selectedModel;
 
@@ -1299,9 +1277,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 customPrompt: customPrompt.trim(),
                 model: modelToUse || undefined,
             });
-
-            console.log("[ThingNode] Analysis result:", !!result);
-
             if (result && result.result) {
                 await createNodeAndLink(result.result, fullThingFragment);
             }
@@ -1717,7 +1692,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             onOverlayResize={handleOverlayResize}
                             onOverlayDelete={handleOverlayDelete}
                             onOverlayClick={(fragment, position) => {
-                                console.log("[ThingNode] Slideshow Overlay Clicked", fragment.id);
                                 setSelection(thing.id, fragment, position);
                             }}
                         />
@@ -2692,6 +2666,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
             }
         </>
     );
-}
+});
 
 

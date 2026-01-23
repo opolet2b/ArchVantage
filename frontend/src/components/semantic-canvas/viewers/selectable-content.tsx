@@ -79,7 +79,6 @@ export function SelectableContent({
                 } else {
                     fetchUrl = `http://127.0.0.1:8000${url}`;
                 }
-                console.log("[SelectableContent] Fetching full image from:", fetchUrl);
             }
 
             const res = await fetch(fetchUrl, {
@@ -101,8 +100,6 @@ export function SelectableContent({
     // Helper to prepare fragment (handling image cropping)
     const prepareFragmentForAnalysis = React.useCallback(async (fragment: Fragment): Promise<Fragment> => {
         let finalFragment = fragment;
-        console.log("[SelectableContent] Preparing fragment. Type:", fragment.type);
-
         if (fragment.type === "region") {
 
 
@@ -124,20 +121,9 @@ export function SelectableContent({
                 const slide = content.slides[slideIndex];
                 if (slide && slide.file_path) {
                     imageUrl = slide.file_path;
-                    console.log(`[SelectableContent] Target is Slideshow. Slide Index: ${slideIndex}, Path: ${imageUrl}`);
                 }
             }
-
-            console.log("[SelectableContent] Debugging thing:", {
-                found: !!thing,
-                id: thing?.id,
-                type: thing?.type,
-                imageUrl: imageUrl,
-                isImageOrSlideshow: !!imageUrl
-            });
-
             if (imageUrl) {
-                console.log("[SelectableContent] Fetching full image for cropping...");
                 const base64Full = await fetchImageAsBase64(imageUrl);
 
                 if (base64Full) {
@@ -150,9 +136,6 @@ export function SelectableContent({
                                 const y = (regionFrag.y / 100) * img.naturalHeight;
                                 const w = (regionFrag.width / 100) * img.naturalWidth;
                                 const h = (regionFrag.height / 100) * img.naturalHeight;
-
-                                console.log(`[SelectableContent] Cropping to: x=${x}, y=${y}, w=${w}, h=${h}`);
-
                                 if (w <= 0 || h <= 0) {
                                     console.warn("[SelectableContent] Invalid crop dimensions. Using original fragment content.");
                                     resolve(fragment.content || "");
@@ -175,7 +158,6 @@ export function SelectableContent({
                         });
 
                         finalFragment = { ...fragment, content: croppedBase64 };
-                        console.log("[SelectableContent] Image cropped. Content length:", finalFragment.content?.length);
                     } catch (e) {
                         console.error("[SelectableContent] Cropping failed", e);
                     }
@@ -274,7 +256,6 @@ export function SelectableContent({
 
         // Create new text thing
         const title = sourceFragment.id || "Analysis Result";
-        console.log("[SelectableContent] Creating new thing. ID:", sourceFragment.id, "Title:", title, "Fragment:", sourceFragment);
         const newThing = await addThing("text", { text }, position, title);
 
         if (newThing) {
@@ -330,9 +311,6 @@ export function SelectableContent({
     // FIX: Ensure dialog closes immediately and we show feedback
     const handleAskSubmit = React.useCallback(async (e?: React.SyntheticEvent) => {
         if (e) e.preventDefault();
-
-        console.log("[SelectableContent] handleAskSubmit called");
-
         // Use saved fragment if selection is lost
         const effectiveFragment = selection?.fragment || analysisSourceFragment;
 
@@ -349,8 +327,6 @@ export function SelectableContent({
             const fragmentToAnalyze = await prepareFragmentForAnalysis(effectiveFragment);
             // Ensure we keep it saved
             if (!analysisSourceFragment) setAnalysisSourceFragment(effectiveFragment);
-
-            console.log("[SelectableContent] Calling analyze...");
             const result = await analyze({
                 canvasId,
                 thingId,
@@ -359,9 +335,6 @@ export function SelectableContent({
                 customPrompt: customPrompt.trim(),
                 model: (fragmentToAnalyze.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
             });
-
-            console.log("[SelectableContent] Analyze result:", !!result);
-
             if (result && result.result) {
                 await createNodeAndLink(result.result, effectiveFragment);
                 // Only close on success
@@ -370,7 +343,6 @@ export function SelectableContent({
                 setAnalysisSourceFragment(null);
 
                 // Clearing selection only on success to effectively close the flow
-                console.log("[SelectableContent] Clearing selection");
                 clearSelection();
             } else {
                 console.warn("[SelectableContent] Analysis failed or returned empty result");

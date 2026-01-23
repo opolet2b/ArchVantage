@@ -108,8 +108,6 @@ export function CanvasContextMenu({
     // - Selection: things in selection + things in selected domains.
     // Robust logic: Filter 'things' by the selected IDs to ensure we only count actual Things.
     const itemCount = React.useMemo(() => {
-        console.log(`[CanvasContextMenu] Calc itemCount. Context: ${context}. SelectedThings: ${selectedThingIds.length}. SelectedDomains: ${selectedDomainIds.length}.`);
-
         if (context === "selection") {
             // Get things directly selected
             const selectedThings = things.filter(t => selectedThingIds.includes(t.id));
@@ -125,8 +123,6 @@ export function CanvasContextMenu({
             ]);
 
             // Log for debugging
-            console.log(`[CanvasContextMenu] Selection Count Debug: Direct: ${selectedThings.length}, InDomains: ${thingsInDomains.length}, Unique: ${uniqueThingIds.size}`);
-
             return uniqueThingIds.size;
         }
 

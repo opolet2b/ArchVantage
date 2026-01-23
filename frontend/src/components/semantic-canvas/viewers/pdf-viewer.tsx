@@ -30,7 +30,6 @@ if (typeof Promise.withResolvers === "undefined") {
 
 // Only set worker if not already set to avoid race conditions/resets
 if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-    console.log("[PDFViewer] Setting PDF.js worker source (Local)");
     // Use local worker copied to public folder to ensure version match and avoid UNPKG issues
     pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 }
@@ -134,8 +133,6 @@ export function PDFViewer({
                             }
                         }
                     }
-
-                    console.log(`[PDFViewer] Fetching secure PDF: ${urlToFetch}`);
                     const headers: HeadersInit = {};
                     if (token) {
                         headers["Authorization"] = `Bearer ${token}`;
@@ -225,8 +222,6 @@ export function PDFViewer({
             endOffset: selectedText.length,
             pageNumber: pageNumber,
         };
-
-        console.log("[PDFViewer] Text selected:", fragment);
         onSelect(fragment);
     }, [onSelect, selectionEnabled, pageNumber, mode]);
 
@@ -245,8 +240,6 @@ export function PDFViewer({
                 pageContainerRef.current.querySelector("canvas")) as HTMLCanvasElement | null;
 
             if (canvas) {
-                console.log(`[PDFViewer] Found canvas for capture: ${canvas.width}x${canvas.height}`);
-
                 // Create a temporary canvas to draw the crop
                 const tempCanvas = document.createElement("canvas");
                 // We need to account for the canvas scaling (retain quality)
@@ -269,7 +262,6 @@ export function PDFViewer({
                         0, 0, targetWidth, targetHeight
                     );
                     base64Content = tempCanvas.toDataURL("image/jpeg");
-                    console.log(`[PDFViewer] Accessing captured content length: ${base64Content.length}`);
                 }
             } else {
                 console.warn("[PDFViewer] No canvas found for capture via querySelector");
@@ -335,7 +327,6 @@ export function PDFViewer({
     const currentOverlays = overlays.filter(o => {
         // Check for 'slideIndex' (0-based) which aligns with our RegionFragment type
         if ((o as any).slideIndex !== undefined) {
-            console.log(`[PDFViewer] Filtering overlay ${o.id}: slideIndex ${(o as any).slideIndex} vs page ${pageNumber - 1}`);
             return (o as any).slideIndex === (pageNumber - 1);
         }
 
@@ -390,15 +381,6 @@ export function PDFViewer({
                                 0, 0, targetWidth, targetHeight
                             );
                             base64Content = tempCanvas.toDataURL("image/jpeg");
-                            console.log(`[PDFViewer] Re-captured content info:`, {
-                                page: pageNumber,
-                                overlayPage: (overlay as any).pageNumber,
-                                captureSize: base64Content.length,
-                                sourceCanvas: { w: canvas.width, h: canvas.height },
-                                cssSize: { w: canvas.offsetWidth, h: canvas.offsetHeight },
-                                scale: { x: scaleX, y: scaleY },
-                                targetRect: { w: targetWidth, h: targetHeight }
-                            });
                         }
                     }
                 } catch (e) {
