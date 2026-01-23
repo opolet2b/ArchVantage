@@ -23,3 +23,4 @@ export type { Fragment, TextFragment, CellFragment, RegionFragment, MessageFragm
 export type { LLMAction } from "./selection-toolbar";
 export { ArchiMateToolViewer } from "./archimate-tool-viewer";
 export { ArchiMateElementViewer } from "./archimate-element-viewer";
+export { MarkdownToolbar } from "./markdown-toolbar";

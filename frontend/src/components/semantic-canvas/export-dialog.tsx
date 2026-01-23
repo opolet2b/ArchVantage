@@ -390,7 +390,19 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
 
             // --- Smart Slicing Logic ---
 
-            // 1. Load Image for processing
+            // 1. Gather forced page breaks from DOM markers
+            const scale = 2; // Matches the scale used in domToImage capture
+            const parentRect = element.getBoundingClientRect();
+            const forcedBreakYPositions = Array.from(element.querySelectorAll('[data-pdf-page-break="true"]'))
+                .map(el => {
+                    const rect = el.getBoundingClientRect();
+                    return (rect.top - parentRect.top) * scale;
+                })
+                .sort((a, b) => a - b);
+
+            console.log("[ExportDialog] Forced page breaks detected at (px):", forcedBreakYPositions);
+
+            // 2. Load Image for processing
             const img = new Image();
             img.src = imgData;
             await new Promise((resolve) => { img.onload = resolve; });
@@ -404,11 +416,6 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
             ctx.drawImage(img, 0, 0);
 
             // Calculate ratios
-            const imgAspectRatio = img.width / img.height;
-            // PDF: We fit width to availableWidth.
-            // Height in PDF points = (img.height * availableWidth) / img.width
-            // But we work in Pixel Space for slicing.
-
             const pdfToPxRatio = img.width / availableWidth;
             const pageHeightInPx = availableHeight * pdfToPxRatio;
 
@@ -420,49 +427,38 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                 if (currentY > 0) doc.addPage();
 
                 let sliceHeight = Math.min(remainingHeight, pageHeightInPx);
+                let foundBreak = false;
 
-                // If we are cutting midway, try to find a white gap
-                if (remainingHeight > pageHeightInPx) {
-                    // Check standard cut line
+                // Priority 1: Check for forced breaks within the current page range
+                // We add a small buffer (10px) to avoid double-breaking at the very top
+                const forcedBreakInPage = forcedBreakYPositions.find(y => y > currentY + 10 && y < currentY + pageHeightInPx);
+
+                if (forcedBreakInPage) {
+                    console.log(`[ExportDialog] Applying forced break at ${forcedBreakInPage}px`);
+                    sliceHeight = forcedBreakInPage - currentY;
+                    foundBreak = true;
+                } else if (remainingHeight > pageHeightInPx) {
+                    // Priority 2: Fallback to existing smart whitespace detection
                     const cutY = currentY + pageHeightInPx;
-
-                    // Backtrack to find whitespace (up to 20% of page height)
-                    // We check a horizontal line for "all white" (or close to white)
-                    // Pixel check: 4 bytes per pixel (R,G,B,A)
                     const searchRange = Math.floor(pageHeightInPx * 0.2);
                     const data = ctx.getImageData(0, Math.floor(cutY - searchRange), canvas.width, searchRange);
                     const pixels = data.data;
                     const width = canvas.width;
                     const height = searchRange;
 
-                    // Scan from bottom (cutY) upwards
-                    let foundBreak = false;
                     for (let row = height - 1; row >= 0; row--) {
                         let isRowWhite = true;
-                        // Sample checks for performance (every 5th pixel)
-                        // Ignore left/right margins (50px) to avoid borders/scrollbars blocking the break
                         for (let col = 50; col < width - 50; col += 5) {
                             const i = (row * width + col) * 4;
-                            const r = pixels[i];
-                            const g = pixels[i + 1];
-                            const b = pixels[i + 2];
-                            // Check for darkness (text is dark, white bg is 255)
-                            // Threshold: if any pixel is < 240, it's not white
-                            if (r < 240 || g < 240 || b < 240) {
+                            if (pixels[i] < 240 || pixels[i + 1] < 240 || pixels[i + 2] < 240) {
                                 isRowWhite = false;
                                 break;
                             }
                         }
 
                         if (isRowWhite) {
-                            // Found a break!
-                            // Actual Y relative to currentY is: (cutY - searchRange) + row
-                            // But `row` is local to the imageData block.
-                            // The block starts at `cutY - searchRange`.
-                            // So BreakY = (cutY - searchRange) + row
                             sliceHeight = (cutY - searchRange) + row - currentY;
                             foundBreak = true;
-                            // Add a small padding buffer so we don't cut right on the edge of next line
                             sliceHeight -= 5;
                             break;
                         }
@@ -470,7 +466,6 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
 
                     if (!foundBreak) {
                         console.warn("No suitable page break found, cutting strictly.");
-                        // sliceHeight remains pageHeightInPx
                     }
                 }
 
@@ -483,8 +478,6 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                     sliceCtx.drawImage(canvas, 0, currentY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
                     const sliceData = sliceCanvas.toDataURL("image/png");
 
-                    // Add to PDF
-                    // Calculate final PDF height for this slice
                     const slicePdfHeight = (sliceHeight * availableWidth) / canvas.width;
                     doc.addImage(sliceData, 'PNG', margin, margin, availableWidth, slicePdfHeight);
                 }
@@ -875,8 +868,8 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                             box-shadow: none !important;
                             outline: none !important;
                         }
-                        /* NUCLEAR: Remove ALL backgrounds and borders from ANY element with inline style */
-                        #export-preview-container *[style] {
+                        /* NUCLEAR: Remove ALL backgrounds and borders from ANY element with inline style (except page breaks) */
+                        #export-preview-container *[style]:not([data-pdf-page-break]) {
                             background-color: transparent !important;
                             background: transparent !important;
                             border: none !important;
@@ -906,7 +899,7 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                             box-shadow: none !important;
                         }
                         /* Ensure all nested elements also have transparent backgrounds */
-                        #export-preview-container * {
+                        #export-preview-container *:not([data-pdf-page-break]) {
                             border: none !important;
                             box-shadow: none !important;
                             outline: none !important;
@@ -944,9 +937,9 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                     ) : ((thing.type === "document" || thing.type === "text") &&
                         (previewContent && typeof previewContent !== "string" && (previewContent.file_path || previewContent.url || "").toLowerCase().endsWith(".pdf"))) ? (
                         /* PDF Document Export - Render Visual PDF */
-                        <MarkdownViewer content={previewContent || ""} selectionEnabled={false} className="w-full" exportMode={true} />
+                        <MarkdownViewer content={previewContent || ""} ancestorIds={[thing.id]} selectionEnabled={false} className="w-full" exportMode={true} />
                     ) : (
-                        <MarkdownViewer content={previewContent || ""} selectionEnabled={false} className="w-full" exportMode={true} />
+                        <MarkdownViewer content={previewContent || ""} ancestorIds={[thing.id]} selectionEnabled={false} className="w-full" exportMode={true} />
                     )}
                 </div>,
                 document.body

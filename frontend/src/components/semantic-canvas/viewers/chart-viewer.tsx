@@ -28,12 +28,17 @@ interface ChartViewerProps {
     data: any; // The full payload from LLM (data + config)
     className?: string;
     exportMode?: boolean; // If true, disable animations for static capture
+    isAnimationActive?: boolean; // Manual override for stability
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
-export function ChartViewer({ type, data, className, exportMode = false }: ChartViewerProps) {
+export function ChartViewer({ type, data, className, exportMode = false, isAnimationActive }: ChartViewerProps) {
     const [showLegend, setShowLegend] = useState(true);
+
+    // Final animation state: False if exportMode OR if explicitly disabled. 
+    // If undefined, default to true (unless exportMode).
+    const activeAnimation = isAnimationActive !== undefined ? isAnimationActive : !exportMode;
 
     // Normalize input: data might be just an array (simple mode) or an object with config
     const chartData = Array.isArray(data) ? data : (data.data || []);
@@ -64,7 +69,7 @@ export function ChartViewer({ type, data, className, exportMode = false }: Chart
                                 dataKey={s.key}
                                 stroke={s.color || COLORS[idx % COLORS.length]}
                                 name={s.label || s.key}
-                                isAnimationActive={!exportMode}
+                                isAnimationActive={activeAnimation}
                             />
                         ))}
                     </LineChart>
@@ -86,7 +91,7 @@ export function ChartViewer({ type, data, className, exportMode = false }: Chart
                                 dataKey={s.key}
                                 fill={s.color || COLORS[idx % COLORS.length]}
                                 name={s.label || s.key}
-                                isAnimationActive={!exportMode}
+                                isAnimationActive={activeAnimation}
                             />
                         ))}
                     </BarChart>
@@ -111,7 +116,7 @@ export function ChartViewer({ type, data, className, exportMode = false }: Chart
                                 stroke={s.color || COLORS[idx % COLORS.length]}
                                 fill={s.color || COLORS[idx % COLORS.length]}
                                 name={s.label || s.key}
-                                isAnimationActive={!exportMode}
+                                isAnimationActive={activeAnimation}
                             />
                         ))}
                     </AreaChart>
@@ -132,7 +137,7 @@ export function ChartViewer({ type, data, className, exportMode = false }: Chart
                             dataKey={pieKey}
                             nameKey={xAxisKey} // Use x-axis key as the label name
                             label
-                            isAnimationActive={!exportMode}
+                            isAnimationActive={activeAnimation}
                         >
                             {chartData.map((entry: any, index: number) => (
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

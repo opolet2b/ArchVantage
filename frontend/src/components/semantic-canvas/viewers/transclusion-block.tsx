@@ -37,7 +37,10 @@ import {
 
 interface TransclusionBlockProps {
     nodeId: string;
-    hostNodeId: string;
+    /** @deprecated Use ancestorIds for better cycle detection */
+    hostNodeId?: string;
+    /** List of ancestor node IDs for recursive cycle detection */
+    ancestorIds?: string[];
     onUnlink?: () => void;
     // Locking Props
     isLocked?: boolean;
@@ -46,7 +49,16 @@ interface TransclusionBlockProps {
     exportMode?: boolean;
 }
 
-export function TransclusionBlock({ nodeId, hostNodeId, onUnlink, isLocked = false, onToggleLock, snapshotContent, exportMode = false }: TransclusionBlockProps) {
+export function TransclusionBlock({
+    nodeId,
+    hostNodeId,
+    ancestorIds = [],
+    onUnlink,
+    isLocked = false,
+    onToggleLock,
+    snapshotContent,
+    exportMode = false
+}: TransclusionBlockProps) {
     // Live thing from store
     const liveThing = useCanvasStore(state => state.things.find(t => t.id === nodeId));
     const selectThing = useCanvasStore(state => state.selectThing);
@@ -65,7 +77,8 @@ export function TransclusionBlock({ nodeId, hostNodeId, onUnlink, isLocked = fal
     const effectiveContent = (isLocked && snapshotContent) ? snapshotContent.content : thingContent;
 
     // Cycle Detection
-    const isCycle = nodeId === hostNodeId;
+    // Check if current nodeId is already in the ancestor chain
+    const isCycle = ancestorIds.includes(nodeId);
     const [isRefreshed, setIsRefreshed] = React.useState(false);
 
     // Helper to get Icon
@@ -231,6 +244,7 @@ export function TransclusionBlock({ nodeId, hostNodeId, onUnlink, isLocked = fal
                                 }
                                 data={effectiveContent.visualizer_output.visual_payload.content}
                                 exportMode={exportMode}
+                                isAnimationActive={false}
                             />
                         </span>
                     ) : (
@@ -273,6 +287,7 @@ export function TransclusionBlock({ nodeId, hostNodeId, onUnlink, isLocked = fal
                                     content={getContentPreview}
                                     selectionEnabled={false}
                                     className="prose-xs"
+                                    ancestorIds={[...ancestorIds, nodeId]}
                                     components={{
                                         p: ({ children }) => <span className="block mb-2">{children}</span>
                                     }}

@@ -65,6 +65,7 @@ import {
     useSelection,
     VectorizationPreviewDialog,
     ChartViewer,
+    MarkdownToolbar,
     // JSONViewer, // Not exported in index.ts
     // VideoViewer, // Not exported in index.ts
     // SlideshowViewer, // Not exported in index.ts (or was imported differently)
@@ -83,6 +84,7 @@ import {
 // Let's stick to what is in index.ts + my new ones.
 import { ExecutionPlanModal } from "../execution-plan-modal";
 import { SlideshowNode } from "./slideshow-node";
+import { TextThingEditor } from "./text-thing-editor";
 import {
     Dialog,
     DialogContent,
@@ -286,8 +288,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
     const performSyncUpdate = useCanvasStore((state) => state.performSyncUpdate);
     const canvasSettings = useCanvasStore((state) => state.canvasSettings);
 
-    // ... (Existing state: selected, editing, double click, etc) ...
-    // REUSE ALL EXISTING STATE LOGIC FROM LINES ~230-496 (skipping for brevity in prompt but must exist)
     const [selected, setSelected] = React.useState(isSelected);
 
     // Full Screen State
@@ -295,13 +295,31 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
 
     // Content Editing State
     const [isEditingContent, setIsEditingContent] = React.useState(false);
-    const [editedContent, setEditedContent] = React.useState("");
+    const [isTrulyFullscreen, setIsTrulyFullscreen] = React.useState(false);
+
+    // ESC key listener for Truly Fullscreen Editor
+    React.useEffect(() => {
+        if (!isEditingContent || !isTrulyFullscreen) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                setIsTrulyFullscreen(false);
+                setIsEditingContent(false);
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isEditingContent, isTrulyFullscreen]);
 
     // Sync State
     const [syncDialogOpen, setSyncDialogOpen] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<'idle' | 'checking' | 'ready' | 'syncing' | 'complete' | 'error'>('idle');
     const [syncCheckResult, setSyncCheckResult] = React.useState<{ status: string, message?: string, diff?: string } | null>(null);
     const [syncSourcePath, setSyncSourcePath] = React.useState<string>("");
+
+    // Ref for textarea to use with toolbar
+    const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
     const handleInitSync = async () => {
         if (!thing.content?.asset_id) return;
@@ -411,55 +429,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         });
     };
 
-    // Drag and Drop Handler for Transclusion Insertion
-    const handleTextareaDrop = async (e: React.DragEvent<HTMLTextAreaElement>) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        // 1. Get text content
-        const data = e.dataTransfer.getData("application/reactflow/node");
-        if (!data) return;
-
-        try {
-            const nodeData = JSON.parse(data);
-            const droppedNodeId = nodeData.id;
-
-            if (droppedNodeId === thing.id) {
-                toast({ title: "Cannot transclude self", variant: "destructive" });
-                return;
-            }
-
-            // 2. Insert at cursor position
-            const textarea = e.currentTarget;
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            const text = textarea.value;
-
-            const transclusionTag = `{{node:${droppedNodeId}}}`;
-
-            // Insert text
-            const newText = text.substring(0, start) + transclusionTag + text.substring(end);
-
-            // Update local state
-            setEditedContent(newText);
-
-            // Focus and move cursor after tag
-            setTimeout(() => {
-                textarea.focus();
-                const newCursorPos = start + transclusionTag.length;
-                textarea.setSelectionRange(newCursorPos, newCursorPos);
-            }, 0);
-
-            // Notify user
-            toast({
-                title: "Node Transcluded",
-                description: "Reference inserted at cursor.",
-            });
-
-        } catch (err) {
-            console.error("Failed to parse dropped node data", err);
-        }
-    };
 
 
 
@@ -1150,18 +1119,16 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
         }
     }, []);
 
-    const handleContentSave = async () => {
-        if (!editedContent && editedContent !== "") return;
-
+    const handleContentSave = async (newContent: string) => {
         // Determine field to update based on current content structure
         const updates: any = {};
         if (typeof thing.content.text === "string") {
-            updates.text = editedContent;
+            updates.text = newContent;
         } else if (typeof thing.content.content === "string") {
-            updates.content = editedContent;
+            updates.content = newContent;
         } else {
             // Fallback default
-            updates.text = editedContent;
+            updates.text = newContent;
         }
 
         await updateThing(thing.id, {
@@ -1490,68 +1457,8 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 const textVal = String(rawVal);
 
                 if (isEditingContent && thing.type === "text") {
-                    return (
-                        <div className="flex flex-col h-full overflow-hidden p-1">
-                            <Textarea
-                                value={editedContent}
-                                onChange={(e) => setEditedContent(e.target.value)}
-                                className="flex-1 min-h-0 font-mono text-sm resize-none bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus-visible:ring-1"
-                                placeholder="Enter text content..."
-                                autoFocus
-                                onDrop={handleTextareaDrop}
-                                onDragOver={(e) => e.preventDefault()}
-                                onClick={() => {
-                                    // Ghost Mode Placement
-                                    const ghostId = useCanvasStore.getState().transclusionGhostId;
-                                    if (ghostId) {
-                                        // Prevent self-reference
-                                        if (ghostId === thing.id) {
-                                            toast({ title: "Cannot transclude self", variant: "destructive", duration: 2000 });
-                                            useCanvasStore.getState().setTransclusionGhostId(null);
-                                            return;
-                                        }
-
-                                        // Insert tag at cursor position
-                                        // Since onClick fires after focus, we can rely on current cursor pos or just append if needed
-                                        // But simple append or insert at selection is better.
-                                        // Note: we don't have direct ref to textarea element here easily without refactor.
-                                        // But we can use the state 'editedContent' and do a simpler append for now 
-                                        // OR trust that the user clicked where they wanted.
-
-                                        /* 
-                                           Ideally we want exact cursor placement. 
-                                           But 'onClick' doesn't give us the Selection range directly unless we access the element.
-                                           Let's accept that for this iteration, appending or replacing selection might require a Ref.
-                                           Actually, we can use document.activeElement if it is this textarea.
-                                        */
-
-                                        setTimeout(() => {
-                                            const active = document.activeElement as HTMLTextAreaElement;
-                                            if (active && active.tagName === "TEXTAREA" && active.value === editedContent) {
-                                                const start = active.selectionStart;
-                                                const end = active.selectionEnd;
-                                                const tag = `{{node:${ghostId}}}`;
-                                                const newText = active.value.substring(0, start) + tag + active.value.substring(end);
-
-                                                setEditedContent(newText);
-
-                                                // Clear ghost
-                                                useCanvasStore.getState().setTransclusionGhostId(null);
-
-                                                toast({ title: "Transclusion Inserted", description: "Linked content placed at cursor." });
-                                            }
-                                        }, 10);
-                                    }
-                                }}
-                                style={{
-                                    cursor: useCanvasStore.getState().transclusionGhostId ? "copy" : "text"
-                                }}
-                            />
-                            <div className="text-xs text-muted-foreground mt-1 px-1">
-                                Markdown supported. Press Save icon in header to apply.
-                            </div>
-                        </div>
-                    )
+                    // We now handle editing in a fullscreen Dialog to avoid React Flow conflicts
+                    // The main content will render normally in the background
                 }
 
                 // Check for Visualizer Output (Charts)
@@ -1569,6 +1476,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     <ChartViewer
                                         type={chartType}
                                         data={visOutput.visual_payload.content}
+                                        isAnimationActive={true}
                                     />
                                 </div>
                             </div>
@@ -1588,7 +1496,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     Thinking Process
                                 </div>
                                 <SelectableContent thingId={thing.id}>
-                                    <MarkdownViewer content={thinkingContent || ""} className="text-sm prose-sm dark:prose-invert leading-relaxed" />
+                                    <MarkdownViewer content={thinkingContent || ""} ancestorIds={[thing.id]} className="text-sm prose-sm dark:prose-invert leading-relaxed" />
                                 </SelectableContent>
                             </div>
                         )}
@@ -1600,6 +1508,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     <MarkdownViewer
                                         content={textVal}
                                         className="h-full prose-sm dark:prose-invert"
+                                        ancestorIds={[thing.id]}
                                         onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                                         transclusionStates={(thing.content as any).transclusions}
                                         onTransclusionStateChange={handleTransclusionStateChange}
@@ -1703,6 +1612,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             <MarkdownViewer
                                 content={textContent || ""}
                                 className="max-h-[200px] overflow-y-auto"
+                                ancestorIds={[thing.id]}
                                 onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                             />
                         </SelectableContent>
@@ -1739,6 +1649,7 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                             <MarkdownViewer
                                 content={content.text_content as string}
                                 className="h-full overflow-y-auto px-4"
+                                ancestorIds={[thing.id]}
                                 onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                                 selectionEnabled={true}
                             />
@@ -1994,7 +1905,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                 data-thing-id={thing.id}
                 className={cn(
                     "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md",
-                    "transition-all duration-200", // Removed overflow-hidden to allow handles to protrude
                     (isSelected || selected)
                         ? `${colorTheme.borderSelected} ring-2 ring-offset-1 shadow-lg`
                         : "border-slate-200 dark:border-slate-700",
@@ -2190,12 +2100,12 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                handleContentSave();
+                                                setIsEditingContent(true);
                                             }}
                                             className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
-                                            title="Save Changes"
+                                            title="Open Editor"
                                         >
-                                            <Save className="h-4 w-4 text-green-600" />
+                                            <ExternalLink className="h-4 w-4 text-green-600" />
                                         </button>
                                         <button
                                             onClick={(e) => {
@@ -2212,7 +2122,6 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            setEditedContent((thing.content.text as string) || (thing.content.content as string) || "");
                                             setIsEditingContent(true);
                                         }}
                                         className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
@@ -2705,6 +2614,19 @@ export function ThingNode(props: NodeProps<ThingNodeData>) {
                     // Open Link Type Dialog
                     setLinkTypeDialogOpen(true);
                 }}
+            />
+
+            {/* Refined Isolated Text Editor */}
+            <TextThingEditor
+                thing={thing}
+                isOpen={isEditingContent}
+                isTrulyFullscreen={isTrulyFullscreen}
+                setIsTrulyFullscreen={setIsTrulyFullscreen}
+                onClose={() => {
+                    setIsEditingContent(false);
+                    setIsTrulyFullscreen(false);
+                }}
+                onSave={handleContentSave}
             />
 
             {/* Full Screen Portal */}

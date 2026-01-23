@@ -35,6 +35,8 @@ interface MarkdownViewerProps {
     components?: Record<string, React.ElementType>;
     /** Whether to render in export mode */
     exportMode?: boolean;
+    /** Current host node ID or list of ancestors for cycle detection */
+    ancestorIds?: string[];
 }
 
 // =============================================================================
@@ -60,6 +62,7 @@ export function MarkdownViewer({
     onTransclusionStateChange,
     components,
     exportMode = false,
+    ancestorIds = [],
 }: MarkdownViewerProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const lastMousePos = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -126,17 +129,11 @@ export function MarkdownViewer({
         processed = processed.replace(/\(Evidence:\s*([a-f0-9-]+)\)/gi, "[Evidence: $1](#evidence-$1)");
 
         // 2. Transclusions: Replace {{node:<uuid>}} with [Transclusion:<uuid>](transclude:<uuid>)
-        // We use a simplified regex detecting the guid
-        const regex = /\{\{node:\s*([a-f0-9-]+)\s*\}\}/gi;
-        const hasMatch = regex.test(processed);
-        if (hasMatch) {
-            console.log("[MarkdownViewer] Found transclusion tags. Processing...");
-        }
-        processed = processed.replace(regex, "[Transclusion: $1](transclude:$1)");
+        const transclusionRegex = /\{\{node:\s*([a-f0-9-]+)\s*\}\}/gi;
+        processed = processed.replace(transclusionRegex, "[Transclusion: $1](transclude:$1)");
 
-        if (hasMatch) {
-            console.log("[MarkdownViewer] Processed content:", processed.substring(0, 200) + "...");
-        }
+        // 3. Page Breaks: Replace ---page-break--- with a hidden marker element
+        processed = processed.replace(/^---page-break---$/gm, "[[PDF_PAGE_BREAK]]");
 
         return processed;
     }, [content]);
@@ -164,7 +161,28 @@ export function MarkdownViewer({
                 components={{
                     ...components,
                     // Map <p> to <div> to allow block-level transclusions (tables, etc.) invalid inside <p>
-                    p: ({ children }) => <div className="mb-4">{children}</div>,
+                    p: ({ children }) => {
+                        // Check if children contain our page break marker
+                        const hasPageBreak = React.Children.toArray(children).some(
+                            child => typeof child === "string" && child.includes("[[PDF_PAGE_BREAK]]")
+                        );
+
+                        if (hasPageBreak) {
+                            return (
+                                <div
+                                    data-pdf-page-break="true"
+                                    className="pdf-page-break-marker h-px w-full my-4 border-t border-dashed border-blue-200 dark:border-blue-900 flex items-center justify-center relative print:hidden"
+                                    style={{ height: '1px' }}
+                                >
+                                    <span className="absolute px-2 py-0.5 text-[8px] uppercase tracking-widest text-blue-400 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-900 rounded-full">
+                                        Page Break
+                                    </span>
+                                </div>
+                            );
+                        }
+
+                        return <div className="mb-4">{children}</div>;
+                    },
                     img: (props) => {
                         if (components?.img) {
                             const CustomImg = components.img as any;
@@ -184,10 +202,19 @@ export function MarkdownViewer({
                             const isLocked = state?.locked === true;
                             const snapshot = state?.snapshot;
 
+                            // Safety check: limit nested transclusion depth
+                            if ((ancestorIds?.length || 0) > 10) {
+                                return (
+                                    <span className="p-2 border border-dashed border-slate-300 rounded text-xs text-slate-400 block w-full text-center">
+                                        [Maximum Transclusion Depth Reached]
+                                    </span>
+                                );
+                            }
+
                             return (
                                 <TransclusionBlock
                                     nodeId={nodeId}
-                                    hostNodeId="" // hostId not strictly needed if circular check is done by simpler ID compare or recursive depth
+                                    ancestorIds={ancestorIds}
                                     isLocked={isLocked}
                                     snapshotContent={snapshot}
                                     exportMode={exportMode}

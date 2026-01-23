@@ -178,12 +178,12 @@ export function MCPToolViewer({ thing, onResize }: MCPToolViewerProps) {
             if (Array.isArray(result) && result.length > 0 && result[0].type === "text") {
                 // It's a standard MCP Text Content
                 const text = result.map((c: any) => c.text).join("\n")
-                return <MarkdownViewer content={text} />
+                return <MarkdownViewer content={text} ancestorIds={[thing.id]} />
             }
             if (result.content && Array.isArray(result.content)) {
                 // Common wrapper
                 const text = result.content.map((c: any) => c.type === 'text' ? c.text : '').join("\n")
-                return <MarkdownViewer content={text} />
+                return <MarkdownViewer content={text} ancestorIds={[thing.id]} />
             }
 
             // Fallback JSON-like
@@ -195,7 +195,7 @@ export function MCPToolViewer({ thing, onResize }: MCPToolViewerProps) {
         }
 
         // String
-        return <MarkdownViewer content={String(result)} />
+        return <MarkdownViewer content={String(result)} ancestorIds={[thing.id]} />
     }
 
     return (
