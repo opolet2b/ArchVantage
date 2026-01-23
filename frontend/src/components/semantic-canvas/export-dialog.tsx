@@ -367,6 +367,19 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
         const availableHeight = pageHeight - (margin * 2);
 
         try {
+            // DEBUG: Log HTML structure to identify grey frame sources
+            console.log("[ExportDialog] Pre-capture HTML:", element.innerHTML.substring(0, 2000));
+
+            // DEBUG: Find all elements with non-transparent backgrounds
+            const allElements = element.querySelectorAll('*');
+            allElements.forEach((el) => {
+                const style = window.getComputedStyle(el);
+                const bg = style.backgroundColor;
+                if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'rgb(255, 255, 255)') {
+                    console.log("[ExportDialog] Element with background:", el.tagName, el.className, "bg:", bg);
+                }
+            });
+
             // High DPI Capture
             // Note: We need to ensure the element is visible. Portal placement helps.
             const imgData = await domToImage.toPng(element, {
@@ -825,15 +838,50 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                             padding-bottom: 0.5rem !important;
                             margin-bottom: 1rem !important;
                         }
+                        /* Make code blocks transparent in export to remove grey frames */
                         #export-preview-container pre {
-                            background-color: #f3f4f6 !important;
-                            border-radius: 0.25rem !important;
-                            padding: 0.5rem !important;
+                            background-color: transparent !important;
+                            border-radius: 0 !important;
+                            padding: 0 !important;
                         }
                         #export-preview-container :not(pre) > code {
-                            background-color: #f3f4f6 !important;
-                            padding: 0.1rem 0.3rem !important;
-                            border-radius: 0.25rem !important;
+                            background-color: transparent !important;
+                            padding: 0 !important;
+                            border-radius: 0 !important;
+                        }
+                        /* AGGRESSIVE: Force ALL inline text elements to have transparent background */
+                        #export-preview-container mark,
+                        #export-preview-container code,
+                        #export-preview-container span,
+                        #export-preview-container em,
+                        #export-preview-container strong,
+                        #export-preview-container a,
+                        #export-preview-container u,
+                        #export-preview-container s,
+                        #export-preview-container del,
+                        #export-preview-container ins,
+                        #export-preview-container sub,
+                        #export-preview-container sup,
+                        #export-preview-container abbr,
+                        #export-preview-container .highlight,
+                        #export-preview-container [class*="highlight"],
+                        #export-preview-container [class*="bg-"],
+                        #export-preview-container [style*="background"] {
+                            background-color: transparent !important;
+                            background: transparent !important;
+                            padding: 0 !important;
+                            border-radius: 0 !important;
+                            border: none !important;
+                            box-shadow: none !important;
+                            outline: none !important;
+                        }
+                        /* NUCLEAR: Remove ALL backgrounds and borders from ANY element with inline style */
+                        #export-preview-container *[style] {
+                            background-color: transparent !important;
+                            background: transparent !important;
+                            border: none !important;
+                            outline: none !important;
+                            box-shadow: none !important;
                         }
                     `}</style>
                     <h1 className="text-2xl font-bold mb-4">{thing.title || "Export"}</h1>

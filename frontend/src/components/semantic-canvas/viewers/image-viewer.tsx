@@ -53,8 +53,11 @@ export function ImageViewer({
     onOverlayClick,
 }: ImageViewerProps) {
     const imageRef = React.useRef<HTMLImageElement>(null);
-    const [imageSrc, setImageSrc] = React.useState<string>(src);
+    // Don't initialize with src if it's an API asset - let useEffect fetch with auth
+    const isApiAsset = src?.startsWith("/api/") || src?.includes("/api/v1/assets/");
+    const [imageSrc, setImageSrc] = React.useState<string>(isApiAsset ? "" : src);
     const [error, setError] = React.useState<boolean>(false);
+    const [loading, setLoading] = React.useState<boolean>(isApiAsset);
     const objectUrlRef = React.useRef<string | null>(null);
 
     // Effect: Load image with Auth if it's a backend asset
@@ -62,42 +65,78 @@ export function ImageViewer({
         if (!src) return;
         if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
 
-        if (src.startsWith("blob:") || src.startsWith("http")) {
+        // Blob URLs - use directly
+        if (src.startsWith("blob:")) {
             setImageSrc(src);
             return;
         }
 
-        if (src.startsWith("/api/")) {
+        // Check if this is an API asset URL (either relative or full HTTP)
+        const isApiAsset = src.startsWith("/api/") || src.includes("/api/v1/assets/");
+
+        if (isApiAsset) {
             const fetchImage = async () => {
                 try {
                     const token = localStorage.getItem("token");
                     let urlToFetch = src;
-                    if (API_URL && !src.startsWith("http")) {
+
+                    // If it's a relative URL, prepend the API base
+                    if (src.startsWith("/api/")) {
+                        if (API_URL && !src.startsWith("http")) {
+                            try {
+                                const apiUrlObj = new URL(API_URL);
+                                urlToFetch = `${apiUrlObj.origin}${src}`;
+                            } catch (e) {
+                                if (process.env.NODE_ENV === 'development') urlToFetch = `http://localhost:8000${src}`;
+                            }
+                        }
+                    } else if (src.includes("/api/v1/assets/")) {
+                        // Full HTTP URL but for API assets - rewrite to use backend directly
                         try {
-                            const apiUrlObj = new URL(API_URL);
-                            urlToFetch = `${apiUrlObj.origin}${src}`;
+                            const srcUrl = new URL(src);
+                            const assetPath = srcUrl.pathname; // e.g., /api/v1/assets/xxx
+                            if (API_URL) {
+                                const apiUrlObj = new URL(API_URL);
+                                urlToFetch = `${apiUrlObj.origin}${assetPath}`;
+                            } else if (process.env.NODE_ENV === 'development') {
+                                urlToFetch = `http://localhost:8000${assetPath}`;
+                            }
                         } catch (e) {
-                            if (process.env.NODE_ENV === 'development') urlToFetch = `http://localhost:8000${src}`;
+                            console.error("[ImageViewer] Failed to parse URL:", e);
                         }
                     }
+
+                    console.log("[ImageViewer] Fetching with auth:", urlToFetch);
                     const res = await fetch(urlToFetch, { headers: token ? { "Authorization": `Bearer ${token}` } : {} });
                     if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
 
                     const blob = await res.blob();
                     objectUrlRef.current = URL.createObjectURL(blob);
                     setImageSrc(objectUrlRef.current);
+                    setLoading(false);
                 } catch (err) {
                     console.error("Failed to load secure image:", err);
                     setError(true);
+                    setLoading(false);
                 }
             };
             fetchImage();
             return () => { if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current); };
         }
+
+        // Regular HTTP URL (not an API asset) - use directly
+        if (src.startsWith("http")) {
+            setImageSrc(src);
+            return;
+        }
     }, [src]);
 
     if (error) {
         return <div className={cn("flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-500", className)} style={{ minHeight: 200 }}>Broken Image</div>;
+    }
+
+    if (loading || !imageSrc) {
+        return <div className={cn("flex items-center justify-center bg-gray-100 dark:bg-gray-800 text-gray-400 animate-pulse", className)} style={{ minHeight: 200 }}>Loading...</div>;
     }
 
     const handleSelectionComplete = async (rect: { x: number; y: number; width: number; height: number; pctX: number; pctY: number; pctW: number; pctH: number }) => {
