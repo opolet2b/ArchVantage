@@ -26,6 +26,7 @@ import {
 import { MarkdownViewer } from "./markdown-viewer"; // Import MarkdownViewer
 import { ImageViewer } from "./image-viewer"; // Import ImageViewer
 import { SpreadsheetViewer } from "./spreadsheet-viewer"; // Import SpreadsheetViewer
+import { ChartViewer } from "./chart-viewer"; // Import ChartViewer for visual outputs
 import { PDFViewer } from "./pdf-viewer"; // Import PDFViewer
 import {
     Tooltip,
@@ -209,52 +210,76 @@ export function TransclusionBlock({ nodeId, hostNodeId, onUnlink, isLocked = fal
                         />
                     </span>
                 ) : (
-                    /* Table Detection: Type check OR Title check OR Content check (csv/data existence) */
-                    (thingType === "table" ||
-                        thingTitle.toLowerCase().match(/\.(xlsx?|csv)$/) ||
-                        (effectiveContent && (effectiveContent.csv || effectiveContent.data || Array.isArray(effectiveContent)))
+                    /* Check for Visualizer Output (Charts) */
+                    (effectiveContent?.visualizer_output?.visual_payload &&
+                        (effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'chart' ||
+                            effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase().includes('chart') ||
+                            effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'react_component')
                     ) ? (
                         <span className={cn(
-                            "w-full relative block transclusion-table-wrapper",
-                            exportMode ? "h-auto border-none" : "h-[300px] border rounded overflow-hidden"
+                            "w-full relative block p-2",
+                            // Fix: Ensure charts have height during export (don't collapse with h-auto)
+                            // We use h-auto ONLY for text-like content flow, but Visuals need a frame.
+                            // exportMode ? "h-auto border-none" : "h-[300px] border rounded overflow-hidden bg-white dark:bg-slate-900"
+                            exportMode ? "h-[300px] border-none" : "h-[300px] border rounded overflow-hidden bg-white dark:bg-slate-900"
                         )}>
-                            <SpreadsheetViewer
-                                content={
-                                    typeof effectiveContent === "string" ? effectiveContent :
-                                        (effectiveContent.csv || effectiveContent.markdown || effectiveContent.url || effectiveContent.file_path || effectiveContent.content || "")
+                            <ChartViewer
+                                type={(effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'chart' ||
+                                    effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'react_component')
+                                    ? 'linechart'
+                                    : effectiveContent.visualizer_output.visual_payload.structure_type
                                 }
-                                initialData={effectiveContent.data as any[][]}
-                                selectionEnabled={false}
-                                className="w-full h-full bg-white dark:bg-slate-900"
+                                data={effectiveContent.visualizer_output.visual_payload.content}
                                 exportMode={exportMode}
                             />
                         </span>
                     ) : (
-                        /* PDF Detection */
-                        (thingTitle.toLowerCase().endsWith(".pdf") || (effectiveContent?.file_path || effectiveContent?.url || "").toLowerCase().endsWith(".pdf")) ? (
+                        /* Table Detection: Type check OR Title check OR Content check (csv/data existence) */
+                        (thingType === "table" ||
+                            thingTitle.toLowerCase().match(/\.(xlsx?|csv)$/) ||
+                            (effectiveContent && (effectiveContent.csv || effectiveContent.data || Array.isArray(effectiveContent)))
+                        ) ? (
                             <span className={cn(
-                                "w-full relative block",
-                                exportMode ? "h-auto border-none" : "h-[400px] border rounded overflow-hidden"
+                                "w-full relative block transclusion-table-wrapper",
+                                exportMode ? "h-auto border-none" : "h-[300px] border rounded overflow-hidden"
                             )}>
-                                <PDFViewer
-                                    src={effectiveContent.file_path || effectiveContent.url || ""}
-                                    className="w-full h-full"
+                                <SpreadsheetViewer
+                                    content={
+                                        typeof effectiveContent === "string" ? effectiveContent :
+                                            (effectiveContent.csv || effectiveContent.markdown || effectiveContent.url || effectiveContent.file_path || effectiveContent.content || "")
+                                    }
+                                    initialData={effectiveContent.data as any[][]}
                                     selectionEnabled={false}
+                                    className="w-full h-full bg-white dark:bg-slate-900"
                                     exportMode={exportMode}
                                 />
                             </span>
                         ) : (
-                            <MarkdownViewer
-                                content={getContentPreview}
-                                selectionEnabled={false}
-                                className="prose-xs"
-                                components={{
-                                    p: ({ children }) => <span className="block mb-2">{children}</span>
-                                }}
-                            />
-                        )
-                    )
-                )}
+                            /* PDF Detection */
+                            (thingTitle.toLowerCase().endsWith(".pdf") || (effectiveContent?.file_path || effectiveContent?.url || "").toLowerCase().endsWith(".pdf")) ? (
+                                <span className={cn(
+                                    "w-full relative block",
+                                    exportMode ? "h-auto border-none" : "h-[400px] border rounded overflow-hidden"
+                                )}>
+                                    <PDFViewer
+                                        src={effectiveContent.file_path || effectiveContent.url || ""}
+                                        className="w-full h-full"
+                                        selectionEnabled={false}
+                                        exportMode={exportMode}
+                                    />
+                                </span>
+                            ) : (
+                                <MarkdownViewer
+                                    content={getContentPreview}
+                                    selectionEnabled={false}
+                                    className="prose-xs"
+                                    components={{
+                                        p: ({ children }) => <span className="block mb-2">{children}</span>
+                                    }}
+                                />
+                            )
+                        )))
+                }
             </span>
 
             {/* Footer / Metadata */}

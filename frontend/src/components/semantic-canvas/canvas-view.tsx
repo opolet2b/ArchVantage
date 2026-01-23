@@ -163,6 +163,25 @@ function CanvasViewInner() {
     }, [things, refreshThings]);
 
 
+    // Sync Store Viewport -> React Flow (One way on load/change of canvasId)
+    // This ensures we start at the right place when switching canvases
+    React.useEffect(() => {
+        if (canvasId && viewport) {
+            console.log("[CanvasView] Restoring viewport:", viewport);
+            setViewport(viewport);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canvasId, setViewport]); // Only trigger on canvasId change (new canvas loaded)
+
+    // Save viewport on unmount to capture final state (prevents debouncing loss)
+    React.useEffect(() => {
+        return () => {
+            console.log("[CanvasView] Unmounting, saving viewport...");
+            saveViewport();
+        };
+    }, [saveViewport]);
+
+
     // Model presets state for dropdown
     interface ModelPreset {
         name: string;
