@@ -883,6 +883,34 @@ export function ExportDialog({ open, onOpenChange, thing }: ExportDialogProps) {
                             outline: none !important;
                             box-shadow: none !important;
                         }
+                        /* BLOCK-LEVEL ELEMENTS: Remove backgrounds/borders from paragraphs, lists, divs, etc. */
+                        #export-preview-container p,
+                        #export-preview-container div,
+                        #export-preview-container ul,
+                        #export-preview-container ol,
+                        #export-preview-container li,
+                        #export-preview-container blockquote,
+                        #export-preview-container figure,
+                        #export-preview-container figcaption,
+                        #export-preview-container section,
+                        #export-preview-container article,
+                        #export-preview-container aside,
+                        #export-preview-container header,
+                        #export-preview-container footer,
+                        #export-preview-container main,
+                        #export-preview-container nav {
+                            background-color: transparent !important;
+                            background: transparent !important;
+                            border: none !important;
+                            outline: none !important;
+                            box-shadow: none !important;
+                        }
+                        /* Ensure all nested elements also have transparent backgrounds */
+                        #export-preview-container * {
+                            border: none !important;
+                            box-shadow: none !important;
+                            outline: none !important;
+                        }
                     `}</style>
                     <h1 className="text-2xl font-bold mb-4">{thing.title || "Export"}</h1>
 
