@@ -147,16 +147,21 @@ export interface Canvas {
 /**
  * Zoom level categories for semantic rendering.
  */
-export type ZoomLevel = "domain" | "summary" | "preview" | "full";
+export type ZoomLevel = "domain" | "label" | "summary" | "preview" | "paragraph" | "full";
 
 /**
  * Determine zoom level category from zoom value.
  */
 export function getZoomLevel(zoom: number): ZoomLevel {
-    if (zoom < 0.3) return "domain";
-    if (zoom < 0.5) return "summary";
-    if (zoom < 0.7) return "preview";
-    return "full";
+    let level: ZoomLevel;
+    if (zoom < 0.20) level = "domain";      // Icon
+    else if (zoom < 0.35) level = "label";       // 3-5 words
+    else if (zoom < 0.55) level = "summary";     // Headline (one_line)
+    else if (zoom < 0.80) level = "preview";     // Sentence
+    else if (zoom < 1.15) level = "paragraph";   // Short details (2-3 sentences)
+    else level = "full";                         // Full Content
+
+    return level;
 }
 
 // =============================================================================
@@ -319,6 +324,10 @@ interface CanvasState {
     // Transclusion Ghost Mode
     transclusionGhostId: string | null;
     setTransclusionGhostId: (id: string | null) => void;
+
+    // Semantic Zoom Toggle
+    semanticZoomEnabled: boolean;
+    setSemanticZoomEnabled: (enabled: boolean) => void;
 }
 
 /**
@@ -353,6 +362,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Transclusion Ghost Mode
     transclusionGhostId: null,
     setTransclusionGhostId: (id) => set({ transclusionGhostId: id }),
+
+    // Semantic Zoom Toggle
+    semanticZoomEnabled: true,
+    setSemanticZoomEnabled: (enabled) => set({ semanticZoomEnabled: enabled }),
 
     // Link Visibility
     showLinks: true,

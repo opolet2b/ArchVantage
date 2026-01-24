@@ -128,9 +128,9 @@ export function PDFViewer({
                             const apiUrlObj = new URL(API_URL);
                             urlToFetch = `${apiUrlObj.origin}${src}`;
                         } catch (e) {
-                            if (process.env.NODE_ENV === 'development') {
-                                urlToFetch = `http://localhost:8000${src}`;
-                            }
+                            // If API_URL is relative (e.g. "/api/v1"), new URL() fails.
+                            // We keep urlToFetch as src (relative), allowing Next.js rewrites to handle proxying.
+                            // This avoids CORS issues by not forcing a direct cross-origin request to localhost:8000.
                         }
                     }
                     const headers: HeadersInit = {};

@@ -956,6 +956,13 @@ def update_thing(
     ).first()
     
     if not thing:
+        # DEBUG: Find out why
+        debug_thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+        if not debug_thing:
+            print(f"[CanvasRouter] Update Error: Thing {thing_id} does not exist in DB.")
+        else:
+            print(f"[CanvasRouter] Update Error: Thing {thing_id} exists. CanvasID: {debug_thing.canvas_id} (Req: {canvas_id}). Owner mismatch?")
+            
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Thing not found or access denied"

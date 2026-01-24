@@ -26,12 +26,22 @@ class LLMService:
             config = config_service.get_config()
             presets = config.get("presets", [])
             preset = next((p for p in presets if p["name"] == model_name), None)
+            
+            # If not found by name, try fallback search by model_id if applicable
+            if not preset:
+                preset = next((p for p in presets if p.get("model_name") == model_name), None)
+
+        # Fallback to default if no preset found for given name
+        if not preset and model_name != "default":
+             preset = config_service.get_default_llm_preset()
+             if preset:
+                 print(f"[LLMService] Warning: Requested model '{model_name}' not found. Falling back to default preset '{preset['name']}'.")
 
         if preset:
-            if preset["type"] == "local":
+            if preset.get("type") == "local":
                 # Assumes Ollama
                 return ChatOllama(model=preset["model_name"], base_url="http://localhost:11434")
-            elif preset["type"] == "remote":
+            elif preset.get("type") == "remote":
                 # Generic OpenAI-compatible client
                 model_kwargs = {}
                 sort_strategy = preset.get("sort")
@@ -50,6 +60,7 @@ class LLMService:
                     model_kwargs=model_kwargs
                 )
 
+        # Hardcoded fallbacks if no presets match
         if model_name.startswith("gpt"):
             return ChatOpenAI(model=model_name, temperature=0.7)
         elif model_name.startswith("claude"):
@@ -65,7 +76,8 @@ class LLMService:
                 openai_api_base="https://openrouter.ai/api/v1",
             )
         else:
-            # Default fallback
+            # Final fallback
+            print(f"[LLMService] No preset or pattern match for '{model_name}'. Falling back to GPT-3.5-Turbo.")
             return ChatOpenAI(model="gpt-3.5-turbo")
 
     def _convert_messages(self, messages: List[Message]) -> List[BaseMessage]:
@@ -121,5 +133,62 @@ class LLMService:
         except Exception as e:
             print(f"Error generating title: {e}")
             return "New " + type.capitalize()
+
+    async def generate_zoom_summaries(self, content: str, model_name: str = "default") -> dict:
+        """
+        Generates 4 levels of summaries for semantic zoom.
+        Returns a dict with keys: label, one_line, sentence, paragraph.
+        """
+        try:
+            llm = self._get_model(model_name)
+            
+            # Specialized prompt for JSON output
+            prompt = f"""
+            Analyze the following content and generate four levels of summary for a spatial canvas interface:
+            
+            1. "label": Hyper-concise subject distillation (3-5 words).
+            2. "one_line": A high-level, headlines-style summary (10-15 words).
+            3. "sentence": A single comprehensive sentence (20-30 words).
+            4. "paragraph": A short details-rich summary (2-3 sentences).
+            
+            Return ONLY a JSON object with these four keys: "label", "one_line", "sentence", "paragraph".
+            Do not include any other text or markdown formatting.
+            
+            Content:
+            {content[:4000]}
+            """
+            
+            import json
+            response_text = await self.chat(
+                [Message(role="user", content=prompt)], 
+                model_name=model_name,
+                response_format={"type": "json_object"}
+            )
+            
+            # Clean possible markdown wrap from non-strict LLMs
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+                
+            summaries = json.loads(response_text)
+            
+            # Ensure all keys exist
+            required_keys = ["label", "one_line", "sentence", "paragraph"]
+            for key in required_keys:
+                if key not in summaries:
+                    summaries[key] = f"Summary level {key} unavailable."
+                    
+            return summaries
+        except Exception as e:
+            print(f"Error in generate_zoom_summaries: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "label": "Analysis failed",
+                "one_line": "Could not generate summaries.",
+                "sentence": f"Error: {str(e)}",
+                "paragraph": "Check your model configuration and connectivity."
+            }
 
 llm_service = LLMService()

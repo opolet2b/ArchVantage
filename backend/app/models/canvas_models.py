@@ -253,7 +253,7 @@ class CanvasThing(Base):
     )
     
     # Pre-computed summaries for different zoom levels
-    # Format: {"0.3": "one-line summary", "0.5": "paragraph preview"}
+    # Format: {"label": "3-5 words", "one_line": "headline", "sentence": "nuanced", "paragraph": "2-3 sentences"}
     summaries = Column(JSON, default={})
     
     # Display settings

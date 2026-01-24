@@ -657,6 +657,14 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                         if (hasStatusChanged || hasProgressChanged) {
                             setProgressThing(updatedThing);
+
+                            // Fix: Sync to store immediately to prevent race condition where
+                            // this loop finishes (completed), stops polling, falls into 'else',
+                            // and reverts to stale 'processing' state from store.
+                            useCanvasStore.getState().syncThing(currentThing.id, {
+                                rag_status: updatedThing.rag_status,
+                                content: updatedThing.content
+                            });
                         }
                     }
                 } catch (e) {
@@ -1370,22 +1378,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         }
     };
 
-    // Helper to get default summary from content
-    const getDefaultSummary = () => {
-        const c = thing.content;
-        if (typeof c.summary === "string") return c.summary;
-        if (typeof c.text === "string") return c.text.slice(0, 50) + "...";
-        if (typeof c.content === "string") return c.content.slice(0, 50) + "...";
-        return thing.type;
-    };
-
-    // Helper to get content preview
-    const getContentPreview = () => {
-        const c = thing.content;
-        if (typeof c.text === "string") return c.text.slice(0, 150) + "...";
-        if (typeof c.content === "string") return c.content.slice(0, 150) + "...";
-        return "";
-    };
 
     // Helper to detect markdown
     const isMarkdown = (text: string) => {
@@ -1721,31 +1713,85 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     // Get display content based on zoom level
     const getDisplayContent = () => {
+        // Strict summary check helper
+        const getSummaryOrPending = (level: "label" | "one_line" | "sentence" | "paragraph") => {
+            const sum = thing.summaries?.[level];
+            if (sum && sum.trim().length > 0) return sum;
+
+            // Fallback chain for summaries
+            if (level === "paragraph") return thing.summaries?.sentence || thing.summaries?.one_line || "Analysis pending...";
+            if (level === "sentence") return thing.summaries?.one_line || thing.summaries?.label || "Analysis pending...";
+            if (level === "one_line") return thing.summaries?.label || "Analysis pending...";
+            return "Analysis pending...";
+        };
+
+        const semanticEnabled = useCanvasStore.getState().semanticZoomEnabled;
+
+        if (!semanticEnabled) {
+            return (
+                <div className="flex flex-col h-full gap-2 p-2">
+                    <div className="font-bold text-base flex-none">
+                        {thing.title || getDefaultTitle()}
+                    </div>
+                    <div className="text-base flex-1 min-h-0 overflow-auto">
+                        {renderFullContent()}
+                    </div>
+                </div>
+            );
+        }
+
         switch (zoomLevel) {
             case "domain":
-                // Just icon
+                // Handled in specialized return below
                 return null;
 
-            case "summary":
-                // Icon + one-line summary
+            case "label":
+                // 3-5 words hyper-concise distillation - Refined 2rem (Not Upper Case)
                 return (
-                    <div className="text-xs text-muted-foreground truncate max-w-[150px]">
-                        {thing.summaries?.["0.3"] ||
-                            thing.title ||
-                            getDefaultSummary()}
+                    <div
+                        className="font-bold text-muted-foreground opacity-90 leading-tight"
+                        style={{ fontSize: "2rem" }}
+                    >
+                        {getSummaryOrPending("label")}
+                    </div>
+                );
+
+            case "summary":
+                // One-line headlines-style summary - Refined 2rem (Not Bold)
+                return (
+                    <div
+                        className="font-medium text-muted-foreground leading-tight"
+                        style={{ fontSize: "2rem" }}
+                    >
+                        {getSummaryOrPending("one_line")}
                     </div>
                 );
 
             case "preview":
-                // Title + preview
+                // Single comprehensive sentence - Refined 1.5rem
                 return (
-                    <div className="space-y-1">
-                        <div className="font-medium text-sm truncate">
-                            {thing.title || getDefaultTitle()}
+                    <div className="space-y-2">
+                        <div className="font-bold uppercase tracking-tight opacity-50 text-xs">
+                            Preview
                         </div>
-                        <div className="text-xs text-muted-foreground line-clamp-2">
-                            {thing.summaries?.["0.5"] ||
-                                getContentPreview()}
+                        <div
+                            className="text-muted-foreground leading-snug"
+                            style={{ fontSize: "1.5rem" }}
+                        >
+                            {getSummaryOrPending("sentence")}
+                        </div>
+                    </div>
+                );
+
+            case "paragraph":
+                // Short descriptive paragraph - Stable 1rem
+                return (
+                    <div className="space-y-2">
+                        <div className="font-bold uppercase tracking-tight opacity-50 text-xs">
+                            Summary
+                        </div>
+                        <div className="text-base text-muted-foreground leading-relaxed">
+                            {getSummaryOrPending("paragraph")}
                         </div>
                     </div>
                 );
@@ -1753,13 +1799,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             case "full":
             default:
                 // Full content
-                // Full content
                 return (
                     <div className="flex flex-col h-full gap-2">
-                        <div className="font-medium text-sm flex-none">
+                        <div className="font-bold text-base flex-none">
                             {thing.title || getDefaultTitle()}
                         </div>
-                        <div className="text-sm flex-1 min-h-0">
+                        <div className="text-base flex-1 min-h-0">
                             {renderFullContent()}
                         </div>
                     </div>
@@ -1836,28 +1881,42 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         );
     }
 
+    // Card view for other zoom levels - Stable width per user request
+    const minWidth = 450;
+
     // Render based on zoom level
     if (zoomLevel === "domain") {
-        // Minimal: just colored circle with icon
+        // Massive Icon Level (20x larger than standard 16px)
         return (
-            <div
-                className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center",
-                    "bg-white dark:bg-slate-800 border-2",
-                    isSelected
-                        ? `${colorTheme.borderSelected} shadow-lg`
-                        : "border-slate-200 dark:border-slate-700"
-                )}
-            >
-                <Icon className={cn("h-4 w-4", colorTheme.iconColor)} />
+            <div className="flex flex-col items-center gap-10 p-12 whitespace-nowrap">
+                <div
+                    className={cn(
+                        "w-80 h-80 rounded-3xl flex items-center justify-center",
+                        "bg-white dark:bg-slate-800 border-8 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] transition-transform duration-300",
+                        isSelected
+                            ? `${colorTheme.borderSelected} ring-8 ring-offset-8 ring-blue-500 scale-105`
+                            : "border-slate-200 dark:border-slate-700"
+                    )}
+                    style={{
+                        backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
+                    }}
+                >
+                    {/* Massive 320px Icon (20x 16px) */}
+                    <Icon className={cn("h-60 w-60", colorTheme.iconColor)} />
+                </div>
+
+                {/* Massive Title for visibility at extreme distances - Refined 3rem Non-Bold */}
+                <div className="text-center">
+                    <div className="text-[3rem] font-normal text-slate-900 dark:text-white leading-none drop-shadow-2xl">
+                        {thing.title || getDefaultTitle()}
+                    </div>
+                </div>
+
                 <Handle type="target" position={Position.Left} className="opacity-0" />
                 <Handle type="source" position={Position.Right} className="opacity-0" />
             </div>
         );
     }
-
-    // Card view for other zoom levels
-    const minWidth = zoomLevel === "summary" ? 150 : zoomLevel === "preview" ? 200 : 280;
 
     return (
         <>
@@ -1884,7 +1943,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         : "border-slate-200 dark:border-slate-700",
                     thing.type === "conversation" && "hover:shadow-lg"
                 )}
-                // Removed global onDoubleClick to prevent interference with text selection
                 style={{
                     minWidth,
                     width: "100%",
@@ -2322,10 +2380,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             </div>
                         </div>
                     )}
-                </div>
+                </div >
 
                 {/* Connection handles - colored by type */}
-                <Handle
+                < Handle
                     type="target"
                     position={Position.Left}
                     className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}

@@ -153,6 +153,7 @@ class DocumentIngestor:
             print(f"[DocumentIngestor] Created {total_nodes} nodes. Starting insertion...")
             
             for i, node in enumerate(nodes):
+                print(f"[DocumentIngestor] Embedding Document Node {i+1}/{total_nodes}...")
                 index.insert_nodes([node])
                 if progress_callback:
                     progress_callback(i + 1, total_nodes)

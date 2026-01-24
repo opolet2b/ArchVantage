@@ -34,7 +34,7 @@ import { ThingNode } from "./nodes/thing-node";
 import { DomainNode } from "./nodes/domain-node";
 import { CustomEdge } from "./edges/custom-edge";
 
-import { useCanvasStore, getZoomLevel, LinkType, CanvasLink } from "./canvas-store";
+import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport } from "./canvas-store";
 
 import { LinkTypeDialog } from "./link-type-dialog";
 import { MCPToolConfigDialog, MCPToolConfig } from "./mcp-tool-config-dialog";
@@ -66,6 +66,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useConversation } from "@/lib/conversation-context";
 import { useViewMode } from "@/lib/view-mode-context";
+import { Switch } from "@/components/ui/switch";
 import { ContextualTrainer, TrainerStep } from "@/components/ui/contextual-trainer";
 
 // =============================================================================
@@ -134,6 +135,8 @@ function CanvasViewInner() {
         showLinks,
         hiddenNodeLinks,
         toggleShowLinks,
+        semanticZoomEnabled,
+        setSemanticZoomEnabled,
     } = useCanvasStore();
 
     // Model state from store
@@ -608,7 +611,6 @@ function CanvasViewInner() {
                 */
                 // Just logging for now to see volume
                 if (change.type === "dimensions") {
-                    // console.log("[CanvasView] Dimension change detected (ignored)", change.id);
                 }
             });
         },
@@ -958,15 +960,17 @@ function CanvasViewInner() {
                 // Clear drag start
                 dragStartPosRef.current = null;
             } else if (node.type === "thing") {
-                // ... Existing Thing Drag Logic ... (This block was already handled above in the original code, but we must integrate hit testing here)
-                // Wait, the original code had "if (node.type === 'thing')" FIRST.
-                // I need to be careful with the replacement range to not overwrite the existing logic incorrectly.
-                // The provided original code for this block is lines 723-781.
-                // I should inject the hit test logic inside the "if (node.type === 'thing')" block, specifically at the end before resetting dragStartPosRef.
+                // Thing drag handling is managed by React Flow components
             }
         },
         [updateThings, updateDomain, checkThingInDomain, things, selectedThingIds, domains]
     );
+
+    // Handle viewport changes (Zoom/Pan) - Critical for Semantic Zoom!
+    const handleMove = React.useCallback((_: any, viewport: any) => {
+        updateViewport(viewport);
+    }, [updateViewport]);
+
 
     // Handle new connections - open dialog to select type
     const onConnect = React.useCallback(
@@ -1547,7 +1551,7 @@ function CanvasViewInner() {
                 let pos = getCenterPosition();
                 const newThing = await addThing(
                     "text",
-                    { text: `**${action === "identify_purpose" ? "Purposes" : "Summary"} Analysis**\n\n${result}` },
+                    { text: `** ${action === "identify_purpose" ? "Purposes" : "Summary"} Analysis **\n\n${result} ` },
                     pos,
                     `${action === "identify_purpose" ? "Purpose" : "Summary"} Analysis`
                 );
@@ -1674,11 +1678,11 @@ function CanvasViewInner() {
             } else if (!fragment && hasVisualContent) {
                 activeModel = visionModel || selectedModel;
             }
-            updateToast({ id: toastId, description: `Starting pipeline (Model: ${activeModel || 'Default'})...` });
+            updateToast({ id: toastId, description: `Starting pipeline(Model: ${activeModel || 'Default'})...` });
 
             try {
                 const token = localStorage.getItem("token");
-                const response = await fetch(`${API_URL}/canvases/${canvasId}/execute-template/stream`, {
+                const response = await fetch(`${API_URL} /canvases/${canvasId} /execute-template/stream`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -1724,7 +1728,7 @@ function CanvasViewInner() {
                                 updateToast({
                                     id: toastId,
                                     title: "Running Analysis...",
-                                    description: `Executing Step: ${stepName}`,
+                                    description: `Executing Step: ${stepName} `,
                                     duration: 1000000,
                                 });
                             } else if (event.type === "complete") {
@@ -2027,7 +2031,7 @@ function CanvasViewInner() {
                 body: formData,
             });
 
-            if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+            if (!response.ok) throw new Error(`Upload failed: ${response.statusText} `);
 
             const data = await response.json();
             return { id: data.id, url: data.url, file_hash: data.file_hash };
@@ -2130,7 +2134,7 @@ function CanvasViewInner() {
                     index: i,
                     elements: [
                         {
-                            id: `img-${i}`,
+                            id: `img - ${i} `,
                             type: "IMAGE",
                             x: 0,
                             y: 0,
@@ -2310,25 +2314,43 @@ function CanvasViewInner() {
                         size="sm"
                         className="h-8 text-slate-500 hover:text-blue-600"
                         onClick={handleCaptureThumbnail}
-                        title="Update Thumbnail"
+                        title="3D orientation thumbnail"
                     >
                         <Camera className="h-4 w-4 mr-2" />
-                        Capture
+                        3D capture
                     </Button>
                 </div>
 
                 {/* Global Link Visibility Toggle */}
                 <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className={cn("h-8 text-slate-500 hover:text-blue-600", !showLinks && "text-slate-400 opacity-50")}
-                        onClick={toggleShowLinks}
-                        title={showLinks ? "Hide All Links" : "Show All Links"}
-                    >
-                        {showLinks ? <LinkIcon className="h-4 w-4 mr-2" /> : <Unlink className="h-4 w-4 mr-2" />}
-                        {showLinks ? "Links On" : "Links Off"}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Label htmlFor="links-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
+                            Links
+                        </Label>
+                        <Switch
+                            id="links-toggle"
+                            checked={showLinks}
+                            onCheckedChange={toggleShowLinks}
+                        />
+                    </div>
+                </div>
+
+                {/* Semantic Zoom Toggle & Level Display */}
+                <div className="flex items-center gap-4 border-l pl-4 ml-4 h-8">
+                    <div className="flex items-center gap-2">
+                        <Label htmlFor="semantic-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
+                            Semantic
+                        </Label>
+                        <Switch
+                            id="semantic-toggle"
+                            checked={semanticZoomEnabled}
+                            onCheckedChange={setSemanticZoomEnabled}
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 tabular-nums min-w-[45px] justify-center">
+                        {Math.round(viewport.zoom * 100)}%
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2 border-l pl-4 ml-4">
@@ -2404,6 +2426,7 @@ function CanvasViewInner() {
                         edges={edges}
                         onNodesChange={handleNodesChange}
                         onEdgesChange={onEdgesChange}
+                        onMove={handleMove}
                         onEdgesDelete={handleEdgesDelete}
                         onConnect={onConnect}
                         onNodeDragStart={onNodeDragStart}

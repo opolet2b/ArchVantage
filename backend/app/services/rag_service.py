@@ -393,7 +393,9 @@ class RAGService:
             if nodes:
                print(f"[RAGService] Ingesting {len(nodes)} nodes from text content.")
                try:
-                   self.index.insert_nodes(nodes)
+                   for i, node in enumerate(nodes):
+                       print(f"[RAGService] Embedding Text Node {i+1}/{len(nodes)}...")
+                       self.index.insert_nodes([node])
                except Exception as ie:
                    err_str = str(ie).lower()
                    if "connect" in err_str and "11434" in err_str:

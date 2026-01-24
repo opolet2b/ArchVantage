@@ -1,5 +1,6 @@
 from app.models.canvas_models import CanvasThing, Canvas, RAGStatus
 from app.services.rag_service import rag_service
+from app.services.llm_service import llm_service
 
 async def handle_async_vectorization(
     thing_id: str, 
@@ -28,30 +29,34 @@ async def handle_async_vectorization(
 
         # Resolve Canvas Configuration (Model)
         canvas_model = "default"
+        canvas_vision_model = "default"
         try:
             canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
             if canvas and canvas.owner_config:
-                 print(f"[CanvasWorker] DEBUG OWNER CONFIG: {canvas.owner_config}")
-                 print(f"[CanvasWorker] DEBUG OWNER CONFIG KEYS: {list(canvas.owner_config.keys())}")
-                 # Check common keys for model selection
+                 settings = canvas.owner_config
+                 print(f"[CanvasWorker] Resolving models from Canvas {canvas_id} settings: {settings}")
+                 
+                 # Resolve Primary LLM Model
                  canvas_model = (
-                     canvas.owner_config.get("selectedModel") or 
-                     canvas.owner_config.get("model") or 
+                     settings.get("model") or 
+                     settings.get("selectedModel") or 
                      "default"
                  )
+                 
                  # Resolve Vision Model preference
-                 # Frontend usually stores this in 'visionModel' or similar
+                 # Frontend stores this in 'vision_model' or 'visionModel'
                  canvas_vision_model = (
-                      canvas.owner_config.get("visionModel") or
-                      canvas.owner_config.get("selectedVisionModel") or
-                      canvas.owner_config.get("vision_model") or
-                      canvas_model
+                      settings.get("vision_model") or
+                      settings.get("visionModel") or
+                      settings.get("selectedVisionModel") or
+                      canvas_model # Fallback to primary model if no vision specific one
                  )
             
-            print(f"[CanvasWorker] Using Canvas Model: {canvas_model}, Vision: {canvas_vision_model}")
+            print(f"[CanvasWorker] Resolved Canvas Models -> Primary: {canvas_model}, Vision: {canvas_vision_model}")
         except Exception as e:
             print(f"[CanvasWorker] Warning: Failed to resolve canvas model: {e}")
-            canvas_vision_model = "default"
+            import traceback
+            traceback.print_exc()
 
 
         thing.rag_status = RAGStatus.PROCESSING
@@ -134,6 +139,14 @@ async def handle_async_vectorization(
                      description,
                      metadata=meta
                  )
+
+                 # Generate Zoom Summaries for Image
+                 print(f"[CanvasWorker] Generating Zoom Summaries for Image Thing...")
+                 summaries = await llm_service.generate_zoom_summaries(description, model_name=canvas_model)
+                 thing.summaries = summaries
+                 from sqlalchemy.orm.attributes import flag_modified
+                 flag_modified(thing, "summaries")
+                 db.commit()
                  
              except Exception as ve:
                  print(f"[CanvasWorker] VLM Analysis Failed: {ve}")
@@ -160,6 +173,14 @@ async def handle_async_vectorization(
                     text_content,
                     metadata=meta
                 )
+
+                # Generate Zoom Summaries for Text
+                print(f"[CanvasWorker] Generating Zoom Summaries for Text Thing...")
+                summaries = await llm_service.generate_zoom_summaries(text_content, model_name=canvas_model)
+                thing.summaries = summaries
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "summaries")
+                db.commit()
             else:
                 print(f"[CanvasWorker] Text Thing {thing_id} has no valid content to ingest.")
                 result = {"status": "no_content"}
@@ -251,26 +272,26 @@ async def handle_async_vectorization(
                                  if max(img.size) > max_dim:
                                      img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
                                  
-                                 # High quality info for text reading
-                                 img.save(img_bytes, format='JPEG', quality=95)
+                             # High quality info for text reading
+                             img.save(img_bytes, format='JPEG', quality=95)
                              
                              b64_data = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
                              
                              vision_model = thing.content.get("vision_model", canvas_vision_model)
                              # Improved Prompt for Optical Character Recognition + Summary
                              prompt_text = (
-                                 "Identify the main title and key points in this slide. Summarize the content."
+                             "Identify the main title and key points in this slide. Summarize the content."
                              )
                              
                              try:
                                  desc = await asyncio.wait_for(
                                      vision_service.analyze(
-                                         image_data=b64_data,
-                                         prompt=prompt_text,
-                                         model_name=vision_model
+                                     image_data=b64_data,
+                                     prompt=prompt_text,
+                                     model_name=vision_model
                                      ),
                                      timeout=120.0
-                                 )
+                                     )
                              except asyncio.TimeoutError:
                                  print(f"[CanvasWorker] VLM Timeout Slide {i+1}")
                                  desc = "(Analysis timed out)"
@@ -331,6 +352,14 @@ async def handle_async_vectorization(
                      combined_text,
                      metadata=meta
                  )
+
+                 # Generate Zoom Summaries for Image Slideshow
+                 print(f"[CanvasWorker] Generating Zoom Summaries for Slideshow...")
+                 summaries = await llm_service.generate_zoom_summaries(combined_text, model_name=canvas_model)
+                 thing.summaries = summaries
+                 from sqlalchemy.orm.attributes import flag_modified
+                 flag_modified(thing, "summaries")
+                 db.commit()
                  print(f"[CanvasWorker] Image Slideshow Processing COMPLETE.")
 
             else:
@@ -343,7 +372,6 @@ async def handle_async_vectorization(
                 json_path = f"{file_path}.json"
                 import os
                 import json
-                from app.services.llm_service import llm_service
                 from app.models.chat import Message
                 
                 if os.path.exists(json_path):
@@ -382,7 +410,6 @@ async def handle_async_vectorization(
                                     slides_done += 1
                                     update_progress(slides_done, total_slides)
                                     return False
-
                                 # Construct prompt
                                 elements_desc = []
                                 for el in slide.get("elements", []):
@@ -392,28 +419,23 @@ async def handle_async_vectorization(
                                         elements_desc.append(f"- {shape}: \"{text}\"")
                                     else:
                                         elements_desc.append(f"- {shape} (Visual element)")
-                                
                                 if not elements_desc:
                                     slide["ai_description"] = "Empty slide."
-                                    slides_done += 1
-                                    update_progress(slides_done, total_slides)
-                                    return True
-
+                                slides_done += 1
+                                update_progress(slides_done, total_slides)
+                                return True
                                 slide_content = "\n".join(elements_desc[:20]) # Limit to first 20 elements to save context
-                                
                                 prompt = f"""
                                 Analyze this PowerPoint slide (Slide {i+1}).
                                 Describe its key message in 1 sentence.
-                                
                                 Content:
                                 {slide_content}
                                 """
-                                
                                 try:
                                     print(f"[CanvasWorker] Requesting AI analysis for Slide {i+1}...")
                                     response = await asyncio.wait_for(
-                                        llm_service.chat([Message(role="user", content=prompt)], model_name=canvas_model),
-                                        timeout=120.0
+                                    llm_service.chat([Message(role="user", content=prompt)], model_name=canvas_model),
+                                    timeout=120.0
                                     )
                                     slide["ai_description"] = response.strip()
                                     print(f"[CanvasWorker] Slide {i+1} Analyzed.")
@@ -423,21 +445,18 @@ async def handle_async_vectorization(
                                 except Exception as le:
                                     print(f"[CanvasWorker] LLM Error Slide {i+1}: {le}")
                                     slide["ai_description"] = "Analysis unavailable."
-                                
                                 slides_done += 1
                                 update_progress(slides_done, total_slides)
                                 return True
-
-                        # Run all slides in parallel with semaphore
-                        tasks = [process_slide_ai(i, slide) for i, slide in enumerate(slides)]
-                        results = await asyncio.gather(*tasks)
-                        
-                        # Fix: Always sync if we have valid slides, even if cached (results all False)
-                        if slides:
-                            if any(results): # Only write file if changed
-                                with open(json_path, "w") as f:
-                                    json.dump(presentation_data, f)
-                                print(f"[CanvasWorker] Updated sidecar JSON with AI descriptions.")
+                                                                # Run all slides in parallel with semaphore
+                                tasks = [process_slide_ai(i, slide) for i, slide in enumerate(slides)]
+                                results = await asyncio.gather(*tasks)
+                                                                # Fix: Always sync if we have valid slides, even if cached (results all False)
+                                if slides:
+                                    if any(results): # Only write file if changed
+                                        with open(json_path, "w") as f:
+                                            json.dump(presentation_data, f)
+                                        print(f"[CanvasWorker] Updated sidecar JSON with AI descriptions.")
                             
                             # CRITICAL FIX: Also update the DB Thing Content so frontend sees the analysis!
                             import time
@@ -473,6 +492,53 @@ async def handle_async_vectorization(
                     progress_callback=update_progress
                 )
 
+                # Generate Zoom Summaries for Slideshow (PPTX Mode)
+                print(f"[CanvasWorker] Generating Zoom Summaries for PPTX Slideshow...")
+                summaries = await llm_service.generate_zoom_summaries(f"PowerPoint Presentation: {thing.title}", model_name=canvas_model)
+                thing.summaries = summaries
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "summaries")
+                db.commit()
+
+        elif thing.type.value == "table":
+            print(f"[CanvasWorker] Processing Table Thing {thing_id}...")
+            table_content = thing.content.get("csv") or thing.content.get("markdown") or str(thing.content.get("data", ""))
+            
+            if table_content:
+                print(f"[CanvasWorker] Ingesting table data into RAG...")
+                meta = base_metadata.copy()
+                meta.update({"type": "table_node"})
+                result = rag_service.ingest_text(table_content, metadata=meta)
+                
+                print(f"[CanvasWorker] Generating Zoom Summaries for Table...")
+                summaries = await llm_service.generate_zoom_summaries(table_content, model_name=canvas_model)
+                thing.summaries = summaries
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "summaries")
+                db.commit()
+            else:
+                result = {"status": "no_content"}
+
+        elif thing.type.value == "conversation":
+            print(f"[CanvasWorker] Processing Conversation Thing {thing_id}...")
+            messages = thing.content.get("messages", [])
+            conv_text = "\n".join([f"{m.get('role')}: {m.get('content')}" for m in messages])
+            
+            if conv_text:
+                print(f"[CanvasWorker] Ingesting conversation into RAG...")
+                meta = base_metadata.copy()
+                meta.update({"type": "conversation_node"})
+                result = rag_service.ingest_text(conv_text, metadata=meta)
+                
+                print(f"[CanvasWorker] Generating Zoom Summaries for Conversation...")
+                summaries = await llm_service.generate_zoom_summaries(conv_text, model_name=canvas_model)
+                thing.summaries = summaries
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "summaries")
+                db.commit()
+            else:
+                result = {"status": "no_content"}
+
         else:
             # Default Document Ingestion
             meta = base_metadata.copy()
@@ -498,6 +564,16 @@ async def handle_async_vectorization(
                     from sqlalchemy.orm.attributes import flag_modified
                     flag_modified(thing, "content")
                     db.commit()
+
+            # Generate Zoom Summaries for Document (Standard Text Mode)
+            print(f"[CanvasWorker] Generating Zoom Summaries for Document...")
+            text_for_summary = result.get("full_text") or result.get("text") or thing.content.get("text_content")
+            if text_for_summary:
+                summaries = await llm_service.generate_zoom_summaries(text_for_summary, model_name=canvas_model)
+                thing.summaries = summaries
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "summaries")
+                db.commit()
             
             # Check for "Scanned PDF" (Low text density)
             # CRITICAL FIX: Only run this on actual PDF files!
@@ -542,12 +618,12 @@ async def handle_async_vectorization(
                                  # 120 second timeout for VLM per page
                                  page_desc = await asyncio.wait_for(
                                      vision_service.analyze(
-                                         image_data=img_b64,
-                                         prompt=f"Transcribe all text on this page exactly. Also describe any diagrams, tables, or images in detail. (Page {i+1})",
-                                         model_name=vision_model
+                                     image_data=img_b64,
+                                     prompt=f"Transcribe all text on this page exactly. Also describe any diagrams, tables, or images in detail. (Page {i+1})",
+                                     model_name=vision_model
                                      ),
                                      timeout=120.0
-                                 )
+                                     )
                              except asyncio.TimeoutError:
                                  print(f"[CanvasWorker] VLM Timeout on Page {i+1}")
                                  page_desc = "(Analysis timed out for this page)"
@@ -574,13 +650,25 @@ async def handle_async_vectorization(
                          db.commit()
                          print(f"[CanvasWorker] Scanned PDF content committed. Keys: {new_content.keys()}")
                          
-                         # 3. Re-ingest as text (Appending to index)
-                         meta = base_metadata.copy()
-                         meta.update({"type": "scanned_pdf_transcription", "source": file_path})
-                         result = rag_service.ingest_text(
-                             combined_text,
-                             metadata=meta
-                         )
+                         # 3. Generate Zoom Summaries for Scanned PDF (Immediately)
+                         print(f"[CanvasWorker] Generating Zoom Summaries for Scanned PDF...")
+                         summaries = await llm_service.generate_zoom_summaries(combined_text, model_name=canvas_model)
+                         thing.summaries = summaries
+                         from sqlalchemy.orm.attributes import flag_modified
+                         flag_modified(thing, "summaries")
+                         db.commit()
+
+                         # 4. Re-ingest as text (Appending to index)
+                         try:
+                             meta = base_metadata.copy()
+                             meta.update({"type": "scanned_pdf_transcription", "source": file_path})
+                             result = rag_service.ingest_text(
+                                 combined_text,
+                                 metadata=meta
+                             )
+                         except Exception as rag_err:
+                             print(f"[CanvasWorker] RAG Ingestion Failed for Scanned PDF: {rag_err}")
+                             # Do NOT fail the whole job, as we have text and summaries
                          
                      except Exception as se:
                          print(f"[CanvasWorker] Scanned PDF Fallback Failed: {se}")
@@ -616,18 +704,18 @@ async def handle_async_vectorization(
                                  # Or maybe 90-99 wait state?
                                  
                                  try:
-                                      prompt = f"Analyze the visual elements (charts, diagrams, graphs, images) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe the main text blocks as they are already extracted."
-                                      page_desc = await asyncio.wait_for(
-                                          vision_service.analyze(
-                                              image_data=img_b64,
-                                              prompt=prompt,
-                                              model_name=vision_model
-                                          ),
-                                          timeout=120.0
-                                      )
+                                     prompt = f"Analyze the visual elements (charts, diagrams, graphs, images) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe the main text blocks as they are already extracted."
+                                     page_desc = await asyncio.wait_for(
+                                         vision_service.analyze(
+                                         image_data=img_b64,
+                                         prompt=prompt,
+                                         model_name=vision_model
+                                         ),
+                                         timeout=120.0
+                                     )
                                  except Exception as ve:
-                                      print(f"[CanvasWorker] Hybrid VLM Error on Page {display_page}: {ve}")
-                                      page_desc = f"(Visual Analysis Failed: {ve})"
+                                     print(f"[CanvasWorker] Hybrid VLM Error on Page {display_page}: {ve}")
+                                     page_desc = f"(Visual Analysis Failed: {ve})"
                                  
                                  hybrid_descriptions.append(f"--- Page {display_page} Visuals ---\n{page_desc}")
                              
@@ -645,15 +733,27 @@ async def handle_async_vectorization(
                              from sqlalchemy.orm.attributes import flag_modified
                              flag_modified(thing, "content")
                              db.commit()
+
+                             # 4. Generate/Update Zoom Summaries for Hybrid PDF (using full text + visual descriptions)
+                             print(f"[CanvasWorker] Generating Zoom Summaries for Hybrid PDF...")
+                             summary_input = (result.get("full_text", "") + "\n\n" + combined_visuals).strip()
+                             summaries = await llm_service.generate_zoom_summaries(summary_input, model_name=canvas_model)
+                             thing.summaries = summaries
+                             from sqlalchemy.orm.attributes import flag_modified
+                             flag_modified(thing, "summaries")
+                             db.commit()
                              
-                             # 4. Ingest Visual Context
-                             meta = base_metadata.copy()
-                             meta.update({"type": "visual_context", "source": file_path})
-                             rag_service.ingest_text(
-                                 combined_visuals,
-                                 metadata=meta
-                             )
-                             print("[CanvasWorker] Visual Context Ingested.")
+                             # 5. Ingest Visual Context
+                             try:
+                                 meta = base_metadata.copy()
+                                 meta.update({"type": "visual_context", "source": file_path})
+                                 rag_service.ingest_text(
+                                     combined_visuals,
+                                     metadata=meta
+                                 )
+                                 print("[CanvasWorker] Visual Context Ingested.")
+                             except Exception as rag_err:
+                                 print(f"[CanvasWorker] RAG Ingestion Failed for Hybrid Visuals: {rag_err}")
                              
                          except Exception as he:
                              print(f"[CanvasWorker] Hybrid Mode Failed: {he}")
@@ -683,6 +783,10 @@ async def handle_async_vectorization(
                     from sqlalchemy.orm.attributes import flag_modified
                     flag_modified(thing, "content")
                     db.commit()
+            
+            # CRITICAL FIX: Ensure we commit the COMPLETED status for normal mode too!
+            if mode != "sync":
+                db.commit()
         else:
             # Check if it was "no_documents_found" or error
             thing.rag_status = RAGStatus.FAILED
@@ -697,7 +801,7 @@ async def handle_async_vectorization(
             
             print(f"[CanvasWorker] Vectorization FAILED: {error_msg}")
 
-        db.commit()
+            db.commit()
         
     except Exception as e:
         print(f"[CanvasWorker] Critical error in vectorization task: {e}")
