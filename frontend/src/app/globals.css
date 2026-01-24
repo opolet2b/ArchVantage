@@ -144,61 +144,62 @@
 /* APPLE GLASSMORPHISM */
 /* ========================================= */
 /* ========================================= */
-/* APPLE GLASSMORPHISM (Cupertino) */
+/* APPLE GLASSMORPHISM (Cupertino) - Soft Pastel Edition */
 /* ========================================= */
 :root[data-style="glass"] {
   --radius: 1.25rem;
 
   /* Transparent base for gradient visibility */
   --background: transparent;
-  --foreground: oklch(0 0 0);
+  --foreground: oklch(0.15 0 0);
 
   /* Very translucent cards */
-  --card: oklch(1 0 0 / 0.3);
-  --card-foreground: oklch(0 0 0);
+  --card: oklch(1 0 0 / 0.45);
+  --card-foreground: oklch(0.15 0 0);
 
-  --popover: oklch(1 0 0 / 0.4);
-  --popover-foreground: oklch(0 0 0);
+  --popover: oklch(1 0 0 / 0.55);
+  --popover-foreground: oklch(0.15 0 0);
 
-  /* Vibrant Apple Blue */
-  --primary: oklch(0.55 0.25 260);
+  /* Soft Apple Blue - reduced chroma for elegance */
+  --primary: oklch(0.58 0.12 255);
   --primary-foreground: oklch(1 0 0);
 
-  --secondary: oklch(1 0 0 / 0.3);
-  --secondary-foreground: oklch(0 0 0);
+  --secondary: oklch(1 0 0 / 0.35);
+  --secondary-foreground: oklch(0.15 0 0);
 
-  --muted: oklch(1 0 0 / 0.3);
-  --muted-foreground: oklch(0.5 0 0);
+  --muted: oklch(1 0 0 / 0.35);
+  --muted-foreground: oklch(0.45 0 0);
 
-  --accent: oklch(1 0 0 / 0.2);
-  --accent-foreground: oklch(0 0 0);
+  --accent: oklch(1 0 0 / 0.25);
+  --accent-foreground: oklch(0.15 0 0);
 
-  --destructive: oklch(0.6 0.25 25);
+  /* Softer destructive red */
+  --destructive: oklch(0.55 0.15 20);
 
-  --border: oklch(1 1 1 / 0.2);
-  --input: oklch(1 1 1 / 0.2);
-  --ring: oklch(0.55 0.25 260 / 0.5);
+  --border: oklch(0.5 0 0 / 0.12);
+  --input: oklch(0.5 0 0 / 0.1);
+  --ring: oklch(0.58 0.12 255 / 0.4);
 
-  --sidebar: oklch(0.98 0 0 / 0.4);
-  --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0.55 0.25 260);
+  --sidebar: oklch(0.98 0 0 / 0.5);
+  --sidebar-foreground: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.58 0.12 255);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(1 0 0 / 0.3);
-  --sidebar-accent-foreground: oklch(0 0 0);
-  --sidebar-border: oklch(1 1 1 / 0.1);
-  --sidebar-ring: oklch(0.55 0.25 260 / 0.5);
+  --sidebar-accent: oklch(1 0 0 / 0.35);
+  --sidebar-accent-foreground: oklch(0.15 0 0);
+  --sidebar-border: oklch(0.5 0 0 / 0.08);
+  --sidebar-ring: oklch(0.58 0.12 255 / 0.4);
 }
 
-/* Glass Enhancement: Mesh Gradients & Global Blur */
+/* Glass Enhancement: Soft Mesh Gradients & Global Blur */
 :root[data-style="glass"] body {
-  /* Pastel Mesh Gradient */
+  /* Subtle Pastel Mesh Gradient - reduced chroma for elegance */
   background-image:
-    radial-gradient(at 0% 0%, oklch(0.9 0.1 200) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, oklch(0.9 0.15 320) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, oklch(0.9 0.1 240) 0px, transparent 50%),
-    radial-gradient(at 0% 100%, oklch(0.9 0.15 50) 0px, transparent 50%);
-  background-color: oklch(0.98 0.01 240);
-  /* Fallback base */
+    radial-gradient(at 0% 0%, oklch(0.94 0.04 210) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, oklch(0.94 0.05 300) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, oklch(0.94 0.04 250) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, oklch(0.94 0.06 40) 0px, transparent 50%);
+  background-color: oklch(0.97 0.005 240);
+  /* Soft neutral base */
   background-attachment: fixed;
   background-size: cover;
 }
@@ -215,54 +216,55 @@
 }
 
 .dark:where(:root[data-style="glass"]) {
-  /* Dark Mode - Deep Space Gray Base */
+  /* Dark Mode - Elegant Deep Base */
   --background: transparent;
-  --foreground: oklch(1 0 0);
+  --foreground: oklch(0.95 0 0);
 
-  --card: oklch(0.15 0.05 260 / 0.3);
-  --card-foreground: oklch(1 0 0);
+  --card: oklch(0.18 0.03 260 / 0.4);
+  --card-foreground: oklch(0.95 0 0);
 
-  --popover: oklch(0.15 0.05 260 / 0.4);
-  --popover-foreground: oklch(1 0 0);
+  --popover: oklch(0.18 0.03 260 / 0.5);
+  --popover-foreground: oklch(0.95 0 0);
 
-  /* Neon Blue */
-  --primary: oklch(0.65 0.25 260);
+  /* Soft Neon Blue - reduced chroma for elegance */
+  --primary: oklch(0.68 0.15 255);
   --primary-foreground: oklch(1 0 0);
 
-  --secondary: oklch(1 1 1 / 0.1);
-  --secondary-foreground: oklch(1 0 0);
+  --secondary: oklch(1 1 1 / 0.12);
+  --secondary-foreground: oklch(0.95 0 0);
 
-  --muted: oklch(1 1 1 / 0.1);
-  --muted-foreground: oklch(0.8 0 0);
+  --muted: oklch(1 1 1 / 0.12);
+  --muted-foreground: oklch(0.75 0 0);
 
   --accent: oklch(1 1 1 / 0.15);
-  --accent-foreground: oklch(1 0 0);
+  --accent-foreground: oklch(0.95 0 0);
 
-  --destructive: oklch(0.6 0.25 25);
+  /* Softer destructive */
+  --destructive: oklch(0.58 0.18 20);
 
-  --border: oklch(1 1 1 / 0.15);
-  --input: oklch(1 1 1 / 0.15);
-  --ring: oklch(0.65 0.25 260 / 0.5);
+  --border: oklch(1 1 1 / 0.12);
+  --input: oklch(1 1 1 / 0.12);
+  --ring: oklch(0.68 0.15 255 / 0.4);
 
-  --sidebar: oklch(0.1 0.05 260 / 0.3);
-  --sidebar-foreground: oklch(1 0 0);
-  --sidebar-primary: oklch(0.65 0.25 260);
+  --sidebar: oklch(0.12 0.03 260 / 0.4);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.68 0.15 255);
   --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(1 1 1 / 0.1);
-  --sidebar-accent-foreground: oklch(1 0 0);
-  --sidebar-border: oklch(1 1 1 / 0.1);
-  --sidebar-ring: oklch(0.65 0.25 260 / 0.5);
+  --sidebar-accent: oklch(1 1 1 / 0.12);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(1 1 1 / 0.08);
+  --sidebar-ring: oklch(0.68 0.15 255 / 0.4);
 }
 
-/* Dark Glass Gradients */
+/* Dark Glass Gradients - Softer pastel tones */
 .dark:where(:root[data-style="glass"]) body {
   background-image:
-    radial-gradient(at 0% 0%, oklch(0.2 0.3 280) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, oklch(0.2 0.3 340) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, oklch(0.2 0.3 220) 0px, transparent 50%),
-    radial-gradient(at 0% 100%, oklch(0.2 0.3 160) 0px, transparent 50%);
-  background-color: oklch(0.05 0.02 260);
-  /* Deep dark base */
+    radial-gradient(at 0% 0%, oklch(0.18 0.12 280) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, oklch(0.18 0.12 340) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, oklch(0.18 0.10 220) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, oklch(0.18 0.12 160) 0px, transparent 50%);
+  background-color: oklch(0.08 0.015 260);
+  /* Elegant deep base */
 }
 
 /* ========================================= */
@@ -429,6 +431,144 @@
   --sidebar-accent-foreground: oklch(1 0 0);
   --sidebar-border: oklch(1 1 1 / 0.1);
   --sidebar-ring: oklch(0.6 0.18 265);
+}
+
+/* ========================================= */
+/* GLASS MODE: Override hardcoded Tailwind colors */
+/* ========================================= */
+
+/* Override bg-slate-* to use translucent glass */
+:root[data-style="glass"] .bg-slate-50,
+:root[data-style="glass"] .bg-slate-100 {
+  background-color: oklch(1 0 0 / 0.45) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+:root[data-style="glass"] .bg-slate-900,
+:root[data-style="glass"] .bg-slate-950 {
+  background-color: oklch(0.15 0.03 260 / 0.6) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.dark:where(:root[data-style="glass"]) .bg-slate-50,
+.dark:where(:root[data-style="glass"]) .bg-slate-100 {
+  background-color: oklch(1 1 1 / 0.1) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.dark:where(:root[data-style="glass"]) .bg-slate-800,
+.dark:where(:root[data-style="glass"]) .bg-slate-900,
+.dark:where(:root[data-style="glass"]) .bg-slate-950 {
+  background-color: oklch(0.12 0.03 260 / 0.5) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Override bg-white to glass */
+:root[data-style="glass"] .bg-white {
+  background-color: oklch(1 0 0 / 0.5) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.dark:where(:root[data-style="glass"]) .bg-white {
+  background-color: oklch(0.18 0.03 260 / 0.4) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Override hardcoded button backgrounds to use theme primary */
+:root[data-style="glass"] button.bg-slate-900,
+:root[data-style="glass"] [class*="bg-slate-900"]:where(button, [role="button"]) {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+}
+
+:root[data-style="glass"] button.bg-slate-900:hover,
+:root[data-style="glass"] [class*="bg-slate-900"]:where(button, [role="button"]):hover {
+  background-color: oklch(0.52 0.12 255) !important;
+}
+
+/* Blue accent colors - soften them */
+:root[data-style="glass"] .bg-blue-50 {
+  background-color: oklch(0.95 0.03 255 / 0.5) !important;
+}
+
+:root[data-style="glass"] .bg-blue-100 {
+  background-color: oklch(0.92 0.04 255 / 0.5) !important;
+}
+
+:root[data-style="glass"] .text-blue-600,
+:root[data-style="glass"] .text-blue-700 {
+  color: oklch(0.55 0.1 255) !important;
+}
+
+.dark:where(:root[data-style="glass"]) .bg-blue-50,
+.dark:where(:root[data-style="glass"]) .bg-blue-100,
+.dark:where(:root[data-style="glass"]) .bg-blue-900\/30 {
+  background-color: oklch(0.25 0.08 255 / 0.4) !important;
+}
+
+.dark:where(:root[data-style="glass"]) .text-blue-600,
+.dark:where(:root[data-style="glass"]) .text-blue-400 {
+  color: oklch(0.68 0.12 255) !important;
+}
+
+/* Green status colors - soften */
+:root[data-style="glass"] .bg-green-100 {
+  background-color: oklch(0.92 0.04 155 / 0.5) !important;
+}
+
+:root[data-style="glass"] .text-green-700 {
+  color: oklch(0.5 0.1 155) !important;
+}
+
+.dark:where(:root[data-style="glass"]) .bg-green-900\/30 {
+  background-color: oklch(0.25 0.08 155 / 0.4) !important;
+}
+
+.dark:where(:root[data-style="glass"]) .text-green-400 {
+  color: oklch(0.65 0.12 155) !important;
+}
+
+/* ========================================= */
+/* GLASS MODE: Fix Switch/Toggle visibility */
+/* ========================================= */
+
+/* Switch thumb - needs solid color for visibility */
+:root[data-style="glass"] [data-slot="switch"]>span,
+:root[data-style="glass"] [role="switch"]>span {
+  background-color: oklch(1 0 0) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Switch track - ensure good contrast when unchecked */
+:root[data-style="glass"] [data-slot="switch"][data-state="unchecked"],
+:root[data-style="glass"] [role="switch"][data-state="unchecked"] {
+  background-color: oklch(0.85 0 0 / 0.6) !important;
+  border: 1px solid oklch(0 0 0 / 0.1);
+}
+
+/* Switch track - checked state */
+:root[data-style="glass"] [data-slot="switch"][data-state="checked"],
+:root[data-style="glass"] [role="switch"][data-state="checked"] {
+  background-color: var(--primary) !important;
+}
+
+/* Dark mode switch adjustments */
+.dark:where(:root[data-style="glass"]) [data-slot="switch"]>span,
+.dark:where(:root[data-style="glass"]) [role="switch"]>span {
+  background-color: oklch(0.95 0 0) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+}
+
+.dark:where(:root[data-style="glass"]) [data-slot="switch"][data-state="unchecked"],
+.dark:where(:root[data-style="glass"]) [role="switch"][data-state="unchecked"] {
+  background-color: oklch(0.3 0 0 / 0.6) !important;
+  border: 1px solid oklch(1 1 1 / 0.15);
 }
 
 @layer base {

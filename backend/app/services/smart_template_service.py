@@ -889,162 +889,16 @@ class SmartTemplateService:
                 # Use synchronous validate for now or assume content is valid if saved
                 # In a real async flow, we might want to run ai_validate here or during template save.
                 
-                # 3. Construct Deep Analysis Graph (Extractor -> Deep Analyzer)
-                # We dynamically build the graph to enforce the 4-step modification (Visualizer/Formatter disabled)
+                # 3. Construct Deep Analysis Graph
                 print(f"[SmartTemplate] Building Dynamic Deep Analysis Pipeline...")
                 
-                # Base System Prompt from Blueprint
+                # Parse the blueprint using the enhanced parser
                 blueprint = template_parser.parse(doc_template.content or "")
-                constraints_text = "\n".join([f"- {c}" for c in blueprint.constraints])
-                sections_text = "\n".join([f"## {s.title}\n" + "\n".join([f"  * INSTRUCTION: {i.text}" for i in s.instructions]) for s in blueprint.sections])
                 
-                deep_system_prompt = f"""You are a Deep Analysis Engine.
-You must strictly follow the provided Template Blueprint.
+                # Build the Dynamic Graph
+                pipeline_config_to_use = self._construct_dynamic_graph(blueprint, template)
+                print(f"[SmartTemplate] Dynamic Pipeline Configured: Nodes={len(pipeline_config_to_use.get('nodes',[]))}")
 
-# BLUEPRINT CONSTRAINTS
-{constraints_text}
-
-# REQUIRED SECTIONS & INSTRUCTIONS
-{sections_text}
-
-# FORMATTING
-Your output must be a Markdown document following the exact structure of the sections above.
-Do not include any other text (like "Here is the report").
-"""
-                # Construct Pipeline
-                # Reuse existing extractor config for Step 1 (Shared)
-                extractor_step = next((s for s in template.pipeline_config.get("steps", []) if "extractor" in s.get("type", "").lower()), None)
-                if not extractor_step:
-                     extractor_step = {
-                         "id": "step_1_extractor",
-                         "type": "extractor",
-                         "label": "Context Loader",
-                         "config": {"focus": "Relevant data for analysis"}
-                     }
-                else:
-                     extractor_step["id"] = "step_1_extractor"
-                     extractor_step["label"] = "Context Loader (Shared)"
-
-                # Step 2: Planner
-                planner_step = {
-                    "id": "step_2_planner",
-                    "type": "PLANNER",
-                    "label": "Deep Planner",
-                    "params": {
-                        "template": doc_template.content,
-                        "context": "{{ variables.step_1_extractor }}",
-                        "target_variable": "research_plan"
-                    }
-                }
-
-                # Step 3: Loop (Research & Write)
-                # Inner Sub-Graph
-                inner_researcher = {
-                    "id": "sec_researcher",
-                    "type": "EXTRACTOR", # Use Extractor as Researcher
-                    "label": "Section Researcher",
-                    "params": {
-                        "instruction": "Focus: {{ variables.section_item.focus }}\n\nTask: Extract all information relevant to this focus.",
-                        "source_text": "{{ variables.step_1_extractor }}", # Use global context
-                        "target_variable": "section_findings"
-                    }
-                }
-                inner_writer = {
-                    "id": "sec_writer",
-                    "type": "LLM_GENERATION",
-                    "label": "Section Writer",
-                    "params": {
-                        "system_prompt": "You are a Report Writer. Write the designated section based on the findings.",
-                        "prompt": """
-SECTION TITLE: {{ variables.section_item.title }}
-INSTRUCTION: {{ variables.section_item.instruction }}
-
-RESEARCH FINDINGS:
-{{ variables.section_findings }}
-
-TASK: Write the full text for this section (Markdown). 
-CRITICAL: You MUST start your response with the exact Header:
-# {{ variables.section_item.title }}
-(Adjust # based on hierarchy if needed, but the Title Text must be exact).
-""",
-                        "target_variable": "section_output",
-                        "output_format": "markdown"
-                    }
-                }
-                sub_graph = {
-                    "nodes": [inner_researcher, inner_writer],
-                    "edges": [{"source": "sec_researcher", "target": "sec_writer"}]
-                }
-                
-                loop_step = {
-                    "id": "step_3_loop",
-                    "type": "FOREACH",
-                    "label": "Deep Research Loop",
-                    "params": {
-                        "items": "research_plan",
-                        "iterator_var": "section_item",
-                        "subprocess_graph": sub_graph,
-                        "output_variable": "section_reports" 
-                    }
-                }
-
-                # Step 4: Compiler
-                compiler_step = {
-                     "id": "step_4_compiler",
-                     "type": "COMPILER",
-                     "label": "Document Compiler",
-                     "params": {
-                         "sections": "section_reports",
-                         "plan_variable": "research_plan",
-                         "target_variable": "compiled_draft"
-                     }
-                }
-
-                # Step 5: Auditor
-                auditor_step = {
-                    "id": "step_5_auditor",
-                    "type": "AUDITOR",
-                    "label": "Quality Auditor",
-                    "params": {
-                        "document": "{{ variables.compiled_draft }}",
-                        "template": doc_template.content,
-                        "target_variable": "audit_result"
-                    }
-                }
-                
-                # Step 6: Refiner (Conditional)
-                refiner_step = {
-                    "id": "step_6_refiner",
-                    "type": "REFINER",
-                    "label": "Refiner",
-                    "params": {
-                        "document": "{{ variables.compiled_draft }}",
-                        "critique": "{{ variables.audit_result.critique }}",
-                        "context": "{{ variables.step_1_extractor }}",
-                        "target_variable": "final_document"
-                    }
-                }
-
-                # Edges
-                edges = [
-                    {"source": "step_1_extractor", "target": "step_2_planner"},
-                    {"source": "step_2_planner", "target": "step_3_loop"},
-                    {"source": "step_3_loop", "target": "step_4_compiler"},
-                    {"source": "step_4_compiler", "target": "step_5_auditor"},
-                    # Conditional Edge: If Rejected -> Refiner
-                    {
-                        "source": "step_5_auditor",
-                        "condition": "'approved' not in str(variables.get('audit_result', {}).get('status', '')).lower()",
-                        "target": "step_6_refiner"
-                    }
-                ]
-                
-                pipeline_config_to_use = {
-                    "nodes": [extractor_step, planner_step, loop_step, compiler_step, auditor_step, refiner_step],
-                    "edges": edges
-                }
-                print(f"[SmartTemplate] Dynamic Pipeline Configured: Deep Research Flow (Nodes: {len(pipeline_config_to_use['nodes'])})")
-                
             else:
                  print(f"[SmartTemplate] WARNING: Document Template ID {template.document_template_id} not found in DB.")
 
@@ -1054,6 +908,7 @@ CRITICAL: You MUST start your response with the exact Header:
         }
         
         runtime = AgentRuntime(blueprint_mock, db)
+
         print(f"[SmartTemplate] Streaming execution for '{template.name}' with {len(entities_data)} items.")
         
         try:
@@ -1653,5 +1508,185 @@ CRITICAL: You MUST start your response with the exact Header:
         db.delete(db_item)
         db.commit()
         return True
+
+    def _construct_dynamic_graph(self, blueprint, template) -> Dict[str, Any]:
+        """
+        Dynamically constructs a LangGraph definition from a TemplateBlueprint.
+        Translates Logic Blocks (Sections, Loops, Ifs) into Nodes and Edges.
+        """
+        import uuid
+        nodes = []
+        edges = []
+        
+        # 1. Global Context Extractor (Shared)
+        # Reuse existing config or create default
+        extractor_step = next((s for s in template.pipeline_config.get("steps", []) if "extractor" in s.get("type", "").lower()), None)
+        if not extractor_step:
+             extractor_step = {
+                 "id": "node_context_loader",
+                 "type": "extractor",
+                 "label": "Context Loader",
+                 "config": {"focus": "Relevant data for analysis"}
+             }
+        else:
+             extractor_step["id"] = "node_context_loader"
+             extractor_step["label"] = "Context Loader (Shared)"
+        nodes.append(extractor_step)
+        
+        previous_node_id = "node_context_loader"
+        
+        # 2. Sequential Processor for Blueprint Sections
+        
+        def process_children(children, parent_prev_id, depth=0):
+            current_prev_id = parent_prev_id
+            local_nodes = []
+            local_edges = []
+            
+            for index, item in enumerate(children):
+                node_id = f"node_{depth}_{index}_{str(uuid.uuid4())[:8]}"
+                
+                # --- CASE A: LOOP ---
+                if hasattr(item, 'source') and item.source: # LoopBlock
+                    # Recursively build subgraph for the loop body
+                    
+                    sub_nodes, sub_edges = process_children(item.content, "START_SUB")
+                    
+                    if not sub_nodes:
+                        continue 
+                        
+                    sub_graph_def = {
+                        "nodes": sub_nodes,
+                        "edges": sub_edges
+                    }
+                    
+                    loop_node = {
+                        "id": node_id,
+                        "type": "FOREACH",
+                        "label": f"Loop: {item.source}",
+                        "params": {
+                            "items": item.source, # Runtime needs to resolve this variable
+                            "iterator_var": "loop_item",
+                            "subprocess_graph": sub_graph_def,
+                            "output_variable": f"loop_output_{depth}_{index}"
+                        }
+                    }
+                    local_nodes.append(loop_node)
+                    
+                    # Edge from previous to Loop
+                    if current_prev_id and current_prev_id != "START_SUB":
+                        local_edges.append({"source": current_prev_id, "target": node_id})
+                    
+                    current_prev_id = node_id
+                    
+                # --- CASE B: CONDITIONAL (IF) ---
+                elif hasattr(item, 'condition'): # ConditionalBlock
+                    
+                    # Build IF Branch
+                    if_nodes, if_edges = process_children(item.if_content, node_id + "_IF_START")
+                    # Build ELSE Branch
+                    else_nodes, else_edges = process_children(item.else_content, node_id + "_ELSE_START")
+                    
+                    if if_nodes or else_nodes:
+                        # Merge Node
+                        merge_id = f"merge_{node_id}"
+                        # Simple NOOP is good
+                        local_nodes.append({"id": merge_id, "type": "NOOP", "label": "Merge"})
+
+
+                        if if_nodes:
+                            first_if = if_nodes[0]
+                            local_edges.append({
+                                "source": current_prev_id, 
+                                "target": first_if["id"],
+                                "condition": item.condition 
+                            })
+                            local_nodes.extend(if_nodes)
+                            local_edges.extend(if_edges)
+                            
+                            last_if = if_nodes[-1]["id"]
+                            local_edges.append({"source": last_if, "target": merge_id})
+                        else:
+                            # Empty IF Block -> Link directly to merge if condition?
+                            pass
+
+                        if else_nodes:
+                            first_else = else_nodes[0]
+                            local_edges.append({
+                                "source": current_prev_id,
+                                "target": first_else["id"],
+                                "condition": f"not ({item.condition})" 
+                            })
+                            local_nodes.extend(else_nodes)
+                            local_edges.extend(else_edges)
+                            
+                            last_else = else_nodes[-1]["id"]
+                            local_edges.append({"source": last_else, "target": merge_id})
+                        else:
+                            # If no Else, Link Previous -> Merge on False
+                            local_edges.append({
+                                "source": current_prev_id,
+                                "target": merge_id,
+                                "condition": f"not ({item.condition})"
+                            })
+                            
+                        current_prev_id = merge_id
+                    
+                # --- CASE C: SECTION / INSTRUCTION ---
+                elif hasattr(item, 'title'): # TemplateSection
+                     # Flatten instructions
+                     instr_text = "\\n".join([i.text for i in item.instructions])
+                     
+                     if not item.children and item.instructions:
+                         # Generate Content Node
+                         gen_node = {
+                             "id": node_id,
+                             "type": "LLM_GENERATION",
+                             "label": f"Write: {item.title}",
+                             "params": {
+                                 "system_prompt": "You are a specialized writer.",
+                                 "prompt": f"Write section '{item.title}'.\\nInstructions: {instr_text}",
+                                 "target_variable": f"output_{item.title.replace(' ', '_')}"
+                             }
+                         }
+                         local_nodes.append(gen_node)
+                         if current_prev_id and current_prev_id != "START_SUB":
+                             local_edges.append({"source": current_prev_id, "target": node_id})
+                         current_prev_id = node_id
+                     else:
+                         # Recurse
+                         sec_nodes, sec_edges = process_children(item.children, current_prev_id, depth+1)
+                         local_nodes.extend(sec_nodes)
+                         local_edges.extend(sec_edges)
+                         if sec_nodes:
+                             current_prev_id = sec_nodes[-1]["id"]
+
+                # --- CASE D: INSTRUCTION (Leaf) ---
+                elif hasattr(item, 'text'): # TemplateInstruction
+                     action_node = {
+                         "id": node_id,
+                         "type": "LLM_GENERATION",
+                         "label": "Instruction",
+                         "params": {
+                             "prompt": item.text,
+                             "target_variable": f"instr_{depth}_{index}"
+                         }
+                     }
+                     local_nodes.append(action_node)
+                     if current_prev_id and current_prev_id != "START_SUB":
+                         local_edges.append({"source": current_prev_id, "target": node_id})
+                     current_prev_id = node_id
+                     
+            return local_nodes, local_edges
+
+        # 3. Build Graph from Blueprint Sections
+        child_nodes, child_edges = process_children(blueprint.sections, previous_node_id)
+        
+        nodes.extend(child_nodes)
+        edges.extend(child_edges)
+        
+        return {
+            "nodes": nodes,
+            "edges": edges
+        }
 
 smart_template_service = SmartTemplateService()

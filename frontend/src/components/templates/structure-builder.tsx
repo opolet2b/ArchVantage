@@ -1,26 +1,41 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+    DndContext,
+    DragOverlay,
+    closestCorners,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragStartEvent,
+    DragEndEvent,
+    DragOverEvent
+} from "@dnd-kit/core";
+import {
+    arrayMove,
+    SortableContext,
+    sortableKeyboardCoordinates,
+    verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+
 import {
     TemplateBlock,
     TemplateParserClient
 } from "./template-parser-client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
-    Plus,
-    Trash2,
-    ArrowUp,
-    ArrowDown,
     LayoutList,
     Repeat,
     MessageSquare,
-    GripVertical,
-    FileText
+    FileText,
+    GitBranch,
+    ArrowLeftFromLine
 } from "lucide-react";
+import { DraggablePaletteItem } from "./draggable-palette-item";
+import { SortableBlock, BlockCard } from "./sortable-block";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 
 interface StructureBuilderProps {
     markdown: string;
@@ -29,79 +44,79 @@ interface StructureBuilderProps {
 
 export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilderProps) {
     const [blocks, setBlocks] = useState<TemplateBlock[]>([]);
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const [activeBlock, setActiveBlock] = useState<TemplateBlock | null>(null);
+    const [activePaletteType, setActivePaletteType] = useState<string | null>(null);
+
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        }),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
 
     // Initial Parse
     useEffect(() => {
-        // Only parse if empty (on mount) to avoid overwriting edits 
         if (blocks.length === 0 && markdown) {
             setBlocks(TemplateParserClient.parse(markdown));
         }
-    }, []);
+    }, [markdown]); // Added dependency
 
-    // Serialize on block change
+    // Helper to find a block by ID (recursive)
+    const findBlock = (id: string, items: TemplateBlock[]): TemplateBlock | undefined => {
+        for (const item of items) {
+            if (item.id === id) return item;
+            if (item.children) {
+                const found = findBlock(id, item.children);
+                if (found) return found;
+            }
+        }
+        return undefined;
+    };
+
     const updateBlocks = (newBlocks: TemplateBlock[]) => {
         setBlocks(newBlocks);
         onChange(TemplateParserClient.serialize(newBlocks));
     };
 
-    const addBlock = (type: TemplateBlock["type"], parentId?: string) => {
+    // --- Actions ---
+
+    const addBlock = (parentId: string, type: string) => {
+        const newId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const actualType = type === "subsection" ? "section" : type;
+
         const newBlock: TemplateBlock = {
-            id: crypto.randomUUID(),
-            type,
-            title: type === "section" ? "New Section" : undefined,
-            content: type === "instruction" ? "Describe what to do..." : undefined,
-            loopSource: type === "loop" ? "Source Documents" : undefined,
-            children: type !== "instruction" ? [] : undefined
+            id: newId,
+            type: actualType as any,
+            title: actualType === "section" ? "New Section" : undefined,
+            content: (actualType === "instruction" || actualType === "if" || actualType === "text") ? "" : undefined,
+            loopSource: actualType === "loop" ? "Source Documents" : undefined,
+            children: (actualType === "instruction" || actualType === "text") ? undefined : []
         };
 
+        if (actualType === "instruction") newBlock.content = "Describe task...";
+        if (actualType === "text") newBlock.content = "Enter markdown text...";
+
         if (parentId) {
-            // Nested add (not implemented for root palette, but could be for loop)
-            // For now, easy mode: Add to root or into active section?
+            const addToParent = (items: TemplateBlock[]): TemplateBlock[] => {
+                return items.map(b => {
+                    if (b.id === parentId) {
+                        return { ...b, children: [...(b.children || []), newBlock] };
+                    }
+                    if (b.children) {
+                        return { ...b, children: addToParent(b.children) };
+                    }
+                    return b;
+                });
+            };
+            updateBlocks(addToParent(blocks));
         } else {
             updateBlocks([...blocks, newBlock]);
         }
-    };
-
-    const removeBlock = (id: string, list: TemplateBlock[]): TemplateBlock[] => {
-        return list.filter(b => {
-            if (b.id === id) return false;
-            if (b.children) {
-                b.children = removeBlock(id, b.children);
-            }
-            return true;
-        });
-    };
-
-    const handleDelete = (id: string) => {
-        updateBlocks(removeBlock(id, blocks));
-    };
-
-    const moveBlock = (index: number, direction: 'up' | 'down', list: TemplateBlock[]) => {
-        const newArray = [...list];
-        if (direction === 'up' && index > 0) {
-            [newArray[index], newArray[index - 1]] = [newArray[index - 1], newArray[index]];
-        } else if (direction === 'down' && index < newArray.length - 1) {
-            [newArray[index], newArray[index + 1]] = [newArray[index + 1], newArray[index]];
-        }
-        return newArray;
-    };
-
-    const handleMove = (id: string, direction: 'up' | 'down') => {
-        // Find parent list of this id and move it
-        // Recursive search for parent array
-        const moveInList = (items: TemplateBlock[]): TemplateBlock[] => {
-            const index = items.findIndex(b => b.id === id);
-            if (index !== -1) {
-                return moveBlock(index, direction, items);
-            }
-            return items.map(b => {
-                if (b.children) {
-                    return { ...b, children: moveInList(b.children) };
-                }
-                return b;
-            });
-        };
-        updateBlocks(moveInList(blocks));
     };
 
     const handleUpdate = (id: string, updates: Partial<TemplateBlock>) => {
@@ -119,170 +134,365 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
         updateBlocks(updateInList(blocks));
     };
 
-    // Add child to a container block (Section/Loop)
-    const handleAddChild = (parentId: string, type: TemplateBlock["type"]) => {
-        const newBlock: TemplateBlock = {
-            id: crypto.randomUUID(),
-            type,
-            title: type === "section" ? "Sub-Section" : undefined,
-            content: type === "instruction" ? "New instruction..." : undefined,
-            children: type !== "instruction" ? [] : undefined
-        };
-
-        const addToParent = (items: TemplateBlock[]): TemplateBlock[] => {
-            return items.map(b => {
-                if (b.id === parentId) {
-                    return { ...b, children: [...(b.children || []), newBlock] };
-                }
+    const handleDelete = (id: string) => {
+        const removeBlock = (list: TemplateBlock[]): TemplateBlock[] => {
+            return list.filter(b => {
+                if (b.id === id) return false;
                 if (b.children) {
-                    return { ...b, children: addToParent(b.children) };
+                    b.children = removeBlock(b.children);
+                }
+                return true;
+            });
+        };
+        updateBlocks(removeBlock(blocks));
+    };
+
+    const handleMove = (id: string, direction: 'up' | 'down') => {
+        const moveInList = (items: TemplateBlock[]): TemplateBlock[] => {
+            const index = items.findIndex(b => b.id === id);
+            if (index !== -1) {
+                const newIndex = direction === 'up' ? index - 1 : index + 1;
+                if (newIndex >= 0 && newIndex < items.length) {
+                    return arrayMove(items, index, newIndex);
+                }
+                return items;
+            }
+            return items.map(b => {
+                if (b.children) {
+                    return { ...b, children: moveInList(b.children) };
                 }
                 return b;
             });
         };
-        updateBlocks(addToParent(blocks));
+        updateBlocks(moveInList(blocks));
     };
 
-    // Recursive Renderer
-    const renderBlock = (block: TemplateBlock, index: number, list: TemplateBlock[]) => {
-        return (
-            <div key={block.id} className="mb-3">
-                <Card className={cn("p-3 border-l-4",
-                    block.type === "section" ? "border-l-blue-500 bg-slate-50 dark:bg-slate-900" :
-                        block.type === "loop" ? "border-l-purple-500 bg-purple-50/10" :
-                            block.type === "instruction" ? "border-l-emerald-400 bg-white dark:bg-slate-950" :
-                                "border-l-slate-400 bg-white dark:bg-slate-950" // Text Block
-                )}>
-                    {/* Header Controls */}
-                    <div className="flex items-center gap-2 mb-2">
-                        <div className="cursor-move text-slate-400">
-                            <GripVertical className="h-4 w-4" />
-                        </div>
+    // --- Drag Handlers ---
 
-                        {/* Icon & Label */}
-                        {block.type === "section" && <LayoutList className="h-4 w-4 text-blue-500" />}
-                        {block.type === "loop" && <Repeat className="h-4 w-4 text-purple-500" />}
-                        {block.type === "instruction" && <MessageSquare className="h-4 w-4 text-emerald-500" />}
-                        {block.type === "text" && <FileText className="h-4 w-4 text-slate-500" />}
-
-                        <span className="text-xs font-bold uppercase text-muted-foreground mr-2">{block.type}</span>
-
-                        {/* Inline Editor */}
-                        <div className="flex-1">
-                            {block.type === "section" && (
-                                <Input
-                                    value={block.title}
-                                    className="h-8 font-semibold"
-                                    onChange={(e) => handleUpdate(block.id, { title: e.target.value })}
-                                />
-                            )}
-                            {block.type === "loop" && (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm px-2">For each item in:</span>
-                                    <Input
-                                        value={block.loopSource}
-                                        className="h-8 w-48 font-mono"
-                                        onChange={(e) => handleUpdate(block.id, { loopSource: e.target.value })}
-                                    />
-                                </div>
-                            )}
-                            {block.type === "text" && (
-                                <span className="text-xs text-muted-foreground italic">Raw Markdown Text</span>
-                            )}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center">
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleMove(block.id, 'up')} disabled={index === 0}>
-                                <ArrowUp className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleMove(block.id, 'down')} disabled={index === list.length - 1}>
-                                <ArrowDown className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:bg-red-50" onClick={() => handleDelete(block.id)}>
-                                <Trash2 className="h-3 w-3" />
-                            </Button>
-                        </div>
-                    </div>
-
-                    {/* Content Area */}
-                    {(block.type === "instruction" || block.type === "text") && (
-                        <Textarea
-                            value={block.content}
-                            className={cn("min-h-[60px] text-sm", block.type === "text" && "font-mono")}
-                            onChange={(e) => handleUpdate(block.id, { content: e.target.value })}
-                            placeholder={block.type === "text" ? "Enter markdown text..." : "Enter instruction..."}
-                        />
-                    )}
-
-                    {/* Children Container */}
-                    {(block.type === "section" || block.type === "loop") && (
-                        <div className="pl-6 mt-4 border-l-2 border-slate-200 dark:border-slate-800 ml-2">
-                            {block.children?.map((child, i, arr) => renderBlock(child, i, arr))}
-
-                            {/* Add Child Buttons */}
-                            <div className="flex gap-2 mt-2">
-                                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 dashed" onClick={() => handleAddChild(block.id, "instruction")}>
-                                    <Plus className="h-3 w-3" /> Instruction
-                                </Button>
-                                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 dashed" onClick={() => handleAddChild(block.id, "text")}>
-                                    <Plus className="h-3 w-3" /> Text
-                                </Button>
-                                <Button variant="outline" size="sm" className="h-7 text-xs gap-1 dashed" onClick={() => handleAddChild(block.id, "loop")}>
-                                    <Plus className="h-3 w-3" /> Loop
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-                </Card>
-            </div>
-        );
+    const findParent = (id: string, list: TemplateBlock[], parent: TemplateBlock | null = null): { parent: TemplateBlock | null, index: number, list: TemplateBlock[] } | null => {
+        const index = list.findIndex(item => item.id === id);
+        if (index !== -1) {
+            return { parent, index, list };
+        }
+        for (const item of list) {
+            if (item.children) {
+                const found = findParent(id, item.children, item);
+                if (found) return found;
+            }
+        }
+        return null;
     };
+
+    const handleDragStart = (event: DragStartEvent) => {
+        const { active } = event;
+        setActiveId(active.id as string);
+
+        if (active.data.current?.isPaletteItem) {
+            setActivePaletteType(active.data.current.type);
+        } else if (active.data.current?.block) {
+            setActiveBlock(active.data.current.block);
+        }
+    };
+
+    const handleDragOver = (event: DragOverEvent) => {
+        const { active, over } = event;
+        const overId = over?.id;
+
+        if (!overId || active.id === overId) {
+            return;
+        }
+
+        const activeId = active.id as string;
+        const overIdString = String(overId);
+
+        // Ignore legacy drop-zones if any
+        if (overIdString.startsWith("drop-zone-")) {
+            return;
+        }
+
+        // Only handle reordering of existing blocks
+        if (active.data.current?.isPaletteItem) return;
+
+        // Verify active block exists
+        const activeInfo = findParent(activeId, blocks);
+        if (!activeInfo) return;
+
+        // Determine target info
+        let overInfo: { parent: TemplateBlock | null, index: number, list: TemplateBlock[] } | null = null;
+        let isContainerDrop = false;
+
+        if (overIdString.startsWith("container-body-")) {
+            // We are over a container's body (the drop zone).
+            // Treat this as "Move to this container".
+            const containerId = overIdString.replace("container-body-", "");
+
+            // Avoid self-nesting loop if dragging a container into its own body (though pointer-events on drag overlay should prevent self-hover)
+            if (containerId === activeId) return;
+
+            // FIX: Avoid infinite loop if already in this container
+            if (activeInfo.parent && activeInfo.parent.id === containerId) {
+                return;
+            }
+
+            const containerBlock = findBlock(containerId, blocks);
+            if (containerBlock) {
+                // Mock an overInfo targeting the END of the container's children
+                overInfo = {
+                    parent: containerBlock,
+                    index: containerBlock.children ? containerBlock.children.length : 0,
+                    list: containerBlock.children || [] // This is a read reference, we'll refind in setBlocks
+                };
+                isContainerDrop = true;
+            }
+        } else {
+            // Regular item
+            overInfo = findParent(overIdString, blocks);
+        }
+
+        if (!overInfo) return;
+
+        // Prevent moving into self (if over is a child of active) - complex check, omitted for perf or simple cycle check
+        // Basic check: if active is parent of over?
+        // findParent usually traverses. If active is in the path of over, we stop?
+        // Logic: if active.children contains over... but overInfo is just parent/index.
+
+        // Cross-container move or reorder
+        if (activeInfo.parent?.id !== overInfo.parent?.id || isContainerDrop) {
+            setBlocks((items) => {
+                const newItems = JSON.parse(JSON.stringify(items));
+                const aInfo = findParent(activeId, newItems);
+
+                let oInfo: { parent: TemplateBlock | null, index: number, list: TemplateBlock[] } | null = null;
+
+                if (isContainerDrop && overInfo?.parent) { // overInfo.parent is the container
+                    const cBlock = findBlock(overInfo.parent.id, newItems);
+                    if (cBlock) {
+                        if (!cBlock.children) cBlock.children = [];
+                        oInfo = {
+                            parent: cBlock,
+                            index: cBlock.children.length, // Append
+                            list: cBlock.children
+                        };
+                    }
+                } else {
+                    oInfo = findParent(overIdString, newItems);
+                }
+
+                if (aInfo && oInfo) {
+                    const [moved] = aInfo.list.splice(aInfo.index, 1);
+                    oInfo.list.splice(oInfo.index, 0, moved);
+                    return newItems;
+                }
+                return items;
+            });
+        } else {
+            // Same container reorder
+            if (activeInfo.index !== overInfo.index) {
+                setBlocks((items) => {
+                    const newItems = JSON.parse(JSON.stringify(items));
+                    const aInfo = findParent(activeId, newItems);
+
+                    if (aInfo) {
+                        if (aInfo.parent) {
+                            const p = findBlock(aInfo.parent.id, newItems);
+                            if (p && p.children) {
+                                p.children = arrayMove(p.children, aInfo.index, overInfo!.index);
+                            }
+                        } else {
+                            return arrayMove(newItems, aInfo.index, overInfo!.index);
+                        }
+                        return newItems;
+                    }
+                    return items;
+                });
+            }
+        }
+    };
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+
+        setActiveId(null);
+        setActiveBlock(null);
+        setActivePaletteType(null);
+
+        if (!over) return;
+
+        const overId = String(over.id);
+        const isDropZone = overId.startsWith("drop-zone-") || overId.startsWith("container-body-");
+
+        // --- Logic for Drop Zone (Nesting) ---
+        if (isDropZone) {
+            const targetParentId = overId.replace("drop-zone-", "").replace("container-body-", "");
+
+            setBlocks((currentBlocks) => {
+                const newBlocks = JSON.parse(JSON.stringify(currentBlocks));
+                let blockToAdd: TemplateBlock | null = null;
+
+                // Palette
+                if (active.data.current?.isPaletteItem) {
+                    const type = active.data.current.type;
+                    const actualType = type === "subsection" ? "section" : type;
+                    blockToAdd = {
+                        id: crypto.randomUUID(),
+                        type: actualType as any,
+                        title: actualType === "section" ? "New Section" : undefined,
+                        children: (actualType === "instruction" || actualType === "text") ? undefined : []
+                    };
+                    if (actualType === "instruction") blockToAdd.content = "Describe...";
+                    if (actualType === "if") blockToAdd.content = "Condition...";
+                    if (actualType === "loop") blockToAdd.loopSource = "Source";
+                } else {
+                    // Existing
+                    const activeInfo = findParent(String(active.id), newBlocks);
+                    if (activeInfo) {
+                        const [moved] = activeInfo.list.splice(activeInfo.index, 1);
+                        blockToAdd = moved;
+                    }
+                }
+
+                if (blockToAdd) {
+                    // Find target
+                    const findTarget = (list: TemplateBlock[]): TemplateBlock | null => {
+                        for (const item of list) {
+                            if (item.id === targetParentId) return item;
+                            if (item.children) {
+                                const f = findTarget(item.children);
+                                if (f) return f;
+                            }
+                        }
+                        return null;
+                    };
+                    const target = findTarget(newBlocks);
+                    if (target) {
+                        if (!target.children) target.children = [];
+                        target.children.push(blockToAdd);
+                    }
+                }
+                // Trigger change handled by effect
+                return newBlocks;
+            });
+            return;
+        }
+
+        // --- Standard Drop (Palette to List) ---
+        if (active.data.current?.isPaletteItem) {
+            const type = active.data.current.type;
+            const actualType = type === "subsection" ? "section" : type;
+
+            const newBlock: TemplateBlock = {
+                id: crypto.randomUUID(),
+                type: actualType as any,
+                title: actualType === "section" ? "New Section" : undefined,
+                content: (actualType === "instruction" || actualType === "if") ? "Describe..." : undefined,
+                loopSource: actualType === "loop" ? "Source Documents" : undefined,
+                children: (actualType === "instruction" || actualType === "text") ? undefined : []
+            };
+
+            // Insert at index of over? 
+            const overInfo = findParent(overId, blocks);
+            if (overInfo) {
+                // Insert before 'over'
+                setBlocks(items => {
+                    const newItems = JSON.parse(JSON.stringify(items));
+                    const info = findParent(overId, newItems);
+                    if (info) {
+                        info.list.splice(info.index, 0, newBlock);
+                    }
+                    return newItems;
+                });
+            } else {
+                // Append to root if unsure
+                setBlocks(prev => [...prev, newBlock]);
+            }
+        }
+
+        // Final Sync for Reorder is automatic via state effect
+    };
+
+    // Sync changes to parent when blocks change
+    useEffect(() => {
+        if (blocks.length > 0) {
+            onChange(TemplateParserClient.serialize(blocks));
+        }
+    }, [blocks, onChange]);
 
     return (
-        <div className="grid grid-cols-12 gap-6 h-full">
-            {/* Palette */}
-            <div className="col-span-3 border-r pr-4 space-y-4">
-                <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    Blocks
-                </div>
-
-                <Button variant="outline" className="w-full justify-start gap-2 h-10" onClick={() => addBlock("section")}>
-                    <LayoutList className="h-4 w-4 text-blue-500" />
-                    Section
-                </Button>
-
-                <Button variant="outline" className="w-full justify-start gap-2 h-10" onClick={() => addBlock("instruction")}>
-                    <MessageSquare className="h-4 w-4 text-emerald-500" />
-                    Instruction
-                </Button>
-
-                <Button variant="outline" className="w-full justify-start gap-2 h-10" onClick={() => addBlock("loop")}>
-                    <Repeat className="h-4 w-4 text-purple-500" />
-                    Loop
-                </Button>
-
-                <Button variant="outline" className="w-full justify-start gap-2 h-10" onClick={() => addBlock("text")}>
-                    <FileText className="h-4 w-4 text-slate-500" />
-                    Text
-                </Button>
-
-                <div className="mt-8 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-slate-600 dark:text-slate-400">
-                    <strong>Tip:</strong> Drag and drop isn't fully enabled yet, but you can use the Up/Down arrows to reorder items.
-                </div>
-            </div>
-
-            {/* Canvas */}
-            <div className="col-span-9 h-full overflow-y-auto pr-2 pb-20">
-                {blocks.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed rounded-lg text-slate-400">
-                        <p>Structure is empty.</p>
-                        <p className="text-sm">Add a block from the palette to start.</p>
+        <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+        >
+            <div className="grid grid-cols-12 gap-6 h-full">
+                {/* Palette */}
+                <div className="col-span-3 border-r pr-4 space-y-4">
+                    <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                        Blocks
                     </div>
-                ) : (
-                    blocks.map((block, i, arr) => renderBlock(block, i, arr))
-                )}
+
+                    <DraggablePaletteItem type="section" label="Section" icon={LayoutList} colorClass="text-blue-500" />
+                    <DraggablePaletteItem type="instruction" label="Instruction" icon={MessageSquare} colorClass="text-emerald-500" />
+                    <DraggablePaletteItem type="loop" label="Loop" icon={Repeat} colorClass="text-purple-500" />
+                    <DraggablePaletteItem type="text" label="Text" icon={FileText} colorClass="text-slate-500" />
+                    <DraggablePaletteItem type="if" label="If Condition" icon={GitBranch} colorClass="text-orange-500" />
+                    <DraggablePaletteItem type="else" label="Else" icon={ArrowLeftFromLine} colorClass="text-orange-300" />
+
+                    <div className="mt-8 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-slate-600 dark:text-slate-400">
+                        <strong>Tip:</strong> Drag blocks onto the canvas area.
+                    </div>
+                </div>
+
+                {/* Canvas */}
+                <div className="col-span-9 h-full overflow-y-auto pr-2 pb-20">
+                    <div className="min-h-[200px] border rounded-lg p-4 bg-slate-50/50 dark:bg-slate-900/20">
+
+                        <SortableContext
+                            items={useMemo(() => blocks.map(b => b.id), [blocks.map(b => b.id).join(',')])}
+                            strategy={verticalListSortingStrategy}
+                        >
+                            {blocks.length === 0 ? (
+                                <div className="text-center text-slate-400 mt-10">
+                                    Drag items here to start building.
+                                </div>
+                            ) : (
+                                blocks.map((block) => (
+                                    <SortableBlock
+                                        key={block.id}
+                                        block={block}
+                                        onUpdate={handleUpdate}
+                                        onDelete={handleDelete}
+                                        onAddChild={addBlock}
+                                        onMove={handleMove}
+                                    />
+                                ))
+                            )}
+                        </SortableContext>
+                    </div>
+                </div>
+
+                <DragOverlay dropAnimation={null}>
+                    {activeId ? (
+                        activeBlock ? (
+                            <div className="opacity-80 w-[500px] pointer-events-none">
+                                <BlockCard
+                                    block={activeBlock}
+                                    onUpdate={() => { }}
+                                    onDelete={() => { }}
+                                    onAddChild={() => { }}
+                                    onMove={() => { }}
+                                />
+                            </div>
+                        ) : activePaletteType ? (
+                            <div className="p-2 bg-white border rounded shadow-lg w-48 flex items-center gap-2">
+                                <div className="h-4 w-4 bg-slate-200 rounded" />
+                                {activePaletteType}
+                            </div>
+                        ) : null
+                    ) : null}
+                </DragOverlay>
             </div>
-        </div>
+        </DndContext>
     );
 }
