@@ -53,6 +53,30 @@ function ContainerBodyDroppable({ parentId, children }: { parentId: string, chil
     );
 }
 
+// Gap Droppable for precise insertion
+export function InsertGap({ parentId, index, isRoot = false }: { parentId: string, index: number, isRoot?: boolean }) {
+    const { setNodeRef, isOver } = useDroppable({
+        id: `gap:${parentId}:${index}`,
+        data: { isGap: true, parentId, index }
+    });
+
+    return (
+        <div
+            ref={setNodeRef}
+            className={cn(
+                "h-2 -my-1 transition-all relative z-10",
+                isOver ? "h-8 bg-blue-500/20 my-1 ring-2 ring-blue-500 ring-inset rounded" : "hover:bg-slate-200/50"
+            )}
+        >
+            {isOver && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-0.5 w-full bg-blue-500 animate-pulse" />
+                </div>
+            )}
+        </div>
+    );
+}
+
 // Visual Component (exported for Overlay)
 export function BlockCard({ block, depth = 0, onUpdate, onDelete, onAddChild, onMove }: SortableBlockProps) {
     const getStyles = (type: string) => {
@@ -256,17 +280,22 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                             strategy={verticalListSortingStrategy}
                         >
                             {block.children && block.children.length > 0 ? (
-                                block.children.map((child) => (
-                                    <SortableBlock
-                                        key={child.id}
-                                        block={child}
-                                        depth={depth + 1}
-                                        onUpdate={onUpdate}
-                                        onDelete={onDelete}
-                                        onAddChild={onAddChild}
-                                        onMove={onMove}
-                                    />
-                                ))
+                                <>
+                                    {block.children.map((child, idx) => (
+                                        <React.Fragment key={child.id}>
+                                            <InsertGap parentId={block.id} index={idx} />
+                                            <SortableBlock
+                                                block={child}
+                                                depth={depth + 1}
+                                                onUpdate={onUpdate}
+                                                onDelete={onDelete}
+                                                onAddChild={onAddChild}
+                                                onMove={onMove}
+                                            />
+                                        </React.Fragment>
+                                    ))}
+                                    <InsertGap parentId={block.id} index={block.children.length} />
+                                </>
                             ) : (
                                 <div className="h-10 border border-dashed rounded flex items-center justify-center text-xs text-slate-400">
                                     Drop here to nest

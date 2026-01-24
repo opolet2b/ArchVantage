@@ -11,7 +11,8 @@ import {
     useSensors,
     DragStartEvent,
     DragEndEvent,
-    DragOverEvent
+    DragOverEvent,
+    useDroppable
 } from "@dnd-kit/core";
 import {
     arrayMove,
@@ -20,11 +21,9 @@ import {
     verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 
-import {
-    TemplateBlock,
-    TemplateParserClient
-} from "./template-parser-client";
+import { TemplateBlock, TemplateParserClient } from "./template-parser-client";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
     LayoutList,
     Repeat,
@@ -34,7 +33,7 @@ import {
     ArrowLeftFromLine
 } from "lucide-react";
 import { DraggablePaletteItem } from "./draggable-palette-item";
-import { SortableBlock, BlockCard } from "./sortable-block";
+import { SortableBlock, BlockCard, InsertGap } from "./sortable-block";
 import { Card } from "@/components/ui/card";
 
 interface StructureBuilderProps {
@@ -316,14 +315,28 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
         setActiveBlock(null);
         setActivePaletteType(null);
 
+        // If 'over' is null, we might still be dropping into the root droppable 
+        // if collision detection missed it or if it's the very last item.
+        // But dnd-kit usually provides 'over' if a droppable is hit.
         if (!over) return;
 
         const overId = String(over.id);
         const isDropZone = overId.startsWith("drop-zone-") || overId.startsWith("container-body-");
+        const isRootDrop = overId === "root-canvas";
+        const isGapDrop = overId.startsWith("gap:");
 
-        // --- Logic for Drop Zone (Nesting) ---
-        if (isDropZone) {
-            const targetParentId = overId.replace("drop-zone-", "").replace("container-body-", "");
+        // --- Logic for Drop Zone (Nesting), Root Drop, or Gap Insertion ---
+        if (isDropZone || isRootDrop || isGapDrop) {
+            let targetParentId = "root";
+            let targetIndex = -1;
+
+            if (isGapDrop) {
+                const parts = overId.split(":");
+                targetParentId = parts[1];
+                targetIndex = parseInt(parts[2], 10);
+            } else if (isDropZone) {
+                targetParentId = overId.replace("drop-zone-", "").replace("container-body-", "");
+            }
 
             setBlocks((currentBlocks) => {
                 const newBlocks = JSON.parse(JSON.stringify(currentBlocks));
@@ -352,21 +365,33 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
                 }
 
                 if (blockToAdd) {
-                    // Find target
-                    const findTarget = (list: TemplateBlock[]): TemplateBlock | null => {
-                        for (const item of list) {
-                            if (item.id === targetParentId) return item;
-                            if (item.children) {
-                                const f = findTarget(item.children);
-                                if (f) return f;
+                    if (targetParentId === "root") {
+                        if (targetIndex !== -1) {
+                            newBlocks.splice(targetIndex, 0, blockToAdd);
+                        } else {
+                            newBlocks.push(blockToAdd);
+                        }
+                    } else {
+                        // Find target
+                        const findTarget = (list: TemplateBlock[]): TemplateBlock | null => {
+                            for (const item of list) {
+                                if (item.id === targetParentId) return item;
+                                if (item.children) {
+                                    const f = findTarget(item.children);
+                                    if (f) return f;
+                                }
+                            }
+                            return null;
+                        };
+                        const target = findTarget(newBlocks);
+                        if (target) {
+                            if (!target.children) target.children = [];
+                            if (targetIndex !== -1) {
+                                target.children.splice(targetIndex, 0, blockToAdd);
+                            } else {
+                                target.children.push(blockToAdd);
                             }
                         }
-                        return null;
-                    };
-                    const target = findTarget(newBlocks);
-                    if (target) {
-                        if (!target.children) target.children = [];
-                        target.children.push(blockToAdd);
                     }
                 }
                 // Trigger change handled by effect
@@ -418,6 +443,32 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
     }, [blocks, onChange]);
 
     return (
+        <TemplateCanvas blocks={blocks} sensors={sensors} activeId={activeId} activeBlock={activeBlock} activePaletteType={activePaletteType} handleDragStart={handleDragStart} handleDragOver={handleDragOver} handleDragEnd={handleDragEnd} handleUpdate={handleUpdate} handleDelete={handleDelete} addBlock={addBlock} handleMove={handleMove} />
+    );
+}
+
+interface TemplateCanvasProps {
+    blocks: TemplateBlock[];
+    sensors: any;
+    activeId: string | null;
+    activeBlock: TemplateBlock | null;
+    activePaletteType: string | null;
+    handleDragStart: (event: DragStartEvent) => void;
+    handleDragOver: (event: DragOverEvent) => void;
+    handleDragEnd: (event: DragEndEvent) => void;
+    handleUpdate: (id: string, updates: Partial<TemplateBlock>) => void;
+    handleDelete: (id: string) => void;
+    addBlock: (parentId: string, type: string) => void;
+    handleMove: (id: string, direction: 'up' | 'down') => void;
+}
+
+function TemplateCanvas({ blocks, sensors, activeId, activeBlock, activePaletteType, handleDragStart, handleDragOver, handleDragEnd, handleUpdate, handleDelete, addBlock, handleMove }: TemplateCanvasProps) {
+    const { setNodeRef, isOver } = useDroppable({
+        id: "root-canvas",
+        data: { isRoot: true }
+    });
+
+    return (
         <DndContext
             sensors={sensors}
             collisionDetection={closestCorners}
@@ -445,7 +496,13 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
                 </div>
 
                 {/* Canvas */}
-                <div className="col-span-9 h-full overflow-y-auto pr-2 pb-20">
+                <div
+                    ref={setNodeRef}
+                    className={cn(
+                        "col-span-9 h-full overflow-y-auto pr-2 pb-20 transition-colors rounded-lg",
+                        isOver ? "bg-blue-50/30 dark:bg-blue-900/10" : ""
+                    )}
+                >
                     <div className="min-h-[200px] border rounded-lg p-4 bg-slate-50/50 dark:bg-slate-900/20">
 
                         <SortableContext
@@ -457,16 +514,21 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
                                     Drag items here to start building.
                                 </div>
                             ) : (
-                                blocks.map((block) => (
-                                    <SortableBlock
-                                        key={block.id}
-                                        block={block}
-                                        onUpdate={handleUpdate}
-                                        onDelete={handleDelete}
-                                        onAddChild={addBlock}
-                                        onMove={handleMove}
-                                    />
-                                ))
+                                <>
+                                    {blocks.map((block, idx) => (
+                                        <React.Fragment key={block.id}>
+                                            <InsertGap parentId="root" index={idx} isRoot />
+                                            <SortableBlock
+                                                block={block}
+                                                onUpdate={handleUpdate}
+                                                onDelete={handleDelete}
+                                                onAddChild={addBlock}
+                                                onMove={handleMove}
+                                            />
+                                        </React.Fragment>
+                                    ))}
+                                    <InsertGap parentId="root" index={blocks.length} isRoot />
+                                </>
                             )}
                         </SortableContext>
                     </div>
@@ -493,6 +555,6 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
                     ) : null}
                 </DragOverlay>
             </div>
-        </DndContext>
+        </DndContext >
     );
 }
