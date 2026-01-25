@@ -224,7 +224,8 @@ interface CanvasState {
         width?: number,
         height?: number,
         domainId?: string,
-        color?: string
+        color?: string,
+        scrapeOptions?: Record<string, any>
     ) => Promise<CanvasThing | null>;
     updateThing: (
         thingId: string,
@@ -603,7 +604,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add thing to canvas
-    addThing: async (type, content, position, title, width, height, domainId, color) => {
+    addThing: async (type, content, position, title, width, height, domainId, color, scrapeOptions) => {
         const { canvasId } = get();
         const token = getAuthToken();
         if (!token || !canvasId) {
@@ -636,6 +637,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 title,
                 color,
                 domain_id: finalDomainId,
+                scrape_options: scrapeOptions,
             };
             const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
                 method: "POST",

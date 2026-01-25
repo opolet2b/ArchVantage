@@ -70,7 +70,7 @@ class PDFService:
                         elif obj.type == 2: # Path
                             # Heuristic: Filter out simple lines (separators, table borders)
                             # Get bounding box
-                            bbox = obj.get_pos() # (left, bottom, right, top)
+                            bbox = obj.get_bounds() # (left, bottom, right, top)
                             if bbox:
                                 width = abs(bbox[2] - bbox[0])
                                 height = abs(bbox[3] - bbox[1])

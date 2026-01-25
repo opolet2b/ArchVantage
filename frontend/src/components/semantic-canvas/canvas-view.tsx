@@ -1830,6 +1830,8 @@ function CanvasViewInner() {
     const [domainName, setDomainName] = React.useState("");
     const [domainDescription, setDomainDescription] = React.useState("");
     const [urlContent, setUrlContent] = React.useState("");
+    const [scrapeDepth, setScrapeDepth] = React.useState(0);
+    const [warnExternal, setWarnExternal] = React.useState(true);
     const [selectedConversationId, setSelectedConversationId] = React.useState<string | null>(null);
 
     // MCP Tool Creation Handler
@@ -1887,16 +1889,27 @@ function CanvasViewInner() {
     const handleAddUrl = async () => {
         if (!urlContent.trim()) return;
 
+        // Position at pendingDropPos or center
+        const position = pendingDropPos || getCenterPosition();
+
         await addThing(
             "url",
-            { url: urlContent },
-            pendingDropPos || getCenterPosition(),
-            urlContent.slice(0, 50)
+            { url: urlContent.trim() },
+            position,
+            urlContent.trim(),
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            {
+                depth: scrapeDepth,
+                warn_external: warnExternal
+            }
         );
-
         setUrlContent("");
-        setShowUrlDialog(false);
+        setScrapeDepth(0); // Reset after add
         setPendingDropPos(null);
+        setShowUrlDialog(false);
     };
 
     // Add domain
@@ -2559,6 +2572,37 @@ function CanvasViewInner() {
                                 onChange={(e) => setUrlContent(e.target.value)}
                                 placeholder="https://..."
                             />
+                        </div>
+                        <div className="space-y-4 pt-2">
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label className="text-sm font-medium">Scrape Depth</Label>
+                                    <p className="text-xs text-muted-foreground">How many internal link levels to follow (0 = current page only)</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        className="flex h-9 w-20 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                        value={scrapeDepth}
+                                        onChange={(e) => setScrapeDepth(parseInt(e.target.value))}
+                                    >
+                                        <option value={0}>0</option>
+                                        <option value={1}>1</option>
+                                        <option value={2}>2</option>
+                                        <option value={3}>3</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label className="text-sm font-medium">Internal Navigation Only</Label>
+                                    <p className="text-xs text-muted-foreground">Warn before jumping to external (non-scraped) sites</p>
+                                </div>
+                                <Switch
+                                    checked={warnExternal}
+                                    onCheckedChange={setWarnExternal}
+                                />
+                            </div>
                         </div>
                     </div>
                     <DialogFooter>

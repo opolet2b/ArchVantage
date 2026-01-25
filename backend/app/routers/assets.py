@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.routers.auth import get_current_active_user
 from app.models.user import User
 from app.services.asset_service import asset_service
+from app.services.rag_service import rag_service
 from app.services.pptx_service import pptx_service
 import json
 

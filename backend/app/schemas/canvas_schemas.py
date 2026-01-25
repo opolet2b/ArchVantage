@@ -64,7 +64,6 @@ class CanvasCreate(BaseModel):
     name: str = "My Canvas"
     description: Optional[str] = None
     allowed_user_ids: List[int] = []
-    allowed_user_ids: List[int] = []
     allowed_role_ids: List[int] = []
     owner_config: Optional[Dict[str, Any]] = None
 
@@ -126,6 +125,12 @@ class Size(BaseModel):
     height: Optional[float] = None
 
 
+class ScrapeOptions(BaseModel):
+    """Options for URL scraping."""
+    depth: int = 0
+    warn_external: bool = True
+
+
 class ThingCreate(BaseModel):
     """Request to create a thing on the canvas."""
     type: ThingType
@@ -134,9 +139,9 @@ class ThingCreate(BaseModel):
     size: Optional[Size] = None
     domain_id: Optional[str] = None
     title: Optional[str] = None
-    title: Optional[str] = None
     color: Optional[str] = None
     z_index: float = 0.0
+    scrape_options: Optional[ScrapeOptions] = None
 
 
 class ThingUpdate(BaseModel):
@@ -160,25 +165,23 @@ class ThingResponse(BaseModel):
     id: str
     canvas_id: str
     type: ThingType
-    content: Dict[str, Any]
+    content: Dict[str, Any] = {}
     position_x: float
     position_y: float
     width: Optional[float]
     height: Optional[float]
-    domain_id: Optional[str]
-    summaries: Dict[str, str]
-    summaries: Dict[str, str]
-    title: Optional[str]
-    title: Optional[str]
+    domain_id: Optional[str] = None
+    summaries: Dict[str, Any] = {}
+    title: Optional[str] = None
     color: Optional[str] = None
     z_index: float = 0.0
-    collapsed: bool
+    collapsed: bool = False
     rag_status: str = "none"
     # Iconify feature fields
     iconified: bool = False
     pre_iconify_size: Optional[Dict[str, float]] = None
     created_at: datetime
-    updated_at: Optional[datetime]
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -291,7 +294,7 @@ class SummarizeRequest(BaseModel):
 class SummarizeResponse(BaseModel):
     """Response with generated summaries."""
     thing_id: str
-    summaries: Dict[str, str]  # zoom_level -> summary
+    summaries: Dict[str, Any]  # zoom_level -> summary
 
 
 # =============================================================================

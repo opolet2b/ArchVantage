@@ -91,9 +91,6 @@ def list_canvases(
     )
     
     # Filter by archived status
-    # Note: is_archived defaults to False, so this handles legacy rows too if default was set correctly
-    query = query.filter(Canvas.is_archived == archived)
-    
     query = query.filter(Canvas.is_archived == archived)
     
     # Sort by position (ASC) then updated_at (DESC)
@@ -322,12 +319,6 @@ def update_canvas(
     if request.allowed_role_ids is not None:
         roles = db.query(Role).filter(Role.id.in_(request.allowed_role_ids)).all()
         canvas.allowed_roles = roles
-    
-    db.commit()
-    db.refresh(canvas)
-    return canvas
-
-
     db.commit()
     db.refresh(canvas)
     return canvas
@@ -772,8 +763,8 @@ async def create_thing(
         db.refresh(thing)
         print(f"[CanvasRouter] Thing created successfully: {thing.id}")
 
-        # Trigger RAG Ingestion for Documents, Images, and Slideshows
-        if thing.type in [ModelThingType.DOCUMENT, ModelThingType.IMAGE, ModelThingType.SLIDESHOW, ModelThingType.TEXT]:
+        # Trigger RAG Ingestion for Documents, Images, Slideshows, Text, and URLs
+        if thing.type in [ModelThingType.DOCUMENT, ModelThingType.IMAGE, ModelThingType.SLIDESHOW, ModelThingType.TEXT, ModelThingType.URL]:
             try:
                 # Logic to find the file execution.
                 asset_id = thing.content.get("asset_id")
@@ -781,79 +772,51 @@ async def create_thing(
                 real_path = None
                 
                 if asset_id:
-                     # Query the Asset table to get the real file path
+                     # ... (keep existing asset logic)
                      from app.models.asset_models import Asset
                      from app.services.asset_service import STORAGE_ROOT
                      
                      asset_record = db.query(Asset).filter(Asset.id == asset_id).first()
                      if asset_record:
-                         # Construct full path: STORAGE_ROOT / asset_record.file_path
-                         # Note: file_path in DB is relative (e.g. 2024/12/21/uuid_file.pdf)
                          full_path = STORAGE_ROOT / asset_record.file_path
                          if full_path.exists():
                              real_path = str(full_path)
-                             print(f"[CanvasRouter] Resolved asset path: {real_path}")
-                             
-                             # AUTO-DETECT PPTX -> SLIDESHOW
-                             # If the user dragged a PPTX, it might come in as generic DOCUMENT or IMAGE type.
-                             # We must force it to SLIDESHOW to trigger the specialized viewer.
                              if asset_record.original_name.lower().endswith(".pptx"):
-                                 print(f"[CanvasRouter] Detected PPTX asset. Forcing type to SLIDESHOW.")
                                  thing.type = ModelThingType.SLIDESHOW
-                                 
-                                 # Ensure 'slides' key exists or is pre-filled from sidecar?
-                                 # process_slideshow worker handles the heavy lifting, but frontend needs to know it's a slideshow.
                          else:
                              print(f"[CanvasRouter] Asset file missing on disk: {full_path}")
-                     else:
-                         print(f"[CanvasRouter] Asset record not found for ID: {asset_id}")
                 
                 if thing.content.get("source_type") == "image_folder":
                     real_path = "IMAGE_FOLDER_MODE"
-                    print(f"[CanvasRouter] Identified Image-Based Slideshow. Triggering worker.")
 
                 if thing.type == ModelThingType.TEXT or (thing.type == ModelThingType.DOCUMENT and not asset_id and thing.content.get("content")):
                     real_path = "TEXT_CONTENT_MODE"
-                    print(f"[CanvasRouter] Identified Text-based Thing. Triggering worker.")
                 
-                if real_path:
-                    # CRITICAL FIX: Frontend PDFViewer needs 'file_path' in content to render!
-                    # The asset_id alone is not enough for the current frontend logic.
-                    if real_path != "IMAGE_FOLDER_MODE" and real_path != "TEXT_CONTENT_MODE":
+                if thing.type == ModelThingType.URL:
+                    real_path = thing.content.get("url")
+                    print(f"[CanvasRouter] Identified URL Thing. Triggering worker for scraping.")
 
-                        # Convert absolute path back to a relative/accessible web path if needed?
-                        # Actually PDFViewer handles /api/ assets.
-                        # But it checks content.file_path.
-                        # Let's verify what PDFViewer expects. It likely expects the URL.
-                        # For now, let's store the asset ID reference as the path for the API?
-                        # Or just tell the frontend "Hey, I have a file".
-                        
-                        # Wait, PDFViewer uses 'src' prop. canvas-view passes 'content.file_path'.
-                        # We need to give it a URL it can fetch.
-                        # If we have asset_id, we should provide the asset download URL.
+                if real_path:
+                    if thing.type == ModelThingType.DOCUMENT and asset_id:
                         ct = dict(thing.content)
                         ct["file_path"] = f"/api/v1/assets/{asset_id}"
-                        # FIX: Model field is 'original_name', not 'filename'
                         ct["filename"] = asset_record.original_name if asset_record else "document.pdf"
                         thing.content = ct                        
-                        
-                        # We need to flag modified since we mutated a JSON field
                         from sqlalchemy.orm.attributes import flag_modified
                         flag_modified(thing, "content")
-                        db.commit() # Save the file path update
+                        db.commit()
 
                     print(f"[CanvasRouter] Triggering Async Vectorization for {real_path}")
                     
-                    # Set status to PENDING
                     thing.rag_status = RAGStatus.PENDING
-                    db.commit() # Save pending status before offloading
+                    db.commit()
                     
-                    # Offload blocking ingestion to background task
                     background_tasks.add_task(
                         handle_async_vectorization, 
                         thing.id,
                         real_path, 
-                        canvas_id
+                        canvas_id,
+                        scrape_options=request.scrape_options.model_dump() if request.scrape_options else None
                     )
                 else:
                     print(f"[CanvasRouter] Could not determine local file path for asset {asset_id}")
@@ -1021,6 +984,55 @@ def update_thing(
     if request.pre_iconify_size is not None:
         thing.pre_iconify_size = request.pre_iconify_size
     
+    db.commit()
+    db.refresh(thing)
+    return thing
+
+
+@router.post(
+    "/canvases/{canvas_id}/things/{thing_id}/stop-rag",
+    response_model=ThingResponse
+)
+def stop_thing_rag(
+    canvas_id: str,
+    thing_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Manually stop the RAG / Scraping process for a thing.
+    This sets the status to FAILED, which the background worker checks for cancellation.
+    """
+    user_role_ids = [role.id for role in current_user.roles]
+    
+    thing = db.query(CanvasThing).join(Canvas).filter(
+        CanvasThing.id == thing_id,
+        CanvasThing.canvas_id == canvas_id,
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
+    ).first()
+    
+    if not thing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thing not found or access denied"
+        )
+    
+    # Set status to FAILED to trigger cancellation in background worker
+    thing.rag_status = RAGStatus.FAILED
+    
+    # Also update progress state to show it was stopped
+    if thing.content and "ingestion_progress" in thing.content:
+        new_content = dict(thing.content)
+        progress = dict(new_content.get("ingestion_progress", {}))
+        progress["status"] = "stopped"
+        new_content["ingestion_progress"] = progress
+        thing.content = new_content
+        flag_modified(thing, "content")
+        
     db.commit()
     db.refresh(thing)
     return thing
@@ -1607,7 +1619,7 @@ def delete_domain(
     "/canvases/{canvas_id}/things/{thing_id}/summarize",
     response_model=SummarizeResponse
 )
-def summarize_thing(
+async def summarize_thing(
     canvas_id: str,
     thing_id: str,
     db: Session = Depends(get_db),
@@ -1628,8 +1640,7 @@ def summarize_thing(
             detail="Thing not found"
         )
     
-    # TODO: Integrate with LLM service to generate summaries
-    # For now, generate placeholder summaries based on content
+    # Extract text content
     content_text = ""
     if thing.type == ModelThingType.TEXT:
         content_text = thing.content.get("text", "")
@@ -1638,18 +1649,19 @@ def summarize_thing(
         content_text = " ".join([m.get("content", "") for m in messages])
     elif thing.type == ModelThingType.DOCUMENT:
         content_text = thing.content.get("content", "")
+    elif thing.type == ModelThingType.URL:
+        content_text = thing.content.get("text_content", "")
     else:
         content_text = str(thing.content)
-    
-    # Generate summaries at different zoom levels
-    # 0.3 = one line, 0.5 = paragraph
-    summaries = {
-        "0.3": content_text[:50] + "..." if len(content_text) > 50 else content_text,
-        "0.5": content_text[:200] + "..." if len(content_text) > 200 else content_text
-    }
+
+    # Use LLM service to generate summaries for all levels
+    from app.services.llm_service import llm_service
+    summaries = await llm_service.generate_zoom_summaries(content_text)
     
     # Store summaries
     thing.summaries = summaries
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(thing, "summaries")
     db.commit()
     
     return SummarizeResponse(

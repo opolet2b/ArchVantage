@@ -1,13 +1,15 @@
 from app.models.canvas_models import CanvasThing, Canvas, RAGStatus
 from app.services.rag_service import rag_service
 from app.services.llm_service import llm_service
+from app.services.scraper_service import scraper_service
 
 async def handle_async_vectorization(
     thing_id: str, 
     file_path: str, 
     canvas_id: str, 
     mode: str = "initial", 
-    active_batch_id: str = None
+    active_batch_id: str = None,
+    scrape_options: dict = None
 ):
     """
     Wrapper for RAG ingestion that updates Thing status.
@@ -30,27 +32,30 @@ async def handle_async_vectorization(
         # Resolve Canvas Configuration (Model)
         canvas_model = "default"
         canvas_vision_model = "default"
+        owner_id = None
         try:
             canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
-            if canvas and canvas.owner_config:
-                 settings = canvas.owner_config
-                 print(f"[CanvasWorker] Resolving models from Canvas {canvas_id} settings: {settings}")
-                 
-                 # Resolve Primary LLM Model
-                 canvas_model = (
-                     settings.get("model") or 
-                     settings.get("selectedModel") or 
-                     "default"
-                 )
-                 
-                 # Resolve Vision Model preference
-                 # Frontend stores this in 'vision_model' or 'visionModel'
-                 canvas_vision_model = (
-                      settings.get("vision_model") or
-                      settings.get("visionModel") or
-                      settings.get("selectedVisionModel") or
-                      canvas_model # Fallback to primary model if no vision specific one
-                 )
+            if canvas:
+                owner_id = canvas.owner_id
+                if canvas.owner_config:
+                    settings = canvas.owner_config
+                    print(f"[CanvasWorker] Resolving models from Canvas {canvas_id} settings: {settings}")
+                    
+                    # Resolve Primary LLM Model
+                    canvas_model = (
+                        settings.get("model") or 
+                        settings.get("selectedModel") or 
+                        "default"
+                    )
+                    
+                    # Resolve Vision Model preference
+                    # Frontend stores this in 'vision_model' or 'visionModel'
+                    canvas_vision_model = (
+                        settings.get("vision_model") or
+                        settings.get("visionModel") or
+                        settings.get("selectedVisionModel") or
+                        canvas_model # Fallback to primary model if no vision specific one
+                    )
             
             print(f"[CanvasWorker] Resolved Canvas Models -> Primary: {canvas_model}, Vision: {canvas_vision_model}")
         except Exception as e:
@@ -518,6 +523,117 @@ async def handle_async_vectorization(
                 db.commit()
             else:
                 result = {"status": "no_content"}
+
+        elif thing.type.value == "url":
+            print(f"[CanvasWorker] Processing URL Thing {thing_id}...")
+            url = thing.content.get("url")
+            depth = scrape_options.get("depth", 0) if scrape_options else 0
+            
+            if url:
+                # Progress and Cancel check helpers
+                def update_scrape_progress(current_url, scraped_count, total_estimated):
+                    try:
+                        # Re-fetch from DB to ensure we don't overwrite other changes
+                        # and to keep the session updated
+                        db.refresh(thing)
+                        new_content = dict(thing.content)
+                        new_content["ingestion_progress"] = {
+                            "current_url": current_url,
+                            "scraped_count": scraped_count,
+                            "status": "scraping"
+                        }
+                        thing.content = new_content
+                        from sqlalchemy.orm.attributes import flag_modified
+                        flag_modified(thing, "content")
+                        db.commit()
+                    except Exception as e:
+                        print(f"[CanvasWorker] Scrape progress update failed: {e}")
+
+                def check_scrape_cancelled():
+                    try:
+                        db.refresh(thing)
+                        # If status was manually set back to NONE or FAILED, stop.
+                        return thing.rag_status in ["none", "failed"]
+                    except Exception as e:
+                        print(f"[CanvasWorker] Scrape cancel check failed: {e}")
+                        return False
+
+                print(f"[CanvasWorker] Scraping URL: {url} with depth {depth}...")
+                
+                # Perform recursive scrape in threadpool to avoid blocking event loop
+                from starlette.concurrency import run_in_threadpool
+                scraped_pages = await run_in_threadpool(
+                    scraper_service.scrape_recursive, 
+                    url, 
+                    max_depth=depth,
+                    db=db,
+                    user_id=owner_id,
+                    progress_callback=update_scrape_progress,
+                    check_cancel=check_scrape_cancelled
+                )
+                
+                if scraped_pages:
+                    # Update thing content with the map of pages and options
+                    new_content = dict(thing.content)
+                    new_content["pages"] = scraped_pages
+                    new_content["scrape_options"] = scrape_options
+                    
+                    # Also update the primary 'text' field with root page content
+                    # If root is a PDF, we might not have 'text_content' but the asset link
+                    root_val = scraped_pages.get(url, "")
+                    if root_val.startswith("__PDF_ASSET__:"):
+                        new_content["text_content"] = f"Scraped PDF: {url}"
+                    else:
+                        new_content["text_content"] = root_val
+                    
+                    thing.content = new_content
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(thing, "content")
+                    db.commit()
+
+                    # Ingest each page into RAG in threadpool
+                    print(f"[CanvasWorker] Ingesting {len(scraped_pages)} pages into RAG...")
+                    def process_rag_ingestion_sync():
+                        for page_url, content in scraped_pages.items():
+                            meta = base_metadata.copy()
+                            meta.update({
+                                "type": "scraped_page",
+                                "source_url": page_url,
+                                "root_url": url
+                            })
+                            
+                            if content.startswith("__PDF_ASSET__:"):
+                                asset_id = content.split(":")[-1]
+                                print(f"[CanvasWorker] Ingesting PDF Asset {asset_id} into RAG...")
+                                # Find asset path
+                                from app.models.asset_models import Asset
+                                asset = db.query(Asset).filter(Asset.id == asset_id).first()
+                                if asset:
+                                    from app.services.asset_service import STORAGE_ROOT
+                                    file_path = str(STORAGE_ROOT / asset.file_path)
+                                    rag_service.ingest_file(
+                                        file_path=file_path,
+                                        conversation_id=canvas_id,
+                                        metadata=meta
+                                    )
+                            else:
+                                rag_service.ingest_text(content, metadata=meta)
+                    
+                    await run_in_threadpool(process_rag_ingestion_sync)
+
+                    # Generate zoom summaries for the root page
+                    if root_val and not root_val.startswith("__PDF_ASSET__:"):
+                        print(f"[CanvasWorker] Generating Zoom Summaries for URL Thing (Root Page)...")
+                        summaries = await llm_service.generate_zoom_summaries(root_val, model_name=canvas_model)
+                        thing.summaries = summaries
+                        flag_modified(thing, "summaries")
+                        db.commit()
+                    
+                    result = {"status": "success", "count": len(scraped_pages)}
+                else:
+                    result = {"status": "failed", "error": "No content could be scraped."}
+            else:
+                result = {"status": "failed", "error": "No URL found in thing content."}
 
         elif thing.type.value == "conversation":
             print(f"[CanvasWorker] Processing Conversation Thing {thing_id}...")

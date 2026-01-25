@@ -43,7 +43,9 @@ import {
     X,
     Sparkles,
     Lock,
-    RefreshCw
+    RefreshCw,
+    ChevronLeft,
+    ChevronRight
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -236,6 +238,9 @@ const resizeHandleStyle = {
     borderRadius: 2,
     border: "2px solid #3b82f6",
     backgroundColor: "white",
+    // Ensure handles are positioned correctly relative to the new relative container
+    right: -6,
+    bottom: -6,
 };
 
 // =============================================================================
@@ -326,6 +331,76 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     // Ref for textarea to use with toolbar
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+    // Local Browser State
+    const [browsingUrl, setBrowsingUrl] = React.useState<string | null>(null);
+    const [history, setHistory] = React.useState<string[]>([]);
+    const [forwardHistory, setForwardHistory] = React.useState<string[]>([]);
+
+    // Initialize browsing URL from thing content
+    React.useEffect(() => {
+        if (currentThing.type === "url" && !browsingUrl) {
+            setBrowsingUrl((currentThing.content as any).url);
+        }
+    }, [currentThing.type, currentThing.content]);
+
+    const handleNavigate = (url: string) => {
+        if (browsingUrl && browsingUrl !== url) {
+            setHistory(prev => [...prev, browsingUrl]);
+            setForwardHistory([]); // Clear forward history on new manual navigation
+        }
+        setBrowsingUrl(url);
+    };
+
+    const handleBack = () => {
+        if (history.length > 0 && browsingUrl) {
+            const prevUrl = history[history.length - 1];
+            setHistory(prev => prev.slice(0, -1));
+            setForwardHistory(prev => [...prev, browsingUrl]);
+            setBrowsingUrl(prevUrl);
+        }
+    };
+
+    const handleForward = () => {
+        if (forwardHistory.length > 0 && browsingUrl) {
+            const nextUrl = forwardHistory[forwardHistory.length - 1];
+            setForwardHistory(prev => prev.slice(0, -1));
+            setHistory(prev => [...prev, browsingUrl]);
+            setBrowsingUrl(nextUrl);
+        }
+    };
+
+    const normalizeUrl = (url: string) => {
+        if (!url) return "";
+        try {
+            // Handle mailto, tel, etc.
+            if (!url.startsWith('http')) return url;
+
+            const parsed = new URL(url);
+            const scheme = parsed.protocol.toLowerCase(); // Already includes ':'
+            const netloc = parsed.host.toLowerCase();
+            const path = parsed.pathname.replace(/\/+$/, "");
+            const query = parsed.search; // Includes '?'
+
+            return `${scheme}//${netloc}${path}${query}`;
+        } catch (e) {
+            return url.replace(/\/$/, "");
+        }
+    };
+
+    const handleStopScraping = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await fetch(`${API_URL}/canvases/${thing.canvas_id}/things/${thing.id}/stop-rag`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`,
+                }
+            });
+        } catch (error) {
+            console.error("Failed to stop scraping:", error);
+        }
+    };
 
     const handleInitSync = async () => {
         if (!thing.content?.asset_id) return;
@@ -850,6 +925,18 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             setPreviewContent({
                 title: "Document Intelligence",
                 content: "This document has been successfully indexed into the Neural Memory.\n\nYou can ask questions about its content.",
+                type: "text"
+            });
+            setPreviewDialogOpen(true);
+        } else if (currentThing.rag_status === 'completed') {
+            // Fallback for any other completed indexed content (e.g. Text/Explain nodes)
+            setPreviewContent({
+                title: "Indexed Content",
+                content: typeof currentThing.content.text === 'string'
+                    ? currentThing.content.text
+                    : typeof currentThing.content.content === 'string'
+                        ? currentThing.content.content
+                        : "This content has been successfully indexed into the Neural Memory.",
                 type: "text"
             });
             setPreviewDialogOpen(true);
@@ -1399,6 +1486,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // Render full content based on type using appropriate viewer
     // All viewers are wrapped with eContent for selection toolbar
     const renderFullContent = () => {
+        console.log("DEBUG: renderFullContent called for type:", thing.type);
         const content = thing.content;
         const filename = content.filename as string | undefined;
 
@@ -1691,15 +1779,150 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 );
 
             case "url":
+                console.log("DEBUG: Case URL entered. RAG Status:", currentThing.rag_status);
+                if ((currentThing.rag_status as any) === "processing" || (currentThing.rag_status as any) === "pending") {
+                    const progress = (currentThing.content as any)?.ingestion_progress;
+                    const currentUrl = progress?.current_url;
+                    const scrapedCount = progress?.scraped_count || 0;
+
+                    return (
+                        <SelectableContent thingId={thing.id}>
+                            <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-4">
+                                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                                <div className="space-y-4 w-full max-w-xs">
+                                    <div className="space-y-1">
+                                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                                            Scraping Web Content...
+                                        </p>
+                                        <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-blue-500 animate-pulse"
+                                                style={{ width: `70%` }}
+                                            />
+                                        </div>
+                                        <p className="text-xs text-slate-500">
+                                            {scrapedCount > 0 ? `Scraped ${scrapedCount} pages` : "Recursive search in progress"}
+                                        </p>
+                                    </div>
+
+                                    {currentUrl && (
+                                        <div className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded border dark:border-slate-700 text-[10px] font-mono break-all text-left text-slate-400 max-h-24 overflow-y-auto">
+                                            {currentUrl}
+                                        </div>
+                                    )}
+
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs gap-2 text-red-500 hover:text-red-600 border-red-200 hover:bg-red-50"
+                                        onClick={handleStopScraping}
+                                    >
+                                        <X className="w-3 h-3" />
+                                        Stop Scraping
+                                    </Button>
+                                </div>
+                            </div>
+                        </SelectableContent>
+                    );
+                }
+                const pages = (content.pages as Record<string, string>) || {};
+                const rawUrl = browsingUrl || (content.url as string);
+                const currentUrl = normalizeUrl(rawUrl);
+                const pageContent = pages[currentUrl];
+
+                const renderBrowserContent = () => {
+                    // Always log for debugging
+                    console.log("DEBUG: Current URL (Normalized):", currentUrl);
+                    console.log("DEBUG: Raw URL:", rawUrl);
+                    console.log("DEBUG: Available content keys:", Object.keys(pages));
+                    console.log("DEBUG: Page content match:", !!pageContent);
+                    if (pageContent) console.log("DEBUG: Content start:", pageContent.substring(0, 50));
+
+                    if (!pageContent) {
+                        return (
+                            <div className="flex flex-col items-center justify-center h-full p-6 text-center text-slate-500 italic">
+                                Page not scraped.
+                                <a
+                                    href={currentUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-500 hover:underline mt-2 flex items-center gap-1"
+                                >
+                                    Open in new tab <ExternalLink className="w-3 h-3" />
+                                </a>
+                            </div>
+                        );
+                    }
+
+                    // Ultra-robust check: Look for "PDF_ASSET" anywhere in the string
+                    if (pageContent && pageContent.includes("PDF_ASSET")) {
+                        // Extract UUID: Find the standard UUID pattern
+                        const uuidMatch = pageContent.match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+
+                        if (uuidMatch) {
+                            const assetId = uuidMatch[0];
+                            return (
+                                <div className="h-full overflow-hidden">
+                                    <PDFViewer src={`/api/v1/assets/${assetId}`} />
+                                </div>
+                            );
+                        }
+                    }
+
+                    return (
+                        <MarkdownViewer
+                            content={pageContent}
+                            onLinkClick={handleNavigate}
+                        />
+                    );
+                };
+
                 return (
-                    <a
-                        href={content.url as string}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline text-sm"
-                    >
-                        {content.url as string}
-                    </a>
+                    <div className="flex flex-col h-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden">
+                        {/* Browser Header */}
+                        <div className="flex items-center gap-1 p-2 bg-slate-50 dark:bg-slate-800 border-b dark:border-slate-700">
+                            <div className="flex items-center">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="w-7 h-7"
+                                    onClick={handleBack}
+                                    disabled={history.length === 0}
+                                    title="Back"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="w-7 h-7"
+                                    onClick={handleForward}
+                                    disabled={forwardHistory.length === 0}
+                                    title="Forward"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </Button>
+                            </div>
+                            <div className="flex-1 bg-white dark:bg-slate-900 px-3 py-1 rounded border dark:border-slate-700 text-xs truncate text-slate-500 font-mono">
+                                {currentUrl}
+                            </div>
+                            <a
+                                href={currentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors"
+                            >
+                                <ExternalLink className="w-4 h-4 text-blue-500" />
+                            </a>
+                        </div>
+
+                        {/* Browser Body */}
+                        <div className="flex-1 overflow-y-auto p-0 custom-scrollbar relative">
+                            <SelectableContent thingId={thing.id}>
+                                {renderBrowserContent()}
+                            </SelectableContent>
+                        </div>
+                    </div>
                 );
 
             default:
@@ -1726,8 +1949,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         };
 
         const semanticEnabled = useCanvasStore.getState().semanticZoomEnabled;
+        const isUrlScraping = thing.type === "url" && (localStatus === "processing" || localStatus === "pending");
 
-        if (!semanticEnabled) {
+        if (!semanticEnabled || isUrlScraping) {
             return (
                 <div className="flex flex-col h-full gap-2 p-2">
                     <div className="font-bold text-base flex-none">
@@ -1920,24 +2144,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     return (
         <>
-            {/* Resize handles when selected */}
-            <NodeResizer
-                color="#3b82f6"
-                isVisible={selected}
-                minWidth={minWidth}
-                minHeight={60}
-                handleStyle={resizeHandleStyle}
-                onResizeEnd={(_e, params) => {
-                    if (onResizeEnd) {
-                        onResizeEnd(thing.id, params.width, params.height);
-                    }
-                }}
-            />
             {/* Agent Builder-style container */}
             <div
                 data-thing-id={thing.id}
                 className={cn(
-                    "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md",
+                    "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md relative group",
                     (isSelected || selected)
                         ? `${colorTheme.borderSelected} ring-2 ring-offset-1 shadow-lg`
                         : "border-slate-200 dark:border-slate-700",
@@ -1951,6 +2162,20 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     flexDirection: "column",
                 }}
             >
+                {/* Resize handles when selected - Now relative to this container */}
+                <NodeResizer
+                    color="#3b82f6"
+                    isVisible={selected}
+                    minWidth={minWidth}
+                    minHeight={60}
+                    handleStyle={resizeHandleStyle}
+                    onResizeEnd={(_e, params) => {
+                        if (onResizeEnd) {
+                            onResizeEnd(thing.id, params.width, params.height);
+                        }
+                    }}
+                />
+
                 {/* Selection Toolbar (for whole thing) */}
                 {selected && toolbarPosition && !hasInnerSelection && typeof document !== "undefined" &&
                     createPortal(
@@ -1971,13 +2196,13 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 {/* Inner Content Wrapper - Clips content but leaves Handles outside */}
                 <div className="flex-1 w-full min-h-0 flex flex-col overflow-hidden rounded-lg relative">
                     <div ref={nodeRef} className="absolute inset-0 pointer-events-none" />
-                    {/* Gradient header - Agent Builder style */}
+                    {/* Gradient header - Pure Drag Handle */}
                     <div className={cn(
                         "flex items-center gap-2 px-3 py-2 border-b rounded-t-lg",
                         colorTheme.headerBg,
                         colorTheme.headerBgDark,
-                        // Add pointer cursor to header to indicate interaction
-                        (thing.type === "conversation" || thing.iconified) && "cursor-pointer select-none"
+                        // Cursor pointer to indicate draggable/selectable
+                        "cursor-pointer select-none"
                     )}
                         style={{
                             backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
@@ -1987,7 +2212,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         title={thing.type === "conversation" ? "Double-click to open in chat" : undefined}
                     >
                         <Icon className={cn("h-4 w-4 flex-shrink-0", colorTheme.iconColor)} />
+
                         {zoomLevel !== "summary" && (
+                            // Title handling
                             isEditingTitle ? (
                                 <Input
                                     value={titleInputValue}
@@ -1995,16 +2222,16 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                     onBlur={handleTitleSave}
                                     onKeyDown={(e) => {
                                         if (e.key === "Enter") handleTitleSave();
-                                        e.stopPropagation(); // Prevent canvas hotkeys
+                                        e.stopPropagation(); // Keep hotkeys blocked while typing
                                     }}
-                                    onClick={(e) => e.stopPropagation()}
+                                    onClick={(e) => e.stopPropagation()} // Input needs focus, don't bubble selection
                                     onMouseDown={(e) => e.stopPropagation()}
                                     className="h-6 py-0 px-1 text-sm font-medium flex-1 min-w-0 bg-white/50 dark:bg-black/50 border-none focus-visible:ring-1"
                                     autoFocus
                                 />
                             ) : (
                                 <span
-                                    className="text-sm font-medium truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                    className="text-sm font-medium truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors select-none"
                                     onDoubleClick={(e) => {
                                         e.stopPropagation();
                                         setTitleInputValue(thing.title || getDefaultTitle());
@@ -2016,361 +2243,379 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 </span>
                             )
                         )}
+                    </div>
 
+                    {/* Action Bar - Dedicated Interaction Area */}
+                    {/* Only show in full view (not summary/domain) */}
+                    {zoomLevel !== "summary" && (
+                        <div className="flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 overflow-x-auto no-scrollbar">
 
-
-                        {/* Link/Ghost Mode Button */}
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const isGhost = useCanvasStore.getState().transclusionGhostId === thing.id;
-                                useCanvasStore.getState().setTransclusionGhostId(isGhost ? null : thing.id);
-                                toast({
-                                    title: isGhost ? "Link Mode Cancelled" : "Link Mode Active",
-                                    description: isGhost ? "" : "Click inside a Text Node editor to place this reference.",
-                                    duration: 3000
-                                });
-                            }}
-                            className={cn(
-                                "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
-                                useCanvasStore.getState().transclusionGhostId === thing.id ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30" : "text-slate-300 hover:text-purple-400"
-                            )}
-                            title="Pick up to Transclude (Ghost Mode)"
-                        >
-                            <LinkIcon className="h-3.5 w-3.5" />
-                        </button>
-
-                        {/* Thinking Toggle - Only if thinking content exists */}
-                        {/* Thinking Toggle - Only if thinking content exists */}
-                        {hasThinking && (
+                            {/* Link/Ghost Mode Button */}
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setIsThinkingVisible(!isThinkingVisible);
+                                    const isGhost = useCanvasStore.getState().transclusionGhostId === thing.id;
+                                    useCanvasStore.getState().setTransclusionGhostId(isGhost ? null : thing.id);
+                                    toast({
+                                        title: isGhost ? "Link Mode Cancelled" : "Link Mode Active",
+                                        description: isGhost ? "" : "Click inside a Text Node editor to place this reference.",
+                                        duration: 3000
+                                    });
                                 }}
                                 className={cn(
                                     "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
-                                    isThinkingVisible ? "text-amber-500 bg-amber-50 dark:bg-amber-900/20" : "text-slate-400 hover:text-amber-500"
+                                    useCanvasStore.getState().transclusionGhostId === thing.id ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30" : "text-slate-400 hover:text-purple-400"
                                 )}
-                                title={isThinkingVisible ? "Hide Thinking Process" : "Show Thinking Process"}
+                                title="Pick up to Transclude (Ghost Mode)"
                             >
-                                <Lightbulb className={cn("h-4 w-4", isThinkingVisible && "fill-current")} />
+                                <LinkIcon className="h-3.5 w-3.5" />
                             </button>
-                        )}
 
-                        {/* Open Conversation Button - Explicit Action */}
-                        {thing.type === "conversation" && (
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (onOpenConversation) onOpenConversation(thing.id);
-                                }}
-                                className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded mr-1"
-                                title="Open in full chat"
-                            >
-                                <ExternalLink className="h-3.5 w-3.5 opacity-70" />
-                            </button>
-                        )}
-
-                        {/* Agent Analysis Indicator (Orange Bot) */}
-                        {(thing.content as any)?.agent_analysis && (
-                            <div
-                                className="flex items-center cursor-pointer hover:opacity-80 mr-2"
-                                title="View Agent Plan"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setExecutionPlanOpen(true);
-                                }}
-                            >
-                                <Bot className="h-4 w-4 text-orange-500" />
-                            </div>
-                        )}
-
-                        {/* RAG Status Indicator */}
-                        {/* RAG Status Indicator */}
-                        {localStatus && localStatus !== "none" && (
-                            <div
-                                className={cn("flex items-center", (((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") && "cursor-pointer hover:opacity-80")}
-                                title={(localStatus as string) === "failed" ? "Ingestion Failed (Click for logs)" : `Vectorization: ${localStatus}${(((thing.content as any).description || (thing.content as any).generated_description || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed") ? " (Click to view content)" : ""}`}
-                                onClick={(e) => {
-                                    const c = thing.content as any;
-                                    const isClickable = ((!!c.description || !!c.generated_description) || thing.type === 'slideshow' || thing.type === 'document') && localStatus === "completed" || (localStatus as string) === "failed";
-
-                                    if (isClickable) {
+                            {/* Thinking Toggle - Only if thinking content exists */}
+                            {hasThinking && (
+                                <button
+                                    onClick={(e) => {
                                         e.stopPropagation();
+                                        setIsThinkingVisible(!isThinkingVisible);
+                                    }}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
+                                        isThinkingVisible ? "text-amber-500 bg-amber-50 dark:bg-amber-900/20" : "text-slate-400 hover:text-amber-500"
+                                    )}
+                                    title={isThinkingVisible ? "Hide Thinking Process" : "Show Thinking Process"}
+                                >
+                                    <Lightbulb className={cn("h-4 w-4", isThinkingVisible && "fill-current")} />
+                                </button>
+                            )}
 
-                                        if ((localStatus as string) === "failed") {
-                                            const errorMsg = String(c.last_error || "Unknown error occurred during ingestion.");
-                                            setPreviewContent({
-                                                title: "Ingestion Error",
-                                                content: errorMsg,
-                                                type: "text"
-                                            });
-                                            setPreviewDialogOpen(true);
-                                            return;
-                                        }
+                            {/* Open Conversation Button - Explicit Action */}
+                            {thing.type === "conversation" && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onOpenConversation) onOpenConversation(thing.id);
+                                    }}
+                                    className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded mr-1"
+                                    title="Open in full chat"
+                                >
+                                    <ExternalLink className="h-3.5 w-3.5 opacity-70" />
+                                </button>
+                            )}
 
-                                        handleOpenPreview();
+                            {/* Agent Analysis Indicator (Orange Bot) */}
+                            {(thing.content as any)?.agent_analysis && (
+                                <div
+                                    className="flex items-center cursor-pointer hover:opacity-80 mr-2"
+                                    title="View Agent Plan"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setExecutionPlanOpen(true);
+                                    }}
+                                >
+                                    <Bot className="h-4 w-4 text-orange-500" />
+                                </div>
+                            )}
+
+                            <div className="flex-1" /> {/* Spacer to push utility icons to right */}
+
+                            {/* RAG Status Indicator */}
+                            {localStatus && localStatus !== "none" && (
+                                <div
+                                    className={cn("flex items-center mr-1", (localStatus === "completed" || localStatus === "failed") && "cursor-pointer hover:opacity-80")}
+                                    title={
+                                        localStatus === "failed"
+                                            ? "Ingestion Failed (Click for logs)"
+                                            : `Vectorization: ${localStatus}${localStatus === "completed" ? " (Click to view content)" : ""}`
                                     }
-                                }}
-                            >
-                                {localStatus === "pending" || localStatus === "processing" ? (
-                                    <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
-                                ) : localStatus === "completed" ? (
-                                    <BrainCircuit className="h-4 w-4 text-green-500" />
-                                ) : localStatus === "failed" ? (
-                                    <AlertCircle className="h-4 w-4 text-red-500" />
-                                ) : null}
-                            </div>
-                        )}
+                                    onClick={(e) => {
+                                        const c = thing.content as any;
+                                        const isClickable = localStatus === "completed" || localStatus === "failed";
 
-                        {/* Edit Content Button (Text Only) */}
-                        {thing.type === "text" && (
-                            <>
-                                {isEditingContent ? (
-                                    <>
+                                        if (isClickable) {
+                                            e.stopPropagation();
+
+                                            if (localStatus === "failed") {
+                                                const errorMsg = String(c.last_error || "Unknown error occurred during ingestion.");
+                                                setPreviewContent({
+                                                    title: "Ingestion Error",
+                                                    content: errorMsg,
+                                                    type: "text"
+                                                });
+                                                setPreviewDialogOpen(true);
+                                                return;
+                                            }
+
+                                            handleOpenPreview();
+                                        }
+                                    }}
+                                >
+                                    {localStatus === "pending" || localStatus === "processing" ? (
+                                        <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+                                    ) : localStatus === "completed" ? (
+                                        <BrainCircuit className="h-4 w-4 text-green-500" />
+                                    ) : localStatus === "failed" ? (
+                                        <AlertCircle className="h-4 w-4 text-red-500" />
+                                    ) : null}
+                                </div>
+                            )}
+
+                            {/* Edit Content Button (Text Only) */}
+                            {thing.type === "text" && (
+                                <>
+                                    {isEditingContent ? (
+                                        <>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setIsEditingContent(true);
+                                                }}
+                                                className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
+                                                title="Open Editor"
+                                            >
+                                                <ExternalLink className="h-4 w-4 text-green-600" />
+                                            </button>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setIsEditingContent(false);
+                                                }}
+                                                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
+                                                title="Cancel Editing"
+                                            >
+                                                <X className="h-4 w-4 text-red-500" />
+                                            </button>
+                                        </>
+                                    ) : (
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 setIsEditingContent(true);
                                             }}
-                                            className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
-                                            title="Open Editor"
+                                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                            title="Edit Content"
                                         >
-                                            <ExternalLink className="h-4 w-4 text-green-600" />
+                                            <Pencil className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                                         </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setIsEditingContent(false);
-                                            }}
-                                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
-                                            title="Cancel Editing"
-                                        >
-                                            <X className="h-4 w-4 text-red-500" />
-                                        </button>
-                                    </>
-                                ) : (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setIsEditingContent(true);
-                                        }}
-                                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                                        title="Edit Content"
-                                    >
-                                        <Pencil className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                                    </button>
-                                )}
-                                {/* Separator */}
-                                <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1" />
-                            </>
-                        )}
+                                    )}
+                                    {/* Separator */}
+                                    <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1" />
+                                </>
+                            )}
 
-                        {/* Copy Content Button */}
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const textToCopy = typeof thing.content.text === "string" ? thing.content.text :
-                                    typeof thing.content.content === "string" ? thing.content.content :
-                                        JSON.stringify(thing.content, null, 2);
-
-                                navigator.clipboard.writeText(textToCopy);
-                            }}
-                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                            title="Copy content to clipboard"
-                        >
-                            <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                        </button>
-
-                        {/* Refresh Transclusions Button (Text Node) */}
-                        {thing.type === "text" && (
-                            <button
-                                onClick={handleRefreshNodes}
-                                className={cn(
-                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
-                                    isRefreshingNodes && "animate-spin text-blue-500"
-                                )}
-                                title="Refresh Transcluded Content"
-                            >
-                                <RefreshCw className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                            </button>
-                        )}
-
-                        {/* Sync Button (if asset exists) */}
-                        {thing.content?.asset_id && (
+                            {/* Copy Content Button */}
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleInitSync();
+                                    const textToCopy = typeof thing.content.text === "string" ? thing.content.text :
+                                        typeof thing.content.content === "string" ? thing.content.content :
+                                            JSON.stringify(thing.content, null, 2);
+
+                                    navigator.clipboard.writeText(textToCopy);
                                 }}
                                 className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                                title="Sync with source file"
+                                title="Copy content to clipboard"
                             >
-                                <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                                <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                             </button>
-                        )}
 
-                        {/* Manual Vectorize Button (Brain) */}
-                        {/* Show if: Text/Document/Slideshow AND status is NOT completed/processing/pending */}
-                        {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow') &&
-                            (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending')) && (
+                            {/* Refresh Transclusions Button (Text Node) */}
+                            {thing.type === "text" && (
+                                <button
+                                    onClick={handleRefreshNodes}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                        isRefreshingNodes && "animate-spin text-blue-500"
+                                    )}
+                                    title="Refresh Transcluded Content"
+                                >
+                                    <RefreshCw className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                                </button>
+                            )}
+
+                            {/* Sync Button (if asset exists) */}
+                            {thing.content?.asset_id && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleVectorize();
+                                        handleInitSync();
                                     }}
                                     className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                                    title="Vectorize (Enable RAG)"
+                                    title="Sync with source file"
                                 >
-                                    <BrainCircuit className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                                    <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
                                 </button>
                             )}
 
-                        {/* Toggle Link Visibility */}
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                toggleNodeLinks(thing.id);
-                            }}
-                            className={cn(
-                                "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
-                                linksHidden ? "text-slate-400" : "text-slate-400 hover:text-blue-500"
-                            )}
-                            title={linksHidden ? "Show Connected Links" : "Hide Connected Links"}
-                        >
-                            {linksHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-
-                        {/* External Links Badge / Action */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                    }}
-                                    className={cn(
-                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 flex items-center gap-1",
-                                        hasExternalLinks ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-400 hover:text-blue-500"
-                                    )}
-                                    title={hasExternalLinks ? `${externalLinks.length} External Links` : "Link to External Canvas"}
-                                >
-                                    <ExternalLink className="h-4 w-4" />
-                                    {hasExternalLinks && <span className="text-[10px]">{externalLinks.length}</span>}
-                                </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                                <DropdownMenuLabel>External Links</DropdownMenuLabel>
-                                {hasExternalLinks && (
-                                    <>
-                                        <DropdownMenuSeparator />
-                                        {externalLinks.map((link, idx) => {
-                                            // Fallback titles if not present in link object (backend enhancement needed for titles)
-                                            const targetTitle = link.target_thing_title || "External Item";
-                                            const targetCanvasName = link.target_canvas_name || link.target_canvas_id?.slice(0, 8) + "...";
-
-                                            // Handle potential legacy format if we haven't migrated DB
-                                            // But for new links, we rely on CanvasLink properties.
-                                            // Note: target_id in CanvasLink IS the target node id.
-
-                                            return (
-                                                <div key={link.id || idx} className="flex items-center justify-between gap-2 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-sm text-sm group">
-                                                    <div
-                                                        className="cursor-pointer flex-1 truncate"
-                                                        onClick={() => {
-                                                            if (link.target_canvas_id) {
-                                                                handleOpenExternalCanvas(link.target_canvas_id, link.target_id);
-                                                            }
-                                                        }}
-                                                        title={`Go to ${targetTitle} on ${targetCanvasName}`}
-                                                    >
-                                                        <div className="font-medium truncate">{targetTitle}</div>
-                                                        <div className="text-xs text-muted-foreground truncate opacity-70">on {targetCanvasName}</div>
-                                                    </div>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setEditingExternalLink(link);
-                                                        }}
-                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-blue-100 text-blue-500 rounded mr-1"
-                                                        title="Edit Link"
-                                                    >
-                                                        <Pencil className="h-3 w-3" />
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            deleteLink(link.id);
-                                                        }}
-                                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded"
-                                                        title="Remove Link"
-                                                    >
-                                                        <X className="h-3 w-3" />
-                                                    </button>
-                                                </div>
-                                            )
-                                        })}
-                                    </>
+                            {/* Manual Vectorize Button (Brain) */}
+                            {/* Show if: Text/Document/Slideshow AND status is NOT completed/processing/pending */}
+                            {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow') &&
+                                (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending')) && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleVectorize();
+                                        }}
+                                        className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                        title="Vectorize (Enable RAG)"
+                                    >
+                                        <BrainCircuit className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                                    </button>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem onSelect={() => {
-                                    setPendingFragment(fullThingFragment);
-                                    setCrossCanvasLinkDialogOpen(true);
-                                }}>
-                                    <LinkIcon className="h-4 w-4 mr-2" />
-                                    Add Link...
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
 
-                        {/* Export Button */}
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setExportDialogOpen(true);
-                            }}
-                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                            title="Export content"
-                        >
-                            <Download className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                        </button>
-
-                        {/* Maximize Button - Full Screen Mode */}
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setIsFullScreen(true);
-                            }}
-                            className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
-                            title="Full Screen"
-                        >
-                            <Maximize2 className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                        </button>
-
-                        {/* Iconify button - shown when selected */}
-                        {(isSelected || selected) && (
+                            {/* Toggle Link Visibility */}
                             <button
-                                onClick={handleToggleIconify}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleNodeLinks(thing.id);
+                                }}
+                                className={cn(
+                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                    linksHidden ? "text-slate-400" : "text-slate-400 hover:text-blue-500"
+                                )}
+                                title={linksHidden ? "Show Connected Links" : "Hide Connected Links"}
+                            >
+                                {linksHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+
+                            {/* External Links Badge / Action */}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                        }}
+                                        className={cn(
+                                            "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 flex items-center gap-1",
+                                            hasExternalLinks ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-400 hover:text-blue-500"
+                                        )}
+                                        title={hasExternalLinks ? `${externalLinks.length} External Links` : "Link to External Canvas"}
+                                    >
+                                        <ExternalLink className="h-4 w-4" />
+                                        {hasExternalLinks && <span className="text-[10px]">{externalLinks.length}</span>}
+                                    </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuLabel>External Links</DropdownMenuLabel>
+                                    {hasExternalLinks && (
+                                        <>
+                                            <DropdownMenuSeparator />
+                                            {externalLinks.map((link, idx) => {
+                                                // Fallback titles if not present in link object (backend enhancement needed for titles)
+                                                const targetTitle = link.target_thing_title || "External Item";
+                                                const targetCanvasName = link.target_canvas_name || link.target_canvas_id?.slice(0, 8) + "...";
+
+                                                // Handle potential legacy format if we haven't migrated DB
+                                                // But for new links, we rely on CanvasLink properties.
+                                                // Note: target_id in CanvasLink IS the target node id.
+
+                                                return (
+                                                    <div key={link.id || idx} className="flex items-center justify-between gap-2 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-sm text-sm group">
+                                                        <div
+                                                            className="cursor-pointer flex-1 truncate"
+                                                            onClick={() => {
+                                                                if (link.target_canvas_id) {
+                                                                    handleOpenExternalCanvas(link.target_canvas_id, link.target_id);
+                                                                }
+                                                            }}
+                                                            title={`Go to ${targetTitle} on ${targetCanvasName}`}
+                                                        >
+                                                            <div className="font-medium truncate">{targetTitle}</div>
+                                                            <div className="text-xs text-muted-foreground truncate opacity-70">on {targetCanvasName}</div>
+                                                        </div>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditingExternalLink(link);
+                                                            }}
+                                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-blue-100 text-blue-500 rounded mr-1"
+                                                            title="Edit Link"
+                                                        >
+                                                            <Pencil className="h-3 w-3" />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                deleteLink(link.id);
+                                                            }}
+                                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded"
+                                                            title="Remove Link"
+                                                        >
+                                                            <X className="h-3 w-3" />
+                                                        </button>
+                                                    </div>
+                                                )
+                                            })}
+                                        </>
+                                    )}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onSelect={() => {
+                                        setPendingFragment(fullThingFragment);
+                                        setCrossCanvasLinkDialogOpen(true);
+                                    }}>
+                                        <LinkIcon className="h-4 w-4 mr-2" />
+                                        Add Link...
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+
+                            {/* Export Button */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExportDialogOpen(true);
+                                }}
                                 className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                title="Export content"
+                            >
+                                <Download className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                            </button>
+
+                            {/* Maximize Button - Full Screen Mode */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsFullScreen(true);
+                                }}
+                                className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                title="Full Screen"
+                            >
+                                <Maximize2 className="h-4 w-4 text-slate-400 hover:text-blue-500" />
+                            </button>
+
+                            {/* Iconify button - shown when selected */}
+                            {/* Iconify button - Always rendered to reserve space, control visibility via opacity */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleIconify();
+                                }}
+                                className={cn(
+                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200",
+                                    (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
+                                )}
                                 title="Reduce to icon"
+                                tabIndex={(isSelected || selected) ? 0 : -1}
                             >
                                 <Minimize2 className="h-4 w-4 text-slate-500" />
                             </button>
-                        )}
-                        {/* Delete button - shown when selected */}
-                        {(isSelected || selected) && (
+
+                            {/* Delete button - Always rendered to reserve space */}
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onDelete(thing.id);
                                 }}
-                                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
+                                className={cn(
+                                    "p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-all flex-shrink-0 duration-200",
+                                    (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
+                                )}
                                 title="Delete"
+                                tabIndex={(isSelected || selected) ? 0 : -1}
                             >
                                 <Trash2 className="h-4 w-4 text-red-500" />
                             </button>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
                     {/* Body content */}
                     {getDisplayContent() && (
@@ -2380,10 +2625,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             </div>
                         </div>
                     )}
-                </div >
+                </div>
 
                 {/* Connection handles - colored by type */}
-                < Handle
+                <Handle
                     type="target"
                     position={Position.Left}
                     className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}
@@ -2393,7 +2638,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     position={Position.Right}
                     className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}
                 />
-            </div >
+            </div>
 
             {/* Custom Prompt Dialog */}
             < Dialog open={askDialogOpen} onOpenChange={(open) => !isLoading && setAskDialogOpen(open)

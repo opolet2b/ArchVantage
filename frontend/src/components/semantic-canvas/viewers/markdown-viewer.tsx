@@ -37,6 +37,8 @@ interface MarkdownViewerProps {
     exportMode?: boolean;
     /** Current host node ID or list of ancestors for cycle detection */
     ancestorIds?: string[];
+    /** Callback when a link is clicked */
+    onLinkClick?: (href: string) => void;
 }
 
 // =============================================================================
@@ -63,6 +65,7 @@ export function MarkdownViewer({
     components,
     exportMode = false,
     ancestorIds = [],
+    onLinkClick,
 }: MarkdownViewerProps) {
     const containerRef = React.useRef<HTMLDivElement>(null);
     const lastMousePos = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -263,7 +266,20 @@ export function MarkdownViewer({
                         }
 
                         // Default Link
-                        return <a href={href} {...props}>{children}</a>;
+                        return (
+                            <a
+                                href={href}
+                                {...props}
+                                onClick={(e) => {
+                                    if (onLinkClick && href) {
+                                        e.preventDefault();
+                                        onLinkClick(href);
+                                    }
+                                }}
+                            >
+                                {children}
+                            </a>
+                        );
                     }
                 }}
             >

@@ -134,6 +134,22 @@ class LLMService:
             print(f"Error generating title: {e}")
             return "New " + type.capitalize()
 
+    def _extract_json(self, text: str) -> str:
+        """Extracts JSON block from a string that might contain other text."""
+        import re
+        
+        # Try to find JSON block between triple backticks
+        mj = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+        if mj:
+            return mj.group(1).strip()
+            
+        # Try to find anything between first { and last }
+        m = re.search(r"(\{[\s\S]*\})", text)
+        if m:
+            return m.group(1).strip()
+            
+        return text.strip()
+
     async def generate_zoom_summaries(self, content: str, model_name: str = "default") -> dict:
         """
         Generates 4 levels of summaries for semantic zoom.
@@ -165,13 +181,28 @@ class LLMService:
                 response_format={"type": "json_object"}
             )
             
-            # Clean possible markdown wrap from non-strict LLMs
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-                
-            summaries = json.loads(response_text)
+            print(f"[LLMService] Zoom summary raw response: {response_text[:200]}...")
+            
+            content_to_parse = self._extract_json(response_text)
+            
+            if not content_to_parse:
+                raise ValueError("Could not extract any content from LLM response")
+
+            if content_to_parse.startswith("Error:"):
+                raise ValueError(content_to_parse)
+
+            try:
+                # Use strict=False to allow control characters (like newlines) in strings
+                summaries = json.loads(content_to_parse, strict=False)
+            except json.JSONDecodeError as je:
+                print(f"[LLMService] JSON parse failed on: {content_to_parse[:200]}")
+                # Fallback: if it's not JSON, just return it as a single paragraph summary
+                return {
+                    "label": "Analysis active",
+                    "one_line": "AI summary in progress...",
+                    "sentence": "The AI is processing the content but returned a non-standard format.",
+                    "paragraph": content_to_parse[:500]
+                }
             
             # Ensure all keys exist
             required_keys = ["label", "one_line", "sentence", "paragraph"]

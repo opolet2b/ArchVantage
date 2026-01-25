@@ -127,19 +127,83 @@ class AssetService:
         return new_asset, file_hash
 
     @staticmethod
+    def create_asset_from_bytes(
+        db: Session,
+        content: bytes,
+        filename: str,
+        content_type: str,
+        user_id: int
+    ) -> tuple[Asset, str]:
+        """
+        Create an asset record from bytes (useful for scrapers downloading files).
+        Returns (Asset, file_hash).
+        """
+        print(f"[AssetService] Creating asset from bytes: {filename}")
+        AssetService.ensure_storage_dir()
+        
+        # 1. Generate secure physical path
+        today = datetime.now()
+        date_path = Path(f"{today.year}/{today.month:02d}/{today.day:02d}")
+        
+        full_dir = STORAGE_ROOT / date_path
+        full_dir.mkdir(parents=True, exist_ok=True)
+        
+        import uuid
+        import hashlib
+        
+        file_uuid = str(uuid.uuid4())
+        safe_filename = "".join(x for x in filename if x.isalnum() or x in "._- ") if filename else "file"
+        disk_filename = f"{file_uuid}_{safe_filename}"
+        
+        relative_path = str(date_path / disk_filename)
+        destination_path = full_dir / disk_filename
+        
+        # 2. Write content to disk and Compute Hash
+        sha256_hash = hashlib.sha256()
+        try:
+            with open(destination_path, "wb") as buffer:
+                buffer.write(content)
+                sha256_hash.update(content)
+        except Exception as e:
+            print(f"[AssetService] Byte write failed: {e}")
+            if destination_path.exists():
+                destination_path.unlink()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save file: {str(e)}"
+            )
+            
+        # 3. Create DB Record
+        file_size = len(content)
+        file_hash = sha256_hash.hexdigest()
+        
+        new_asset = Asset(
+            owner_id=user_id,
+            original_name=filename or "scraped_file",
+            mime_type=content_type or "application/octet-stream",
+            size_bytes=file_size,
+            file_path=relative_path
+        )
+        
+        db.add(new_asset)
+        try:
+            db.commit()
+            db.refresh(new_asset)
+            print(f"[AssetService] Byte Asset created: {new_asset.id} (Hash: {file_hash[:8]}...)")
+        except Exception as e:
+            db.rollback()
+            raise e
+        
+        return new_asset, file_hash
+
+    @staticmethod
     def get_asset_stream(
         db: Session,
         asset_id: str,
         user_id: int
     ) -> tuple[Path, str, str]:
         """
-        Verify ownership and return file path, media type, and filename.
-        
-        Returns:
-            (file_path, media_type, filename)
-        
-        Raises:
-            HTTPException: If not found or access denied
+        Verify access and return path/metadata for streaming.
         """
         asset = db.query(Asset).filter(Asset.id == asset_id).first()
         
