@@ -321,7 +321,7 @@ async def debug_chat_context(
     
     # Debug the fallback logic too
     if not result.get("linked_items"):
-        direct_results = rag_service.search("DEBUG_TEST", conversation_id=conversation_id, k=3)
+        direct_results = rag_service.search("DEBUG_TEST", conversation_id=conversation_id, k=3, response_mode="simple")
         result["fallback_rag_results"] = direct_results
         result["fallback_message"] = f"Found {len(direct_results)} items via direct RAG search"
         
@@ -372,7 +372,12 @@ async def chat_endpoint(
         # Check if there are documents directly associated with this conversation_id (via rag.py upload)
         if not ctx_result.get("linked_items"):
             print(f"[Chat] No Canvas links found. Checking for direct RAG content for conversation {request.conversation_id}")
-            direct_results = rag_service.search(last_msg, conversation_id=request.conversation_id, k=3)
+            direct_results = rag_service.search(
+                last_msg, 
+                conversation_id=request.conversation_id, 
+                k=3,
+                response_mode="simple"
+            )
             
             if direct_results:
                  print(f"[Chat] Found {len(direct_results)} direct RAG items for conversation.")
@@ -399,7 +404,8 @@ async def chat_endpoint(
                 "owner_id": current_user.id,
                 "source": "sidebar_upload"
             },
-            k=3
+            k=3,
+            response_mode="simple"
         )
         
         if results:

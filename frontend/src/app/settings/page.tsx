@@ -11,6 +11,7 @@ import { DebugSettingsTab } from "@/components/settings/debug-settings-tab"
 import { PromptsSettingsTab } from "@/components/settings/prompts-settings-tab"
 import { DatabaseSettingsTab } from "@/components/settings/database-settings-tab"
 import { StylingSettingsTab } from "@/components/settings/styling-settings-tab"
+import { QueryingSettingsTab } from "@/components/settings/querying-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
@@ -75,6 +76,13 @@ export default function SettingsPage() {
                             onClick={() => handleTabChange("rag")}
                         >
                             RAG / Knowledge
+                        </Button>
+                        <Button
+                            variant={activeTab === "querying" ? "secondary" : "ghost"}
+                            className="justify-start"
+                            onClick={() => handleTabChange("querying")}
+                        >
+                            Advanced Querying
                         </Button>
                         <Button
                             variant={activeTab === "debug" ? "secondary" : "ghost"}
@@ -149,6 +157,7 @@ export default function SettingsPage() {
                         {activeTab === "model" && <ModelConfig />}
                         {activeTab === "styling" && <StylingSettingsTab />}
                         {activeTab === "rag" && <RagSettingsTab />}
+                        {activeTab === "querying" && <QueryingSettingsTab />}
                         {activeTab === "debug" && <DebugSettingsTab />}
                         {(activeTab === "users" ||
                             activeTab === "roles" ||

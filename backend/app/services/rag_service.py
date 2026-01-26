@@ -45,6 +45,14 @@ class RAGService:
             # Load RAG Config
             config = self.config_service.get_config()
             rag_config = config.get("rag_config", {})
+            self.querying_config = config.get("querying_config", {
+                "similarity_top_k": 5,
+                "similarity_cutoff": None,
+                "retrieval_mode": "embedding",
+                "postprocessor": "none",
+                "postprocessor_config": {},
+                "response_mode": "simple"
+            })
             
             # --- Resolve Embedding Model from Preset (Priority) ---
             embedding_preset = self.config_service.get_default_embedding_preset()
@@ -201,6 +209,163 @@ class RAGService:
             self.vector_store = None
             self.storage_context = None
             self.index = None
+
+    def _get_postprocessors(self, config):
+        """Factory for creating postprocessors based on config."""
+        from llama_index.core.postprocessor import SimilarityPostprocessor, KeywordNodePostprocessor
+        
+        processors = []
+        name = config.get("postprocessor", "none")
+        opts = config.get("postprocessor_config", {})
+        
+        # Always add Similarity Cutoff if configured globally
+        if config.get("similarity_cutoff"):
+            processors.append(SimilarityPostprocessor(similarity_cutoff=float(config["similarity_cutoff"])))
+            
+        if name == "none":
+            pass
+        elif name == "similarity_cutoff":
+            # Already handled by global setting, but allows explicit selection
+            pass
+        elif name == "keyword":
+            if opts.get("required_keywords"):
+                processors.append(KeywordNodePostprocessor(
+                    required_keywords=opts["required_keywords"].split(","),
+                    exclude_keywords=opts.get("exclude_keywords", "").split(",") if opts.get("exclude_keywords") else None
+                ))
+        elif name == "cohere_rerank":
+            try:
+                from llama_index.postprocessor.cohere_rerank import CohereRerank
+                processors.append(CohereRerank(
+                    api_key=opts.get("api_key"),
+                    top_n=opts.get("top_n", 5)
+                ))
+            except ImportError:
+                print("[RAGService] Cohere Rerank not installed")
+        elif name == "sentence_transformer":
+            try:
+                from llama_index.postprocessor.sentence_transformer import SentenceTransformerRerank
+                processors.append(SentenceTransformerRerank(
+                    model=opts.get("model", "cross-encoder/ms-marco-MiniLM-L-12-v2"),
+                    top_n=opts.get("top_n", 5)
+                ))
+            except ImportError:
+                 print("[RAGService] Sentence Transformer Rerank not installed")
+        
+        elif name == "metadata_replacement":
+            try:
+                from llama_index.core.postprocessor import MetadataReplacementPostProcessor
+                processors.append(MetadataReplacementPostProcessor(
+                    target_metadata_key=opts.get("target_keyword", "window")
+                ))
+            except ImportError as e:
+                print(f"[RAGService] MetadataReplacement error: {e}")
+                
+        elif name == "long_context_reorder":
+            try:
+                from llama_index.core.postprocessor import LongContextReorder
+                processors.append(LongContextReorder())
+            except ImportError:
+                 print("[RAGService] LongContextReorder not available")
+
+        elif name == "sentence_embedding_optimizer":
+            try:
+                from llama_index.core.postprocessor import SentenceEmbeddingOptimizer
+                processors.append(SentenceEmbeddingOptimizer(
+                    threshold=float(opts.get("threshold", 0.7)),
+                    percentile_cutoff=float(opts.get("percentile", 0.5)) if "percentile" in opts else None,
+                    embed_model=Settings.embed_model
+                ))
+            except ImportError:
+                print("[RAGService] SentenceEmbeddingOptimizer not available")
+                
+        elif name == "llm_rerank":
+            try:
+                from llama_index.core.postprocessor import LLMRerank
+                processors.append(LLMRerank(
+                    top_n=int(opts.get("top_n", 5)),
+                    llm=Settings.llm # Uses currently configured LLM/Ollama
+                ))
+            except ImportError:
+                print("[RAGService] LLMRerank not available")
+
+        elif name == "jina_rerank":
+            try:
+                from llama_index.postprocessor.jinaai_rerank import JinaRerank
+                processors.append(JinaRerank(
+                    api_key=opts.get("api_key"),
+                    top_n=int(opts.get("top_n", 5))
+                ))
+            except ImportError:
+                print("[RAGService] JinaRerank not available. Install `llama-index-postprocessor-jinaai-rerank`")
+
+        elif name == "colbert_rerank":
+            try:
+                from llama_index.postprocessor.colbert_rerank import ColbertRerank
+                processors.append(ColbertRerank(
+                    top_n=int(opts.get("top_n", 5)),
+                    model=opts.get("model", "colbert-ir/colbertv2.0"),
+                    tokenizer=opts.get("model", "colbert-ir/colbertv2.0"),
+                    keep_retrieval_score=True
+                ))
+            except ImportError:
+                print("[RAGService] ColbertRerank not available. Install `llama-index-postprocessor-colbert-rerank`")
+
+        elif name == "rankllm_rerank":
+            try:
+                from llama_index.postprocessor.rankllm_rerank import RankLLMRerank
+                processors.append(RankLLMRerank(
+                    top_n=int(opts.get("top_n", 5)),
+                    model=opts.get("model", "rank_zephyr_7b_v1_full") # or "rank_vicuna_7b_v1"
+                ))
+            except ImportError:
+                 print("[RAGService] RankLLMRerank not available. Install `llama-index-postprocessor-rankllm-rerank`")
+
+        elif name == "fixed_recency":
+            try:
+                from llama_index.core.postprocessor import FixedRecencyPostprocessor
+                processors.append(FixedRecencyPostprocessor(
+                    top_k=int(opts.get("top_k", 3)),
+                    date_key=opts.get("date_key", "last_modified") # Metadata key to check
+                ))
+            except ImportError:
+                print("[RAGService] FixedRecencyPostprocessor not available")
+                
+        elif name == "embedding_recency":
+            try:
+                from llama_index.core.postprocessor import EmbeddingRecencyPostprocessor
+                processors.append(EmbeddingRecencyPostprocessor(
+                    similarity_cutoff=float(opts.get("similarity_cutoff", 0.7)),
+                    date_key=opts.get("date_key", "last_modified"),
+                    embed_model=Settings.embed_model
+                ))
+            except ImportError:
+                print("[RAGService] EmbeddingRecencyPostprocessor not available")
+                
+        elif name == "time_weighted":
+            try:
+                from llama_index.core.postprocessor import TimeWeightedPostprocessor
+                processors.append(TimeWeightedPostprocessor(
+                    time_decay=float(opts.get("time_decay", 0.99)),
+                    time_access_refresh=bool(opts.get("time_access_refresh", True)),
+                    top_k=int(opts.get("top_k", 3)),
+                    date_key=opts.get("date_key", "last_modified")
+                ))
+            except ImportError:
+                print("[RAGService] TimeWeightedPostprocessor not available")
+
+        elif name == "prev_next":
+            try:
+                from llama_index.core.postprocessor import PrevNextNodePostprocessor
+                processors.append(PrevNextNodePostprocessor(
+                    docstore=self.index.docstore, 
+                    num_nodes=int(opts.get("num_nodes", 1)),
+                    mode=opts.get("mode", "both") # next, prev, both
+                ))
+            except ImportError:
+                print("[RAGService] PrevNextNodePostprocessor not available")
+
+        return processors
 
     def _configure_ollama(self, model_name):
         print(f"[RAGService] Connecting to Ollama for Embeddings (model: {model_name})...")
@@ -492,7 +657,8 @@ class RAGService:
         query: str,
         conversation_id: Optional[str] = None,
         filters: Optional[dict] = None,
-        k: int = 10
+        k: int = 10,
+        response_mode: Optional[str] = None
     ) -> List[dict]:
         """
         Search for relevant documents with metadata and scores.
@@ -505,6 +671,8 @@ class RAGService:
             conversation_id: Optional filter by conversation/collection ID.
             filters: Optional dictionary of metadata filters (e.g. {"canvas_id": "123"})
             k: Number of results to return.
+            response_mode: Optional override for synthesis mode. If None, uses globally configured setting.
+                           Pass "simple" to force retrieval-only for local docs.
             
         Returns:
             List of dicts with 'text', 'metadata', and 'score' keys.
@@ -535,13 +703,44 @@ class RAGService:
                 metadata_filters = MetadataFilters(filters=filter_list)
             
             # Create retriever
-            print(f"[RAGService] Creating retriever (k={k})...")
-            retriever = self.index.as_retriever(similarity_top_k=k, filters=metadata_filters)
+            # Apply configured top_k override if not explicitly passed
+            effective_k = k
+            if k == 10: # Default value meant "use config", whereas 3 is explicit
+                 effective_k = int(self.querying_config.get("similarity_top_k", 5))
+            
+            print(f"[RAGService] Creating retriever (k={effective_k})...")
+            retriever = self.index.as_retriever(similarity_top_k=effective_k, filters=metadata_filters)
             
             print(f"[RAGService] Executing retrieve('{query}')...")
             nodes = retriever.retrieve(query)
-            print(f"[RAGService] Retrieved {len(nodes)} nodes.")
+            print(f"[RAGService] Retrieved {len(nodes)} nodes BEFORE post-processing.")
             
+            # Apply Postprocessors
+            postprocessors = self._get_postprocessors(self.querying_config)
+            if postprocessors:
+                print(f"[RAGService] Applying {len(postprocessors)} postprocessors...")
+                for pp in postprocessors:
+                    nodes = pp.postprocess_nodes(nodes, query_str=query)
+                print(f"[RAGService] {len(nodes)} nodes remaining AFTER post-processing.")
+                
+            # RESPONSE SYNTHESIS MODE
+            # Use argument override OR global config
+            active_response_mode = response_mode if response_mode else self.querying_config.get("response_mode", "simple")
+            
+            if active_response_mode in ["refine", "tree_summarize", "compact"] and len(nodes) > 0:
+                 print(f"[RAGService] Synthesizing response with mode: {active_response_mode}")
+                 from llama_index.core import get_response_synthesizer
+                 
+                 synthesizer = get_response_synthesizer(response_mode=active_response_mode)
+                 response_obj = synthesizer.synthesize(query, nodes=nodes)
+                 
+                 # Return as a special "synthesized_answer" result
+                 return [{
+                     "text": str(response_obj),
+                     "metadata": {"type": "synthesized_response", "mode": active_response_mode},
+                     "score": 1.0
+                 }]
+
             results = []
             for node in nodes:
                 results.append({

@@ -53,9 +53,12 @@ export function AppSidebar() {
     }
 
     return (
-        <div className="flex flex-col h-screen w-64 border-r bg-sidebar border-sidebar-border py-4 gap-4 overflow-y-auto text-sidebar-foreground">
-            <div className="px-4 flex items-center justify-between">
-                <div className="font-bold text-xl">AI Chat</div>
+        <div className="flex flex-col h-screen w-64 border-r bg-sidebar border-sidebar-border py-4 gap-4 overflow-hidden text-sidebar-foreground">
+            <div className="px-4 flex items-center justify-between shrink-0">
+                <div className="font-bold text-xl flex items-center">
+                    <img src="/t2blogo.png" alt="Logo" className="h-8 w-auto mr-2" />
+                    Semantic Workbench
+                </div>
                 {viewMode === "chat" && (
                     <Button variant="ghost" size="icon" onClick={handleNewChat} title="New Chat" className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
                         <Plus className="h-5 w-5" />
@@ -64,7 +67,7 @@ export function AppSidebar() {
             </div>
 
             {/* View Mode Toggle - Always Visible */}
-            <div className="px-2">
+            <div className="px-2 shrink-0">
                 <div className="flex gap-1 bg-sidebar-accent/50 rounded-lg p-1">
                     <Button
                         variant={viewMode === "canvas" ? "default" : "ghost"}
@@ -89,7 +92,7 @@ export function AppSidebar() {
 
             {/* Current Mode Button */}
             {isHomePage && viewMode === "chat" && (
-                <div className="px-2">
+                <div className="px-2 shrink-0">
                     <Link href="/">
                         <Button
                             variant={pathname === "/" ? "secondary" : "ghost"}
@@ -103,10 +106,13 @@ export function AppSidebar() {
                 </div>
             )}
 
-            {/* Conversation or Canvas List */}
-            {viewMode === "chat" ? <ConversationList /> : <CanvasList />}
+            {/* Content Area - Flex Column to allow children to handle scroll */}
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                {viewMode === "chat" ? <ConversationList /> : <CanvasList />}
+            </div>
 
-            <div className="mt-auto px-2 flex flex-col gap-1">
+            {/* Static Bottom Menu */}
+            <div className="px-2 flex flex-col gap-1 shrink-0 mt-auto pt-2">
                 {navItems.map((item) => (
                     <Link key={item.href} href={item.href}>
                         <Button

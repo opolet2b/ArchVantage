@@ -163,6 +163,17 @@ def get_rag_config():
         "chunk_overlap": 200,
         "enable_metadata": False
     })
+    
+    # Resolve effective configuration from preset
+    embedding_preset = config_service.get_default_embedding_preset()
+    if embedding_preset:
+        rag_config["embedding_model"] = embedding_preset.get("model_name")
+        # Map preset type to provider
+        if embedding_preset.get("type") == "remote":
+            rag_config["embedding_provider"] = "openai"
+        else:
+            rag_config["embedding_provider"] = "ollama"
+            
     return {"config": rag_config}
 
 @router.post("/config/rag")
@@ -185,3 +196,42 @@ def save_rag_config(request: RagConfigRequest):
         msg = "Configuration hot-reloaded (No DB reset)."
         
     return {"status": "success", "config": config_dict, "message": msg}
+
+
+class QueryingConfigRequest(BaseModel):
+    # Retrieval
+    similarity_top_k: int = 5
+    similarity_cutoff: Optional[float] = None
+    retrieval_mode: str = "embedding"  # embedding, hybrid, keyword
+
+    # Postprocessing
+    postprocessor: str = "none" # none, similarity_cutoff, keyword, cohere_rerank, ...
+    postprocessor_config: Optional[Dict[str, Any]] = {} # api_key, threshold, etc.
+
+    # Response Synthesis
+    response_mode: str = "simple" # simple (default/manual), refine, tree_summarize, compact
+    
+@router.get("/config/querying")
+def get_querying_config():
+    config = config_service.get_config()
+    # Defaults
+    querying_config = config.get("querying_config", {
+        "similarity_top_k": 5,
+        "similarity_cutoff": None,
+        "retrieval_mode": "embedding",
+        "postprocessor": "none",
+        "postprocessor_config": {},
+        "response_mode": "simple"
+    })
+    return {"config": querying_config}
+
+@router.post("/config/querying")
+def save_querying_config(request: QueryingConfigRequest):
+    config = config_service.get_config()
+    config["querying_config"] = request.dict()
+    config_service.save_config(config)
+    
+    # Reload RAG service with new settings
+    rag_service.reload_config()
+    
+    return {"status": "success", "config": request.dict()}

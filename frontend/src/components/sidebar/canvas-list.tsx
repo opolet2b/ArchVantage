@@ -611,8 +611,8 @@ export function CanvasList() {
 
     return (
         <>
-            <div className="flex flex-col gap-2 px-2 py-4 w-full">
-                <div className="flex items-center justify-between px-2 mb-2">
+            <div className="flex flex-col h-full w-full">
+                <div className="flex items-center justify-between px-2 mb-2 pt-4 shrink-0">
                     <div className="text-xs font-semibold text-muted-foreground">
                         Canvases
                     </div>
@@ -750,7 +750,7 @@ export function CanvasList() {
                     </div>
                 )}
 
-                <div className="flex flex-col gap-1">
+                <div className="flex-1 overflow-y-auto min-h-0 px-2 flex flex-col gap-1 pb-2">
                     {canvases.length === 0 ? (
                         <div className="text-sm text-muted-foreground px-2">
                             No canvases yet.{" "}

@@ -33,13 +33,14 @@ export function RagSettingsTab() {
         chunk_overlap: 200,
         enable_metadata: false
     })
+    const [savedConfig, setSavedConfig] = useState<RagConfig | null>(null)
 
     const [isLoadingConfig, setIsLoadingConfig] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
     const [isResetting, setIsResetting] = useState(false)
     const [ingesting, setIngesting] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
-
+    const [responseMode, setResponseMode] = useState<string>("simple")
     const [availableModels, setAvailableModels] = useState<string[]>([])
 
     // Load config on mount
@@ -60,11 +61,22 @@ export function RagSettingsTab() {
 
     const fetchConfig = async () => {
         try {
-            const res = await fetch(`${API_URL}/config/rag`)
-            if (res.ok) {
-                const data = await res.json()
+            const [ragRes, queryRes] = await Promise.all([
+                fetch(`${API_URL}/config/rag`),
+                fetch(`${API_URL}/config/querying`)
+            ])
+
+            if (ragRes.ok) {
+                const data = await ragRes.json()
                 if (data.config) {
                     setConfig(data.config)
+                    setSavedConfig(data.config)
+                }
+            }
+            if (queryRes.ok) {
+                const data = await queryRes.json()
+                if (data.config && data.config.response_mode) {
+                    setResponseMode(data.config.response_mode)
                 }
             }
         } catch (error) {
@@ -77,18 +89,32 @@ export function RagSettingsTab() {
     const handleSave = async () => {
         setIsSaving(true)
         try {
-            const res = await fetch(`${API_URL}/config/rag`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(config),
-            })
+            // Fetch current querying config first to preserve other fields
+            const currentQueryPayload = await fetch(`${API_URL}/config/querying`).then(r => r.json()).then(d => d.config || {})
 
-            if (res.ok) {
-                const data = await res.json()
+            const [ragRes, queryRes] = await Promise.all([
+                fetch(`${API_URL}/config/rag`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(config),
+                }),
+                fetch(`${API_URL}/config/querying`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        ...currentQueryPayload,
+                        response_mode: responseMode
+                    }),
+                })
+            ])
+
+            if (ragRes.ok && queryRes.ok) {
+                const data = await ragRes.json()
                 toast({
                     title: "Configuration Saved",
                     description: data.warning || "Settings updated successfully.",
                 })
+                setSavedConfig(config)
             } else {
                 throw new Error("Failed to save")
             }
@@ -184,6 +210,40 @@ export function RagSettingsTab() {
                             Changing Embedding Provider, Model, or Parsing Strategy requires a full database reset and re-indexing to take effect.
                         </AlertDescription>
                     </Alert>
+
+                    {/* Current Configuration Display */}
+                    {savedConfig && (
+                        <div className="bg-muted/50 p-4 rounded-md border border-border text-sm space-y-2">
+                            <div className="flex items-center justify-between">
+                                <h3 className="font-semibold flex items-center gap-2">
+                                    <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                                    Active Configuration
+                                </h3>
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-y-2 gap-x-4 pt-2">
+                                <div>
+                                    <span className="text-muted-foreground block text-xs">Provider</span>
+                                    <span className="font-medium">{savedConfig.embedding_provider}</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground block text-xs">Model</span>
+                                    <span className="font-medium truncate" title={savedConfig.embedding_model}>{savedConfig.embedding_model}</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground block text-xs">Strategy</span>
+                                    <span className="font-medium">{savedConfig.parsing_strategy}</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground block text-xs">Effective Chunk Size</span>
+                                    <span className="font-medium">{savedConfig.chunk_size} tokens</span>
+                                </div>
+                                <div>
+                                    <span className="text-muted-foreground block text-xs">Chunk Overlap</span>
+                                    <span className="font-medium">{savedConfig.chunk_overlap} tokens</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {isLoadingConfig ? (
                         <div className="flex justify-center p-8">
@@ -315,6 +375,34 @@ export function RagSettingsTab() {
                                         checked={config.enable_metadata}
                                         onCheckedChange={(c) => setConfig({ ...config, enable_metadata: c })}
                                     />
+                                </div>
+                            </div>
+
+                            {/* Response Synthesis Configuration */}
+                            <div className="space-y-4 border rounded-md p-4 bg-slate-50 dark:bg-slate-900/50">
+                                <h3 className="font-semibold text-sm uppercase text-muted-foreground mb-2">Response Synthesis</h3>
+
+                                <div className="space-y-2">
+                                    <Label className="flex items-center gap-2">
+                                        Synthesis Mode
+                                        <HelpTooltip contentPath="querying/response_synthesizer" />
+                                    </Label>
+                                    <Select
+                                        value={responseMode}
+                                        onValueChange={setResponseMode}
+                                    >
+                                        <SelectTrigger><SelectValue placeholder="Select mode" /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="simple">Simple (Fast, Manual Chat Context)</SelectItem>
+                                            <SelectItem value="compact">Compact (Concatenate & Refine)</SelectItem>
+                                            <SelectItem value="tree_summarize">Tree Summarize (Deep Summary)</SelectItem>
+                                            <SelectItem value="refine">Refine (Iterative Improvement)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="mt-2 text-xs text-muted-foreground space-y-1">
+                                        <p><strong>Note:</strong> This setting <strong>ONLY</strong> applies to <strong>Knowledge Base access</strong> (Linked Assets).</p>
+                                        <p>Local document chats (Sidebar uploads) will always use 'Simple' mode for speed.</p>
+                                    </div>
                                 </div>
                             </div>
 
