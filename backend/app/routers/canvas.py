@@ -8,6 +8,7 @@ PEP 8 Compliant
 """
 from typing import List, Dict, Any
 import traceback
+import json
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -28,11 +29,18 @@ from app.schemas.canvas_schemas import (
     DomainCreate, DomainUpdate, DomainResponse,
     SummarizeRequest, SummarizeResponse,
     AnalyzeRequest, AnalyzeResponse, AnalyzeAction, BatchAnalyzeRequest,
-    DiscoverLinksRequest, DiscoverLinksResponse,
-    ExecuteTemplateRequest, ExecuteTemplateResponse
+    DiscoverLinksRequest, DiscoverLinksResponse, DiscoveredLinkDetail,
+    DiscoverLinksRequest, DiscoverLinksResponse, DiscoveredLinkDetail,
+    ExecuteTemplateRequest, ExecuteTemplateResponse, BatchDeleteRequest
 )
 from app.services.rag_service import rag_service
 from app.services.smart_template_service import smart_template_service
+from app.services.debug_service import debug_service
+from app.services.llm_service import llm_service
+from app.models.chat import Message
+from app.services.config_service import config_service
+from app.services.prompt_service import prompt_service
+from app.prompts import SUMMARIZE_PROMPT, EXPLAIN_PROMPT
 from app.routers.canvas_worker import handle_async_vectorization
 from pydantic import BaseModel
 
@@ -404,6 +412,39 @@ def delete_canvas(
             detail="Canvas not found"
         )
     
+    # Cascade delete assets
+    from app.services.asset_service import asset_service
+    from app.services.rag_service import rag_service
+    
+    # 1. Collect assets to delete
+    assets_to_delete = []
+    
+    # We need to query things manually first because cascade delete happens at DB level 
+    # and we won't have access to them after commit, but we need their content NOW.
+    things = db.query(CanvasThing).filter(CanvasThing.canvas_id == canvas_id).all()
+    
+    for thing in things:
+        # Check for Asset ID
+        asset_id = thing.content.get("asset_id")
+        if asset_id:
+            assets_to_delete.append(asset_id)
+            
+        # Check for URL/Text RAG entries that aren't assets
+        # If it's a URL or Text node that was vectorized, we should clean up RAG
+        # Note: Generic RAG cleanup usually relies on 'source' metadata.
+        # For URLs, source is the URL. For Text, source is 'TEXT_CONTENT_MODE'.
+        # However, RAG Service doesn't easily support "delete by metadata" except via specific source path.
+        # Ideally, we'd have a delete_by_thing_id or similar.
+        # For now, let's focus on Assets which are the big disk users.
+            
+    # 2. Delete Assets
+    for asset_id in assets_to_delete:
+        try:
+            print(f"[CanvasRouter] Cascade deleting asset {asset_id}")
+            asset_service.delete_asset(db, asset_id, current_user.id)
+        except Exception as e:
+             print(f"[CanvasRouter] Error deleting asset {asset_id}: {e}")
+
     db.delete(canvas)
     db.commit()
     return {"message": "Canvas deleted"}
@@ -1849,11 +1890,6 @@ async def analyze_selection(
     if "base64" in str(selected_content).lower() and len(selected_content) > 1000:
          content_for_prompt = "[Image Content (Base64 Truncated)]"
 
-    
-    # Imports for Prompt Service
-    from app.services.prompt_service import prompt_service
-    from app.prompts import SUMMARIZE_PROMPT, EXPLAIN_PROMPT
-
     if request.action == AnalyzeAction.SUMMARIZE:
         system_prompt = "You are a helpful assistant. Provide concise, clear summaries."
         user_prompt = prompt_service.get_prompt(
@@ -2126,10 +2162,7 @@ async def discover_links(
     """
     Analyze selected items (Things & Domains) to discover and create semantic links.
     """
-    from app.services.llm_service import llm_service
-    from app.models.chat import Message
     from app.schemas.canvas_schemas import DiscoverLinksResponse, DiscoveredLinkDetail
-    from app.services.debug_service import debug_service
     import json
 
     debug_service.log("INFO", "DiscoverLinks", f"Starting discovery for Canvas {canvas_id}", {
@@ -2138,19 +2171,18 @@ async def discover_links(
         "model": request.model
     })
 
-    # 1. Verify Canvas Access
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
-    ).first()
-    
-    if not canvas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Canvas not found"
-        )
-        
     try:
+        # 1. Verify Canvas Access
+        canvas = db.query(Canvas).filter(
+            Canvas.id == canvas_id,
+            Canvas.owner_id == current_user.id
+        ).first()
+        
+        if not canvas:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Canvas not found"
+            )
         # 2. Collect Entities
         things_map = {}
         domains_map = {}
@@ -2276,7 +2308,7 @@ async def discover_links(
                 }
         
         debug_service.log("INFO", "DiscoverLinks", f"Entities collected: {len(things_map)} Things, {len(domains_map)} Domains", {
-            "things": things_map,
+            "things": {k: {**v, "summary": (v["summary"][:100] + "...") if len(v["summary"]) > 100 else v["summary"]} for k,v in things_map.items()},
             "domains": domains_map
         })
 
@@ -2307,8 +2339,8 @@ async def discover_links(
                     "source_id": "UUID",
                     "target_id": "UUID",
                     "type": "one of the types above",
-                    "label": "A descriptive phrase explaining the link (max 5-6 words)",
-                    "rationale": "Brief explanation of why this link exists"
+                    "label": "Specific, causal, or evidence-based relationship phrase (e.g., 'provides statistical evidence for', 'defines the protocol for')",
+                    "description": "Extensive explanation (2-3 sentences) citing specific details from the content that justify this link."
                 }
             ]
         }
@@ -2318,10 +2350,11 @@ async def discover_links(
            - BAD: Label="references"
            - GOOD: Label="provides statistical evidence for"
            - GOOD: Label="defines the protocol used in"
-        2. **PREFER CAUSALITY**: If A causes B, or A is needed for B, use `triggers`, `influences`, or `prerequisites`.
-        3. **AVOID OBVIOUS**: Do not link things just because they are in the same domain. Link them only if their *content* interacts.
-        4. **DIRECTION MATTERS**: Ensure source->target direction makes logical sense for the chosen type (e.g. Evidence -> Hypothesis = PROVES).
-        5. **MULTIPLE LINKS**: It is acceptable to create multiple links between the same two entities IF they represent distinct relationships (e.g. A 'references' B AND A 'refutes' B).
+        2. **EXTENSIVE DESCRIPTION**: The description must explain *exactly* why these two things are linked, citing content from both.
+        3. **PREFER CAUSALITY**: If A causes B, or A is needed for B, use `triggers`, `influences`, or `prerequisites`.
+        4. **AVOID OBVIOUS**: Do not link things just because they are in the same domain. Link them only if their *content* interacts.
+        5. **DIRECTION MATTERS**: Ensure source->target direction makes logical sense for the chosen type (e.g. Evidence -> Hypothesis = PROVES).
+        6. **MULTIPLE LINKS**: It is acceptable to create multiple links between the same two entities IF they represent distinct relationships.
         """
         
         user_prompt = f"""
@@ -2428,13 +2461,16 @@ async def discover_links(
             if (source, target, model_type) in existing_keys:
                 continue
                 
+            description = link_data.get("description") or link_data.get("rationale", "")
+
             # Create Link
             new_link = CanvasLink(
                 canvas_id=canvas_id,
                 source_id=source,
                 target_id=target,
                 type=model_type,
-                label=label or None
+                label=label or None,
+                description=description or None
             )
             db.add(new_link)
             created_count += 1
@@ -2444,8 +2480,8 @@ async def discover_links(
                 source_id=source,
                 target_id=target,
                 type=model_type.value,
-                label=label,
-                rationale=link_data.get("rationale")
+                label=label or "Related",  # Fallback needed as schema requires str
+                description=description
             ))
             
         db.commit()
@@ -2459,11 +2495,20 @@ async def discover_links(
         )
 
     except Exception as e:
-        debug_service.log("ERROR", "DiscoverLinks", f"Unexpected Error: {str(e)}", {"traceback": traceback.format_exc()})
-        print(f"[DiscoverLinks] Error: {e}")
+        error_detail = f"Discover Links Failed: {str(e)}"
+        try:
+            # Try to log detailed debug info
+            import traceback
+            tb = traceback.format_exc()
+            debug_service.log("ERROR", "DiscoverLinks", error_detail, {"traceback": tb})
+            print(f"[DiscoverLinks Error] {error_detail}\n{tb}")
+        except Exception as log_err:
+            # Fallback if logging fails
+            print(f"[DiscoverLinks Critical] Could not log error: {log_err}")
+            print(f"[DiscoverLinks Original Error] {error_detail}")
 
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Always return the error to the client
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @router.post("/canvases/{canvas_id}/execute-template", response_model=ExecuteTemplateResponse)
@@ -2558,4 +2603,80 @@ async def execute_template_stream_endpoint(
             yield json.dumps({"type": "error", "content": str(e)}, cls=SafeJSONEncoder) + "\n"
             
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+
+@router.post("/canvases/{canvas_id}/bulk-delete")
+async def bulk_delete_items(
+    canvas_id: str,
+    request: BatchDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Bulk delete things and domains from a canvas.
+    """
+    from app.schemas.canvas_schemas import BatchDeleteRequest
+    
+    # 1. Verify Canvas Access
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        Canvas.owner_id == current_user.id
+    ).first()
+    
+    if not canvas:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Canvas not found"
+        )
+    
+    deleted_things_count = 0
+    deleted_domains_count = 0
+    
+    try:
+        # 2. Delete Things
+        if request.thing_ids:
+            things_to_delete = db.query(CanvasThing).filter(
+                CanvasThing.id.in_(request.thing_ids),
+                CanvasThing.canvas_id == canvas_id
+            ).all()
+            
+            for thing in things_to_delete:
+                content = thing.content or {}
+                asset_id = content.get("asset_id")
+                
+                db.delete(thing)
+                
+                if asset_id:
+                    try:
+                        from app.services.asset_service import asset_service
+                        asset_service.delete_asset(db, asset_id)
+                    except Exception as e:
+                        print(f"Failed to delete asset {asset_id}: {e}")
+                
+            deleted_things_count = len(things_to_delete)
+
+        # 3. Delete Domains
+        if request.domain_ids:
+            domains_to_delete = db.query(Domain).filter(
+                Domain.id.in_(request.domain_ids),
+                Domain.canvas_id == canvas_id
+            ).all()
+            
+            for domain in domains_to_delete:
+                db.delete(domain)
+                
+            deleted_domains_count = len(domains_to_delete)
+
+        db.commit()
+        
+        return {
+            "success": True,
+            "deleted_things": deleted_things_count,
+            "deleted_domains": deleted_domains_count
+        }
+
+    except Exception as e:
+        db.rollback()
+        print(f"Bulk delete error: {e}")
+        raise HTTPException(status_code=500, detail=f"Bulk delete failed: {str(e)}")
 

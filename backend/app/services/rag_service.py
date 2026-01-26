@@ -56,7 +56,16 @@ class RAGService:
             
             # --- Resolve Embedding Model from Preset (Priority) ---
             embedding_preset = self.config_service.get_default_embedding_preset()
+            llm_preset = self.config_service.get_default_llm_preset()
             
+            # Sync LlamaIndex Global Settings with User Config
+            if llm_preset:
+                window = llm_preset.get("context_window", 4096)
+                print(f"[RAGService] Syncing Settings.context_window to {window} from preset '{llm_preset['name']}'")
+                Settings.context_window = window
+            else:
+                print(f"[RAGService] No LLM Preset found. Using default context_window: {Settings.context_window}")
+
             if embedding_preset:
                 # Use Preset
                 model = embedding_preset.get("model_name")
@@ -419,8 +428,8 @@ class RAGService:
             print(f"[RAGService] Error creating LLM instance for {model_name}: {e}")
             return Settings.llm
 
-    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None, enable_vision: bool = True):
-        print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, Vision: {enable_vision})")
+    def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None, vision_model_name: Optional[str] = None, enable_vision: bool = False):
+        print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, VisionModel: {vision_model_name}, Vision: {enable_vision})")
         
         if self.index is None:
              error_msg = self.init_error or "RAG Service is not initialized. Please check your Embedding Model settings or API Key."
@@ -487,7 +496,7 @@ class RAGService:
                                 page_desc = loop.run_until_complete(vision_service.analyze(
                                      image_data=img_b64,
                                      prompt=prompt,
-                                     model_name=model_name or "default" # Use passed model or default
+                                     model_name=vision_model_name or model_name or "default" # Use specific vision model, or fallback to LLM model, or default
                                 ))
                                 loop.close()
                                 
@@ -779,6 +788,23 @@ class RAGService:
                 return f.read()
         except Exception as e:
             return f"Error reading file: {str(e)}"
+
+    def delete_by_source(self, source_path: str):
+        """
+        Delete all embeddings associated with a specific source file path,
+        regardless of conversation_id. This is used for Asset deletion.
+        """
+        try:
+             # Sanitize path format if needed (Windows vs Linux)
+             # ChromaDB stores exact string.
+             print(f"[RAGService] Globally deleting embeddings for source: {source_path}")
+             self.chroma_collection.delete(
+                 where={"source": source_path}
+             )
+             return True
+        except Exception as e:
+            print(f"[RAGService] Error deleting by source {source_path}: {e}")
+            return False
 
     def delete_document(self, conversation_id: str, filename: str):
         file_path = f"data/uploads/{conversation_id}/{filename}"

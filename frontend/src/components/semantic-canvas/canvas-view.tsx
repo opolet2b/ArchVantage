@@ -68,6 +68,18 @@ import { useConversation } from "@/lib/conversation-context";
 import { useViewMode } from "@/lib/view-mode-context";
 import { Switch } from "@/components/ui/switch";
 import { ContextualTrainer, TrainerStep } from "@/components/ui/contextual-trainer";
+import { Trash2 } from "lucide-react";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 // =============================================================================
 // Node Types
@@ -137,6 +149,7 @@ function CanvasViewInner() {
         toggleShowLinks,
         semanticZoomEnabled,
         setSemanticZoomEnabled,
+        deleteSelectedNodes,
     } = useCanvasStore();
 
     // Model state from store
@@ -376,8 +389,12 @@ function CanvasViewInner() {
 
     // Convert domains to React Flow nodes (memoized, rendered behind things)
     // Handle domain resize end
-    const handleDomainResize = React.useCallback((domainId: string, width: number, height: number) => {
-        updateDomain(domainId, { width, height });
+    // Handle domain resize end
+    const handleDomainResize = React.useCallback((domainId: string, width: number, height: number, x?: number, y?: number) => {
+        const updates: any = { width, height };
+        if (x !== undefined) updates.position_x = x;
+        if (y !== undefined) updates.position_y = y;
+        updateDomain(domainId, updates);
     }, [updateDomain]);
 
     const domainNodes: Node[] = React.useMemo(() => domains.map((domain) => {
@@ -1505,14 +1522,30 @@ function CanvasViewInner() {
                 return;
             }
 
-            toast({
+            const { id: toastId, update: updateToast } = toast({
                 title: "Discovering Links",
-                description: "Analyzing semantic connections between items...",
+                description: "Analyzing selection and building links... (this may take a moment)",
+                duration: 1000000, // Persistent until updated
             });
 
             // Call store
             const result = await discoverLinks(tIds, dIds);
+
             if (result) {
+                updateToast({
+                    id: toastId,
+                    title: "Discovery Complete",
+                    description: `Found ${result.links_created} new links.`,
+                    duration: 5000,
+                });
+            } else {
+                updateToast({
+                    id: toastId,
+                    title: "Discovery Failed",
+                    description: "Could not discover links. See console for details.",
+                    variant: "destructive",
+                    duration: 5000,
+                });
             }
         } else if (action === "summary_analysis" || action === "identify_purpose") {
             const { selectedThingIds, selectedDomainIds, analyzeBatch, addThing, addLink, selectedModel } = useCanvasStore.getState();
@@ -2408,6 +2441,41 @@ function CanvasViewInner() {
                         <RefreshCcw className="h-4 w-4 mr-2" />
                         Sync All
                     </Button>
+
+                    <div className="h-6 w-px bg-border mx-2" />
+
+                    {/* Delete Selected Button */}
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button
+                                variant="destructive"
+                                size="sm"
+                                className="h-8 shadow-sm"
+                                disabled={selectedThingIds.length === 0 && selectedDomainIds.length === 0}
+                            >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete ({selectedThingIds.length + selectedDomainIds.length})
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Selected Items?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    This will permanently delete {selectedThingIds.length} things and {selectedDomainIds.length} domains.
+                                    Any associated assets will also be removed. This action cannot be undone.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={() => deleteSelectedNodes()}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                    Delete
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 </div>
             </div>
 

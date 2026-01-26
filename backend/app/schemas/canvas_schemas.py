@@ -379,7 +379,7 @@ class DiscoveredLinkDetail(BaseModel):
     target_id: str
     type: str # LinkType but looser for LLM output tolerance
     label: str
-    rationale: Optional[str] = None
+    description: Optional[str] = None
 
 
 
@@ -409,6 +409,16 @@ class ExecuteTemplateResponse(BaseModel):
     status: str
     message: str
 
+
+
+# =============================================================================
+# Bulk Operations
+# =============================================================================
+
+class BatchDeleteRequest(BaseModel):
+    """Request to batch delete things and domains."""
+    thing_ids: List[str] = []
+    domain_ids: List[str] = []
 
 
 # =============================================================================

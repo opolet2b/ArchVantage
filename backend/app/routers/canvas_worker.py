@@ -50,6 +50,9 @@ async def handle_async_vectorization(
                     
                     # Resolve Vision Model preference
                     # Frontend stores this in 'vision_model' or 'visionModel'
+                    # DEBUG: Log settings to trace missing vision model
+                    print(f"[CanvasWorker] Resolving models with owner_config keys: {list(settings.keys())}")
+                    
                     canvas_vision_model = (
                         settings.get("vision_model") or
                         settings.get("visionModel") or
@@ -108,8 +111,10 @@ async def handle_async_vectorization(
                      image_data = base64.b64encode(img_file.read()).decode('utf-8')
                      
                  # 2. Get Vision Model preference
-                 vision_model = thing.content.get("vision_model", canvas_vision_model)
-                 print(f"[CanvasWorker] Using Vision Model: {vision_model}")
+                 # Fix: If thing has "default" set, ignore it and fall back to canvas setting
+                 item_model = thing.content.get("vision_model")
+                 vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
+                 print(f"[CanvasWorker] Using Vision Model: {vision_model} (Item: {item_model}, Global: {canvas_vision_model})")
                  
                  # 3. Analyze
                  description = await vision_service.analyze(
@@ -282,7 +287,8 @@ async def handle_async_vectorization(
                              
                              b64_data = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
                              
-                             vision_model = thing.content.get("vision_model", canvas_vision_model)
+                             item_model = thing.content.get("vision_model")
+                             vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
                              # Improved Prompt for Optical Character Recognition + Summary
                              prompt_text = (
                              "Identify the main title and key points in this slide. Summarize the content."
@@ -611,10 +617,17 @@ async def handle_async_vectorization(
                                 if asset:
                                     from app.services.asset_service import STORAGE_ROOT
                                     file_path = str(STORAGE_ROOT / asset.file_path)
+                                    item_model = thing.content.get("vision_model")
+                                    # Fallback to canvas vision model if not set on item
+                                    v_model = item_model if item_model and item_model != "default" else canvas_vision_model
+                                    
                                     rag_service.ingest_file(
                                         file_path=file_path,
                                         conversation_id=canvas_id,
-                                        metadata=meta
+                                        metadata=meta,
+                                        model_name=canvas_model,
+                                        vision_model_name=v_model,
+                                        enable_vision=True # We want vision for scraped PDFs
                                     )
                             else:
                                 rag_service.ingest_text(content, metadata=meta)
@@ -662,11 +675,27 @@ async def handle_async_vectorization(
             if thing.content.get("asset_id"):
                 meta["asset_id"] = thing.content.get("asset_id")
             
+            # Resolve vision model for this item (handling "default" override)
+            item_model = thing.content.get("vision_model")
+            vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
+            
+            # DEBUG TRACE
+            print(f"[CanvasWorker] DEBUG MODEL TRACE for Thing {thing_id}:")
+            print(f"  - Content Keys: {list(thing.content.keys())}")
+            print(f"  - Item Model (Raw): '{item_model}'")
+            print(f"  - Global Canvas Vision Model: '{canvas_vision_model}'")
+            print(f"  - Computed Vision Model: '{vision_model}'")
+            print(f"  - Canvas LLM Model: '{canvas_model}'")
+
+            # We explicitly disable vision in RAG Service because CanvasWorker handles hybrid analysis manually 
+            # in Phase 3 (lines 800+). Enabling it here would cause double-processing.
             result = rag_service.ingest_file(
                 file_path, 
+                metadata=meta, # Fixed: was missing!
                 progress_callback=update_progress,
                 model_name=canvas_model,
-                enable_vision=False # CanvasWorker handles vision with UI progress updates
+                vision_model_name=vision_model,
+                enable_vision=False 
             )
             
             if result.get("status") == "success":
@@ -721,7 +750,8 @@ async def handle_async_vectorization(
                          
                          # 2. Transcribe each page
                          # Reuse vision model setting if available, else default
-                         vision_model = thing.content.get("vision_model", canvas_vision_model)
+                         item_model = thing.content.get("vision_model")
+                         vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
                          
                          full_description = []
                          total_pages = len(images)
@@ -809,7 +839,8 @@ async def handle_async_vectorization(
                              # Note: convert_pdf_to_images returns list corresponding to indices
                              images = pdf_service.convert_pdf_to_images(file_path, page_indices=visual_pages)
                              
-                             vision_model = thing.content.get("vision_model", canvas_vision_model)
+                             item_model = thing.content.get("vision_model")
+                             vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
                              hybrid_descriptions = []
                              
                              for idx, (real_page_num, img_b64) in enumerate(zip(visual_pages, images)):

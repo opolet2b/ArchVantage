@@ -94,8 +94,16 @@ export function useAnalyze(): UseAnalyzeReturn {
                 );
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.detail || "Analysis failed");
+                    console.error(`[useAnalyze] Request failed with status: ${response.status} ${response.statusText}`);
+                    const errorText = await response.text();
+                    console.error(`[useAnalyze] Error body: ${errorText}`);
+                    let detail = "Analysis failed";
+                    try {
+                        const json = JSON.parse(errorText);
+                        if (json.detail) detail = json.detail;
+                    } catch (e) { /* ignore json parse error */ }
+
+                    throw new Error(detail);
                 }
 
                 const data = await response.json();

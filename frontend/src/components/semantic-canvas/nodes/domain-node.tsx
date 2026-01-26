@@ -26,7 +26,7 @@ interface DomainNodeData {
     parentName?: string; // Name of parent domain for display
     onUpdate?: (domainId: string, updates: { name?: string; description?: string; color?: string }) => void;
     onContextMenu?: (event: React.MouseEvent, domainId: string) => void;
-    onResizeEnd?: (domainId: string, width: number, height: number) => void;
+    onResizeEnd?: (domainId: string, width: number, height: number, x?: number, y?: number) => void;
 }
 
 // ... resize styles ...
@@ -166,7 +166,7 @@ export const DomainNode = React.memo(function DomainNode({ data, selected }: Nod
                 lineStyle={lineHandleStyle}
                 onResizeEnd={(_e, params) => {
                     if (data.onResizeEnd) {
-                        data.onResizeEnd(domain.id, params.width, params.height);
+                        data.onResizeEnd(domain.id, params.width, params.height, params.x, params.y);
                     }
                 }}
             />

@@ -255,6 +255,9 @@ interface CanvasState {
     updateThings: (updates: { id: string; updates: Partial<CanvasThing> }[]) => Promise<void>;
     deleteLink: (linkId: string) => Promise<void>;
 
+    // Selection actions
+    deleteSelectedNodes: () => Promise<void>;
+
     // Domain actions
     addDomain: (
         name: string,
@@ -526,12 +529,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     // Update canvas settings
     updateCanvasSettings: async (settings) => {
-        const { canvasId } = get();
+        const { canvasId, canvasSettings } = get();
         const token = getAuthToken();
         if (!token || !canvasId) return;
 
-        // Optimistic update
-        set({ canvasSettings: settings });
+        // Merge with existing settings for local optimistic update
+        const newSettings = { ...(canvasSettings || {}), ...settings };
+        set({ canvasSettings: newSettings });
 
         try {
             await fetch(`${API_URL}/canvases/${canvasId}`, {
@@ -540,11 +544,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ owner_config: settings }),
+                body: JSON.stringify({ owner_config: settings }), // Backend handles merging too, but we could send newSettings to be safe
             });
-            // Should update local state if we had it.
         } catch (err) {
             console.error("Failed to save canvas settings:", err);
+            // Revert on error? Complex to revert partial merge, skipping for now.
         }
     },
 
@@ -1353,6 +1357,63 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Clear selection
     clearSelection: () => {
         set({ selectedThingIds: [], selectedDomainIds: [] });
+    },
+
+    // Delete selected nodes
+    deleteSelectedNodes: async () => {
+        const { canvasId, selectedThingIds, selectedDomainIds } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return;
+
+        if (selectedThingIds.length === 0 && selectedDomainIds.length === 0) return;
+
+        // Optimistic update: Remove from local state immediately
+        const { things, domains } = get();
+
+        set({
+            things: things.filter(t => !selectedThingIds.includes(t.id)),
+            domains: domains.filter(d => !selectedDomainIds.includes(d.id)),
+            // Also need to clean up links connected to deleted things? 
+            // The backend handles cascade, but frontend might have stale links.
+            // Let's filter links too.
+            links: get().links.filter(l =>
+                !selectedThingIds.includes(l.source_id) &&
+                !selectedThingIds.includes(l.target_id)
+            ),
+            selectedThingIds: [],
+            selectedDomainIds: [],
+            isLoading: true
+        });
+
+        try {
+            const res = await fetch(`${API_URL}/canvases/${canvasId}/bulk-delete`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    thing_ids: selectedThingIds,
+                    domain_ids: selectedDomainIds
+                }),
+            });
+
+            if (!res.ok) {
+                const err = await res.text();
+                throw new Error(err);
+            }
+
+            // Success - maybe refresh to ensure sync? 
+            // Or trust optimistic update.
+            // Let's trust optimistic for smoothness, but set loading false.
+            set({ isLoading: false });
+
+        } catch (e) {
+            console.error("Bulk delete failed", e);
+            // Revert state? Ideally yes, but for now just show error and refresh
+            set({ error: "Failed to delete items", isLoading: false });
+            get().loadCanvas(canvasId); // Reload to restore state
+        }
     },
 
     // Batch Analysis

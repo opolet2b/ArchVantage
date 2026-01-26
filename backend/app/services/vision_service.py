@@ -317,7 +317,7 @@ class VisionService:
             if provider == self._providers["openai"]:
                 api_key = os.getenv("OPENAI_API_KEY") # explicit fallback to be safe
 
-        provider_name = "Ollama" if isinstance(provider, OllamaVisionProvider) else "OpenAI"
+        provider_name = "Ollama" if isinstance(provider, OllamaVisionProvider) else "OpenAI-compatible (e.g. OpenRouter/vLLM)"
         print(f"[VisionService] Routing to provider: {provider_name} with tag: '{actual_model_tag}'")
         
         # Log approximate image size to verify cropping

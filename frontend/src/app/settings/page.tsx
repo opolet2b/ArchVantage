@@ -12,6 +12,7 @@ import { PromptsSettingsTab } from "@/components/settings/prompts-settings-tab"
 import { DatabaseSettingsTab } from "@/components/settings/database-settings-tab"
 import { StylingSettingsTab } from "@/components/settings/styling-settings-tab"
 import { QueryingSettingsTab } from "@/components/settings/querying-settings-tab"
+import { MaintenanceTab } from "@/components/settings/maintenance-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
@@ -151,6 +152,14 @@ export default function SettingsPage() {
                                 Templates
                             </Button>
                         )}
+                        <Button
+                            variant={activeTab === "maintenance" ? "secondary" : "ghost"}
+                            className="justify-start gap-2 text-amber-600 hover:text-amber-700"
+                            onClick={() => handleTabChange("maintenance")}
+                        >
+                            <Bug className="h-4 w-4" />
+                            Maintenance
+                        </Button>
                     </aside>
 
                     <main className="flex-1">
@@ -168,6 +177,7 @@ export default function SettingsPage() {
                         {activeTab === "prompts" && <PromptsSettingsTab />}
                         {activeTab === "database" && <DatabaseSettingsTab />}
                         {activeTab === "templates" && isAdmin && <TemplatesSettingsTab />}
+                        {activeTab === "maintenance" && <MaintenanceTab />}
                     </main>
                 </div>
             </div>

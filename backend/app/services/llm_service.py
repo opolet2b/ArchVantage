@@ -12,7 +12,7 @@ class LLMService:
         # Ensure API keys are set in environment variables for cloud models
         pass
 
-    def _get_model(self, model_name: str):
+    def _resolve_preset(self, model_name: str):
         if not model_name:
             model_name = "default"
 
@@ -36,6 +36,11 @@ class LLMService:
              preset = config_service.get_default_llm_preset()
              if preset:
                  print(f"[LLMService] Warning: Requested model '{model_name}' not found. Falling back to default preset '{preset['name']}'.")
+        
+        return preset
+
+    def _get_model(self, model_name: str):
+        preset = self._resolve_preset(model_name)
 
         if preset:
             if preset.get("type") == "local":
@@ -79,6 +84,61 @@ class LLMService:
             # Final fallback
             print(f"[LLMService] No preset or pattern match for '{model_name}'. Falling back to GPT-3.5-Turbo.")
             return ChatOpenAI(model="gpt-3.5-turbo")
+
+    def _get_llama_index_model(self, model_name: str):
+        """Returns a LlamaIndex-native LLM object for the given model/preset."""
+        preset = self._resolve_preset(model_name)
+        
+        window = 4096
+        if preset:
+            window = preset.get("context_window", 4096)
+            m_name = preset.get("model_name") or "gpt-3.5-turbo"
+            api_url = preset.get("api_url") or ""
+            
+            if preset.get("type") == "local":
+                from llama_index.llms.ollama import Ollama
+                return Ollama(model=m_name, base_url="http://localhost:11434", context_window=window)
+            elif preset.get("type") == "remote":
+                # Use OpenAI class ONLY for real OpenAI models to avoid name validation crashes
+                is_openai = m_name.startswith("gpt-") or "api.openai.com" in api_url
+                
+                if is_openai:
+                    from llama_index.llms.openai import OpenAI
+                    return OpenAI(
+                        model=m_name,
+                        api_key=preset.get("service_api_key"),
+                        api_base=api_url if api_url else None,
+                        context_window=window
+                    )
+                else:
+                    # For OpenRouter, Gemini, DeepSeek, etc. via OpenAI-compatible APIs
+                    from llama_index.llms.openai_like import OpenAILike
+                    return OpenAILike(
+                        model=m_name,
+                        api_key=preset.get("service_api_key"),
+                        api_base=api_url,
+                        context_window=window,
+                        is_chat_model=True
+                    )
+        
+        # Fallbacks for LlamaIndex
+        if model_name.startswith("ollama"):
+            from llama_index.llms.ollama import Ollama
+            model_id = model_name.replace("ollama/", "")
+            return Ollama(model=model_id)
+        elif model_name.startswith("openrouter") or "/" in model_name:
+            # If it has a slash, it's likely a provider/model pair (OpenRouter style)
+            from llama_index.llms.openai_like import OpenAILike
+            m_id = model_name.replace("openrouter/", "")
+            return OpenAILike(
+                model=m_id,
+                api_key=os.getenv("OPENROUTER_API_KEY"),
+                api_base="https://openrouter.ai/api/v1",
+                is_chat_model=True
+            )
+        
+        from llama_index.llms.openai import OpenAI
+        return OpenAI(model="gpt-3.5-turbo")
 
     def _convert_messages(self, messages: List[Message]) -> List[BaseMessage]:
         converted = []

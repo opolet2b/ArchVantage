@@ -63,7 +63,12 @@ async def upload_file(conversation_id: str, file: UploadFile = File(...)):
         result = await run_in_threadpool(
             rag_service.ingest_file,
             file_path, 
-            conversation_id
+            conversation_id,
+            metadata=None,
+            progress_callback=None,
+            model_name=None,
+            vision_model_name=None,
+            enable_vision=True
         )
         
         return {

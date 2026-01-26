@@ -26,13 +26,16 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
     """
     Helper to resolve context for a conversation.
     Returns a dict with:
-      - system_prompt_addendum: The text to add to system prompt
-      - linked_items: List of items found
+      - nodes: List[NodeWithScore] (LlamaIndex nodes for synthesis)
+      - manifest_text: The text list of items found
+      - linked_items: List of items found metadata
+      - citations: List of items for frontend
       - debug_log: List of strings describing what happened
     """
     from app.models.canvas_models import CanvasThing, CanvasLink, Domain
     from sqlalchemy import or_
     from app.services.rag_service import rag_service
+    from llama_index.core.schema import NodeWithScore, TextNode
     
     debug_log = []
     debug_log.append(f"Resolving context for {conversation_id}")
@@ -43,6 +46,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
     
     linked_ids = set()
     linked_items_summary = []
+    nodes = [] # Collect NodeWithScore here
     
     if convo_node:
         debug_log.append(f"Found conversation node: {convo_node.id}")
@@ -109,14 +113,11 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
             for t in all_things:
                 linked_ids.add(t.id)
 
-        # Process Linked IDs
-        context_parts = []
         if linked_ids:
             linked_nodes = db.query(CanvasThing).filter(CanvasThing.id.in_(list(linked_ids))).all()
             debug_log.append(f"Found {len(linked_nodes)} linked context nodes.")
             
             rag_candidates = []
-            text_context = []
             used_citation_ids = set()
             
             for node in linked_nodes:
@@ -125,13 +126,26 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 if node.content.get("asset_id"):
                     rag_candidates.append({"thing_id": node.id, "asset_id": node.content["asset_id"]})
                 
+                # Capture Text Context as TextNodes
                 if node.type in ["text", "message", "agent_result", "url"]:
                     txt = node.content.get("text") or node.content.get("content") or ""
                     if txt:
-                        text_context.append(f"[{node.title or 'Note'}]: {txt}")
+                        nodes.append(NodeWithScore(
+                            node=TextNode(
+                                text=f"[{node.title or 'Note'}]: {txt}", 
+                                metadata={"thing_id": node.id, "type": node.type}
+                            ),
+                            score=1.0
+                        ))
                         
                 if node.content.get("generated_description"):
-                    text_context.append(f"[Image Description: {node.title}]: {node.content['generated_description']}")
+                    nodes.append(NodeWithScore(
+                        node=TextNode(
+                            text=f"[Image Description: {node.title}]: {node.content['generated_description']}",
+                            metadata={"thing_id": node.id, "type": "image"}
+                        ),
+                        score=1.0
+                    ))
 
             # A. Retrieve from RAG for Assets
             if rag_candidates:
@@ -141,52 +155,46 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 
                 for cand in rag_candidates:
                     tid = cand["thing_id"]
-                    aid = cand["asset_id"]
-                    
-                    # We filter by THING_ID because that is what is in the DB metadata
-                    # (Asset ID was missing in metadata due to bug)
-                    results = rag_service.search(
-                        query, 
-                        filters={"thing_id": tid}, 
-                        k=3
-                    )
+                    results = rag_service.search(query, filters={"thing_id": tid}, k=3)
                     
                     if results:
                         used_citation_ids.add(tid)
                         for res in results:
-                            context_parts.append(f"[Document Context]: {res['text']}")
+                            nodes.append(NodeWithScore(
+                                node=TextNode(text=res['text'], metadata=res.get('metadata', {})),
+                                score=res.get('score', 1.0)
+                            ))
                     else:
-                        # Fallback: If specific query yielded no results, try to fetch a summary/intro
-                        debug_log.append(f"No results for thing {tid} (asset {aid}). Attempting fallback...")
+                        # Fallback
                         fallback_results = rag_service.search(
-                            "Summary Introduction Abstract", 
-                            filters={"thing_id": tid}, 
-                            k=2
+                            "Summary Introduction Abstract", filters={"thing_id": tid}, k=2
                         )
                         if fallback_results:
                             used_citation_ids.add(tid)
-                            debug_log.append(f"Fallback successful for {tid}")
                             for res in fallback_results:
-                                context_parts.append(f"[Document Context (Summary/Preview)]: {res['text']}")
-                        else:
-                             debug_log.append(f"Fallback also empty for {tid}")
+                                nodes.append(NodeWithScore(
+                                    node=TextNode(text=res['text'], metadata=res.get('metadata', {})),
+                                    score=res.get('score', 0.8)
+                                ))
 
             # B. Add Raw Text Context
             for node in linked_nodes:
                  if node.type == "document" and node.content.get("content"):
-                      content_len = len(node.content.get("content", ""))
-                      if content_len < 10000:
-                           text_context.append(f"[{node.title}]: {node.content['content']}")
+                      nodes.append(NodeWithScore(
+                          node=TextNode(
+                              text=f"[{node.title}]: {node.content['content']}",
+                              metadata={"thing_id": node.id, "type": "document"}
+                          ),
+                          score=1.0
+                      ))
 
-            context_parts.extend(text_context)
-            
+
             # C. Generate Context Manifest
             manifest_text = "You have access to the following context items:\n"
             for node in linked_nodes:
                  manifest_text += f"- {node.title} ({node.type})\n"
 
             # D. Inject Graph Relationships
-            # Query links where both source and target are in our context set
             if linked_ids:
                 relevant_links = db.query(CanvasLink).filter(
                     CanvasLink.source_id.in_(list(linked_ids)),
@@ -194,11 +202,9 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 ).all()
                 
                 if relevant_links:
-                    manifest_text += "\nKNOWN RELATIONSHIPS:\n"
-                    # Map IDs to Titles for readability
+                    rel_text = "\nKNOWN RELATIONSHIPS:\n"
                     id_to_title = {n.id: n.title or "Untitled" for n in linked_nodes}
                     
-                    # Also fetch Domains if they are in the linked set
                     linked_domains = db.query(Domain).filter(Domain.id.in_(list(linked_ids))).all()
                     for d in linked_domains:
                         id_to_title[d.id] = d.name
@@ -207,90 +213,18 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                         src = id_to_title.get(link.source_id, "Unknown")
                         tgt = id_to_title.get(link.target_id, "Unknown")
                         res = link.type.value
-                        
-                        # Include label if present
-                        if link.label:
-                            res += f": \"{link.label}\""
-                        
-                        # Include description if present
-                        if link.description:
-                            res += f" ({link.description})"
-                            
-                        manifest_text += f"- \"{src}\" --[{res}]--> \"{tgt}\"\n"
+                        if link.label: res += f": \"{link.label}\""
+                        if link.description: res += f" ({link.description})"
+                        rel_text += f"- \"{src}\" --[{res}]--> \"{tgt}\"\n"
                     
-                    debug_log.append(f"Injected {len(relevant_links)} graph relationships into context.")
+                    # Add relationships as a special node
+                    nodes.append(NodeWithScore(
+                        node=TextNode(text=rel_text, metadata={"type": "relationships"}),
+                        score=1.0
+                    ))
 
-            # Construct full context block
-            context_data_text = manifest_text + "\n"
-            if context_parts:
-                context_data_text += "Answer the user's question based on the following linked context:\n\n"
-                context_data_text += "\n---\n".join(context_parts)
-                context_data_text += "\n\nIf the information is not in the context, say so, but you can use general knowledge if appropriate."
-            else:
-                context_data_text += "No specific text content was retrieved for these items (they may be large files, images, or empty).\n"
-                context_data_text += "Answer the user's question to the best of your ability."
-
-            # Legacy full system prompt for backward compatibility or direct system injection
-            system_prompt = (
-                "You are a helpful assistant with access to a Semantic Canvas.\n" +
-                context_data_text
-            )
-
-            # --- DEBUG LOGGING TO FILE ---
-            try:
-                import os
-                from datetime import datetime
-                
-                # Ensure logs directory exists
-                log_dir = "data/logs"
-                if not os.path.exists(log_dir):
-                    os.makedirs(log_dir)
-                
-                # Generate filename
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"{log_dir}/context_debug_{conversation_id}_{timestamp}.txt"
-                
-                with open(filename, "w", encoding="utf-8") as f:
-                    f.write(f"DEBUG LOG FOR CONVERSATION: {conversation_id}\n")
-                    f.write(f"TIMESTAMP: {timestamp}\n")
-                    f.write(f"LAST USER MESSAGE: {last_user_message}\n")
-                    f.write("="*80 + "\n\n")
-                    
-                    f.write("--- EXECUTION LOG ---\n")
-                    for line in debug_log:
-                        f.write(f"{line}\n")
-                    f.write("\n")
-                    
-                    f.write("--- LINKED ITEMS SUMMARY ---\n")
-                    for item in linked_items_summary:
-                        f.write(f"- [{item['type']}] {item['title']} (ID: {item['id']})\n")
-                    f.write("\n")
-                    
-                    f.write("--- CITATIONS (USED IN CONTEXT) ---\n")
-                    for cid in used_citation_ids:
-                         f.write(f"- {cid}\n")
-                    f.write("\n")
-
-                    f.write("--- MANIFEST TEXT ---\n")
-                    f.write(manifest_text)
-                    f.write("\n")
-                    
-                    f.write("--- FULL CONTEXT DATA (LLM INPUT) ---\n")
-                    f.write(context_data_text)
-                    f.write("\n" + "="*80 + "\n")
-                    
-                debug_log.append(f"EXTENSIVE DEBUG LOG WRITTEN TO: {filename}")
-                print(f"[ContextDebug] Log saved to {filename}")
-                
-            except Exception as e:
-                err_msg = f"Failed to write debug log file: {str(e)}"
-                debug_log.append(err_msg)
-                print(f"[ContextDebug] Error: {err_msg}")
-            # -----------------------------
-            
             return {
-                "system_prompt_addendum": system_prompt, # Keeping for debug
-                "context_data_text": context_data_text,  # New structured return
+                "nodes": nodes,
                 "manifest_text": manifest_text,
                 "linked_items": linked_items_summary,
                 "citations": [
@@ -301,8 +235,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
             }
             
     return {
-        "system_prompt_addendum": None, 
-        "context_data_text": None,
+        "nodes": [], 
         "manifest_text": None,
         "linked_items": [], 
         "citations": [],
@@ -336,97 +269,94 @@ async def chat_endpoint(
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Standard chat endpoint with RAG context support.
-    
-    If conversation_id is provided, it resolves linked Canvas context.
-    If NOT provided (Generic Sidebar Chat), it searches "Sidebar Uploads" for the user.
+    Standard chat endpoint with LlamaIndex-native context management.
     """
     from app.services.rag_service import rag_service
+    from llama_index.core import get_response_synthesizer
+    from llama_index.core.schema import NodeWithScore, TextNode
     
     final_messages = list(request.messages)
-    
-    # Extract last user message for query
     last_msg = ""
     for m in reversed(request.messages):
         if m.role == "user":
             last_msg = m.content
             break
 
+    total_nodes = []
+    citations = []
+
     if request.conversation_id:
-        # Resolve Canvas Context
+        # Resolve Canvas Context (Nodes)
         ctx_result = resolve_conversation_context(db, request.conversation_id, last_msg)
+        total_nodes.extend(ctx_result.get("nodes", []))
+        citations = ctx_result.get("citations", [])
         
-        # Inject Context into System Prompt
-        if ctx_result["system_prompt_addendum"]:
-            # We inject this as a hidden system message or append to the last user message
-            # For robustness, we'll append to the last user message so the model definitely sees it
-            
-            # Find last user message in final_messages to append context
-            for i in range(len(final_messages) - 1, -1, -1):
-                if final_messages[i].role == "user":
-                    # Append context cleanly
-                    final_messages[i].content += f"\n\n--- RELEVANT CONTEXT ---\n{ctx_result['context_data_text']}\n------------------------"
-                    break
-        
-        # FALLBACK: If no Canvas items were found, this might be a pure Sidebar Chat
-        # Check if there are documents directly associated with this conversation_id (via rag.py upload)
+        # FALLBACK: Check for direct RAG content
         if not ctx_result.get("linked_items"):
-            print(f"[Chat] No Canvas links found. Checking for direct RAG content for conversation {request.conversation_id}")
-            direct_results = rag_service.search(
-                last_msg, 
-                conversation_id=request.conversation_id, 
-                k=3,
-                response_mode="simple"
-            )
-            
-            if direct_results:
-                 print(f"[Chat] Found {len(direct_results)} direct RAG items for conversation.")
-                 direct_context = "\n".join([f"[Document Context]: {res['text']}" for res in direct_results])
-                 
-                 # Inject into last user message
-                 for i in range(len(final_messages) - 1, -1, -1):
-                    if final_messages[i].role == "user":
-                        # If we already added context (unlikely if linked_items was empty, but safe to check), append
-                        if "--- RELEVANT CONTEXT ---" in str(final_messages[i].content):
-                             final_messages[i].content += f"\n\n--- ADDITIONAL CONTEXT ---\n{direct_context}\n--------------------------"
-                        else:
-                             final_messages[i].content += f"\n\n--- UPLOADED FILE CONTEXT ---\n{direct_context}\n-----------------------------"
-                        break
-    
+            direct_results = rag_service.search(last_msg, conversation_id=request.conversation_id, k=3)
+            for res in direct_results:
+                total_nodes.append(NodeWithScore(
+                    node=TextNode(text=res['text'], metadata=res.get('metadata', {})),
+                    score=res.get('score', 1.0)
+                ))
     else:
-        # GENERIC SIDEBAR CHAT FALLBACK
-        # Search all assets uploaded by this user via the sidebar
-        print(f"[Chat] Generic chat request from user {current_user.id}. Query: {last_msg}")
+        # Sidebar Generic Fallback
+        results = rag_service.search(last_msg, filters={"owner_id": current_user.id, "source": "sidebar_upload"}, k=3)
+        for res in results:
+            total_nodes.append(NodeWithScore(
+                node=TextNode(text=res['text'], metadata=res.get('metadata', {})),
+                score=res.get('score', 1.0)
+            ))
+
+    # Detect active model/preset
+    active_model = request.model
+    if active_model == "default" and request.conversation_id:
+        # Check if the canvas has a preferred model set in owner_config
+        from app.models.canvas_models import CanvasThing, Canvas
+        convo_thing = db.query(CanvasThing).filter(
+            CanvasThing.type == "conversation",
+            CanvasThing.content["conversation_id"].astext == request.conversation_id
+        ).first()
+        if convo_thing and convo_thing.canvas_id:
+            canvas = db.query(Canvas).filter(Canvas.id == convo_thing.canvas_id).first()
+            if canvas and canvas.owner_config and canvas.owner_config.get("selected_preset"):
+                active_model = canvas.owner_config["selected_preset"]
+                print(f"[Chat] Using canvas-specific preset: {active_model}")
+
+    if total_nodes:
+        # Use LlamaIndex Response Synthesizer to handle token budgeting
+        # 'compact' mode packs as many nodes as possible, and iterates if they don't fit.
+        from llama_index.core import Settings
         
-        results = rag_service.search(
-            last_msg,
-            filters={
-                "owner_id": current_user.id,
-                "source": "sidebar_upload"
-            },
-            k=3,
-            response_mode="simple"
+        # Determine appropriate response mode
+        rmode = "compact"
+        if last_msg.lower() in ["summary", "summarize", "what is this", "tell me about this"]:
+            rmode = "tree_summarize"
+            
+        synthesizer = get_response_synthesizer(
+            response_mode=rmode,
+            llm=llm_service._get_llama_index_model(active_model),
+            use_async=True
         )
         
-        if results:
-            print(f"[Chat] Found {len(results)} generic context items for user.")
-            context_text = "\n".join([f"[Document Context]: {res['text']}" for res in results])
-            
-            # Inject into last user message
-            for i in range(len(final_messages) - 1, -1, -1):
-                if final_messages[i].role == "user":
-                    final_messages[i].content += f"\n\n--- UPLOADED FILE CONTEXT ---\n{context_text}\n-----------------------------"
-                    break
-        else:
-            print("[Chat] No generic context found.")
-
-
-    response_content = await llm_service.chat(final_messages, request.model)
-    
-    # Extract citations from context logic (if available)
-    citations = []
-    if request.conversation_id and "ctx_result" in locals():
-         citations = ctx_result.get("citations", [])
+        # Construct the "Query" for synthesis
+        # We include the conversation history context for the synthesizer
+        history_summary = ""
+        if len(final_messages) > 1:
+            prev_msgs = final_messages[:-1]
+            history_summary = "Conversation history:\n" + "\n".join([f"{m.role}: {m.content[:200]}..." for m in prev_msgs[-5:]])
+        
+        full_query = f"{history_summary}\n\nUser Question: {last_msg}"
+        
+        # Synthesize response using nodes
+        response_content = await synthesizer.asynthesize(
+            query=full_query,
+            nodes=total_nodes
+        )
+        response_content = str(response_content)
+    else:
+        # Simple LLM call if no context
+        response_content = await llm_service.chat(final_messages, active_model)
 
     return ChatResponse(role="assistant", content=response_content, citations=citations)
 

@@ -28,6 +28,8 @@ engine = create_engine(
     connect_args=connect_args,
     pool_pre_ping=True,  # Verify connections before use
     pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_size=20,        # Increase pool size to 20 (default 5)
+    max_overflow=20      # Increase max overflow to 20 (default 10)
 )
 
 def get_db_path():

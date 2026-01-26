@@ -270,7 +270,25 @@ class AssetService:
             except Exception as e:
                 print(f"[AssetService] Error deleting sidecar {sidecar_path}: {e}")
                 
-        # 3. Delete DB Record
+        # 3. Delete from RAG (Vector Store)
+        # We need to construct the 'source' path that RAG uses.
+        # RAG uses the physical file path as 'source'.
+        from app.services.rag_service import rag_service
+        try:
+            # Note: RAG Service currently deletes by (conversation_id, filename) OR source path.
+            # We don't have conversation_id here (it's a canvas asset).
+            # We need a method to delete by Source Path globally.
+            # Let's check rag_service.delete_document implementation...
+            # It uses `where={"$and": [{"conversation_id": ...}, {"source": ...}]}`
+            # We need a new method `delete_by_source` or modify existing.
+            # For now, let's try to delete using absolute path as source, ignoring conversation_id since it might be None for canvas.
+            
+            rag_service.delete_by_source(str(file_path))
+            print(f"[AssetService] Deleted RAG embeddings for: {file_path}")
+        except Exception as e:
+             print(f"[AssetService] Error deleting RAG embeddings: {e}")
+
+        # 4. Delete DB Record
         db.delete(asset)
         try:
             db.commit()
