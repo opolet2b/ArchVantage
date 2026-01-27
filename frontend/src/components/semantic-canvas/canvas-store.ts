@@ -205,6 +205,11 @@ interface CanvasState {
     highlightedFragment: { thingId: string; fragment: any } | null;
     setHighlightedFragment: (highlight: { thingId: string; fragment: any } | null) => void;
 
+    // Smart Reference Jumping
+    highlightTarget: any[] | null;
+    setHighlightTarget: (target: any[] | null) => void;
+    flyToNode: (thingId: string) => void;
+
     // Actions
     loadCanvas: (canvasId: string) => Promise<void>;
     createCanvas: (name: string) => Promise<string | null>;
@@ -423,6 +428,37 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Selection Highlight
     highlightedFragment: null,
     setHighlightedFragment: (highlight) => set({ highlightedFragment: highlight }),
+
+    // Smart Reference Jumping
+    highlightTarget: null,
+    setHighlightTarget: (target) => set({ highlightTarget: target }),
+
+    flyToNode: (thingId) => {
+        const { things, updateViewport } = get();
+        const thing = things.find(t => t.id === thingId);
+        if (thing) {
+            // Center the view on the node
+            // Assuming viewport sets the transform origin or top-left
+            // A simple approach is to move close to it.
+            // Precise centering requires window dimensions which we don't have in store.
+            // We can approximate or just set x/y to negative position.
+
+            const zoom = 1.0;
+            // Note: detailed centering logic might ideally happen in the view component 
+            // where dimensions are known, but this updating the store's viewport 
+            // triggers the view to update. 
+            // We will set it such that the node is roughly visible.
+
+            // For now, simple translation to the node's position (possibly negated)
+            updateViewport({
+                x: -thing.position_x * zoom + 500, // +500 arbitrary offset to center roughly 
+                y: -thing.position_y * zoom + 300,
+                zoom
+            });
+
+            get().selectThing(thingId);
+        }
+    },
 
     // Load canvas from backend
     loadCanvas: async (canvasId: string) => {

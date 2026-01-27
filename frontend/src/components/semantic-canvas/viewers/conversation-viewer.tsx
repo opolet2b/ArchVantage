@@ -35,7 +35,7 @@ interface Message {
     content: string;
     timestamp?: string;
     agentName?: string;
-    citations?: { id: string; title: string; type: string }[];
+    citations?: { id: string; title: string; type: string; matches?: any[] }[];
 }
 
 // =============================================================================
@@ -80,6 +80,7 @@ export function ConversationViewer({
     // React Flow hooks for camera control
     const { fitView } = useReactFlow();
     const selectThing = useCanvasStore(state => state.selectThing);
+    const setHighlightTarget = useCanvasStore(state => state.setHighlightTarget);
 
     // Voice Recognition Hook
     const { isListening, isSupported, toggleListening } = useSpeechRecognition({
@@ -333,6 +334,8 @@ export function ConversationViewer({
                                                         className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
                                                         onClick={(e) => {
                                                             e.stopPropagation(); // Prevent message selection
+                                                            console.log("ConversationViewer Citation Clicked:", cit);
+                                                            setHighlightTarget(cit.matches || null);
                                                             selectThing(cit.id);
                                                             fitView({ nodes: [{ id: cit.id }], duration: 800, padding: 0.2 });
                                                         }}

@@ -15,11 +15,26 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
 
 
+class CitationMatch(BaseModel):
+    text: str
+    score: float = 1.0
+    page: Optional[Any] = None
+    bbox: Optional[Any] = None
+    row_id: Optional[Any] = None
+
+
+class Citation(BaseModel):
+    id: str
+    title: str
+    type: str
+    matches: List[CitationMatch] = []
+
+
 class ChatResponse(BaseModel):
     """Standard chat response."""
     role: str
     content: str
-    citations: Optional[List[Dict[str, str]]] = None # List of {id, title, type}
+    citations: Optional[List[Citation]] = None
 
 
 class AgentMatchRequest(BaseModel):

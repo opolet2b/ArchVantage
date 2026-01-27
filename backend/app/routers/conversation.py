@@ -27,6 +27,7 @@ class UpdateConversationRequest(BaseModel):
 class AddMessageRequest(BaseModel):
     role: str
     content: str
+    citations: Optional[List[Dict[str, Any]]] = None
 
 @router.post("/conversations", response_model=CreateConversationResponse)
 def create_conversation():

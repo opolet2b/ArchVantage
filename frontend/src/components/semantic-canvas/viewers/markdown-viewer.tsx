@@ -84,6 +84,7 @@ export function MarkdownViewer({
 
     // We need 'things' to resolve Evidence names
     const things = useCanvasStore(state => state.things);
+    const highlightTarget = useCanvasStore(state => state.highlightTarget);
 
     // Track mouse position for toolbar placement
     const handleMouseMove = React.useCallback((e: React.MouseEvent) => {
@@ -138,8 +139,26 @@ export function MarkdownViewer({
         // 3. Page Breaks: Replace ---page-break--- with a hidden marker element
         processed = processed.replace(/^---page-break---$/gm, "[[PDF_PAGE_BREAK]]");
 
+        // 4. Smart Highlights
+        if (highlightTarget && highlightTarget.length > 0) {
+            highlightTarget.forEach(match => {
+                if (!match.text || typeof match.text !== 'string' || match.text.length < 5) return;
+                // Escape regex special chars
+                const escaped = match.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                try {
+                    // Global replace, case insensitive
+                    const re = new RegExp(escaped, 'gi');
+                    // Wrap in a custom link hash we can intercept
+                    // We use a zero-width space or similar if needed, but standard link syntax is best
+                    processed = processed.replace(re, (m) => `[${m}](#highlight-match)`);
+                } catch (e) {
+                    console.warn("Failed to create highlight regex", e);
+                }
+            });
+        }
+
         return processed;
-    }, [content]);
+    }, [content, highlightTarget]);
 
     return (
         <div
@@ -196,7 +215,35 @@ export function MarkdownViewer({
                         return <img {...props} />;
                     },
                     a: ({ href, children, ...props }) => {
-                        // Handle Transclusions
+                        // 1. Highlight Match
+                        if (href === "#highlight-match") {
+                            return (
+                                <span className="bg-yellow-200 dark:bg-yellow-900/50 text-slate-900 dark:text-slate-100 rounded-sm px-0.5 box-decoration-clone">
+                                    {children}
+                                </span>
+                            );
+                        }
+
+                        // 2. Evidence Links
+                        if (href?.startsWith("#evidence-")) {
+                            const thingId = href.replace("#evidence-", "");
+                            return (
+                                <span
+                                    className="inline-flex items-center gap-1 text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1 py-0.5 rounded cursor-pointer hover:underline align-middle mx-1"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        selectThing(thingId);
+                                        fitView({ nodes: [{ id: thingId }], duration: 800, padding: 0.2 });
+                                    }}
+                                >
+                                    <ExternalLink className="h-3 w-3" />
+                                    {children}
+                                </span>
+                            );
+                        }
+
+                        // 3. Transclusions
                         if (href?.startsWith("transclude:")) {
                             const nodeId = href.replace("transclude:", "");
 
@@ -237,54 +284,27 @@ export function MarkdownViewer({
                             );
                         }
 
-                        // Handle Evidence
-                        if (href?.startsWith("#evidence-")) {
-                            const evidenceId = href.replace("#evidence-", "");
-                            const thing = things.find(t => t.id === evidenceId);
-                            const label = thing?.title || "Evidence";
-
-                            return (
-                                <button
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        // Trigger Zoom and Select
-                                        try {
-                                            selectThing(evidenceId);
-                                            fitView({ nodes: [{ id: evidenceId }], duration: 800, padding: 0.2 });
-                                        } catch (err) {
-                                            console.warn("Failed to zoom to evidence (provider missing?):", err);
-                                        }
-                                    }}
-                                    title={`Jump to Source: ${label}`}
-                                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors mx-1 cursor-pointer align-baseline border border-blue-200 dark:border-blue-800"
-                                >
-                                    <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                                    <span className="truncate max-w-[150px]">{label}</span>
-                                </button>
-                            );
-                        }
-
-                        // Default Link
                         return (
                             <a
                                 href={href}
-                                {...props}
                                 onClick={(e) => {
                                     if (onLinkClick && href) {
                                         e.preventDefault();
                                         onLinkClick(href);
                                     }
                                 }}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                {...props}
                             >
                                 {children}
                             </a>
                         );
-                    }
+                    },
                 }}
             >
                 {processedContent}
             </ReactMarkdown>
-        </div>
+        </div >
     );
 }

@@ -7,6 +7,7 @@ import { cn, API_URL } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { TextFragment, RegionFragment } from "./types";
 import { Handle, Position } from "reactflow";
+import { useCanvasStore } from "../canvas-store";
 
 // Import react-pdf styles for text layer
 import "react-pdf/dist/Page/TextLayer.css";
@@ -164,6 +165,33 @@ export function PDFViewer({
             }
         };
     }, [src]);
+
+    const highlightTarget = useCanvasStore(state => state.highlightTarget);
+    const [currentMatchIndex, setCurrentMatchIndex] = React.useState(0);
+
+    // Reset index when target changes
+    React.useEffect(() => {
+        setCurrentMatchIndex(0);
+    }, [highlightTarget]);
+
+    // Auto-navigate to page if highlight target provided (and handle index changes)
+    React.useEffect(() => {
+        console.log("PDFViewer Received Highlight Target:", highlightTarget);
+        if (!highlightTarget || highlightTarget.length === 0) return;
+
+        // Get current match based on index
+        const match = highlightTarget[currentMatchIndex];
+
+        if (match && match.page) {
+            // Unify page parsing (handles "1", 1, "Page 1")
+            const pStr = match.page.toString().replace(/[^0-9]/g, "");
+            const pNum = parseInt(pStr, 10);
+
+            if (!isNaN(pNum) && pNum > 0 && pNum !== pageNumber) {
+                setPageNumber(pNum);
+            }
+        }
+    }, [highlightTarget, currentMatchIndex]);
 
 
     // Handle document load success
@@ -441,6 +469,8 @@ export function PDFViewer({
         );
     }
 
+    console.log("PDFViewer Render: exportMode =", exportMode);
+
     return (
         <span className={cn("flex flex-col h-full", className)}>
             {/* Controls - Hide in Export Mode */}
@@ -574,6 +604,36 @@ export function PDFViewer({
                     </span>
                 </Document>
             </span>
+            {/* Match Navigation Floating Toolbar */}
+            {highlightTarget && highlightTarget.length > 1 && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 border dark:border-slate-700 shadow-lg rounded-full px-3 py-1.5 flex items-center gap-2 z-50">
+                    <span className="text-xs font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                        Match {currentMatchIndex + 1} of {highlightTarget.length}
+                    </span>
+                    <div className="flex items-center border-l border-slate-200 dark:border-slate-700 pl-2 ml-1 gap-1">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 rounded-full"
+                            onClick={() => setCurrentMatchIndex(i => Math.max(0, i - 1))}
+                            disabled={currentMatchIndex === 0}
+                            title="Previous match"
+                        >
+                            <ChevronLeft className="h-3 w-3" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 rounded-full"
+                            onClick={() => setCurrentMatchIndex(i => Math.min(highlightTarget.length - 1, i + 1))}
+                            disabled={currentMatchIndex === highlightTarget.length - 1}
+                            title="Next match"
+                        >
+                            <ChevronRight className="h-3 w-3" />
+                        </Button>
+                    </div>
+                </div>
+            )}
         </span>
     );
 }

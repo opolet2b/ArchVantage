@@ -223,14 +223,49 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                         score=1.0
                     ))
 
+            citations = []
+            for tid in used_citation_ids:
+                # Find original node wrapper
+                original_node = next((n for n in linked_nodes if n.id == tid), None)
+                if not original_node: continue
+                
+                citation = {
+                    "id": original_node.id, 
+                    "title": original_node.title or "Untitled", 
+                    "type": original_node.type,
+                    "matches": []
+                }
+                
+                # Find all RAG chunks for this citation ID
+                rag_matches = [
+                    n for n in nodes 
+                    if n.node.metadata.get("thing_id") == tid 
+                    and n.node.metadata.get("type") not in ["relationships", "image"] # Exclude special types
+                ]
+                
+                # Deduplicate matches based on text content
+                seen_texts = set()
+                for m in rag_matches:
+                    snippet = m.node.get_content()
+                    if snippet in seen_texts: continue
+                    seen_texts.add(snippet)
+                    
+                    match_data = {
+                        "text": snippet,
+                        "score": m.score,
+                        "page": m.node.metadata.get("page_label"),    # PDF Page
+                        "bbox": m.node.metadata.get("bbox"),          # Visual Grounding [x,y,w,h]
+                        "row_id": m.node.metadata.get("row_id")       # Table Row
+                    }
+                    citation["matches"].append(match_data)
+                    
+                citations.append(citation)
+
             return {
                 "nodes": nodes,
                 "manifest_text": manifest_text,
                 "linked_items": linked_items_summary,
-                "citations": [
-                    {"id": n.id, "title": n.title or "Untitled", "type": n.type} 
-                    for n in linked_nodes if n.id in used_citation_ids
-                ],
+                "citations": citations,
                 "debug_log": debug_log
             }
             
@@ -369,7 +404,11 @@ async def chat_endpoint(
         # Simple LLM call if no context
         response_content = await llm_service.chat(final_messages, active_model)
 
-    return ChatResponse(role="assistant", content=response_content, citations=citations)
+    try:
+        return ChatResponse(role="assistant", content=response_content, citations=citations)
+    except Exception as e:
+        print(f"[ChatEndpoint] Validation Error: {e}. Returning response without citations.")
+        return ChatResponse(role="assistant", content=response_content, citations=[])
 
 
 @router.post("/chat/match-agent", response_model=AgentMatchResponse)

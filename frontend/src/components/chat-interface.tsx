@@ -22,6 +22,7 @@ import { AgentInputModeSelector, AgentInputMode } from "@/components/agent-input
 import { useAgentExecution } from "@/lib/use-agent-execution"
 import { FormRenderer } from "@/components/tools/form-builder/form-renderer"
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
+import { useCanvasStore } from "@/components/semantic-canvas/canvas-store"
 
 /**
  * Chat message type.
@@ -31,6 +32,12 @@ interface Message {
     content: string
     agentName?: string
     agentId?: string
+    citations?: {
+        id: string
+        title: string
+        type: string
+        matches?: any[]
+    }[]
 }
 
 /**
@@ -95,6 +102,9 @@ export function ChatInterface() {
     const [pendingAgentInputs, setPendingAgentInputs] = React.useState<Record<string, unknown>>({})
     const [pendingParamKeys, setPendingParamKeys] = React.useState<string[]>([])
     const [currentParamIndex, setCurrentParamIndex] = React.useState(0)
+
+    // Canvas Store
+    const { flyToNode, setHighlightTarget } = useCanvasStore()
 
     // Hook for agent execution
     const execution = useAgentExecution({
@@ -359,7 +369,11 @@ export function ChatInterface() {
             }
 
             const data = await response.json()
-            const assistantMessage: Message = { role: "assistant", content: data.content }
+            const assistantMessage: Message = {
+                role: "assistant",
+                content: data.content,
+                citations: data.citations
+            }
 
             // Save assistant message to backend
             await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
@@ -757,6 +771,27 @@ export function ChatInterface() {
                                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                         {message.content}
                                                     </ReactMarkdown>
+
+                                                    {message.citations && message.citations.length > 0 && (
+                                                        <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-border/50">
+                                                            {message.citations.map((citation) => (
+                                                                <button
+                                                                    key={citation.id}
+                                                                    onClick={(e) => {
+                                                                        console.error("DEBUG: CLICK DETECTED ON CITATION BUTTON");
+                                                                        e.stopPropagation();
+                                                                        console.log("DEBUG: DATA", citation);
+                                                                        setHighlightTarget(citation.matches || null);
+                                                                        flyToNode(citation.id);
+                                                                    }}
+                                                                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                                                                >
+                                                                    <Paperclip className="h-3 w-3" />
+                                                                    {citation.title}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

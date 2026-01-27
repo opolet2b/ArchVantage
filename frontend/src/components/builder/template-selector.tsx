@@ -68,7 +68,7 @@ export function TemplateSelector({ selectedId, onSelect }: TemplateSelectorProps
     };
 
     // Render tree node recursively
-    const renderTreeNode = (node: TreeNode, depth: number = 0): JSX.Element => {
+    const renderTreeNode = (node: TreeNode, depth: number = 0) => {
         const isExpanded = expandedFolders.has(node.id);
         const isSelected = selectedId === node.id;
         const paddingLeft = depth * 12 + 4;
