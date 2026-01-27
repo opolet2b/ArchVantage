@@ -10,7 +10,7 @@
 "use client";
 
 import * as React from "react";
-import { User, Bot, Send, Loader2, RefreshCw, ExternalLink, Mic } from "lucide-react";
+import { User, Bot, Send, Loader2, RefreshCw, ExternalLink, Mic, Reply } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useReactFlow } from "reactflow"; // For viewport control
@@ -227,6 +227,14 @@ export function ConversationViewer({
         }
     };
 
+    // Handle quoting a message
+    const handleQuote = (message: Message) => {
+        setInputValue(prev => {
+            const prefix = prev.trim() ? "\n\n" : "";
+            return `${prev.trim()}${prefix}${message.content}\n\n`;
+        });
+    };
+
     // Handle message selection logic (existing)
     const handleMessageClick = (message: Message, index: number) => {
         if (!selectionEnabled || !onSelect) return;
@@ -297,66 +305,93 @@ export function ConversationViewer({
                                 onClick={() => handleMessageClick(message, index)}
                                 onMouseUp={() => handleMouseUp(message, index)}
                                 className={cn(
-                                    "flex gap-2 max-w-[90%]",
+                                    "flex gap-2 max-w-[90%] group",
                                     isUser ? "ml-auto flex-row-reverse" : "mr-auto"
                                 )}
                             >
-                                <Avatar className={cn("h-6 w-6 mt-1 flex-shrink-0", isUser ? "bg-blue-600" : "bg-slate-600")}>
-                                    <AvatarFallback className="text-[10px] text-white">
-                                        {isUser ? <User className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+                                <Avatar className={cn("h-7 w-7 mt-0.5 flex-shrink-0 border shadow-sm", isUser ? "border-blue-700" : "border-slate-950 dark:border-slate-200")}>
+                                    <AvatarFallback className={cn(
+                                        "text-white dark:text-slate-900",
+                                        isUser ? "bg-blue-600" : "bg-slate-900 dark:bg-white"
+                                    )}>
+                                        {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                                     </AvatarFallback>
                                 </Avatar>
 
-                                <div
-                                    className={cn(
-                                        "rounded-lg px-3 py-2 text-sm shadow-sm",
-                                        isUser
-                                            ? "bg-blue-600 text-white rounded-tr-none"
-                                            : "bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none",
-                                        isSelected && "ring-2 ring-yellow-400",
-                                        selectionEnabled && "cursor-pointer"
-                                    )}
-                                >
-                                    <div className="break-words prose-sm dark:prose-invert">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                            {message.content}
-                                        </ReactMarkdown>
+                                <div className="flex flex-col gap-1 min-w-0">
+                                    <div
+                                        className={cn(
+                                            "rounded-lg px-3 py-2 text-sm shadow-sm select-text cursor-text",
+                                            isUser
+                                                ? "bg-blue-600 text-white rounded-tr-none"
+                                                : "bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none",
+                                            isSelected && "ring-2 ring-yellow-400",
+                                            selectionEnabled && "cursor-pointer"
+                                        )}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                        <div className="break-words prose-sm dark:prose-invert">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                {message.content}
+                                            </ReactMarkdown>
+                                        </div>
+
+                                        {/* Citations / Sources */}
+                                        {message.citations && message.citations.length > 0 && (
+                                            <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700">
+                                                <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Sources</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {message.citations.map((cit, i) => (
+                                                        <div
+                                                            key={i}
+                                                            className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation(); // Prevent message selection
+                                                                console.log("ConversationViewer Citation Clicked:", cit);
+                                                                setHighlightTarget(cit.matches || null);
+                                                                selectThing(cit.id);
+                                                                fitView({ nodes: [{ id: cit.id }], duration: 800, padding: 0.2 });
+                                                            }}
+                                                        >
+                                                            <ExternalLink className="h-3 w-3 text-blue-500" />
+                                                            <span className="truncate max-w-[150px]">{cit.title}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
-                                    {/* Citations / Sources */}
-                                    {message.citations && message.citations.length > 0 && (
-                                        <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700">
-                                            <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Sources</p>
-                                            <div className="flex flex-wrap gap-2">
-                                                {message.citations.map((cit, i) => (
-                                                    <div
-                                                        key={i}
-                                                        className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation(); // Prevent message selection
-                                                            console.log("ConversationViewer Citation Clicked:", cit);
-                                                            setHighlightTarget(cit.matches || null);
-                                                            selectThing(cit.id);
-                                                            fitView({ nodes: [{ id: cit.id }], duration: 800, padding: 0.2 });
-                                                        }}
-                                                    >
-                                                        <ExternalLink className="h-3 w-3 text-blue-500" />
-                                                        <span className="truncate max-w-[150px]">{cit.title}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
+                                    {/* Quote / Copy Action - Improved Visibility */}
+                                    <div className={cn(
+                                        "flex gap-1 py-0.5",
+                                        isUser ? "flex-row-reverse" : "flex-row"
+                                    )}>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="h-6 w-6 rounded-full bg-white dark:bg-slate-800 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 opacity-60 group-hover:opacity-100 transition-all shadow-sm border-slate-200 dark:border-slate-700"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleQuote(message);
+                                            }}
+                                            title="Quote this message"
+                                        >
+                                            <Reply className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
                                 </div>
                             </div>
                         );
                     })}
                     {isLoading && (
                         <div className="flex gap-2 mr-auto max-w-[90%]">
-                            <Avatar className="h-6 w-6 mt-1 bg-slate-600">
-                                <AvatarFallback><Bot className="h-3 w-3 text-white" /></AvatarFallback>
+                            <Avatar className="h-7 w-7 mt-0.5 flex-shrink-0 border border-slate-950 dark:border-slate-200 shadow-sm">
+                                <AvatarFallback className="bg-slate-900 dark:bg-white text-white dark:text-slate-900">
+                                    <Bot className="h-4 w-4" />
+                                </AvatarFallback>
                             </Avatar>
-                            <div className="bg-white dark:bg-slate-800 border px-3 py-2 rounded-lg rounded-tl-none">
+                            <div className="bg-white dark:bg-slate-800 border px-3 py-2 rounded-xl rounded-tl-none shadow-sm">
                                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             </div>
                         </div>
