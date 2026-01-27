@@ -34,6 +34,7 @@ import { ThingNode } from "./nodes/thing-node";
 import { DomainNode } from "./nodes/domain-node";
 import { TextThingEditor } from "./nodes/text-thing-editor";
 import { CustomEdge } from "./edges/custom-edge";
+import { CanvasToolbar } from "./canvas-toolbar";
 
 import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport } from "./canvas-store";
 
@@ -108,55 +109,60 @@ function CanvasViewInner() {
     const nodesInitialized = useNodesInitialized();
     const { toast } = useToast();
 
-    // Canvas store state
-    const {
-        canvasId,
-        things,
-        links,
-        domains,
-        viewport,
-        zoomLevel,
-        updateViewport,
-        saveViewport,
-        moveThing,
-        moveThings,
-        updateThing,
-        updateThings,
-        addThing,
-        deleteThing,
-        addLink,
-        deleteLink,
-        selectThing,
-        clearSelection,
-        selectedThingIds,
-        moveDomain,
-        updateDomain,
-        checkThingInDomain,
-        addThingToDomain,
-        removeThingFromDomain,
-        toggleIconify,
-        selectedModel,
-        setSelectedModel,
-        selectedDomainIds,
-        selectDomain,
-        addDomain,
-        setVisionModel,
-        setSelectedItems,
-        selectionMode,
-        setSelectionMode,
-        getHierarchyDepth,
-        showLinks,
-        hiddenNodeLinks,
-        toggleShowLinks,
-        semanticZoomEnabled,
-        setSemanticZoomEnabled,
-        deleteSelectedNodes,
-        dockedThingId,
-        dockPosition,
-        setDockedThing,
-        editingThingId,
-        sidebarCollapsed,
-    } = useCanvasStore();
+    // Canvas store state - Using selectors to minimize re-renders
+    const canvasId = useCanvasStore(s => s.canvasId);
+    const things = useCanvasStore(s => s.things);
+    const links = useCanvasStore(s => s.links);
+    const domains = useCanvasStore(s => s.domains);
+    const viewport = useCanvasStore(s => s.viewport);
+    const zoomLevel = useCanvasStore(s => s.zoomLevel);
+    const selectedThingIds = useCanvasStore(s => s.selectedThingIds);
+    const selectedDomainIds = useCanvasStore(s => s.selectedDomainIds);
+    const selectionMode = useCanvasStore(s => s.selectionMode);
+    const showLinks = useCanvasStore(s => s.showLinks);
+    const hiddenNodeLinks = useCanvasStore(s => s.hiddenNodeLinks);
+    const semanticZoomEnabled = useCanvasStore(s => s.semanticZoomEnabled);
+    const dockedThingId = useCanvasStore(s => s.dockedThingId);
+    const dockPosition = useCanvasStore(s => s.dockPosition);
+    const editingThingId = useCanvasStore(s => s.editingThingId);
+    const sidebarCollapsed = useCanvasStore(s => s.sidebarCollapsed);
+
+    // Actions
+    const updateViewport = useCanvasStore(s => s.updateViewport);
+    const saveViewport = useCanvasStore(s => s.saveViewport);
+    const moveThing = useCanvasStore(s => s.moveThing);
+    const updateThing = useCanvasStore(s => s.updateThing);
+    const updateThings = useCanvasStore(s => s.updateThings);
+    const deleteThing = useCanvasStore(s => s.deleteThing);
+    const selectThing = useCanvasStore(s => s.selectThing);
+    const selectDomain = useCanvasStore(s => s.selectDomain);
+    const checkThingInDomain = useCanvasStore(s => s.checkThingInDomain);
+    const updateDomain = useCanvasStore(s => s.updateDomain);
+    const getHierarchyDepth = useCanvasStore(s => s.getHierarchyDepth);
+    const toggleIconify = useCanvasStore(s => s.toggleIconify);
+    const setDockedThing = useCanvasStore(s => s.setDockedThing);
+    const deleteSelectedNodes = useCanvasStore(s => s.deleteSelectedNodes);
+
+    // Additional actions needed for internal handlers or sub-components
+    const addThing = useCanvasStore(s => s.addThing);
+    const addLink = useCanvasStore(s => s.addLink);
+    const deleteLink = useCanvasStore(s => s.deleteLink);
+    const clearSelection = useCanvasStore(s => s.clearSelection);
+    const addDomain = useCanvasStore(s => s.addDomain);
+    const moveDomain = useCanvasStore(s => s.moveDomain);
+    const addThingToDomain = useCanvasStore(s => s.addThingToDomain);
+    const removeThingFromDomain = useCanvasStore(s => s.removeThingFromDomain);
+    const setSelectedItems = useCanvasStore(s => s.setSelectedItems);
+    const setSelectionMode = useCanvasStore(s => s.setSelectionMode);
+    const toggleShowLinks = useCanvasStore(s => s.toggleShowLinks);
+    const setSemanticZoomEnabled = useCanvasStore(s => s.setSemanticZoomEnabled);
+
+    // Dummy stubs for variables that were previously destructured but now moved to CanvasToolbar
+    // We keep them here if there are other parts of the component still using them
+    const setSelectedModel = (model: string | null) => useCanvasStore.getState().setSelectedModel(model);
+    const setVisionModel = (model: string | null) => useCanvasStore.getState().setVisionModel(model);
+    const visionModel = useCanvasStore.getState().visionModel; // Read-only for some logic maybe?
+    const selectedModel = useCanvasStore.getState().selectedModel;
 
     // Dock sizing state
     const [dockWidth, setDockWidth] = React.useState(400);
@@ -243,119 +249,6 @@ function CanvasViewInner() {
             </div>
         );
     };
-
-    // Model state from store
-    const visionModel = useCanvasStore((state) => state.visionModel);
-    // The setVisionModel is already destructured above, so this line is redundant.
-    // const setVisionModel = useCanvasStore((state) => state.setVisionModel);
-
-    // Debug render
-    // Polling for processing items (RAG status)
-    const refreshThings = useCanvasStore((state) => state.refreshThings);
-
-    React.useEffect(() => {
-        const hasProcessingItems = things.some(
-            t => t.rag_status === "processing" || t.rag_status === "pending"
-        );
-
-        if (hasProcessingItems) {
-            const interval = setInterval(() => {
-                refreshThings();
-            }, 3000); // Poll every 3 seconds
-
-            return () => clearInterval(interval);
-        }
-    }, [things, refreshThings]);
-
-
-    // Sync Store Viewport -> React Flow (One way on load/change of canvasId)
-    // This ensures we start at the right place when switching canvases
-    React.useEffect(() => {
-        if (canvasId && viewport) {
-            setViewport(viewport);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [canvasId, setViewport]); // Only trigger on canvasId change (new canvas loaded)
-
-    // Save viewport on unmount to capture final state (prevents debouncing loss)
-    React.useEffect(() => {
-        return () => {
-            saveViewport();
-        };
-    }, [saveViewport]);
-
-
-    // Model presets state for dropdown
-    interface ModelPreset {
-        name: string;
-        type: "local" | "remote";
-        model_name?: string;
-        is_vision?: boolean;
-    }
-    const [models, setModels] = React.useState<ModelPreset[]>([]);
-    const [isLoadingModels, setIsLoadingModels] = React.useState(true);
-
-
-
-    // Fetch available models and defaults on mount (only once)
-    React.useEffect(() => {
-        const fetchModels = async () => {
-            try {
-                const token = localStorage.getItem("token");
-                const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
-
-                // Fetch presets and defaults in parallel
-                const [presetsRes, defaultsRes] = await Promise.all([
-                    fetch(`${API_URL}/config/presets`, { headers }),
-                    fetch(`${API_URL}/config/defaults`, { headers })
-                ]);
-
-                if (presetsRes.ok) {
-                    const data = await presetsRes.json();
-                    const presetList: ModelPreset[] = data.presets || [];
-                    setModels(presetList);
-
-                    let defaultLlmName: string | null = null;
-                    let defaultVisionName: string | null = null;
-
-                    if (defaultsRes.ok) {
-                        const defaults = await defaultsRes.json();
-                        defaultLlmName = defaults.default_llm;
-                        defaultVisionName = defaults.default_vision;
-                    }
-
-                    // Set LLM Model: Current store > Default > First available
-                    const currentModel = useCanvasStore.getState().selectedModel;
-                    if (!currentModel) {
-                        if (defaultLlmName && presetList.some(p => p.name === defaultLlmName)) {
-                            setSelectedModel(defaultLlmName);
-                        } else if (presetList.length > 0) {
-                            setSelectedModel(presetList[0].name);
-                        }
-                    }
-
-                    // Set Vision Model: Current store > Default > First vision available
-                    const currentVisionModel = useCanvasStore.getState().visionModel;
-                    if (!currentVisionModel) {
-                        if (defaultVisionName && presetList.some(p => p.name === defaultVisionName)) {
-                            setVisionModel(defaultVisionName);
-                        } else {
-                            const firstVision = presetList.find(p => p.is_vision);
-                            if (firstVision) {
-                                setVisionModel(firstVision.name);
-                            }
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to fetch model presets or defaults:", error);
-            } finally {
-                setIsLoadingModels(false);
-            }
-        };
-        fetchModels();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Run only once on mount
 
     // Link type dialog state
     const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
@@ -2350,226 +2243,8 @@ function CanvasViewInner() {
 
     return (
         <div className="h-full w-full flex flex-col relative">
-            {/* Canvas Header with Model Selector */}
-            <div className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0">
-                <div id="canvas-model-selectors" className="flex items-center">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Brain className="h-4 w-4" />
-                        <span>Model:</span>
-                        {isLoadingModels ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <Select
-                                value={selectedModel || ""}
-                                onValueChange={(value) => {
-                                    setSelectedModel(value);
-                                    useCanvasStore.getState().updateCanvasSettings({ model: value });
-                                }}
-                            >
-                                <SelectTrigger className="w-[200px] h-8 text-sm">
-                                    <SelectValue placeholder="Select model..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {models.map((model) => (
-                                        <SelectItem key={model.name} value={model.name}>
-                                            <div className="flex items-center gap-2">
-                                                <span>{model.name}</span>
-                                                <span className="text-xs text-muted-foreground">
-                                                    ({model.type})
-                                                </span>
-                                            </div>
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        )}
-                    </div>
-
-                    {/* Vision Model Selector */}
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 ml-4">
-                        <Eye className="h-4 w-4" />
-                        <span>Vision:</span>
-                        {isLoadingModels ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                            <Select
-                                value={visionModel || ""}
-                                onValueChange={(value) => {
-                                    setVisionModel(value);
-                                    useCanvasStore.getState().updateCanvasSettings({ vision_model: value });
-                                }}
-                            >
-                                <SelectTrigger className="w-[200px] h-8 text-sm">
-                                    <SelectValue placeholder="Select vision model..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {models.filter(m => m.is_vision).map((model) => (
-                                        <SelectItem key={model.name} value={model.name}>
-                                            <div className="flex items-center gap-2">
-                                                <span>{model.name}</span>
-                                                <span className="text-xs text-muted-foreground">
-                                                    ({model.type})
-                                                </span>
-                                            </div>
-                                        </SelectItem>
-                                    ))}
-                                    {models.filter(m => m.is_vision).length === 0 && (
-                                        <div className="p-2 text-xs text-muted-foreground">
-                                            No vision models configured
-                                        </div>
-                                    )}
-                                </SelectContent>
-                            </Select>
-                        )}
-                    </div>
-                </div>
-
-                {/* Selection Mode Toggle */}
-                <div className="flex items-center gap-1 border-l pl-4 ml-4 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-md">
-                    <Button
-                        variant={selectionMode === "hand" ? "secondary" : "ghost"}
-                        size="sm"
-                        className={cn("h-8 w-8 p-0", selectionMode === "hand" && "bg-white dark:bg-slate-700 shadow-sm")}
-                        onClick={() => setSelectionMode("hand")}
-                        title="Hand Tool (Pan) - Hold Shift to Select"
-                    >
-                        <Hand className="h-4 w-4" />
-                    </Button>
-                    <Button
-                        variant={selectionMode === "selection" ? "secondary" : "ghost"}
-                        size="sm"
-                        className={cn("h-8 w-8 p-0", selectionMode === "selection" && "bg-white dark:bg-slate-700 shadow-sm")}
-                        onClick={() => setSelectionMode("selection")}
-                        title="Pointer Tool (Select) - Drag to Select"
-                    >
-                        <MousePointer2 className="h-4 w-4" />
-                    </Button>
-                </div>
-
-                <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 text-slate-500 hover:text-blue-600"
-                        onClick={handleCaptureThumbnail}
-                        title="3D orientation thumbnail"
-                    >
-                        <Camera className="h-4 w-4 mr-2" />
-                        3D capture
-                    </Button>
-                </div>
-
-                {/* Global Link Visibility Toggle */}
-                <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                    <div className="flex items-center gap-2">
-                        <Label htmlFor="links-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
-                            Links
-                        </Label>
-                        <Switch
-                            id="links-toggle"
-                            checked={showLinks}
-                            onCheckedChange={toggleShowLinks}
-                        />
-                    </div>
-                </div>
-
-                {/* Semantic Zoom Toggle & Level Display */}
-                <div className="flex items-center gap-4 border-l pl-4 ml-4 h-8">
-                    <div className="flex items-center gap-2">
-                        <Label htmlFor="semantic-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
-                            Semantic
-                        </Label>
-                        <Switch
-                            id="semantic-toggle"
-                            checked={semanticZoomEnabled}
-                            onCheckedChange={setSemanticZoomEnabled}
-                        />
-                    </div>
-
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 tabular-nums min-w-[45px] justify-center">
-                        {Math.round(viewport.zoom * 100)}%
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                    <Button
-                        id="canvas-sync-btn"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 text-slate-500 hover:text-green-600"
-                        onClick={async () => {
-                            const confirmed = window.confirm(
-                                "Sync All Files?\n\n" +
-                                "This will check all file-based items on the canvas for changes and re-ingest them if necessary.\n" +
-                                "This process may take some time."
-                            );
-                            if (confirmed) {
-                                toast({
-                                    title: "Syncing All Items",
-                                    description: "Checking and updating all files...",
-                                    duration: 3000,
-                                });
-                                try {
-                                    // @ts-ignore - syncAllThings is dynamic
-                                    await useCanvasStore.getState().syncAllThings();
-                                    toast({
-                                        title: "Sync Complete",
-                                        description: "All items have been synced.",
-                                        duration: 3000,
-                                    });
-                                    // Refresh the list to reflect status
-                                    useCanvasStore.getState().refreshThings();
-                                } catch (error) {
-                                    toast({
-                                        title: "Sync Failed",
-                                        description: "An error occurred while syncing items.",
-                                        variant: "destructive",
-                                    });
-                                }
-                            }
-                        }}
-                        title="Sync All Files"
-                    >
-                        <RefreshCcw className="h-4 w-4 mr-2" />
-                        Sync All
-                    </Button>
-
-                    <div className="h-6 w-px bg-border mx-2" />
-
-                    {/* Delete Selected Button */}
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button
-                                variant="destructive"
-                                size="sm"
-                                className="h-8 shadow-sm"
-                                disabled={selectedThingIds.length === 0 && selectedDomainIds.length === 0}
-                            >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete ({selectedThingIds.length + selectedDomainIds.length})
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Delete Selected Items?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    This will permanently delete {selectedThingIds.length} things and {selectedDomainIds.length} domains.
-                                    Any associated assets will also be removed. This action cannot be undone.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                    onClick={() => deleteSelectedNodes()}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                >
-                                    Delete
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                </div>
-            </div>
+            {/* Canvas Header with Model Selector, Tools and Toggles */}
+            <CanvasToolbar />
 
             {/* Workspace with Docking Support and Palette */}
             <div className="flex-1 flex flex-row overflow-hidden relative">
