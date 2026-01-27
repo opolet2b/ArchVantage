@@ -16,6 +16,8 @@ import { MarkdownToolbar } from "../viewers/markdown-toolbar";
 import { CanvasThing, useCanvasStore } from "../canvas-store";
 import { useToast } from "@/components/ui/use-toast";
 import { FileText, Type as TypeIcon } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WysiwygEditor } from "./wysiwyg-editor";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -48,6 +50,7 @@ export function TextThingEditor({
     inline = false
 }: TextThingEditorProps) {
     const [editedContent, setEditedContent] = React.useState("");
+    const [editorMode, setEditorMode] = React.useState<"wysiwyg" | "markdown">("markdown");
     const [isSaving, setIsSaving] = React.useState(false);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const { toast } = useToast();
@@ -157,30 +160,43 @@ export function TextThingEditor({
 
     const editorBody = (
         <div className="flex flex-col flex-1 min-h-0">
-            <MarkdownToolbar
-                textareaRef={textareaRef}
-                onSave={handleInternalSave}
-                className="flex-none shadow-sm"
-            />
-            <div className="flex-1 min-h-0 p-6 bg-slate-50/30 dark:bg-slate-900/10 overflow-hidden">
-                <Textarea
-                    ref={textareaRef}
-                    value={editedContent}
-                    onChange={(e) => setEditedContent(e.target.value)}
-                    className="w-full h-full font-mono text-base resize-none bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus-visible:ring-1 p-6 shadow-inner leading-relaxed"
-                    placeholder="Type your content here..."
-                    autoFocus
-                    onDrop={handleTextareaDrop}
-                    onDragOver={(e) => e.preventDefault()}
-                    onClick={handleTextareaClick}
-                    style={{
-                        cursor: useCanvasStore.getState().transclusionGhostId ? "copy" : "text"
-                    }}
-                />
-            </div>
+            {editorMode === "markdown" ? (
+                <>
+                    <MarkdownToolbar
+                        textareaRef={textareaRef}
+                        onSave={handleInternalSave}
+                        className="flex-none shadow-sm"
+                    />
+                    <div className="flex-1 min-h-0 p-6 bg-slate-50/30 dark:bg-slate-900/10 overflow-hidden">
+                        <Textarea
+                            ref={textareaRef}
+                            value={editedContent}
+                            onChange={(e) => setEditedContent(e.target.value)}
+                            className="w-full h-full font-mono text-base resize-none bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus-visible:ring-1 p-6 shadow-inner leading-relaxed"
+                            placeholder="Type your content here..."
+                            autoFocus
+                            onDrop={handleTextareaDrop}
+                            onDragOver={(e) => e.preventDefault()}
+                            onClick={handleTextareaClick}
+                            style={{
+                                cursor: useCanvasStore.getState().transclusionGhostId ? "copy" : "text"
+                            }}
+                        />
+                    </div>
+                </>
+            ) : (
+                <div className="flex-1 min-h-0 overflow-hidden bg-slate-50/30 dark:bg-slate-900/10 p-0 border-t border-slate-200 dark:border-slate-800">
+                    <WysiwygEditor
+                        content={editedContent}
+                        onChange={setEditedContent}
+                        onSave={handleInternalSave}
+                        className="h-full"
+                    />
+                </div>
+            )}
             <div className="p-3 border-t bg-slate-50 dark:bg-slate-900 flex justify-between items-center text-xs text-muted-foreground flex-none">
                 <div className="flex gap-4">
-                    <span>Markdown Enabled</span>
+                    <span>{editorMode === 'markdown' ? "Markdown" : "Visual"} Editor</span>
                     <span>•</span>
                     <span>{editedContent.length} characters</span>
                 </div>
@@ -224,19 +240,25 @@ export function TextThingEditor({
     );
 
 
+    const modeToggles = (
+        <Tabs value={editorMode} onValueChange={(v) => setEditorMode(v as any)} className="w-[180px]">
+            <TabsList className="grid w-full grid-cols-2 h-8">
+                <TabsTrigger value="wysiwyg" className="text-xs gap-1.5 py-1">
+                    <TypeIcon className="h-3 w-3" />
+                    Visual
+                </TabsTrigger>
+                <TabsTrigger value="markdown" className="text-xs gap-1.5 py-1">
+                    <FileText className="h-3 w-3" />
+                    Markdown
+                </TabsTrigger>
+            </TabsList>
+        </Tabs>
+    );
+
     const commonActions = (
         <div className="flex items-center gap-2 flex-shrink-0">
             <Button variant="outline" size="sm" onClick={onClose} className="h-8 px-3">
                 {inline ? "Close" : "Cancel"}
-            </Button>
-            <Button
-                size="sm"
-                onClick={handleInternalSave}
-                disabled={isSaving}
-                className="h-8 px-4 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-sm transition-all"
-            >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 fill-current" />}
-                <span>Save</span>
             </Button>
         </div>
     );
@@ -259,6 +281,8 @@ export function TextThingEditor({
                         </p>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {modeToggles}
+                        <div className="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-0.5" />
                         {dockingControls}
                         <div className="w-px h-5 bg-slate-200 dark:bg-slate-800 mx-0.5" />
                         {commonActions}
@@ -284,9 +308,9 @@ export function TextThingEditor({
                             High-focus editing mode. Visual/Markdown toggle available.
                         </p>
                     </div>
-                    <div className="flex items-center gap-6">
-                    </div>
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        {modeToggles}
+                        <div className="w-px h-8 bg-slate-200 dark:bg-slate-800" />
                         {dockingControls}
                         <div className="w-px h-8 bg-slate-200 dark:bg-slate-800" />
                         <Button
@@ -321,7 +345,7 @@ export function TextThingEditor({
         >
             <DialogContent
                 onInteractOutside={(e) => e.preventDefault()}
-                className="max-w-[85vw] w-full h-[85vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950 border-none shadow-2xl rounded-xl pointer-events-auto"
+                className="max-w-[95vw] w-full h-[90vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950 border-none shadow-2xl rounded-xl pointer-events-auto"
             >
                 <DialogHeader className="p-5 border-b bg-slate-50/80 dark:bg-slate-900/80 flex-none">
                     <div className="flex items-center justify-between gap-6">
@@ -335,6 +359,8 @@ export function TextThingEditor({
                             </DialogDescription>
                         </div>
                         <div className="flex items-center gap-3 flex-shrink-0 ml-auto">
+                            {modeToggles}
+                            <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
                             {dockingControls}
                             <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
                             <Button
