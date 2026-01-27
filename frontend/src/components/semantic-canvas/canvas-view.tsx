@@ -48,7 +48,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera, Hand, MousePointer2, Link as LinkIcon, Unlink } from "lucide-react";
+import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera, Hand, MousePointer2, Link as LinkIcon, Unlink, Maximize2, Minimize2, X } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
 import { SelectionProvider } from "./viewers/selection-context";
 import { useToast } from "@/components/ui/use-toast";
@@ -150,7 +150,78 @@ function CanvasViewInner() {
         semanticZoomEnabled,
         setSemanticZoomEnabled,
         deleteSelectedNodes,
+        dockedThingId,
+        dockPosition,
+        setDockedThing,
+        sidebarCollapsed,
     } = useCanvasStore();
+
+    // Dock sizing state
+    const [dockWidth, setDockWidth] = React.useState(400);
+    const [dockHeight, setDockHeight] = React.useState(300);
+    const [isResizing, setIsResizing] = React.useState(false);
+
+    const handleResize = React.useCallback((e: MouseEvent) => {
+        if (!isResizing || !dockPosition) return;
+
+        if (dockPosition === 'left') {
+            setDockWidth(Math.max(200, e.clientX));
+        } else if (dockPosition === 'right') {
+            const paletteWidth = sidebarCollapsed ? 48 : 256;
+            setDockWidth(Math.max(200, window.innerWidth - e.clientX - paletteWidth));
+        } else if (dockPosition === 'top') {
+            setDockHeight(Math.max(150, e.clientY - 64)); // 64 is approx header height
+        } else if (dockPosition === 'bottom') {
+            setDockHeight(Math.max(150, window.innerHeight - e.clientY));
+        }
+    }, [isResizing, dockPosition]);
+
+    const stopResizing = React.useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    React.useEffect(() => {
+        if (isResizing) {
+            window.addEventListener('mousemove', handleResize);
+            window.addEventListener('mouseup', stopResizing);
+        } else {
+            window.removeEventListener('mousemove', handleResize);
+            window.removeEventListener('mouseup', stopResizing);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleResize);
+            window.removeEventListener('mouseup', stopResizing);
+        };
+    }, [isResizing, handleResize, stopResizing]);
+
+    const renderDockedThing = (id: string) => {
+        const thing = things.find(t => t.id === id);
+        if (!thing) return null;
+
+        return (
+            <div className="h-full">
+                <ThingNode
+                    id={id}
+                    data={{
+                        thing,
+                        zoomLevel: 'domain',
+                        isSelected: false,
+                        onOpenConversation: handleOpenConversation,
+                        onToggleIconify: toggleIconify,
+                        onDelete: handleSafeDeleteThing,
+                        onResizeEnd: handleThingResize,
+                    }}
+                    type="thing"
+                    selected={false}
+                    zIndex={1000}
+                    isConnectable={false}
+                    xPos={0}
+                    yPos={0}
+                    dragging={false}
+                />
+            </div>
+        );
+    };
 
     // Model state from store
     const visionModel = useCanvasStore((state) => state.visionModel);
@@ -1715,7 +1786,7 @@ function CanvasViewInner() {
 
             try {
                 const token = localStorage.getItem("token");
-                const response = await fetch(`${API_URL} /canvases/${canvasId} /execute-template/stream`, {
+                const response = await fetch(`${API_URL}/canvases/${canvasId}/execute-template/stream`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -2479,102 +2550,222 @@ function CanvasViewInner() {
                 </div>
             </div>
 
-            <div className="flex-1 flex overflow-hidden">
-                {/* Main Canvas Area */}
-                <div
-                    id="canvas-area"
-                    className={cn(
-                        "flex-1 relative",
-                        isDraggingFile && "ring-4 ring-inset ring-blue-400 bg-blue-50/50 dark:bg-blue-950/30"
-                    )}
-                    onContextMenu={handlePaneContextMenu}
-                    onDragOverCapture={handleDragOver}
-                    onDragEnterCapture={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleFileDrop}
-                >
-                    {/* Drop zone overlay */}
-                    {isDraggingFile && (
-                        <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
-                            <div className="bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg text-lg font-medium">
-                                Drop files to add to canvas
+            {/* Workspace with Docking Support and Palette */}
+            <div className="flex-1 flex flex-row overflow-hidden relative">
+                {/* Main Interaction Area (Docks + Canvas) */}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    {/* Top Docked Content */}
+                    {dockedThingId && dockPosition === 'top' && (
+                        <>
+                            <div
+                                className="bg-white dark:bg-slate-900 border-b dark:border-slate-800 shadow-xl overflow-hidden relative group"
+                                style={{ height: dockHeight }}
+                            >
+                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 bg-white/80 dark:bg-slate-800/80 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                        onClick={() => setDockedThing(null, null)}
+                                    >
+                                        <X className="h-4 w-4 text-slate-500 hover:text-red-500" />
+                                    </Button>
+                                </div>
+                                <div className="h-full overflow-auto p-4">
+                                    {renderDockedThing(dockedThingId)}
+                                </div>
                             </div>
-                        </div>
+                            {/* Horizontal Splitter */}
+                            <div
+                                className="h-1 bg-slate-200 dark:bg-slate-800 hover:bg-blue-500 dark:hover:bg-blue-600 cursor-row-resize transition-colors z-20"
+                                onMouseDown={() => setIsResizing(true)}
+                            />
+                        </>
                     )}
 
-                    <ReactFlow
-                        nodes={nodes}
-                        edges={edges}
-                        onNodesChange={handleNodesChange}
-                        onEdgesChange={onEdgesChange}
-                        onMove={handleMove}
-                        onEdgesDelete={handleEdgesDelete}
-                        onConnect={onConnect}
-                        onNodeDragStart={onNodeDragStart}
-                        onNodeDragStop={onNodeDragStop}
-                        onNodeClick={onNodeClick}
-                        onEdgeClick={onEdgeClick}
-                        onSelectionChange={onSelectionChange}
-                        onPaneClick={onPaneClick}
-                        onNodeContextMenu={onNodeContextMenu}
-                        onDragOver={handleDragOver}
-                        onDrop={handleFileDrop}
-                        nodeTypes={nodeTypes}
-                        edgeTypes={edgeTypesMemo}
-                        minZoom={0.1}
-                        maxZoom={2}
-                        defaultViewport={viewport}
-                        // Mode-dependent props
-                        onSelectionDragStart={onSelectionDragStart}
-                        onSelectionDragStop={onSelectionDragStop}
-                        selectNodesOnDrag={true} // Allow moving all selected items
-                        panOnDrag={selectionMode === "hand" ? true : [1, 2]} // In selection mode, pan with middle/right mouse only (or space)
-                        selectionOnDrag={selectionMode === "selection"} // Enable drag selection without key in selection mode
-                        selectionKeyCode={selectionMode === "selection" ? null : "Shift"} // No key needed in selection mode; Shift in hand mode
-                        multiSelectionKeyCode="Shift" // Always Shift for adding to selection
-                        nodesDraggable={true}
-                        nodesConnectable={true}
-                        elementsSelectable={true}
-                        className="bg-slate-50 dark:bg-slate-950"
-                    >
-                        <Background gap={20} size={1} />
-                        <Controls />
-                        <MiniMap
-                            nodeStrokeWidth={3}
-                            zoomable
-                            pannable
-                            className="!bg-white dark:!bg-slate-900"
-                        />
-                    </ReactFlow>
+                    {/* Middle Section (Left Dock + Canvas + Right Dock) */}
+                    <div className="flex-1 flex flex-row overflow-hidden relative">
+                        {/* Left Docked Content */}
+                        {dockedThingId && dockPosition === 'left' && (
+                            <>
+                                <div
+                                    className="bg-white dark:bg-slate-900 border-r dark:border-slate-800 shadow-xl overflow-hidden relative group"
+                                    style={{ width: dockWidth }}
+                                >
+                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 bg-white/80 dark:bg-slate-800/80 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                            onClick={() => setDockedThing(null, null)}
+                                        >
+                                            <X className="h-4 w-4 text-slate-500 hover:text-red-500" />
+                                        </Button>
+                                    </div>
+                                    <div className="h-full overflow-auto p-4">
+                                        {renderDockedThing(dockedThingId)}
+                                    </div>
+                                </div>
+                                {/* Vertical Splitter */}
+                                <div
+                                    className="w-1 bg-slate-200 dark:bg-slate-800 hover:bg-blue-500 dark:hover:bg-blue-600 cursor-col-resize transition-colors z-20"
+                                    onMouseDown={() => setIsResizing(true)}
+                                />
+                            </>
+                        )}
 
-                    {/* Link Type Dialog */}
-                    <LinkTypeDialog
-                        isOpen={linkDialogOpen}
-                        onClose={() => {
-                            setLinkDialogOpen(false);
-                            setPendingConnection(null);
-                            setEditingLink(null);
-                        }}
-                        onConfirm={editingLink ? handleUpdateLink : handleCreateLink}
-                        onDelete={editingLink ? handleDeleteLink : undefined}
-                        initialType={editingLink?.type || "related"}
-                        initialLabel={editingLink?.label || ""}
-                        initialDescription={editingLink?.description || ""}
-                        mode={editingLink ? "edit" : "create"}
-                    />
+                        {/* Main React Flow Canvas */}
+                        <div
+                            id="canvas-area"
+                            className={cn(
+                                "flex-1 relative",
+                                isDraggingFile && "ring-4 ring-inset ring-blue-400 bg-blue-50/50 dark:bg-blue-950/30"
+                            )}
+                            onContextMenu={handlePaneContextMenu}
+                            onDragOverCapture={handleDragOver}
+                            onDragEnterCapture={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleFileDrop}
+                        >
+                            {/* Drop zone overlay */}
+                            {isDraggingFile && (
+                                <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
+                                    <div className="bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg text-lg font-medium">
+                                        Drop files to add to canvas
+                                    </div>
+                                </div>
+                            )}
 
-                    {/* Canvas Context Menu */}
-                    <CanvasContextMenu
-                        isOpen={contextMenuOpen}
-                        position={contextMenuPosition}
-                        context={contextMenuContext}
-                        domainId={contextMenuDomainId}
-                        onClose={() => setContextMenuOpen(false)}
-                        onAction={handleContextMenuAction}
-                    />
+                            <ReactFlow
+                                nodes={nodes}
+                                edges={edges}
+                                onNodesChange={handleNodesChange}
+                                onEdgesChange={onEdgesChange}
+                                onMove={onMoveEnd}
+                                onEdgesDelete={handleEdgesDelete}
+                                onConnect={onConnect}
+                                onNodeDragStart={onNodeDragStart}
+                                onNodeDragStop={onNodeDragStop}
+                                onNodeClick={onNodeClick}
+                                onEdgeClick={onEdgeClick}
+                                onSelectionChange={onSelectionChange}
+                                onPaneClick={onPaneClick}
+                                onNodeContextMenu={onNodeContextMenu}
+                                onDragOver={handleDragOver}
+                                onDrop={handleFileDrop}
+                                nodeTypes={nodeTypes}
+                                edgeTypes={edgeTypesMemo}
+                                minZoom={0.1}
+                                maxZoom={2}
+                                defaultViewport={viewport}
+                                onSelectionDragStart={onSelectionDragStart}
+                                onSelectionDragStop={onSelectionDragStop}
+                                selectNodesOnDrag={true}
+                                panOnDrag={selectionMode === "hand" ? true : [1, 2]}
+                                selectionOnDrag={selectionMode === "selection"}
+                                selectionKeyCode={selectionMode === "selection" ? null : "Shift"}
+                                multiSelectionKeyCode="Shift"
+                                nodesDraggable={true}
+                                nodesConnectable={true}
+                                elementsSelectable={true}
+                                className="bg-slate-50 dark:bg-slate-950"
+                            >
+                                <Background gap={20} size={1} />
+                                <Controls />
+                                <MiniMap
+                                    nodeStrokeWidth={3}
+                                    zoomable
+                                    pannable
+                                    className="!bg-white dark:!bg-slate-900"
+                                />
+                            </ReactFlow>
+
+                            <LinkTypeDialog
+                                isOpen={linkDialogOpen}
+                                onClose={() => {
+                                    setLinkDialogOpen(false);
+                                    setPendingConnection(null);
+                                    setEditingLink(null);
+                                }}
+                                onConfirm={editingLink ? handleUpdateLink : handleCreateLink}
+                                onDelete={editingLink ? handleDeleteLink : undefined}
+                                initialType={editingLink?.type || "related"}
+                                initialLabel={editingLink?.label || ""}
+                                initialDescription={editingLink?.description || ""}
+                                mode={editingLink ? "edit" : "create"}
+                            />
+
+                            <CanvasContextMenu
+                                isOpen={contextMenuOpen}
+                                position={contextMenuPosition}
+                                context={contextMenuContext}
+                                domainId={contextMenuDomainId}
+                                onClose={() => setContextMenuOpen(false)}
+                                onAction={handleContextMenuAction}
+                            />
+                        </div>
+
+                        {/* Right Docked Content (Inside Palette) */}
+                        {dockedThingId && dockPosition === 'right' && (
+                            <>
+                                {/* Vertical Splitter */}
+                                <div
+                                    className="w-1 bg-slate-200 dark:bg-slate-800 hover:bg-blue-500 dark:hover:bg-blue-600 cursor-col-resize transition-colors z-20"
+                                    onMouseDown={() => setIsResizing(true)}
+                                />
+                                <div
+                                    className="bg-white dark:bg-slate-900 border-l dark:border-slate-800 shadow-xl overflow-hidden relative group"
+                                    style={{ width: dockWidth }}
+                                >
+                                    <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 bg-white/80 dark:bg-slate-800/80 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                            onClick={() => setDockedThing(null, null)}
+                                        >
+                                            <X className="h-4 w-4 text-slate-500 hover:text-red-500" />
+                                        </Button>
+                                    </div>
+                                    <div className="h-full overflow-auto p-4">
+                                        {renderDockedThing(dockedThingId)}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Bottom Docked Content */}
+                    {dockedThingId && dockPosition === 'bottom' && (
+                        <>
+                            {/* Horizontal Splitter */}
+                            <div
+                                className="h-1 bg-slate-200 dark:bg-slate-800 hover:bg-blue-500 dark:hover:bg-blue-600 cursor-row-resize transition-colors z-20"
+                                onMouseDown={() => setIsResizing(true)}
+                            />
+                            <div
+                                className="bg-white dark:bg-slate-900 border-t dark:border-slate-800 shadow-xl overflow-hidden relative group"
+                                style={{ height: dockHeight }}
+                            >
+                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0 bg-white/80 dark:bg-slate-800/80 hover:bg-red-50 dark:hover:bg-red-900/20"
+                                        onClick={() => setDockedThing(null, null)}
+                                    >
+                                        <X className="h-4 w-4 text-slate-500 hover:text-red-500" />
+                                    </Button>
+                                </div>
+                                <div className="h-full overflow-auto p-4">
+                                    {renderDockedThing(dockedThingId)}
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
 
-                {/* Right Sidebar Palette */}
+                {/* Rightmost Sidebar Palette */}
                 <CanvasPalette />
             </div>
 

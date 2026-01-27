@@ -60,11 +60,18 @@ class RAGService:
             
             # Sync LlamaIndex Global Settings with User Config
             if llm_preset:
-                window = llm_preset.get("context_window", 4096)
-                print(f"[RAGService] Syncing Settings.context_window to {window} from preset '{llm_preset['name']}'")
+                raw_window = llm_preset.get("context_window", 4096)
+                # Apply safety buffer of 4000 tokens to account for tokenizer discrepancies
+                window = max(2048, raw_window - 4000)
+                print(f"[RAGService] Syncing Settings.context_window to {window} (raw: {raw_window}) from preset '{llm_preset['name']}'")
                 Settings.context_window = window
+                
+                # Sync Global LLM for synthesis
+                from app.services.llm_service import llm_service
+                Settings.llm = llm_service._get_llama_index_model(llm_preset["name"])
+                print(f"[RAGService] Syncing Settings.llm to preset '{llm_preset['name']}'")
             else:
-                print(f"[RAGService] No LLM Preset found. Using default context_window: {Settings.context_window}")
+                print(f"[RAGService] No LLM Preset found. Using default context_window/llm.")
 
             if embedding_preset:
                 # Use Preset
@@ -402,28 +409,8 @@ class RAGService:
     def create_llm_instance(self, model_name: str):
         """Create a LlamaIndex LLM instance for a specific model name."""
         try:
-             if not model_name or model_name == "default":
-                 return Settings.llm
-
-             if "gpt" in model_name or "o1-" in model_name or "claude" in model_name:
-                 # TODO: Better API Key handling for Anthropic/Others if needed
-                 if OpenAI:
-                     # Access config for key
-                     config = self.config_service.get_config()
-                     llm_config = config.get("llm_config", {})
-                     api_key = llm_config.get("openai_api_key")
-                     
-                     # Map claude to OpenAI client? No, need Anthropic.
-                     # For now, support OpenAI models + Ollama.
-                     
-                     return OpenAI(model=model_name, api_key=api_key)
-            
-             if "ollama" in model_name or "llama" in model_name or "mistral" in model_name:
-                 if Ollama:
-                      clean_name = model_name.replace("ollama/", "")
-                      return Ollama(model=clean_name, base_url="http://localhost:11434")
-
-             return Settings.llm
+             from app.services.llm_service import llm_service
+             return llm_service._get_llama_index_model(model_name)
         except Exception as e:
             print(f"[RAGService] Error creating LLM instance for {model_name}: {e}")
             return Settings.llm

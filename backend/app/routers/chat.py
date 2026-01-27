@@ -313,10 +313,10 @@ async def chat_endpoint(
     if active_model == "default" and request.conversation_id:
         # Check if the canvas has a preferred model set in owner_config
         from app.models.canvas_models import CanvasThing, Canvas
-        convo_thing = db.query(CanvasThing).filter(
-            CanvasThing.type == "conversation",
-            CanvasThing.content["conversation_id"].astext == request.conversation_id
-        ).first()
+        
+        # Portable JSON filtering: pull candidates and filter in Python to avoid DB-specific JSON syntax issues
+        candidates = db.query(CanvasThing).filter(CanvasThing.type == "conversation").all()
+        convo_thing = next((t for t in candidates if str(t.content.get("conversation_id")) == request.conversation_id), None)
         if convo_thing and convo_thing.canvas_id:
             canvas = db.query(Canvas).filter(Canvas.id == convo_thing.canvas_id).first()
             if canvas and canvas.owner_config and canvas.owner_config.get("selected_preset"):
@@ -326,16 +326,27 @@ async def chat_endpoint(
     if total_nodes:
         # Use LlamaIndex Response Synthesizer to handle token budgeting
         # 'compact' mode packs as many nodes as possible, and iterates if they don't fit.
-        from llama_index.core import Settings
+        from llama_index.core import Settings, get_response_synthesizer, PromptHelper
         
         # Determine appropriate response mode
         rmode = "compact"
         if last_msg.lower() in ["summary", "summarize", "what is this", "tell me about this"]:
             rmode = "tree_summarize"
             
+        llm = llm_service._get_llama_index_model(active_model)
+        
+        # Explicit PromptHelper ensures synthesis respects our safe context window
+        # We also budget 2048 for output tokens to avoid squeezing the response.
+        prompt_helper = PromptHelper(
+            context_window=llm.context_window,
+            num_output=2048,
+            chunk_overlap_ratio=0.1
+        )
+            
         synthesizer = get_response_synthesizer(
             response_mode=rmode,
-            llm=llm_service._get_llama_index_model(active_model),
+            llm=llm,
+            prompt_helper=prompt_helper,
             use_async=True
         )
         

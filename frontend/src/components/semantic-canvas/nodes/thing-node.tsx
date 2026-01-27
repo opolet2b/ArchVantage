@@ -45,7 +45,8 @@ import {
     Lock,
     RefreshCw,
     ChevronLeft,
-    ChevronRight
+    ChevronRight,
+    Layout
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -239,8 +240,6 @@ const resizeHandleStyle = {
     border: "2px solid #3b82f6",
     backgroundColor: "white",
     // Ensure handles are positioned correctly relative to the new relative container
-    right: -6,
-    bottom: -6,
 };
 
 // =============================================================================
@@ -297,6 +296,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const onDelete = useCanvasStore((state) => state.deleteThing);
     const checkSyncStatus = useCanvasStore((state) => state.checkSyncStatus);
     const performSyncUpdate = useCanvasStore((state) => state.performSyncUpdate);
+    const setDockedThing = useCanvasStore((state) => state.setDockedThing);
+    const dockedThingId = useCanvasStore((state) => state.dockedThingId);
+    const dockPosition = useCanvasStore((state) => state.dockPosition);
     const canvasSettings = useCanvasStore((state) => state.canvasSettings);
 
     const [selected, setSelected] = React.useState(isSelected);
@@ -2106,7 +2108,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     }
 
     // Card view for other zoom levels - Stable width per user request
-    const minWidth = 450;
+    const minWidth = 200;
 
     // Render based on zoom level
     if (zoomLevel === "domain") {
@@ -2570,7 +2572,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 <Download className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                             </button>
 
-                            {/* Maximize Button - Full Screen Mode */}
+                            {/* Full Screen Mode */}
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -2582,12 +2584,52 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 <Maximize2 className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                             </button>
 
+                            {/* Split Screen / Docking UI */}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <button
+                                        onClick={(e) => e.stopPropagation()}
+                                        className={cn(
+                                            "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                            dockedThingId === thing.id ? "text-blue-500 bg-blue-50 dark:bg-blue-900/20" : "text-slate-400 hover:text-blue-500"
+                                        )}
+                                        title="Split View (Dock to side)"
+                                    >
+                                        <Layout className="h-4 w-4" />
+                                    </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuLabel>Dock Position</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDockedThing(thing.id === dockedThingId && dockPosition === 'left' ? null : thing.id, 'left'); }}>
+                                        Left Side
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDockedThing(thing.id === dockedThingId && dockPosition === 'right' ? null : thing.id, 'right'); }}>
+                                        Right Side
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDockedThing(thing.id === dockedThingId && dockPosition === 'top' ? null : thing.id, 'top'); }}>
+                                        Top
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDockedThing(thing.id === dockedThingId && dockPosition === 'bottom' ? null : thing.id, 'bottom'); }}>
+                                        Bottom
+                                    </DropdownMenuItem>
+                                    {dockedThingId === thing.id && (
+                                        <>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDockedThing(null, null); }} className="text-red-500">
+                                                Undock
+                                            </DropdownMenuItem>
+                                        </>
+                                    )}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+
                             {/* Iconify button - shown when selected */}
                             {/* Iconify button - Always rendered to reserve space, control visibility via opacity */}
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleToggleIconify();
+                                    handleToggleIconify(e);
                                 }}
                                 className={cn(
                                     "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200",

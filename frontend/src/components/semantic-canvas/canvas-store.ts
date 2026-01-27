@@ -332,6 +332,15 @@ interface CanvasState {
     // Semantic Zoom Toggle
     semanticZoomEnabled: boolean;
     setSemanticZoomEnabled: (enabled: boolean) => void;
+
+    // Docking / Split View
+    dockedThingId: string | null;
+    dockPosition: 'left' | 'right' | 'top' | 'bottom' | null;
+    setDockedThing: (id: string | null, position: 'left' | 'right' | 'top' | 'bottom' | null) => void;
+
+    // Sidebar / Palette Management
+    sidebarCollapsed: boolean;
+    toggleSidebarCollapse: () => void;
 }
 
 /**
@@ -368,8 +377,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     setTransclusionGhostId: (id) => set({ transclusionGhostId: id }),
 
     // Semantic Zoom Toggle
-    semanticZoomEnabled: true,
+    semanticZoomEnabled: false,
     setSemanticZoomEnabled: (enabled) => set({ semanticZoomEnabled: enabled }),
+
+    // Docking / Split View
+    dockedThingId: null,
+    dockPosition: null,
+    setDockedThing: (id, position) => set({ dockedThingId: id, dockPosition: position }),
 
     // Link Visibility
     showLinks: true,
@@ -383,6 +397,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 : [...state.hiddenNodeLinks, nodeId]
         };
     }),
+
+    // Sidebar / Palette Management
+    sidebarCollapsed: false,
+    toggleSidebarCollapse: () => set(state => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
     // Selected model for canvas operations
     selectedModel: null,

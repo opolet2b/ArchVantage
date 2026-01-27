@@ -90,9 +90,15 @@ class LLMService:
         preset = self._resolve_preset(model_name)
         
         window = 4096
-        if preset:
-            window = preset.get("context_window", 4096)
-            m_name = preset.get("model_name") or "gpt-3.5-turbo"
+        window = 4096
+        if d_preset := preset:
+            # Window safety buffer: 4000 tokens to account for tokenizer discrepancies 
+            # (e.g. tiktoken vs Gemini) and prompt overhead.
+            raw_window = d_preset.get("context_window", 4096)
+            window = max(2048, raw_window - 4000)
+            print(f"[LLMService] Creating LlamaIndex model '{model_name}' with context_window={window} (raw: {raw_window})")
+            
+            m_name = d_preset.get("model_name") or "gpt-3.5-turbo"
             api_url = preset.get("api_url") or ""
             
             if preset.get("type") == "local":
