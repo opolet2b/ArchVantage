@@ -129,7 +129,7 @@ export function SelectionToolbar({
                     "bg-white dark:bg-slate-800 rounded-lg shadow-lg border",
                     "bg-popover text-popover-foreground rounded-lg shadow-lg border",
                     // Visual feedback for region selection or text selection (unless disabled)
-                    (!disableHighlight && (fragment.type === "region" || fragment.type === "text"))
+                    (!disableHighlight && (fragment.type === "region" || fragment.type === "text" || fragment.type === "message"))
                         ? "border-2 border-green-500 shadow-green-500/20"
                         : "border-border",
                     "animate-in fade-in-0 zoom-in-95 duration-150"

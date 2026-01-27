@@ -1,7 +1,7 @@
 ﻿"use client"
 
 import * as React from "react"
-import { Send, Bot, User, Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap } from "lucide-react"
+import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -23,6 +23,7 @@ import { useAgentExecution } from "@/lib/use-agent-execution"
 import { FormRenderer } from "@/components/tools/form-builder/form-renderer"
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
 import { useCanvasStore } from "@/components/semantic-canvas/canvas-store"
+import { useViewMode } from "@/lib/view-mode-context"
 
 /**
  * Chat message type.
@@ -66,6 +67,7 @@ interface BlueprintListItem {
 
 export function ChatInterface() {
     const { activeConversationId, createNewConversation, refreshConversations } = useConversation()
+    const { setViewMode } = useViewMode()
     const [messages, setMessages] = React.useState<Message[]>([])
     const [input, setInput] = React.useState("")
     const [isLoading, setIsLoading] = React.useState(false)
@@ -666,8 +668,10 @@ export function ChatInterface() {
                     <CardHeader className="px-6 py-4 border-b bg-muted/50">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <Avatar className="h-10 w-10 border-2 border-primary/10">
-                                    <AvatarFallback className="bg-primary text-primary-foreground"><Bot className="h-6 w-6" /></AvatarFallback>
+                                <Avatar className="h-10 w-10 border shadow-sm border-slate-950 dark:border-slate-200">
+                                    <AvatarFallback className="bg-slate-900 dark:bg-white text-white dark:text-slate-900">
+                                        <Bot className="h-6 w-6" />
+                                    </AvatarFallback>
                                 </Avatar>
                                 <div>
                                     <CardTitle className="text-lg font-semibold">AI Assistant</CardTitle>
@@ -719,11 +723,15 @@ export function ChatInterface() {
                                                 message.role === "user" ? "flex-row-reverse" : ""
                                             )}
                                         >
-                                            <Avatar className={cn("h-8 w-8 mt-1",
-                                                message.role === "user" ? "bg-primary" :
-                                                    message.role === "agent" ? "bg-purple-600" : "bg-muted-foreground"
+                                            <Avatar className={cn("h-8 w-8 mt-1 border shadow-sm",
+                                                message.role === "user" ? "border-blue-700" :
+                                                    message.role === "agent" ? "border-purple-700" : "border-slate-950 dark:border-slate-200"
                                             )}>
-                                                <AvatarFallback className="text-white">
+                                                <AvatarFallback className={cn(
+                                                    "text-white",
+                                                    message.role === "user" ? "bg-blue-600" :
+                                                        message.role === "agent" ? "bg-purple-600" : "bg-slate-900 dark:bg-white dark:text-slate-900"
+                                                )}>
                                                     {message.role === "user" ? <User className="h-4 w-4" /> :
                                                         message.role === "agent" ? <Sparkles className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                                                 </AvatarFallback>
@@ -764,32 +772,39 @@ export function ChatInterface() {
                                                     className={cn(
                                                         "rounded-2xl px-4 py-3 text-sm shadow-sm",
                                                         message.role === "user"
-                                                            ? "bg-primary text-primary-foreground rounded-tr-none"
-                                                            : "bg-card border border-border rounded-tl-none"
+                                                            ? "bg-blue-600 text-white rounded-tr-none"
+                                                            : "bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none text-foreground"
                                                     )}
                                                 >
-                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                        {message.content}
-                                                    </ReactMarkdown>
+                                                    <div className="prose-sm dark:prose-invert break-words">
+                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                            {message.content}
+                                                        </ReactMarkdown>
+                                                    </div>
 
                                                     {message.citations && message.citations.length > 0 && (
-                                                        <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t border-border/50">
-                                                            {message.citations.map((citation) => (
-                                                                <button
-                                                                    key={citation.id}
-                                                                    onClick={(e) => {
-                                                                        console.error("DEBUG: CLICK DETECTED ON CITATION BUTTON");
-                                                                        e.stopPropagation();
-                                                                        console.log("DEBUG: DATA", citation);
-                                                                        setHighlightTarget(citation.matches || null);
-                                                                        flyToNode(citation.id);
-                                                                    }}
-                                                                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-300 rounded text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
-                                                                >
-                                                                    <Paperclip className="h-3 w-3" />
-                                                                    {citation.title}
-                                                                </button>
-                                                            ))}
+                                                        <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700 text-foreground">
+                                                            <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Sources</p>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {message.citations.map((citation) => (
+                                                                    <button
+                                                                        key={citation.id}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setHighlightTarget(citation.matches || null);
+
+                                                                            // Update URL and switch view
+                                                                            const newUrl = window.location.pathname + `?node=${citation.id}`;
+                                                                            window.history.replaceState({}, '', newUrl);
+                                                                            setViewMode("canvas");
+                                                                        }}
+                                                                        className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                                                    >
+                                                                        <ExternalLink className="h-3 w-3 text-blue-500" />
+                                                                        <span className="truncate max-w-[150px]">{citation.title}</span>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>

@@ -48,7 +48,7 @@ interface ConversationViewerProps {
     /** Initial messages to display (if not fetching) */
     initialMessages?: Message[];
     /** Callback when a message or text is selected */
-    onSelect?: (fragment: MessageFragment) => void;
+    onSelect?: (fragment: MessageFragment, position: { x: number; y: number }) => void;
     /** Optional className for styling */
     className?: string;
     /** Whether selection is enabled */
@@ -236,15 +236,23 @@ export function ConversationViewer({
     };
 
     // Handle message selection logic (existing)
-    const handleMessageClick = (message: Message, index: number) => {
+    const handleMessageClick = (message: Message, index: number, e: React.MouseEvent) => {
         if (!selectionEnabled || !onSelect) return;
         const messageId = message.id || `msg-${index}`;
         setSelectedMessageId(messageId);
+
+        // Position at the top center of the message bubble
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const position = {
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+        };
+
         onSelect({
             type: "message",
             messageId: messageId,
             content: message.content,
-        });
+        } as any, position);
     };
 
     const handleMouseUp = (message: Message, index: number) => {
@@ -256,6 +264,12 @@ export function ConversationViewer({
 
         const messageId = message.id || `msg-${index}`;
         const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const position = {
+            x: rect.left + rect.width / 2,
+            y: rect.top,
+        };
+
         setSelectedMessageId(messageId);
         onSelect({
             type: "message",
@@ -263,7 +277,7 @@ export function ConversationViewer({
             content: text,
             startOffset: range.startOffset,
             endOffset: range.endOffset,
-        });
+        } as any, position);
     };
 
     if (isFetchingInfo && messages.length === 0) {
@@ -302,7 +316,7 @@ export function ConversationViewer({
                         return (
                             <div
                                 key={messageId}
-                                onClick={() => handleMessageClick(message, index)}
+                                onClick={(e) => handleMessageClick(message, index, e)}
                                 onMouseUp={() => handleMouseUp(message, index)}
                                 className={cn(
                                     "flex gap-2 max-w-[90%] group",

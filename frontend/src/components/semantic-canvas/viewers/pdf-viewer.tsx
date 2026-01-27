@@ -176,7 +176,6 @@ export function PDFViewer({
 
     // Auto-navigate to page if highlight target provided (and handle index changes)
     React.useEffect(() => {
-        console.log("PDFViewer Received Highlight Target:", highlightTarget);
         if (!highlightTarget || highlightTarget.length === 0) return;
 
         // Get current match based on index
@@ -250,7 +249,16 @@ export function PDFViewer({
             endOffset: selectedText.length,
             pageNumber: pageNumber,
         };
-        onSelect(fragment);
+
+        // Calculate screen position for toolbar
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const position = {
+            x: rect.left + rect.width / 2,
+            y: rect.top
+        };
+
+        onSelect(fragment, position);
     }, [onSelect, selectionEnabled, pageNumber, mode]);
 
     // =========================================================================
@@ -468,8 +476,6 @@ export function PDFViewer({
             </span>
         );
     }
-
-    console.log("PDFViewer Render: exportMode =", exportMode);
 
     return (
         <span className={cn("flex flex-col h-full", className)}>

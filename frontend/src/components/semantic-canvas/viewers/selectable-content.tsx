@@ -201,8 +201,7 @@ export function SelectableContent({
     const clearSelection = React.useCallback(() => {
         setSelection(null);
         onSelectionChange?.(false);
-        // Clear browser selection
-        window.getSelection()?.removeAllRanges();
+        // We no longer clear browser selection to allow text to stay highlighted
     }, [onSelectionChange]);
 
     // Helper: Create fragment data for API
@@ -447,25 +446,27 @@ export function SelectableContent({
     }, [analysisResult, addThing, analysisSourceFragment, createNodeAndLink]);
 
     // Clone children and inject onSelect handler
-    const childrenWithProps = React.Children.map(children, (child) => {
-        if (React.isValidElement(child)) {
-            // TypeScript workaround to access props on generic ReactElement
-            const childProps = child.props as any;
-            const originalOnSelect = childProps.onSelect;
+    const childrenWithProps = React.useMemo(() => {
+        return React.Children.map(children, (child) => {
+            if (React.isValidElement(child)) {
+                // TypeScript workaround to access props on generic ReactElement
+                const childProps = child.props as any;
+                const originalOnSelect = childProps.onSelect;
 
-            return React.cloneElement(child, {
-                onSelect: (fragment: Fragment, position: { x: number; y: number }) => {
-                    // Call our handler for the toolbar
-                    handleSelection(fragment, position);
-                    // Call the original handler (e.g., for creating persistent regions in ThingNode)
-                    if (originalOnSelect) {
-                        originalOnSelect(fragment, position);
-                    }
-                },
-            } as any);
-        }
-        return child;
-    });
+                return React.cloneElement(child, {
+                    onSelect: (fragment: Fragment, position: { x: number; y: number }) => {
+                        // Call our handler for the toolbar
+                        handleSelection(fragment, position);
+                        // Call the original handler (e.g., for creating persistent regions in ThingNode)
+                        if (originalOnSelect) {
+                            originalOnSelect(fragment, position);
+                        }
+                    },
+                } as any);
+            }
+            return child;
+        });
+    }, [children, handleSelection]);
 
     return (
         <div className="nodrag w-full h-full relative group">
