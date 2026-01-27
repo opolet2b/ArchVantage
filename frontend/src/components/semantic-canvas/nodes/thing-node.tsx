@@ -297,6 +297,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const checkSyncStatus = useCanvasStore((state) => state.checkSyncStatus);
     const performSyncUpdate = useCanvasStore((state) => state.performSyncUpdate);
     const setDockedThing = useCanvasStore((state) => state.setDockedThing);
+    const setEditingThingId = useCanvasStore((state) => state.setEditingThingId);
+    const editingThingId = useCanvasStore((state) => state.editingThingId);
     const dockedThingId = useCanvasStore((state) => state.dockedThingId);
     const dockPosition = useCanvasStore((state) => state.dockPosition);
     const canvasSettings = useCanvasStore((state) => state.canvasSettings);
@@ -324,6 +326,21 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [isEditingContent, isTrulyFullscreen]);
+
+    // Sync local isEditingContent with global store editingThingId
+    // This allows the editor to persist or follow the node when docked/undocked
+    React.useEffect(() => {
+        if (editingThingId === thing.id) {
+            if (!isEditingContent) setIsEditingContent(true);
+        } else {
+            if (isEditingContent) setIsEditingContent(false);
+        }
+    }, [editingThingId, thing.id, isEditingContent]);
+
+    // Action to start editing
+    const startEditing = React.useCallback(() => {
+        setEditingThingId(thing.id);
+    }, [thing.id, setEditingThingId]);
 
     // Sync State
     const [syncDialogOpen, setSyncDialogOpen] = React.useState(false);
@@ -2369,7 +2386,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setIsEditingContent(true);
+                                                    startEditing();
                                                 }}
                                                 className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
                                                 title="Open Editor"
@@ -2379,7 +2396,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setIsEditingContent(false);
+                                                    setEditingThingId(null);
                                                 }}
                                                 className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
                                                 title="Cancel Editing"
@@ -2391,7 +2408,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                setIsEditingContent(true);
+                                                startEditing();
                                             }}
                                             className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
                                             title="Edit Content"
@@ -2938,11 +2955,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             {/* Refined Isolated Text Editor */}
             <TextThingEditor
                 thing={thing}
-                isOpen={isEditingContent}
+                isOpen={isEditingContent && dockedThingId !== thing.id}
                 isTrulyFullscreen={isTrulyFullscreen}
                 setIsTrulyFullscreen={setIsTrulyFullscreen}
                 onClose={() => {
-                    setIsEditingContent(false);
+                    setEditingThingId(null);
                     setIsTrulyFullscreen(false);
                 }}
                 onSave={handleContentSave}

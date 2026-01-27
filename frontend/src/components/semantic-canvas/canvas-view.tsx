@@ -32,6 +32,7 @@ import domToImage from "dom-to-image-more";
 
 import { ThingNode } from "./nodes/thing-node";
 import { DomainNode } from "./nodes/domain-node";
+import { TextThingEditor } from "./nodes/text-thing-editor";
 import { CustomEdge } from "./edges/custom-edge";
 
 import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport } from "./canvas-store";
@@ -153,6 +154,7 @@ function CanvasViewInner() {
         dockedThingId,
         dockPosition,
         setDockedThing,
+        editingThingId,
         sidebarCollapsed,
     } = useCanvasStore();
 
@@ -197,6 +199,25 @@ function CanvasViewInner() {
     const renderDockedThing = (id: string) => {
         const thing = things.find(t => t.id === id);
         if (!thing) return null;
+
+        // If this thing is currently being edited, render the editor inline
+        if (id === editingThingId && thing.type === 'text') {
+            return (
+                <div className="h-full border-none shadow-none">
+                    <TextThingEditor
+                        thing={thing}
+                        isOpen={true}
+                        inline={true}
+                        onClose={() => useCanvasStore.getState().setEditingThingId(null)}
+                        onSave={async (newContent: string) => {
+                            await updateThing(thing.id, {
+                                content: { ...thing.content, text: newContent }
+                            });
+                        }}
+                    />
+                </div>
+            );
+        }
 
         return (
             <div className="h-full">

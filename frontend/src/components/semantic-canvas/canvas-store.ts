@@ -341,6 +341,10 @@ interface CanvasState {
     // Sidebar / Palette Management
     sidebarCollapsed: boolean;
     toggleSidebarCollapse: () => void;
+
+    // Editing State
+    editingThingId: string | null;
+    setEditingThingId: (id: string | null) => void;
 }
 
 /**
@@ -401,6 +405,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Sidebar / Palette Management
     sidebarCollapsed: false,
     toggleSidebarCollapse: () => set(state => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+
+    // Editing State
+    editingThingId: null,
+    setEditingThingId: (id) => set({ editingThingId: id }),
 
     // Selected model for canvas operations
     selectedModel: null,
