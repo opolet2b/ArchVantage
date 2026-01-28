@@ -1749,6 +1749,21 @@ function CanvasViewInner() {
                                     description: `Executing Step: ${stepName} `,
                                     duration: 1000000,
                                 });
+                            } else if (event.type === "progress") {
+                                // Progress event (e.g. timeout waiting)
+                                updateToast({
+                                    id: toastId,
+                                    description: event.message,
+                                    duration: 1000000
+                                });
+                            } else if (event.type === "log") {
+                                // Real-time log from backend (Extractor warnings, Heartbeats)
+                                updateToast({
+                                    id: toastId,
+                                    description: event.message,
+                                    // Use a simpler title if it's a heartbeat, or keep "Running Analysis..."
+                                    duration: 1000000
+                                });
                             } else if (event.type === "complete") {
                                 const result = event.data;
                                 if (result.status === "completed") {
@@ -1771,33 +1786,7 @@ function CanvasViewInner() {
                                 }
                             } else if (event.type === "node_created") {
                                 const newNode = event.node;
-                                // Convert to partial Thing format expected by store or use validation
-                                // Assuming store.addThing handles the node as returned by backend
-                                // Use addServerThing to just update local state without POST
                                 useCanvasStore.getState().addServerThing(newNode as any);
-                                // Cast to any because backend event might be slightly different type shape, but store expects CanvasThing.
-                                // It should be compatible.
-
-                                // Also refresh links if they were created server-side but not pushed
-                                // Or we can manually push links if the event contained them. 
-                                // Since backend creates links, a full refresh might be safest, 
-                                // but let's try to be responsive.
-                                // If the backend sent links, we could add them.
-                                // For now, let's trigger a refresh of links just in case, 
-                                // or rely on refreshThings() called in 'complete' (wait, 'complete' happens BEFORE 'node_created'?)
-                                // Backend logic: yield 'complete' -> yield 'node_created'.
-                                // But 'complete' event handling in frontend currently calls refreshThings()
-
-                                // Issue: Frontend receives 'complete', refreshes. DB might NOT have the node yet (if commit is slow).
-                                // THEN Frontend receives 'node_created'.
-
-                                // Better approach: Remove refreshThings from 'complete' and do it on 'node_created' OR 'complete' (with backend change).
-                                // But I can't change the order easily without buffering.
-
-                                // Safe fix: On 'node_created', force a refresh OR add to local state.
-                                // Adding to local state is instant.
-
-                                // We'll assume addThing updates the UI.
                             } else if (event.type === "error") {
                                 updateToast({
                                     id: toastId,

@@ -988,6 +988,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         return {
             type: "text", // Treat whole thing as text for analysis
             content: contentStr,
+            startOffset: 0,
+            endOffset: contentStr.length,
         };
     }, [thing]);
 
@@ -1711,6 +1713,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 filename={filename}
                                 className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                                 highlight={highlight}
+                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                             />
                         </SelectableContent>
                     );
@@ -1744,10 +1747,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 );
 
             case "image":
+                const imageAssetId = content.asset_id;
+                const imageSrc = imageAssetId ? `/api/v1/assets/${imageAssetId}` : (content.file_path || content.url || "");
                 return (
                     <SelectableContent thingId={thing.id} onSelectionChange={setHasInnerSelection}>
                         <ImageViewer
-                            src={content.file_path as string}
+                            src={imageSrc as string}
                             alt={content.alt_text as string || "Image"}
                             className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                             overlays={imageOverlays}
@@ -1774,6 +1779,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             filename={filename || thing.title || "Table"}
                             className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                             highlight={highlight}
+                            onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
                         />
                     </SelectableContent>
                 );

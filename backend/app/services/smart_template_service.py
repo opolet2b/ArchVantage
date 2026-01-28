@@ -303,18 +303,48 @@ class SmartTemplateService:
         
         # 0. Fragment Priority
         if fragment:
-            print(f"[ContentResolution] Using Fragment Data (Type: {fragment.type})")
+            print(f"[ContentResolution] Resolving Fragment Data. Full Object: {fragment.dict() if hasattr(fragment, 'dict') else fragment}")
+            print(f"[ContentResolution] Fragment Type: {fragment.type}")
+            # Text Fragments: Return content directly
             if fragment.type == "text" and fragment.content:
+                print(f"[ContentResolution] Fragment Text Resolved. Len: {len(fragment.content)}")
                 return fragment.content
+                
+            # Region Fragments: Prioritize base64 content (for vision) or return descriptive coordinates
             elif fragment.type == "region":
-                # Only return coordinate string if no real content is provided (fallback)
-                if fragment.content and len(fragment.content) > 50:
-                     return fragment.content
-                return f"[Selected Region at x={fragment.x:.2f}, y={fragment.y:.2f}, w={fragment.width:.2f}, h={fragment.height:.2f}]"
+                if fragment.content and len(fragment.content) > 100:
+                    print(f"[ContentResolution] Fragment Region (Image Crop) Resolved. Len: {len(fragment.content)}")
+                    return fragment.content
+                
+                desc = f"[Selected Region at x={fragment.x:.2f}, y={fragment.y:.2f}, w={fragment.width:.2f}, h={fragment.height:.2f}]"
+                print(f"[ContentResolution] Fragment Region (Coordinates Only) Resolved: {desc}")
+                return desc
+                
+            # Cell Fragments: Return range/sheet plus content
             elif fragment.type == "cell":
-                return f"[Selected Cell: {fragment.range} in {fragment.sheet}] {fragment.content or ''}"
+                desc = f"[Selected Cells: {fragment.range} in sheet '{fragment.sheet or 'Default'}']"
+                val = fragment.content or ""
+                
+                # Robust Fallback: Reconstruct from values if content is placeholder or empty
+                if (not val or val.startswith("Cells ") or val == "Column Selection") and fragment.values:
+                    try:
+                        # Join rows with tabs, rows with newlines
+                        val = "\n".join(["\t".join([str(c) for c in row]) for row in fragment.values])
+                        print(f"[ContentResolution] Reconstructed cell content from values. New Len: {len(val)}")
+                    except Exception as e:
+                        print(f"[ContentResolution] Failed to reconstruct from values: {e}")
+
+                final = f"{desc}\n{val}"
+                print(f"[ContentResolution] Fragment Cell Resolved: {desc}. Content Len: {len(val)}")
+                return final
+                
+            # Generic fallback for other types with content
             elif fragment.content:
+                print(f"[ContentResolution] Fragment Generic Resolved. Len: {len(fragment.content)}")
                 return fragment.content
+                
+            else:
+                print(f"[ContentResolution] Fragment exists but was NOT resolved (Type: {fragment.type}, Content: {fragment.content is not None})")
         
         print(f"\n[ContentResolution] Resolving content for Thing '{thing.title}' (ID: {thing.id}, Type: {thing.type.value})")
         
@@ -342,12 +372,19 @@ class SmartTemplateService:
                     print(f"[ContentResolution] Asset path resolution error: {e}")
 
             # 1. Try RAG First (Vectorized Content)
+            # CAUTION: We ONLY use RAG if we have a semantic query. 
+            # If query is empty (""), LlamaIndex logic is undefined/random for "retrieve" 
+            # and often returns irrelevant chunks or nothing.
+            # We skip RAG for content resolution (which implies "get everything") and fallback to Direct Read.
             try:
-                if file_path:
+                # Query param not currently passed to this function, it defaults to ""
+                query_context = "" 
+                
+                if file_path and query_context:
                     print(f"[ContentResolution] Attempting RAG Search. Filter source='{file_path}'")
                     # Use exact source filter to match ingestion metadata
                     rag_results = rag_service.search(
-                        query="", 
+                        query=query_context, 
                         k=100, 
                         filters={"source": file_path}
                     )
@@ -363,7 +400,7 @@ class SmartTemplateService:
                     
                     print("[ContentResolution] RAG Index returned NO results for this file.")
                 else:
-                    print("[ContentResolution] Skipping RAG: No file_path available.")
+                    print("[ContentResolution] Skipping RAG: Query is empty (Full Content Resolution Mode).")
                     
             except Exception as e:
                 print(f"[ContentResolution] RAG search exception: {e}")
@@ -702,6 +739,14 @@ class SmartTemplateService:
             yield {"type": "error", "content": f"Template with ID {request.template_id} not found."}
             return
 
+        # --- DEBUG LOGGING for Fragment Issue ---
+        print(f"[SmartTemplate] Request Source Fragment: {request.source_fragment}")
+        if request.source_fragment:
+            print(f"[SmartTemplate] Fragment Type: {request.source_fragment.type}, Content Len: {len(request.source_fragment.content or '')}")
+        else:
+             print(f"[SmartTemplate] No source_fragment provided in request.")
+        # ----------------------------------------
+
         # 2. Collect Entities
         # RELAXED LOOKUP: Query by ID first to ensure we find the thing even if canvas_id parameter is mismatched
         things = db.query(CanvasThing).filter(
@@ -907,6 +952,61 @@ class SmartTemplateService:
             "id": template.id
         }
         
+        # --- CRITICAL FIX: Inject Template Content into Analyst Agent ---
+        # Ensure the LLM explicitly sees the template structure in its instructions.
+        if template.document_template_id and 'doc_template' in locals() and doc_template:
+            print(f"[SmartTemplate] Injecting Document Template Content into Analyst Agent instructions...")
+            
+            # Helper to find and update agent step
+            target_config = pipeline_config_to_use
+            nodes_list = target_config.get("nodes", [])
+            steps_list = target_config.get("steps", [])
+            
+            # Unified iterator for nodes or steps
+            items_to_check = nodes_list if isinstance(nodes_list, list) and nodes_list else steps_list
+            
+            injected = False
+            if isinstance(items_to_check, list):
+                for item in items_to_check:
+                    # Check for Agent or LLM Generation type
+                    i_type = item.get("type", "").lower()
+                    if "agent" in i_type or "llm" in i_type or "generation" in i_type:
+                        # Found the Analyst Agent
+                        params = item.get("params", {})
+                        if not params: params = item.get("data", {}).get("params", {})
+                        
+                        # Get existing instruction
+                        curr_instr = params.get("instruction") or params.get("objective") or ""
+                        
+                        # Append Template
+                        # Use a clear separator
+                        template_injection = (
+                            "\n\n"
+                            "<!-- REQUIRED OUTPUT TEMPLATE -->\n"
+                            "You must strictly follow the structure defined below for the output content:\n\n"
+                            f"{doc_template.content}\n\n"
+                            "<!-- END TEMPLATE -->"
+                        )
+                        
+                        # Update params
+                        # We update 'instruction' as that's what LLMGenerationPrimitive uses
+                        if not curr_instr: curr_instr = "Analyze the provided data and generate a report following the strict template below."
+                        
+                        params["instruction"] = curr_instr + template_injection
+                        
+                        # Ensure params are saved back to the item
+                        if item.get("params") is not None:
+                            item["params"] = params
+                        elif item.get("data"):
+                             item["data"]["params"] = params
+                             
+                        print(f"[SmartTemplate] Injected {len(template_injection)} chars into Agent '{item.get('id')}' instruction.")
+                        injected = True
+                        break
+            
+            if not injected:
+                 print("[SmartTemplate] WARNING: Could not find Agent node to inject template content.")
+
         runtime = AgentRuntime(blueprint_mock, db)
 
         print(f"[SmartTemplate] Streaming execution for '{template.name}' with {len(entities_data)} items.")
@@ -1332,8 +1432,31 @@ class SmartTemplateService:
                             final_text = str(val) if isinstance(val, (dict, list)) else val
                             thing_content = {"text": final_text, "markdown": final_text}
                          else:
-                            val = str(current_output or "")
-                            thing_content = {"text": val, "markdown": val}
+                             val = str(current_output or "")
+                             
+                             # ROBUSTNESS FIX: If output is effectively empty (AI failed to find data)
+                             # Look back at extractor_output or other findings in the state.
+                             if (not val or val.strip() in ["[]", "{}", "No findings", "None"]) and not template.document_template_id:
+                                 print("[SmartTemplate] Final output is effectively empty. Looking back for findings...")
+                                 variables = full_state.get("variables", {})
+                                 lookback_vars = ["agent_output", "extractor_output", "analysis_results", "text_output"]
+                                 
+                                 for var_name in lookback_vars:
+                                     lookback_val = variables.get(var_name)
+                                     if lookback_val:
+                                         # If it's the extractor output, format it nicely
+                                         if var_name == "extractor_output" and isinstance(lookback_val, dict) and "extracted_elements" in lookback_val:
+                                             elements = lookback_val.get("extracted_elements", [])
+                                             if elements:
+                                                 val = "### Extraction Findings\n" + "\n".join([f"- {e.get('data')}" for e in elements])
+                                                 print(f"[SmartTemplate] Recovered findings from {var_name}")
+                                                 break
+                                         elif isinstance(lookback_val, str) and len(lookback_val) > 20:
+                                             val = lookback_val
+                                             print(f"[SmartTemplate] Recovered findings from {var_name}")
+                                             break
+                                             
+                             thing_content = {"text": val, "markdown": val}
 
                     # If valid content to persist
                     if thing_content:
@@ -1538,6 +1661,8 @@ class SmartTemplateService:
         # 2. Sequential Processor for Blueprint Sections
         
         def process_children(children, parent_prev_id, depth=0):
+            from app.services.template_parser import TemplateSection, LoopBlock, ConditionalBlock, TemplateInstruction
+            
             current_prev_id = parent_prev_id
             local_nodes = []
             local_edges = []
@@ -1546,7 +1671,7 @@ class SmartTemplateService:
                 node_id = f"node_{depth}_{index}_{str(uuid.uuid4())[:8]}"
                 
                 # --- CASE A: LOOP ---
-                if hasattr(item, 'source') and item.source: # LoopBlock
+                if isinstance(item, LoopBlock):
                     # Recursively build subgraph for the loop body
                     
                     sub_nodes, sub_edges = process_children(item.content, "START_SUB")
@@ -1579,7 +1704,7 @@ class SmartTemplateService:
                     current_prev_id = node_id
                     
                 # --- CASE B: CONDITIONAL (IF) ---
-                elif hasattr(item, 'condition'): # ConditionalBlock
+                elif isinstance(item, ConditionalBlock):
                     
                     # Build IF Branch
                     if_nodes, if_edges = process_children(item.if_content, node_id + "_IF_START")
@@ -1632,7 +1757,7 @@ class SmartTemplateService:
                         current_prev_id = merge_id
                     
                 # --- CASE C: SECTION / INSTRUCTION ---
-                elif hasattr(item, 'title'): # TemplateSection
+                elif isinstance(item, TemplateSection):
                      # Flatten instructions
                      instr_text = "\\n".join([i.text for i in item.instructions])
                      
@@ -1661,7 +1786,7 @@ class SmartTemplateService:
                              current_prev_id = sec_nodes[-1]["id"]
 
                 # --- CASE D: INSTRUCTION (Leaf) ---
-                elif hasattr(item, 'text'): # TemplateInstruction
+                elif isinstance(item, TemplateInstruction):
                      action_node = {
                          "id": node_id,
                          "type": "LLM_GENERATION",
@@ -1675,6 +1800,12 @@ class SmartTemplateService:
                      if current_prev_id and current_prev_id != "START_SUB":
                          local_edges.append({"source": current_prev_id, "target": node_id})
                      current_prev_id = node_id
+                
+                # --- CASE E: RAW STRING (Ignore) ---
+                elif isinstance(item, str):
+                    # We skip raw text lines in the graph construction as they are 
+                    # usually prelude or formatting that doesn't trigger logic.
+                    continue
                      
             return local_nodes, local_edges
 

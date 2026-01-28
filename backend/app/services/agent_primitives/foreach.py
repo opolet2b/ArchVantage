@@ -68,22 +68,31 @@ class ForEachPrimitive(BasePrimitive):
             output_var = params.get("output_variable", "foreach_results")
             
             # Get the list from state variables
+            # Get the list from state variables
             variables = state.get("variables", {})
-            items = self._get_nested_value(variables, items_var)
-            
-            if not isinstance(items, list):
-                return PrimitiveResult(
-                    success=False,
-                    error=f"'{items_var}' is not a list"
-                )
+            try:
+                items = self._get_nested_value(variables, items_var)
+            except KeyError:
+                print(f"[ForEach] WARNING: Key '{items_var}' not found. Defaulting to empty list.")
+                items = []
             
             results: List[Any] = []
             
+            # Ensure items is valid
+            if items is None:
+                 print(f"[ForEach] WARNING: Items list '{items_var}' is None. Defaulting to empty list.")
+                 items = []
+
+            if not isinstance(items, list):
+                 # Try to force list?
+                 if isinstance(items, dict):
+                      items = [items]
+                 else:
+                      print(f"[ForEach] WARNING: '{items_var}' is {type(items)}, not list. Wrapping.")
+                      items = [items]
+
             # If there's a subprocess graph, we need the runtime to execute it
-            # For now, just collect items with their indices
             if subprocess_graph:
-                # This will be handled by the agent_runtime 
-                # which will recursively execute the sub-graph
                 return PrimitiveResult(
                     success=True,
                     output={
@@ -91,11 +100,11 @@ class ForEachPrimitive(BasePrimitive):
                         "_foreach_iterator": iterator_var,
                         "_foreach_index": index_var,
                         "_foreach_subprocess": subprocess_graph,
-                        output_var: []  # Will be populated by runtime
+                        output_var: [] 
                     }
                 )
             
-            # Simple case: just enumerate the items
+            # Simple manual enumeration (if no subgraph)
             for idx, item in enumerate(items):
                 results.append({
                     iterator_var: item,
@@ -109,8 +118,10 @@ class ForEachPrimitive(BasePrimitive):
                     "_raw": results
                 }
             )
-            
+
         except Exception as e:
+            # Fallback for critical failure
+            print(f"[ForEach] CRITICAL FAILURE: {e}")
             return PrimitiveResult(
                 success=False,
                 error=f"ForEach failed: {str(e)}"

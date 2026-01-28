@@ -376,6 +376,11 @@ MODE: SEMANTIC ANALYSIS
                 "model_name": model
             }
             
+            # Extract callbacks from state if available
+            status_callbacks = state.get("status_callbacks", [])
+            if status_callbacks:
+                 call_kwargs["callbacks"] = status_callbacks
+            
             if not has_images:
                 # Only enforce JSON mode for text-only tasks
                 call_kwargs["response_format"] = {"type": "json_object"}
@@ -384,23 +389,42 @@ MODE: SEMANTIC ANALYSIS
 
             # Call LLM
             start_time = time.time()
-            print(f"[EXTRACTOR] calling LLM at {start_time}")
+            
+            # --- MONITORING: Log Payload Size ---
+            payload_size = len(str(messages))
+            print(f"[EXTRACTOR] calling LLM at {start_time}. Payload size: {payload_size/1024:.2f} KB")
+            
+            if payload_size > 100 * 1024: # > 100KB
+                 warn_msg = f"[EXTRACTOR] WARNING: Large payload detected ({payload_size/1024:.2f} KB). This may cause slowness or timeouts."
+                 print(warn_msg)
+                 # Yield warning to callbacks
+                 if status_callbacks:
+                     for cb in status_callbacks:
+                         try:
+                             if asyncio.iscoroutinefunction(cb):
+                                 await cb(warn_msg)
+                             else:
+                                 cb(warn_msg)
+                         except Exception: pass
 
             response_text = await llm_service.chat(**call_kwargs)
             
             end_time = time.time()
             duration = end_time - start_time
-            print(f"[EXTRACTOR] LLM Call Finished. Duration: {duration:.2f} seconds ({duration/60:.2f} minutes).")
-            
-            # Debug Log: Final Response
-            try:
-                with open("execution_debug.log", "a", encoding="utf-8") as f:
-                    f.write(f"\n[EXTRACTOR RESPONSE DEBUG]\n{response_text[:3000]}\n")
-            except: pass
+            print(f"[EXTRACTOR] DEBUG: LLM returned text of length {len(response_text)}")
             
             try:
+                # Debug Log: Final Response
+                try:
+                    print(f"[EXTRACTOR] DEBUG: Writing to execution_debug.log...")
+                    with open("execution_debug.log", "a", encoding="utf-8") as f:
+                        f.write(f"\n[EXTRACTOR RESPONSE DEBUG]\n{response_text[:3000]}\n")
+                    print(f"[EXTRACTOR] DEBUG: Log write complete.")
+                except: pass
+                
                 try:
                     # Clean up Markdown Code Blocks first
+                    print(f"[EXTRACTOR] DEBUG: Cleaning markdown fences...")
                     clean_response = response_text.strip()
                     if clean_response.startswith("```"):
                         # Remove first line (```json)
@@ -408,34 +432,50 @@ MODE: SEMANTIC ANALYSIS
                     if clean_response.endswith("```"):
                         clean_response = clean_response[:-3].strip()
                     
+                    print(f"[EXTRACTOR] DEBUG: Attempting initial json.loads (Length: {len(clean_response)})...")
                     extracted_data = json.loads(clean_response)
+                    print(f"[EXTRACTOR] DEBUG: Initial json.loads SUCCESS.")
                 except json.JSONDecodeError:
+                    print(f"[EXTRACTOR] DEBUG: Initial JSON decode failed. Starting repair process.")
                     # Fallback on JSON error: Try to repair truncated JSON
                     # 1. Regex to find the start of the JSON object 
                     import re
                     # Find { ... } boundaries
-                    match = re.search(r'\{[\s\S]*\}', response_text)
+                    # Safety Check: limit regex search to first 2MB to prevent ReDoS on massive garbage
+                    search_limit = 2 * 1024 * 1024
+                    search_text = response_text[:search_limit]
+                    
+                    print(f"[EXTRACTOR] DEBUG: Regex searching for JSON block in first {search_limit} bytes...")
+                    match = re.search(r'\{[\s\S]*\}', search_text)
                     if not match:
                          # Maybe truncated? Find start at least
-                         match = re.search(r'\{[\s\S]*', response_text)
+                         print(f"[EXTRACTOR] DEBUG: Full block not found, searching for start only...")
+                         match = re.search(r'\{[\s\S]*', search_text)
                     
                     if match:
                         json_candidate = match.group(0).strip()
+                        print(f"[EXTRACTOR] DEBUG: JSON candidate found (Length: {len(json_candidate)}).")
                         # If candidate ends with garbage (like ```), trim it
                         if json_candidate.endswith("```"):
                             json_candidate = json_candidate[:-3].strip()
                         
-                        # 2. Simple Repair Logic
+                        # 2. Simple Repair Logic (Optimized for speed)
                         def repair_json(broken_json):
+                            print(f"[EXTRACTOR] DEBUG: repair_json called on {len(broken_json)} chars.")
+                            # Hard limit on repair size
+                            if len(broken_json) > 1024 * 1024: # 1MB limit for repair
+                                print(f"[EXTRACTOR] DEBUG: Aborting repair_json - input too large > 1MB")
+                                return broken_json
+                                
                             stack = []
                             is_inside_string = False
                             escaped = False
                             
-                            clean_json = ""
+                            clean_parts = []
                             
                             # Consume string char by char to track state
                             for char in broken_json:
-                                clean_json += char
+                                clean_parts.append(char)
                                 
                                 if is_inside_string:
                                     if char == '"' and not escaped:
@@ -458,32 +498,38 @@ MODE: SEMANTIC ANALYSIS
                                                 
                             # Close unclosed string
                             if is_inside_string:
-                                clean_json += '"'
+                                clean_parts.append('"')
                                 
                             # Close unclosed brackets/braces
                             while stack:
-                                clean_json += stack.pop()
+                                clean_parts.append(stack.pop())
                                 
-                            return clean_json
+                            return "".join(clean_parts)
 
+                        print(f"[EXTRACTOR] DEBUG: Running repair_json...")
                         repaired_json = repair_json(json_candidate)
+                        print(f"[EXTRACTOR] DEBUG: repair_json finished.")
+
                         try:
-                            print(f"[EXTRACTOR] Attempting to parse repaired JSON: {repaired_json[:100]}...")
+                            print(f"[EXTRACTOR] Attempting to parse repaired JSON...")
                             extracted_data = json.loads(repaired_json)
-                            print("[EXTRACTOR] Repair successful.")
                         except:
+                             print(f"[EXTRACTOR] DEBUG: json.loads failed on repaired data. Trying ast.literal_eval...")
                              # Last Ditch: ast.literal_eval if it looks like python dict
                              try:
                                  import ast
                                  extracted_data = ast.literal_eval(repaired_json)
+                                 print(f"[EXTRACTOR] DEBUG: ast.literal_eval success.")
                              except:
                                  raise ValueError("Could not parse JSON even after repair attempt.")
                     else:
                          raise ValueError("No JSON object start '{' found.")
 
                 # Verify it matches ExtractorOutput structure (loose validation)
+                print(f"[EXTRACTOR] DEBUG: Validating structure...")
                 if "extracted_elements" not in extracted_data:
                      # CRITICAL FIX: If LLM returns flat JSON (ignoring schema), wrap it instead of discarding
+                     print(f"[EXTRACTOR] DEBUG: 'extracted_elements' missing. Wrapping flat JSON.")
                      # Find first asset ID to attribute to
                      first_asset_id = extractor_input["assets"][0]["id"] if extractor_input.get("assets") else "unknown"
                      extracted_data = {
@@ -500,12 +546,43 @@ MODE: SEMANTIC ANALYSIS
                 state["variables"][target_variable] = extracted_data
                 state["variables"]["extractor_output"] = extracted_data
                 
+                print(f"[EXTRACTOR] DEBUG: Success! Returning PrimitiveResult.")
                 return PrimitiveResult(success=True, output=extracted_data)
             except Exception as e:
-                # Log the bad response for debugging
-                error_msg = f"Strict Extraction failed: {str(e)}. Response start: {response_text[:200]}"
-                print(f"[EXTRACTOR] ERROR: {error_msg}")
-                return PrimitiveResult(success=False, error=error_msg)
+                # --- LAST DITCH FALLBACK ---
+                # If everything fails, don't crash the pipeline. 
+                # Wrap the raw response as a single element so downstream steps can at least see it.
+                print(f"[EXTRACTOR] WARNING: All JSON repair attempts failed: {e}. Using raw text fallback.")
+                
+                # Try to attribute to the first asset if possible
+                first_asset_id = "unknown"
+                if "extractor_input" in variables and isinstance(variables["extractor_input"], dict):
+                    assets = variables["extractor_input"].get("assets", [])
+                    if assets:
+                        first_asset_id = assets[0].get("id", "unknown")
+
+                fallback_data = {
+                    "extracted_elements": [
+                        {
+                            "source_id": first_asset_id,
+                            "content_type": "text", # Mark as text since JSON failed
+                            "data": response_text,  # The full raw output
+                            "metadata": {
+                                "parsing_error": str(e),
+                                "mode": "fallback_wrapper"
+                            }
+                        }
+                    ]
+                }
+                
+                state["variables"][target_variable] = fallback_data
+                state["variables"]["extractor_output"] = fallback_data
+                
+                return PrimitiveResult(
+                    success=True, 
+                    output=fallback_data,
+                    data={"warning": f"JSON parsing failed, returned raw text fallback. Error: {str(e)}"}
+                )
 
         # LEGACY/GENERIC MODE
         

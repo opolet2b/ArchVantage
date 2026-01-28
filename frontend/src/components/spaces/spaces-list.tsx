@@ -27,16 +27,21 @@ export function SpacesList() {
     }, []);
 
     const loadSpaces = async () => {
+        const token = localStorage.getItem("token");
+        if (!token) return;
         try {
             const data = await spacesService.getAll();
             setSpaces(data);
         } catch (error) {
             console.error(error);
-            toast({
-                title: "Error",
-                description: "Failed to load spaces",
-                variant: "destructive"
-            });
+            // Only show toast if it's not a generic auth error
+            if (error instanceof Error && !error.message.includes("Authentication required")) {
+                toast({
+                    title: "Error",
+                    description: "Failed to load spaces",
+                    variant: "destructive"
+                });
+            }
         }
     };
 

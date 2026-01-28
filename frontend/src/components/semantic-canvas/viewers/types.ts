@@ -8,14 +8,17 @@
  */
 
 // Base fragment interface
-export interface Fragment {
-    type: "text" | "range" | "cell" | "region" | "message" | "slide";
+export interface FragmentBase {
+    type: string;
     content?: string;  // The selected content (text, etc.)
     id?: string;       // Optional ID of the source (e.g. region overlay ID)
 }
 
+// Discriminator for "type" is handled in the Union below
+
+
 // Text fragment for PDF, Markdown, plain text
-export interface TextFragment extends Fragment {
+export interface TextFragment extends FragmentBase {
     type: "text";
     startOffset: number;
     endOffset: number;
@@ -25,7 +28,7 @@ export interface TextFragment extends Fragment {
 }
 
 // Cell/range fragment for spreadsheets
-export interface CellFragment extends Fragment {
+export interface CellFragment extends FragmentBase {
     type: "cell";
     sheet?: string;
     range: string;  // "A1:B5" notation
@@ -34,7 +37,7 @@ export interface CellFragment extends Fragment {
 }
 
 // Region fragment for images
-export interface RegionFragment extends Fragment {
+export interface RegionFragment extends FragmentBase {
     type: "region";
     id: string; // Required for overlays
     x: number;
@@ -61,7 +64,7 @@ export interface LinkFragment {
 export type OverlayFragment = RegionFragment | LinkFragment;
 
 // Message fragment for conversations
-export interface MessageFragment extends Fragment {
+export interface MessageFragment extends FragmentBase {
     type: "message";
     messageId: string;
     startOffset?: number;
@@ -69,8 +72,18 @@ export interface MessageFragment extends Fragment {
 }
 
 // Slide fragment for presentations
-export interface SlideFragment extends Fragment {
+export interface SlideFragment extends FragmentBase {
     type: "slide";
     slideNumber: number;
     elementId?: string;
 }
+
+// Union Type
+export type Fragment =
+    | TextFragment
+    | CellFragment
+    | RegionFragment
+    | LinkFragment
+    | MessageFragment
+    | SlideFragment;
+

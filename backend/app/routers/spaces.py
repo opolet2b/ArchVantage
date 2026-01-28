@@ -19,7 +19,7 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-@router.post("/", response_model=AnalysisSpaceResponse)
+@router.post("", response_model=AnalysisSpaceResponse)
 def create_space(
     space: AnalysisSpaceCreate,
     db: Session = Depends(get_db),
@@ -36,7 +36,7 @@ def create_space(
     db.refresh(db_space)
     return db_space
 
-@router.get("/", response_model=List[AnalysisSpaceResponse])
+@router.get("", response_model=List[AnalysisSpaceResponse])
 def read_spaces(
     skip: int = 0,
     limit: int = 100,

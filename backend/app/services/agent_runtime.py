@@ -7,6 +7,8 @@ from JSON Blueprint definitions.
 from typing import Any, Dict, List, Optional, TypedDict
 from datetime import datetime
 import uuid
+import asyncio
+import time
 
 # LangGraph imports - will be installed via requirements
 try:
@@ -202,8 +204,12 @@ class AgentRuntime:
                             merged_params["instruction"] = "\n".join(instructions_parts)
 
                     elif "visualizer" in step_type:
-                        # Ensure specific visualizer fields are passed (renderingType is usually enough)
-                        pass
+                        # Ensure specific visualizer fields are passed
+                        if "templateId" in merged_params:
+                            merged_params["template_id"] = merged_params.pop("templateId")
+                        if "renderingType" in merged_params:
+                            # Keep both for safety as some logic uses renderingType
+                            merged_params["rendering_type_id"] = merged_params["renderingType"]
 
                     step['params'] = merged_params
                 
@@ -321,7 +327,8 @@ class AgentRuntime:
                     # Expose 'result' (PrimitiveResult output) and 'variables' (State)
                     eval_ctx = {
                         "result": result.output if result else {}, 
-                        "variables": state.get("variables", {})
+                        "variables": state.get("variables", {}),
+                        "datetime": datetime
                     }
                     # Basic safety: No builtins
                     if eval(condition, {"__builtins__": {}}, eval_ctx):
@@ -376,16 +383,22 @@ class AgentRuntime:
         
         # Execute primitive
         try:
+            print(f"[RUNTIME DEBUG] Calling primitive {node_type}...")
             result = await primitive.execute(params, state)
+            print(f"[RUNTIME DEBUG] Primitive {node_type} returned. Success: {result.success}")
             
             # Capture schema if successful
             if result.success:
                 try:
+                    print(f"[RUNTIME DEBUG] Inferring schema for node {node_id}...")
                     step.captured_schema = SchemaDiscoveryService.infer_schema_from_data(result.output)
+                    print(f"[RUNTIME DEBUG] Schema inference complete.")
                 except Exception as e:
                     print(f"[RUNTIME WARNING] Failed to infer schema for node {node_id}: {e}")
 
+            print(f"[RUNTIME DEBUG] Calling step.complete...")
             step.complete(result.output, result.error if not result.success else None)
+            print(f"[RUNTIME DEBUG] step.complete done. Returning result.")
             return result
         except Exception as e:
             error_msg = str(e)
@@ -495,24 +508,143 @@ class AgentRuntime:
             if "column_name" in state.get("variables", {}):
                 print(f"[RUNTIME DEBUG] Found 'column_name': {str(state['variables']['column_name'])[:100]}...")
 
-            # Execute node
-            result = await self._execute_node(current_node, state)
+            # Execute node with monitoring for the UI
+            start_time = time.time()
+            
+            # --- Status Queue Setup ---
+            status_queue = asyncio.Queue()
+            
+            async def status_callback(msg: str):
+                await status_queue.put(msg)
+            
+            # Inject callbacks into state so primitives can usage them
+            # Primitives like ExtractorPrimitive should look for "status_callbacks" in state
+            if "status_callbacks" not in state:
+                state["status_callbacks"] = []
+            state["status_callbacks"].append(status_callback)
+
+            # Yield explicit log for user visibility
+            node_label = self.nodes.get(current_node, {}).get("metadata", {}).get("label", current_node)
+            yield {
+                 "type": "log",
+                 "level": "info",
+                 "message": f"Starting Step '{node_label}'...",
+                 "timestamp": datetime.utcnow().isoformat()
+            }
+
+            node_task = asyncio.create_task(self._execute_node(current_node, state))
+            
+            # Wait for node completion with periodic heartbeats for the UI
+            print(f"[RUNTIME DEBUG] Waiting for node_task (done={node_task.done()})...")
+            # Wait for node completion with periodic heartbeats for the UI
+            print(f"[RUNTIME DEBUG] Waiting for node_task (done={node_task.done()})...")
+            
+            queue_task = asyncio.create_task(status_queue.get())
+            
+            while not node_task.done():
+                try:
+                    # Wait for either task completion OR new status message
+                    pending_tasks = [node_task, queue_task]
+                    done, pending = await asyncio.wait(
+                        pending_tasks, 
+                        return_when=asyncio.FIRST_COMPLETED,
+                        timeout=30.0
+                    )
+                    
+                    if queue_task in done:
+                         # Queue has a message
+                         msg = queue_task.result()
+                         yield {
+                             "type": "log", 
+                             "level": "info", 
+                             "message": msg,
+                             "timestamp": datetime.utcnow().isoformat()
+                         }
+                         # Create new queue task for next message
+                         queue_task = asyncio.create_task(status_queue.get())
+                    
+                    # Also drain any other available messages without waiting
+                    while not status_queue.empty():
+                         try:
+                             msg = status_queue.get_nowait()
+                             yield {
+                                 "type": "log", 
+                                 "level": "info", 
+                                 "message": msg,
+                                 "timestamp": datetime.utcnow().isoformat()
+                             }
+                         except asyncio.QueueEmpty:
+                             break
+
+                    if node_task in done:
+                         # Task finished
+                         print(f"[RUNTIME DEBUG] node_task finished in wait loop.")
+                         break
+                         
+                    # If timeout (done empty) OR just queue task processed
+                    if not done or (node_task not in done):
+                        # Calculate elapsed only if genuinely timing out or if significant time passed?
+                        # Actually the timeout=30.0 guarantees we wake up.
+                        # If we woke up due to queue_task, we loop immediately.
+                        # If we woke up due to timeout (done=[]), we yield progress.
+                        if not done: 
+                            elapsed = time.time() - start_time
+                            node_label = self.nodes.get(current_node, {}).get("metadata", {}).get("label", current_node)
+                            print(f"[RUNTIME DEBUG] Wait timeout. Yielding progress. (elapsed {elapsed:.0f}s)")
+                            yield {
+                                "type": "progress",
+                                "message": f"Step '{node_label}' still working... [elapsed {elapsed:.0f}s]"
+                            }
+                        
+                except Exception as e:
+                     print(f"[RUNTIME DEBUG] Wait loop exception: {e}")
+                     # Ensure we don't spin flush
+                     await asyncio.sleep(1)
+            
+            # Cancel the pending queue task if it exists
+            if not queue_task.done():
+                queue_task.cancel()
+            
+            # Cleanup callback to avoid duplicates in next iteration
+            if status_callback in state["status_callbacks"]:
+                state["status_callbacks"].remove(status_callback)
+
+            print(f"[RUNTIME DEBUG] Exited wait loop. Awaiting node_task final...")
+            result = await node_task
+            print(f"[RUNTIME DEBUG] node_task awaited. Result success: {result.success}")
             
             # Log Node Result
-            _log_execution(f"NODE END: {current_node}", {
-                "success": result.success,
-                "output_preview": str(result.output)[:500] if result.success else None,
-                "error": result.error
-            })
+            try:
+                print(f"[RUNTIME DEBUG] Logging execution (output type: {type(result.output)})...")
+                _log_execution(f"NODE END: {current_node}", {
+                    "success": result.success,
+                    "output_preview": "Log skipped for safety", # str(result.output)[:500] if result.success else None,
+                    "error": result.error
+                })
+                print(f"[RUNTIME DEBUG] Execution logged.")
+            except Exception as e:
+                print(f"[RUNTIME DEBUG] Logging failed: {e}")
             
             # Update state with output
+            print(f"[RUNTIME DEBUG] Updating variables from output keys: {list(result.output.keys()) if isinstance(result.output, dict) else 'Not Dict'}")
             if result.success and result.output is not None:
                 state["variables"][current_node] = result.output
                 if isinstance(result.output, dict):
                     for key, value in result.output.items():
                         if not key.startswith('_'):
+                            # print(f"[RUNTIME DEBUG] Setting variable {key}...")
                             state["variables"][key] = value
                 state["current_output"] = result.output
+            print(f"[RUNTIME DEBUG] Variables updated.")
+            
+            # --- Yield Log Event for Node Completion ---
+            node_label = self.nodes.get(current_node, {}).get("metadata", {}).get("label", current_node)
+            yield {
+                "type": "log",
+                "level": "info",
+                "message": f"Step '{node_label}' completed. Processing results...",
+                "timestamp": datetime.utcnow().isoformat()
+            }
 
             # --- FOREACH SUB-GRAPH EXECUTION ---
             if result.success and isinstance(result.output, dict) and "_foreach_subprocess" in result.output:
@@ -642,7 +774,12 @@ class AgentRuntime:
                 return
             
             # Get next node
+            # Get next node
+            print(f"[RUNTIME DEBUG] Determining NEXT NODE from {current_node}...")
+            # Note: _get_next_node signature might be (node_id, result) or (node_id, result, state) depending on version
+            # Inspecting view indicates it is (current_node, result)
             current_node = self._get_next_node(current_node, result)
+            print(f"[RUNTIME DEBUG] Next node result: {current_node}")
             
             # Check step limit
             if steps_limit and steps_run >= steps_limit and current_node:

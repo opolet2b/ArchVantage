@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Pencil, Save, Minimize2, Maximize2, X, Loader2, Layout } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useSelection } from "../viewers/selection-context";
 import {
     Dialog,
     DialogContent,
@@ -62,6 +63,41 @@ export function TextThingEditor({
             setEditedContent(initialContent);
         }
     }, [isOpen, thing.content]);
+
+    // Selection Context
+    const { setSelection, clearSelection } = useSelection();
+
+    // Handle text selection
+    const handleSelection = () => {
+        if (editorMode !== "markdown" || !textareaRef.current) return;
+
+        const textarea = textareaRef.current;
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+
+        if (start !== end) {
+            const selectedText = textarea.value.substring(start, end);
+            // Calculate screen position for context menu (approximate or use mouse event if available)
+            // For now, we rely on the context menu triggering at mouse position, 
+            // but we need to set the selection state.
+
+            setSelection(thing.id, {
+                type: 'text',
+                content: selectedText,
+                startOffset: start,
+                endOffset: end
+            });
+        } else {
+            // Clears selection if nothing is selected (caret only)
+            // BUT: We don't want to clear if the user just clicked to place cursor.
+            // Only clear if we are explicitly handling a "deselect" action.
+            // Usually, keeping the last selection is fine, or clear it on blur.
+            // Let's clear it to be safe, so we don't carry over stale fragments.
+            // clearSelection(); 
+            // Actually, context menu checks if selection.thingId matches.
+        }
+    };
+
 
     // ESC key listener for Truly Fullscreen Editor
     React.useEffect(() => {
@@ -178,6 +214,9 @@ export function TextThingEditor({
                             onDrop={handleTextareaDrop}
                             onDragOver={(e) => e.preventDefault()}
                             onClick={handleTextareaClick}
+                            onSelect={handleSelection}
+                            // onMouseUp={handleSelection} // onSelect covers mouse validation usually
+
                             style={{
                                 cursor: useCanvasStore.getState().transclusionGhostId ? "copy" : "text"
                             }}

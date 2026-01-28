@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { MessageSquare, GitGraph, Database, Search, Settings, Plus, Bot, LogOut, Wrench, HelpCircle, FileText, Map, Brain, Layers } from "lucide-react"
+import { MessageSquare, GitGraph, Database, Search, Settings, Bot, LogOut, Wrench, HelpCircle, FileText, Map, Brain, Layers } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ConversationList } from "@/components/sidebar/conversation-list"
@@ -31,9 +31,6 @@ export function AppSidebar() {
     const { viewMode, setViewMode } = useViewMode()
     const { user, logout } = useAuth()
 
-    const handleNewChat = async () => {
-        await createNewConversation()
-    }
 
     // Show canvas mode when on home page
     const isHomePage = pathname === "/"
@@ -59,11 +56,6 @@ export function AppSidebar() {
                     <img src="/t2blogo.png" alt="Logo" className="h-8 w-auto mr-2" />
                     Semantic Workbench
                 </div>
-                {viewMode === "chat" && (
-                    <Button variant="ghost" size="icon" onClick={handleNewChat} title="New Chat" className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-                        <Plus className="h-5 w-5" />
-                    </Button>
-                )}
             </div>
 
             {/* View Mode Toggle - Always Visible */}

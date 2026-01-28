@@ -21,18 +21,35 @@ class ScraperService:
         self.session.headers.update({"User-Agent": self.user_agent})
 
     def is_internal_link(self, base_url: str, target_url: str) -> bool:
-        """Check if a URL is internal to the base domain."""
+        """
+        Check if a URL is internal to the base domain.
+        Allows subdomains (e.g. docs.example.com) and handles 'www.' inconsistencies.
+        """
         parsed_target = urlparse(target_url)
         
         # Skip external schemes like mailto, tel, etc.
         if parsed_target.scheme and parsed_target.scheme not in ['http', 'https']:
             return False
             
-        base_domain = urlparse(base_url).netloc
-        target_domain = parsed_target.netloc
+        base_domain = urlparse(base_url).netloc.lower()
+        target_domain = parsed_target.netloc.lower()
         
         # Absolute links to same domain OR relative links (empty netloc)
-        return (target_domain == base_domain) or not target_domain
+        if (target_domain == base_domain) or not target_domain:
+            return True
+            
+        # Allow subdomains
+        # We strip 'www.' from both for better matching
+        clean_base = base_domain.replace('www.', '')
+        clean_target = target_domain.replace('www.', '')
+        
+        # If the target is the same as base (after stripping www) 
+        # or if it's a subdomain (ends with .base_domain)
+        if (clean_target == clean_base or 
+            clean_target.endswith('.' + clean_base)):
+            return True
+                
+        return False
 
     def normalize_url(self, url: str) -> str:
         """
@@ -61,7 +78,7 @@ class ScraperService:
         self, 
         root_url: str, 
         max_depth: int = 0, 
-        max_pages: int = 20,
+        max_pages: int = 50,
         db: Optional[Session] = None,
         user_id: Optional[int] = None,
         progress_callback: Optional[callable] = None,
@@ -112,8 +129,14 @@ class ScraperService:
                 content_type = response.headers.get("Content-Type", "").lower()
                 final_normalized = self.normalize_url(response.url)
 
-                # PDF Handling
-                if "application/pdf" in content_type and db and user_id:
+                # PDF Handling - Improved detection
+                is_pdf = "application/pdf" in content_type
+                if not is_pdf and "application/octet-stream" in content_type:
+                    # Fallback to extension check if content-type is generic
+                    if url.lower().endswith(".pdf") or response.url.lower().endswith(".pdf"):
+                        is_pdf = True
+                
+                if is_pdf and db and user_id:
                     print(f"[ScraperService] Detected PDF: {url}")
                     from app.services.asset_service import asset_service
                     filename = url.split("/")[-1] or "document.pdf"

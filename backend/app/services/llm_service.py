@@ -174,8 +174,68 @@ class LLMService:
             kwargs.pop("response_format", None)
 
             langchain_messages = self._convert_messages(messages)
-            response = await llm.ainvoke(langchain_messages, **kwargs)
-            return response.content
+            
+            # --- Robust LLM Call with Heartbeat ---
+            import asyncio
+            import time
+            
+            # Status Callback Helper
+            async def trigger_callbacks(message: str):
+                callbacks = kwargs.get("callbacks", [])
+                if callbacks:
+                    for cb in callbacks:
+                        try:
+                            if asyncio.iscoroutinefunction(cb):
+                                await cb(message)
+                            else:
+                                cb(message)
+                        except Exception as cbe:
+                            print(f"[LLMService] Callback error: {cbe}")
+
+            async def heartbeat(stop_event):
+                start_time = time.time()
+                while not stop_event.is_set():
+                    await asyncio.sleep(10)
+                    if not stop_event.is_set():
+                        elapsed = time.time() - start_time
+                        msg = f"Heartbeat: AI still working on '{model_name}'... [elapsed {elapsed:.0f}s]"
+                        print(f"[LLMService] {msg}")
+                        await trigger_callbacks(msg)
+
+            stop_heartbeat = asyncio.Event()
+            heartbeat_task = asyncio.create_task(heartbeat(stop_heartbeat))
+            
+            try:
+                # Remove callbacks from kwargs before passing to LLM to avoid unexpected argument errors
+                invoke_kwargs = {k: v for k, v in kwargs.items() if k != "callbacks"}
+                
+                # Increased Timeout: 600 seconds (10 minutes) for large extractions
+                # Use to_thread if there's any risk of the library blocking the loop synchronously
+                # response = await asyncio.wait_for(asyncio.to_thread(llm.invoke, langchain_messages, **invoke_kwargs), timeout=600.0)
+                # However, ainvoke is generally preferred if supported.
+                print(f"[LLMService] DEBUG: calling llm.ainvoke for '{model_name}'...")
+                response = await asyncio.wait_for(
+                    llm.ainvoke(langchain_messages, **invoke_kwargs),
+                    timeout=600.0
+                )
+                print(f"[LLMService] DEBUG: llm.ainvoke returned. Content len: {len(response.content) if response.content else 0}")
+                
+                # --- TEMPORARY DEBUG LOG ---
+                try:
+                    with open("raw_llm_response.log", "w", encoding="utf-8") as f:
+                        f.write(f"MODEL: {model_name}\n")
+                        f.write(f"RESPONSE CONTENT:\n{response.content}\n")
+                except: pass
+                
+                return response.content
+            except asyncio.TimeoutError:
+                err_msg = f"CRITICAL: TimeoutError for '{model_name}' after 600s."
+                print(f"[LLMService] {err_msg}")
+                await trigger_callbacks(err_msg)
+                return f"Error: The AI model ({model_name}) timed out after 10 minutes. The document might be too large or the provider is overloaded."
+            finally:
+                stop_heartbeat.set()
+                await heartbeat_task
         except Exception as e:
             print(f"Error in LLMService: {e}")
             return f"Error: {str(e)}"

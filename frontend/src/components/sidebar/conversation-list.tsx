@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useConversation } from "@/lib/conversation-context"
-import { MessageSquare, MoreVertical, Trash2, Edit2, Download, FileText, CheckSquare, X, ListChecks, Archive, Upload, RotateCcw, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown } from "lucide-react"
+import { MessageSquare, MoreVertical, Trash2, Edit2, Download, FileText, CheckSquare, X, ListChecks, Archive, Upload, RotateCcw, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown, Plus } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,7 +31,8 @@ export function ConversationList() {
         archiveConversation,
         restoreConversation,
         importConversations,
-        reorderConversations
+        reorderConversations,
+        createNewConversation
     } = useConversation()
 
     const [editingId, setEditingId] = useState<string | null>(null)
@@ -226,6 +227,15 @@ export function ConversationList() {
                             title={viewMode === 'active' ? "Show Archived" : "Show Active"}
                         >
                             <Archive className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => createNewConversation()}
+                            title="New Conversation"
+                        >
+                            <Plus className="h-3.5 w-3.5" />
                         </Button>
                         {!isSelectionMode ? (
                             <>

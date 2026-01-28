@@ -1,5 +1,10 @@
 import { API_URL } from "./utils"
 
+const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem("token") : null;
+    return token ? { "Authorization": `Bearer ${token}` } : {};
+};
+
 export interface PromptDefinition {
     key: string
     group: string
@@ -20,9 +25,7 @@ export interface PromptOverrideCreate {
 export const promptService = {
     async listPrompts(): Promise<PromptDefinition[]> {
         const res = await fetch(`${API_URL}/prompts`, {
-            headers: {
-                "Authorization": `Bearer ${localStorage.getItem("token")}`
-            }
+            headers: getAuthHeaders()
         })
         if (!res.ok) throw new Error("Failed to fetch prompts")
         return res.json()
@@ -32,8 +35,8 @@ export const promptService = {
         const res = await fetch(`${API_URL}/prompts/${key}/override`, {
             method: "POST",
             headers: {
+                ...getAuthHeaders(),
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${localStorage.getItem("token")}`
             },
             body: JSON.stringify(data)
         })
@@ -44,9 +47,7 @@ export const promptService = {
     async deleteOverride(key: string): Promise<void> {
         const res = await fetch(`${API_URL}/prompts/${key}/override`, {
             method: "DELETE",
-            headers: {
-                "Authorization": `Bearer ${localStorage.getItem("token")}`
-            }
+            headers: getAuthHeaders()
         })
         if (!res.ok) throw new Error("Failed to reset override")
     }

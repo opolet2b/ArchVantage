@@ -841,6 +841,8 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                                             set({ lastExecutionState: event.execution_state });
                                         }
                                     }
+                                } else if (event.type === "progress") {
+                                    get().addConsoleLog("info", event.message || "AI still working...");
                                 } else if (event.type === "error") {
                                     get().addConsoleLog("error", event.message || "Unknown error");
                                 }

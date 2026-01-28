@@ -80,33 +80,26 @@ export function ImageViewer({
                     const token = localStorage.getItem("token");
                     let urlToFetch = src;
 
-                    // If it's a relative URL, prepend the API base
+                    // If it's a relative URL starting with /api/, we can just fetch it directly.
+                    // The browser will prepend the current origin.
+                    // This avoids issues with new URL(relative_api_url) crashing.
                     if (src.startsWith("/api/")) {
-                        if (API_URL && !src.startsWith("http")) {
-                            try {
-                                const apiUrlObj = new URL(API_URL);
-                                urlToFetch = `${apiUrlObj.origin}${src}`;
-                            } catch (e) {
-                                if (process.env.NODE_ENV === 'development') urlToFetch = `http://localhost:8000${src}`;
-                            }
-                        }
+                        urlToFetch = src;
                     } else if (src.includes("/api/v1/assets/")) {
-                        // Full HTTP URL but for API assets - rewrite to use backend directly
-                        try {
-                            const srcUrl = new URL(src);
-                            const assetPath = srcUrl.pathname; // e.g., /api/v1/assets/xxx
-                            if (API_URL) {
-                                const apiUrlObj = new URL(API_URL);
-                                urlToFetch = `${apiUrlObj.origin}${assetPath}`;
-                            } else if (process.env.NODE_ENV === 'development') {
-                                urlToFetch = `http://localhost:8000${assetPath}`;
-                            }
-                        } catch (e) {
-                            console.error("[ImageViewer] Failed to parse URL:", e);
-                        }
+                        // If it's a full URL but for our API assets, we might want to ensure it's on our origin
+                        // but usually the passed src is already what we want.
+                        // Let's keep it simple: use src as is.
+                        urlToFetch = src;
                     }
-                    const res = await fetch(urlToFetch, { headers: token ? { "Authorization": `Bearer ${token}` } : {} });
-                    if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
+
+                    const res = await fetch(urlToFetch, {
+                        headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                    });
+
+                    if (!res.ok) {
+                        console.error(`[ImageViewer] Failed to load image: ${res.status} ${res.statusText}`);
+                        throw new Error(`Failed to load: ${res.status}`);
+                    }
 
                     const blob = await res.blob();
                     objectUrlRef.current = URL.createObjectURL(blob);
@@ -209,7 +202,39 @@ export function ImageViewer({
                 if (action === 'click') {
                     // Reconstruct fragment and call onSelect to trigger toolbar
                     const ov = overlays.find(o => o.id === id);
-                    if (ov && onSelect) {
+                    if (ov && onSelect && imageRef.current) {
+                        const img = imageRef.current;
+
+                        // Re-capture content for existing region to ensure it's propagated
+                        let base64Content = (ov as any).content || "";
+                        try {
+                            // Scale factors: Natural / Rendered
+                            const scaleX = img.naturalWidth / img.width;
+                            const scaleY = img.naturalHeight / img.height;
+
+                            // Map percentage to pixels
+                            const pixelX = (ov.x / 100) * img.width;
+                            const pixelY = (ov.y / 100) * img.height;
+                            const pixelW = (ov.width / 100) * img.width;
+                            const pixelH = (ov.height / 100) * img.height;
+
+                            const naturalX = pixelX * scaleX;
+                            const naturalY = pixelY * scaleY;
+                            const naturalWidth = pixelW * scaleX;
+                            const naturalHeight = pixelH * scaleY;
+
+                            const canvas = document.createElement("canvas");
+                            canvas.width = naturalWidth;
+                            canvas.height = naturalHeight;
+                            const ctx = canvas.getContext("2d");
+                            if (ctx) {
+                                ctx.drawImage(img, naturalX, naturalY, naturalWidth, naturalHeight, 0, 0, naturalWidth, naturalHeight);
+                                base64Content = canvas.toDataURL("image/jpeg");
+                            }
+                        } catch (e) {
+                            console.error("Failed to re-capture region:", e);
+                        }
+
                         const fragment: RegionFragment = {
                             id: ov.id,
                             type: "region",
@@ -217,19 +242,16 @@ export function ImageViewer({
                             y: ov.y,
                             width: ov.width,
                             height: ov.height,
-                            content: (ov as any).content || ""
+                            content: base64Content
                         };
 
                         // Calculate screen position for toolbar
-                        if (imageRef.current) {
-                            const img = imageRef.current;
-                            const rect = img.getBoundingClientRect();
-                            const x = rect.left + (ov.x / 100) * rect.width + (ov.width / 100) * rect.width / 2;
-                            const y = rect.top + (ov.y / 100) * rect.height + (ov.height / 100) * rect.height;
-                            onSelect(fragment, { x, y });
-                        }
+                        const rect = img.getBoundingClientRect();
+                        const x = rect.left + (ov.x / 100) * rect.width + (ov.width / 100) * rect.width / 2;
+                        const y = rect.top + (ov.y / 100) * rect.height + (ov.height / 100) * rect.height;
+                        onSelect(fragment, { x, y });
                     }
-                    if (ov) onOverlayClick?.(ov); // Keep prop if needed for other things, but onSelect is primary
+                    if (ov) onOverlayClick?.(ov);
                 }
             }}
         >

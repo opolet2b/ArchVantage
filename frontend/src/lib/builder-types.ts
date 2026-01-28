@@ -175,7 +175,7 @@ export interface BlueprintExecuteResponse {
 /**
  * Streaming execution event types.
  */
-export type StreamEventType = "start" | "step" | "complete" | "error";
+export type StreamEventType = "start" | "step" | "complete" | "error" | "progress";
 
 /**
  * Streaming execution event.

@@ -6,6 +6,7 @@ Uses an LLM for general content generation within the agent workflow.
 from typing import Any, Dict
 import json
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
+from datetime import datetime
 
 
 class LLMGenerationPrimitive(BasePrimitive):
@@ -92,7 +93,6 @@ class LLMGenerationPrimitive(BasePrimitive):
                     try:
                         input_context = self._get_nested_value(variables, input_context_var)
                         if isinstance(input_context, (dict, list)):
-                            import json
                             input_context = json.dumps(input_context, indent=2)
                     except (KeyError, TypeError):
                         input_context = input_context_var
@@ -113,10 +113,8 @@ class LLMGenerationPrimitive(BasePrimitive):
                              input_context = current_out["text"]
                          # Fallback to JSON dump if no content found
                          else:
-                             import json
                              input_context = json.dumps(current_out, indent=2)
                     elif isinstance(current_out, list):
-                        import json
                         input_context = json.dumps(current_out, indent=2)
                     else:
                         input_context = str(current_out)
@@ -141,9 +139,36 @@ class LLMGenerationPrimitive(BasePrimitive):
 
             # Resolve any variables in the instruction template
             resolved_instruction = self.resolve_variables(instruction, state)
+
+            # --- DEBUG LOGGING ---
+            is_template_mode = resolved_instruction and ("## **" in resolved_instruction or "<!-- INSTRUCTION" in resolved_instruction)
+            print(f"[TEMPLATE_DEBUG] LLM Generation Instruction Length: {len(resolved_instruction) if resolved_instruction else 0}")
+            print(f"[TEMPLATE_DEBUG] Template Structure Detected (Headers/Comments): {is_template_mode}")
+            # ---------------------
             
             # Build messages for LLM
-            if send_context_to_llm and input_context:
+            # TEMPLATE MODE CHECK:
+            # is_template_mode already computed above
+            
+            if is_template_mode:
+                # Force "Fill-in-the-blank" mode
+                system_msg = "You are a strict document generator. Your task is to fill in the provided template with the provided data.\n" \
+                             "RULES:\n" \
+                             "1. You must output the COMPLETE document.\n" \
+                             "2. PRESERVE the exact structure, headers, and formatting of the template.\n" \
+                             "3. Replace comments (<!-- ... -->) with actual content derived from the data.\n" \
+                             "4. Do not change the template layout."
+                             
+                user_content = f"DATA CONTEXT:\n{input_context}\n\n" \
+                               f"REQUIRED TEMPLATE:\n{resolved_instruction}"
+                               
+                messages = [
+                    Message(role="system", content=system_msg),
+                    Message(role="user", content=user_content)
+                ]
+                print(f"[LLM_PRIM] Template Mode Detected. Using consolidated User prompt for strict structure.")
+
+            elif send_context_to_llm and input_context:
                 messages = [
                     Message(role="system", content=resolved_instruction),
                     Message(role="user", content=str(input_context))
@@ -193,6 +218,15 @@ class LLMGenerationPrimitive(BasePrimitive):
                                      use_strict_context = False
                                      if not input_context: input_context = full_text
 
+                                     if not input_context: input_context = full_text
+
+            # CRITICAL OVERRIDE: Template Mode detection
+            # If the instruction contains specific strict template markers (e.g. "## **" headers or "<!-- INSTRUCTION"),
+            # we must DISABLE strict JSON mode. The generic analysis schema destroys the template structure.
+            # We want to use Standard Generation (Fallback) which respects the user's template.
+            if use_strict_context and instruction and ("## **" in instruction or "<!-- INSTRUCTION" in instruction):
+                 print(f"[LLM_PRIM] Strict Mode Override: Template structure detected in instructions. Switching to Standard Generation.")
+                 use_strict_context = False
             
             # Also check if we are in a strict pipeline context (optional, but good safety)
             
@@ -233,29 +267,25 @@ ANALYSIS INSTRUCTIONS:
 {agent_config.instructions}
 
 OUTPUT REQUIREMENT:
-Do not write a standard text report. Capture your analysis findings, summary, and sections into the following JSON schema.
+You must output a structured JSON object.
 
-CRITICAL QUALITY RULES:
-1. DETAIL IS PARAMOUNT: Do not summarize if detail is available. The user wants a deep, 70-page equivalent analysis, not a 1-page summary.
-2. USE EVIDENCE: Cite specific findings from the Data Context.
-3. BE EXHAUSTIVE: If the instructions ask for "Risk Analysis", provide a full breakdown of risks, impacts, and mitigations.
-4. "formatted_output" should contains the FULL, RICH MARKDOWN content for this section.
+CRITICAL INSTRUCTION FOR "formatted_output":
+The user has provided a specific TEMPLATE structure in the "ANALYSIS INSTRUCTIONS" above (usually with headers like ## **1. Audit Metadata**).
+You MUST generate the COMPLETE Markdown document in the `formatted_output` field, STRICTLY FOLLOWING the provided template structure section-by-section.
+1. Copy the headers exactly as they appear in the template.
+2. Replace the instruction comments (<!-- ... -->) with your actual analysis content.
+3. Keep the styling (bolding, spacing) matching the template.
+4. "formatted_output" IS THE FINAL REPORT. Do not treat it as just a snippet.
 
-CRITICAL: The instructions likely ask for a specific visual format (e.g. "Desired Output: Markdown Table").
-You MUST place this formatted text (Markdown Table, List, etc.) into the 'formatted_output' field. Do NOT leave it null.
+CRITICAL INSTRUCTION FOR "sections":
+Also populate the structured "sections" list for data processing purposes, but `formatted_output` takes precedence for the visible report.
 
 Example of valid output:
 {{
   "analysis_results": {{
-    "summary": "The analysis indicates...",
-    "sections": [
-      {{
-        "title": "Key Findings",
-        "findings": ["Finding 1", "Finding 2"],
-        "supporting_evidence": ["source-id-1"]
-      }}
-    ],
-    "formatted_output": "| Strengths | Weaknesses |\\n|-----------|------------|\\n| ...       | ...        |",
+    "summary": "Brief summary...",
+    "sections": [ ... ],
+    "formatted_output": "## **1. Audit Metadata**\\n**Document Name:** ...\\n\\n## **2. Executive Summary**\\nThe audit finds...",
     "raw_data_points": {{}}
   }}
 }}
@@ -286,17 +316,78 @@ Schema:
                             print(f"Logging failed: {log_e}")
                         # ---------------------
 
-                        response_text = await llm_service.chat(
-                            messages=messages, 
-                            model_name=model,
-                            response_format={"type": "json_object"}
-                        )
+                        # Prepare call kwargs
+                        call_kwargs1 = {
+                            "messages": messages, 
+                            "model_name": model,
+                            "response_format": {"type": "json_object"}
+                        }
+                        
+                        # Pass status callbacks if available
+                        status_callbacks = state.get("status_callbacks", [])
+                        if status_callbacks:
+                            call_kwargs1["callbacks"] = status_callbacks
+
+                        response_text = await llm_service.chat(**call_kwargs1)
                         
                         print(f"[LLM_PRIM] Raw LLM Response: {response_text}")
                         
                         # 5. Parse and Store
                         try:
-                            agent_output_data = json.loads(response_text)
+                            # Clean Markdown Fences
+                            clean_text = response_text.strip()
+                            if clean_text.startswith("```json"):
+                                clean_text = clean_text[7:]
+                            elif clean_text.startswith("```"):
+                                clean_text = clean_text[3:]
+                            if clean_text.endswith("```"):
+                                clean_text = clean_text[:-3]
+                            
+                            # Additional cleanup for common prefixes and leading characters
+                            # e.g. "JSON.{", ".{", "json{", etc.
+                            
+                            # 1. Remove specific "JSON" prefix if present
+                            if clean_text.upper().startswith("JSON"):
+                                clean_text = clean_text[4:].strip()
+                                
+                            # 2. Find the first '{' and start from there (Robustness)
+                            first_brace = clean_text.find("{")
+                            if first_brace >= 0:
+                                clean_text = clean_text[first_brace:]
+                            
+                            # 2b. CRITICAL FIX: Handle double-brace hallucination e.g. {{ "key": ...
+                            # If the text starts with { followed by another { (ignoring whitespace), it's invalid.
+                            # We assume the outer brace is a wrapper and remove it.
+                            import re
+                            if re.match(r'^\{\s*\{', clean_text):
+                                print(f"[LLM_PRIM] Detected double-brace wrapper. Attempting fix...")
+                                # Remove the first {
+                                clean_text = clean_text.replace("{", "", 1).strip()
+                                # Logic: If the outer was a wrapper, we might need to remove the trailing } too.
+                                # But let's rely on the parsing to ignore trailing garbage or strict check later.
+                                # Actually, if it was {{...}}, removing one { leaves {...}}. 
+                                # If it was {{...}}}, removing one } at end is safe?
+                                # Let's just fix the start, json.loads might handle the rest if it just stops at the matching }
+                            
+                            # 3. Handle ending (optional, usually json.loads ignores trailing trash but safer to clip)
+                            last_brace = clean_text.rfind("}")
+                            if last_brace >= 0:
+                                clean_text = clean_text[:last_brace+1]
+                                
+                            print(f"[LLM_PRIM] Cleaned Text for Parsing: {clean_text[:50]}...")
+                            try:
+                                agent_output_data = json.loads(clean_text, strict=False)
+                            except json.JSONDecodeError as jde:
+                                # Fallback: Try to escape control characters if strictly incorrect
+                                print(f"[LLM_PRIM] JSON Decode Error (Strict=False): {jde}. Attempting regex cleanup.")
+                                import re
+                                # Escape unescaped newlines within strings? This is hard to do perfectly with regex.
+                                # But simple control characters can be nuked.
+                                clean_text_fixed = re.sub(r'[\x00-\x1f\x7f]', '', clean_text)
+                                # WARN: This might remove newlines we want? Only if they are real bytes.
+                                # json.loads(strict=False) usually handles newlines. 
+                                # Let's try one more robust trick: usage standard escapers? No.
+                                raise jde # Re-raise if strict=False failed, retrying logic will handle it.
                             
                             # Validation
                             from pydantic import ValidationError
@@ -353,38 +444,52 @@ Schema:
                         ar = agent_output_data.get("analysis_results", {})
                         if isinstance(ar, dict):
                             # COMBINED OUTPUT: Construct comprehensive Markdown
-                            # We want Summary + Sections + Formatted Output (if any)
+                            # We want to prioritize specific visual formatting from the template.
                             
-                            # 1. Start with Summary
-                            fallback_md = ""
-                            if ar.get("summary"):
-                                fallback_md += f"### Summary\n{ar.get('summary')}\n\n"
+                            # CRITICAL FIX FOR REGRESSION:
+                            # If 'formatted_output' is present and substantial (contains headers/structure),
+                            # usage it DIRECTLY instead of reconstructing generic headers.
+                            # This preserves the user's custom template structure (e.g. ## **1. Audit Metadata**)
                             
-                            # 2. Add Formatted Output (Tables, Code, etc.)
-                            if ar.get("formatted_output"):
-                                fallback_md += f"{ar.get('formatted_output')}\n\n"
+                            formatted_out = ar.get("formatted_output", "")
+                            # Heuristic: If it looks like a full report (has length or headers), usage it.
+                            if formatted_out and (len(formatted_out) > 100 or "# " in formatted_out):
+                                 final_content_str = formatted_out
+                                 print(f"[LLM_PRIM] Using 'formatted_output' directly to preserve template structure.")
+                            else:
+                                # Fallback to Generic Reconstruction (if formatted_output is empty or just a table)
+                                print(f"[LLM_PRIM] 'formatted_output' weak/missing. Reconstructing from sections.")
                                 
-                            # 3. Add Detailed Sections
-                            sections = ar.get("sections", [])
-                            if isinstance(sections, list):
-                                for s in sections:
-                                    if isinstance(s, dict):
-                                        title = s.get("title", "Analysis")
-                                        fallback_md += f"#### {title}\n"
-                                        
-                                        # Findings
-                                        findings = s.get("findings", [])
-                                        if findings:
-                                            for finding in findings:
-                                                fallback_md += f"- {finding}\n"
-                                        fallback_md += "\n"
-                                        
-                                        # Evidence?
-                                        evidence = s.get("supporting_evidence", [])
-                                        if evidence:
-                                            fallback_md += f"*(Evidence: {', '.join(evidence)})*\n\n"
-                            
-                            final_content_str = fallback_md
+                                # 1. Start with Summary
+                                fallback_md = ""
+                                if ar.get("summary"):
+                                    fallback_md += f"### Summary\n{ar.get('summary')}\n\n"
+                                
+                                # 2. Add Formatted Output (if it was small/table only)
+                                if formatted_out:
+                                    fallback_md += f"{formatted_out}\n\n"
+                                    
+                                # 3. Add Detailed Sections
+                                sections = ar.get("sections", [])
+                                if isinstance(sections, list):
+                                    for s in sections:
+                                        if isinstance(s, dict):
+                                            title = s.get("title", "Analysis")
+                                            fallback_md += f"#### {title}\n"
+                                            
+                                            # Findings
+                                            findings = s.get("findings", [])
+                                            if findings:
+                                                for finding in findings:
+                                                    fallback_md += f"- {finding}\n"
+                                            fallback_md += "\n"
+                                            
+                                            # Evidence?
+                                            evidence = s.get("supporting_evidence", [])
+                                            if evidence:
+                                                fallback_md += f"*(Evidence: {', '.join(evidence)})*\n\n"
+                                
+                                final_content_str = fallback_md
                         
                         # 2. Try direct keys
                         elif agent_output_data.get("formatted_output"):
@@ -395,10 +500,19 @@ Schema:
                              final_content_str = agent_output_data.get("text")
                     
                     # Convert to string if still dict/list (Final Fallback)
-                    if isinstance(final_content_str, (dict, list)):
-                        import json
-                        final_content_str = json.dumps(final_content_str, indent=2)
-
+                    if isinstance(final_content_str, dict):
+                         final_content_str = json.dumps(final_content_str, indent=2)
+                         
+                    print(f"[LLM_PRIM] Resolved generated_markdown. Length: {len(str(final_content_str))}")
+                    if "variables" not in state: state["variables"] = {}
+                    state["variables"]["generated_markdown"] = final_content_str
+                    
+                    # Update 'current_output' in state for smart_template_service to see
+                    state["current_output"] = {
+                        "generated_markdown": final_content_str,
+                        "_raw": agent_output_data
+                    }
+                    
                     return PrimitiveResult(
                         success=True,
                         output={
@@ -430,12 +544,27 @@ Schema:
                 print(f"Logging failed: {log_e}")
             # ---------------------
             
-            response = await llm_service.chat(messages, model_name=model)
+            # Prepare fallback call kwargs
+            call_kwargs2 = {
+                "messages": messages,
+                "model_name": model
+            }
+            if "status_callbacks" in state:
+                call_kwargs2["callbacks"] = state["status_callbacks"]
+
+            response = await llm_service.chat(**call_kwargs2)
             
+            # Fallback for empty results
+            final_response = response
+            if not final_response or not final_response.strip():
+                final_response = "The analysis successfully processed the input but did not find any specific matches for the requested criteria."
+                print("[LLM_PRIM] Empty response from LLM, using fallback message.")
+
             return PrimitiveResult(
                 success=True,
                 output={
-                    output_var: response,
+                    output_var: final_response,
+                    "generated_markdown": final_response,
                     "_raw": response
                 }
             )

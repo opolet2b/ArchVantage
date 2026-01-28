@@ -1,5 +1,10 @@
 import { API_URL } from "./utils"
 
+const getAuthHeaders = (): Record<string, string> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem("token") : null;
+    return token ? { "Authorization": `Bearer ${token}` } : {};
+};
+
 export interface ScanResult {
     files: Array<{
         path: string
@@ -26,9 +31,7 @@ export interface CleanupRequest {
 export const maintenanceService = {
     async scanOrphans(): Promise<ScanResult> {
         const res = await fetch(`${API_URL}/maintenance/scan`, {
-            headers: {
-                "Authorization": `Bearer ${localStorage.getItem("token")}`
-            }
+            headers: getAuthHeaders()
         })
         if (!res.ok) {
             const text = await res.text()
@@ -42,8 +45,8 @@ export const maintenanceService = {
         const res = await fetch(`${API_URL}/maintenance/cleanup`, {
             method: "POST",
             headers: {
+                ...getAuthHeaders(),
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${localStorage.getItem("token")}`
             },
             body: JSON.stringify(data)
         })

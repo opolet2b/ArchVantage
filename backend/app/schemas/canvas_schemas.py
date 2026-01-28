@@ -330,6 +330,7 @@ class FragmentData(BaseModel):
     # Cell fragments
     sheet: Optional[str] = None
     range: Optional[str] = None
+    values: Optional[List[List[Any]]] = None
     # Region fragments
     x: Optional[float] = None
     y: Optional[float] = None

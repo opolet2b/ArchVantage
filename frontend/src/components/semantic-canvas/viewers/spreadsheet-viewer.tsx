@@ -261,7 +261,9 @@ export function SpreadsheetViewer({
             const endRef = XLSX.utils.encode_cell({ r: rEnd + 1, c: cEnd });
             fragmentRange = `${startRef}:${endRef}`;
             type = "range";
-            cellContent = `Cells ${fragmentRange}`;
+
+            // Join values with tabs and newlines for AI context
+            cellContent = fragmentValues.map(row => row.join("\t")).join("\n");
 
         } else {
             // Single Cell Select
@@ -303,10 +305,10 @@ export function SpreadsheetViewer({
         if (!selectionEnabled || !onSelect) return;
 
         let newSelectedCells = [...selectedCells];
-        let description = "";
         let fragmentRange = "";
         let fragmentValues: any[][] = [];
         let type: "row" | "range" = "row";
+        let cellContent = "";
 
         // Handle Shift+Click (Range)
         if (e.shiftKey && lastSelectedRowRef.current !== null) {
@@ -321,8 +323,10 @@ export function SpreadsheetViewer({
                 fragmentValues.push(data[r]);
             }
             fragmentRange = `${start + 1}:${end + 1}`;
-            description = `Rows ${start + 1}-${end + 1}`;
             type = "range";
+
+            // Join values with tabs and newlines for AI context
+            cellContent = fragmentValues.map(row => row.join("\t")).join("\n");
         }
         // Handle Ctrl/Cmd+Click (Toggle/Add - simplified to Add for now)
         else if (e.metaKey || e.ctrlKey) {
@@ -343,7 +347,7 @@ export function SpreadsheetViewer({
             const rowNum = rowIndex + 1;
             fragmentRange = `${rowNum}:${rowNum}`;
             fragmentValues = [data[rowIndex]];
-            description = fragmentValues[0].join(", ");
+            cellContent = fragmentValues[0].join("\t");
         }
         // Normal Click (Single Row)
         else {
@@ -352,14 +356,14 @@ export function SpreadsheetViewer({
             const rowNum = rowIndex + 1;
             fragmentRange = `${rowNum}:${rowNum}`;
             fragmentValues = [data[rowIndex]];
-            description = fragmentValues[0].join(", ");
+            cellContent = fragmentValues[0].join("\t");
         }
 
         const fragment: CellFragment = {
             type: "cell",
             sheet: activeSheet,
             range: fragmentRange,
-            content: description,
+            content: cellContent,
             values: fragmentValues,
             selectionType: type === "range" ? "range" : "row",
         };
@@ -386,6 +390,7 @@ export function SpreadsheetViewer({
         let fragmentRange = "";
         let fragmentValues: any[][] = [];
         let type: "column" | "range" = "column";
+        let cellContent = "";
 
         // Handle Shift+Click (Range)
         if (e.shiftKey && lastSelectedColRef.current !== null) {
@@ -408,6 +413,9 @@ export function SpreadsheetViewer({
             fragmentValues = colValues;
             fragmentRange = `${getColumnLetter(start)}:${getColumnLetter(end)}`;
             type = "range";
+
+            // Join values with tabs and newlines for AI context
+            cellContent = fragmentValues.map(row => row.join("\t")).join("\n");
         }
         else {
             newSelectedCells = data.map((_, rowIndex) => ({ row: rowIndex, col: colIndex }));
@@ -415,13 +423,15 @@ export function SpreadsheetViewer({
             const colLetter = getColumnLetter(colIndex);
             fragmentRange = `${colLetter}:${colLetter}`;
             fragmentValues = data.map(row => [row[colIndex]]);
+            // Join values with newlines for AI context
+            cellContent = fragmentValues.map(row => row[0]).join("\n");
         }
 
         const fragment: CellFragment = {
             type: "cell",
             sheet: activeSheet,
             range: fragmentRange,
-            content: "Column Selection",
+            content: cellContent,
             values: fragmentValues,
             selectionType: type === "range" ? "range" : "column",
         };

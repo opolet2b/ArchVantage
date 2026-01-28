@@ -120,21 +120,52 @@ class TextTemplatePrimitive(BasePrimitive):
             from app.core.database import SessionLocal
             
             db = SessionLocal()
-            try:
-                template_obj = db.query(Template).filter(
-                    Template.id == template_id
-                ).first()
-                if template_obj:
-                    template_content = template_obj.content
-                    # Update params with loaded content
-                    params["template_content"] = template_content
-                else:
-                    return PrimitiveResult(
-                        success=False,
-                        error=f"Template not found: {template_id}"
-                    )
-            finally:
-                db.close()
+            # Load Template from DB if ID provided
+            template_id = params.get("template_id")
+
+            # --- DEBUG LOGGING ---
+            print(f"\n[TEMPLATE_DEBUG] TextTemplate Execution Started")
+            print(f"[TEMPLATE_DEBUG] Received template_id: {template_id}")
+            print(f"[TEMPLATE_DEBUG] Received template_name: {params.get('template_name')}")
+            # ---------------------
+            
+            if template_id:
+                try:
+                    from app.models.smart_template import SmartTemplateDocumentSection
+                    from app.core.database import SessionLocal
+                    
+                    db = SessionLocal()
+                    try:
+                        template_obj = db.query(Template).filter(
+                            Template.id == template_id
+                        ).first()
+                        if template_obj:
+                            template_content = template_obj.content
+                            # Update params with loaded content
+                            params["template_content"] = template_content
+                            print(f"[TEMPLATE_DEBUG] SUCCESS: Loaded template from 'Template' table.")
+                        else:
+                            # Try finding by section ID (common usage for Smart Analysis)
+                            section = db.query(SmartTemplateDocumentSection).filter(SmartTemplateDocumentSection.id == template_id).first()
+                            if section:
+                                template_content = section.content_template
+                                print(f"[TextTemplate] Loaded template from section: {section.name}")
+                                print(f"[TEMPLATE_DEBUG] SUCCESS: Loaded template '{section.name}' from Section table.")
+                            else:
+                                print(f"[TextTemplate] Template ID {template_id} not found.") 
+                                print(f"[TEMPLATE_DEBUG] WARNING: Template ID {template_id} NOT found in DB.")
+                                return PrimitiveResult(
+                                    success=False,
+                                    error=f"Template not found: {template_id}"
+                                )
+                    finally:
+                        db.close()
+                except Exception as e:
+                     print(f"[TextTemplate] Error loading template: {e}")
+            
+            # If no ID, but content provided in params (rare but possible)
+            if not template_content and params.get("template_content"):
+                 template_content = params.get("template_content")
         
         # Resolve Rendering Type to Template if provided (and no direct template content)
         rendering_type_id = params.get("renderingType")
@@ -191,18 +222,44 @@ class TextTemplatePrimitive(BasePrimitive):
             except Exception as e:
                 print(f"[TextTemplate] Error resolving rendering type: {e}")
 
-        # Validate that a template is provided
-        if not template_content:
-            print("[TextTemplate] Warning: No template content provided. Using fallback generic template.")
-            template_content = (
-                "## Analysis Report\n\n"
-                "The following content was generated based on the input:\n\n"
-                "<!-- INSTRUCTION: Summarize the input text and present the key findings in a clear, structured format. -->"
-            )
-            # Update params so _execute_semantic can use it
-            params["template_content"] = template_content
-        
-        # Determine execution mode
+            # Validate: Template check
+            is_fallback = False
+            if not template_content.strip():
+                print("[TextTemplate] Warning: No template content provided. Using fallback generic template.")
+                template_content = (
+                    "## Analysis Report\n\n"
+                    "The following content was generated based on the input:\n\n"
+                    "<!-- INSTRUCTION: Summarize the input text and present the key findings in a clear, structured format. -->"
+                )
+                is_fallback = True
+                # Update params so _execute_semantic can use it
+                params["template_content"] = template_content
+                
+            # SMART PASS-THROUGH (The "Auditor" Logic)
+            # If we are using the generic fallback template, AND the input source_text 
+            # already looks like a structured Markdown report (has headers), 
+            # then we should NOT re-summarize it. We should assume the previous agent 
+            # (Step 1) did the job conformantly.
+            if is_fallback and source_text and ("## " in source_text or "# " in source_text):
+                 print(f"[TextTemplate] Passthrough: Input seems to be pre-formatted Markdown (length {len(source_text)}). Skipping generic summarization.")
+                 return PrimitiveResult(
+                     success=True,
+                     output={
+                         "formatted_text": source_text,
+                         "markdown": source_text,
+                         "_raw": source_text
+                     }
+                 )
+                
+            if not template_content.strip():
+                return PrimitiveResult(
+                    success=False,
+                    error="InvalidTemplate: Template content cannot be empty"
+                )
+                
+            print(f"[TEMPLATE_DEBUG] Final Template Content Preview: {template_content[:100]}...")
+            print(f"[TEMPLATE_DEBUG] Is Fallback Template: {is_fallback}")
+            
         mode = params.get("mode", "semantic")
         
         # Backward compatibility: if template_string exists, use simple mode
@@ -524,8 +581,14 @@ Output Schema:
 
 Specific Instructions:
 {context_instruction}
-3. If 'formatted_output' is present in the analysis results, it contains the pre-formatted text.
+3. If 'formatted_output' is present in the analysis results, it contains the FINAL pre-formatted report.
+   CRITICAL: You MUST use this `formatted_output` string EXACTLY as provided for the `content` field.
+   - Do NOT rewrite it.
+   - Do NOT summarize it.
+   - Do NOT change the headers.
+   - The user has already approved this specific format. Just wrap it in the JSON structure.
 4. Do not omit any findings from the analysis.
+5. If the provided Analysis Results are empty, missing, or do not contain enough information to populate the requested structure, set the 'content' field to a friendly, helpful explanation in Markdown (e.g., 'No numeric figures found in the selected cells. Please ensure you have selected data for analysis.').
 """
                     user_message_content = f"Analysis Results:\n{json.dumps(agent_out, indent=2)}\n\nTemplate/Instructions:\n{template_for_prompt}"
                     
@@ -550,11 +613,29 @@ Specific Instructions:
                     start_time = time.time()
                     print(f"[TextTemplate] executing Single-Shot Semantic Generation (Strict Mode) at {start_time}")
                     
-                    response_text = await llm_service.chat(
-                        messages=messages, 
-                        model_name=llm_model,
-                        temperature=0.7 
-                    )
+                    chat_kwargs = {
+                        "messages": messages, 
+                        "model_name": llm_model,
+                        "temperature": 0.7
+                    }
+                    
+                    # Pass status callbacks if available
+                    status_callbacks = state.get("status_callbacks", [])
+                    if status_callbacks:
+                        chat_kwargs["callbacks"] = status_callbacks
+                        
+                        # Send initial status
+                        for cb in status_callbacks:
+                            try:
+                                msg = f"Generating visual '{component_name or 'content'}'..."
+                                import asyncio
+                                if asyncio.iscoroutinefunction(cb):
+                                    await cb(msg)
+                                else:
+                                    cb(msg)
+                            except: pass
+
+                    response_text = await llm_service.chat(**chat_kwargs)
                     
                     end_time = time.time()
                     duration = end_time - start_time
@@ -569,9 +650,10 @@ Specific Instructions:
                     if clean_text.endswith("```"):
                         clean_text = clean_text[:-3]
                     clean_text = clean_text.strip()
+                    print(f"[TextTemplate] Cleaned Text: {clean_text[:50]}...")
 
                     try:
-                        viz_output_data = json.loads(clean_text)
+                        viz_output_data = json.loads(clean_text, strict=False)
                     except json.JSONDecodeError:
                         # Fallback 1: Regex text search
                         # re is imported globally

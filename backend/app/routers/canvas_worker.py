@@ -585,13 +585,34 @@ async def handle_async_vectorization(
                     new_content["scrape_options"] = scrape_options
                     
                     # Also update the primary 'text' field with root page content
-                    # If root is a PDF, we might not have 'text_content' but the asset link
+                    # and a summary of what else was found
                     root_val = scraped_pages.get(url, "")
-                    if root_val.startswith("__PDF_ASSET__:"):
-                        new_content["text_content"] = f"Scraped PDF: {url}"
-                    else:
-                        new_content["text_content"] = root_val
+                    text_content = ""
                     
+                    if root_val.startswith("__PDF_ASSET__:"):
+                        text_content = f"# Scraped Root PDF\n\n[{url}]({url})\n\n"
+                    else:
+                        text_content = root_val + "\n\n---\n\n"
+                    
+                    # Add summary of other pages/PDFs
+                    other_pages = [u for u in scraped_pages.keys() if u != url]
+                    if other_pages:
+                        text_content += "## Additional Content Found\n\n"
+                        pdf_count = 0
+                        page_count = 0
+                        for other_url in other_pages:
+                            val = scraped_pages[other_url]
+                            if val.startswith("__PDF_ASSET__:"):
+                                pdf_count += 1
+                                asset_id = val.split(":")[1]
+                                text_content += f"- [PDF] {other_url} (Asset: {asset_id})\n"
+                            else:
+                                page_count += 1
+                                text_content += f"- [Page] {other_url}\n"
+                        
+                        print(f"[CanvasWorker] Scrape summary for {url}: {page_count} pages, {pdf_count} PDFs.")
+                    
+                    new_content["text_content"] = text_content
                     thing.content = new_content
                     from sqlalchemy.orm.attributes import flag_modified
                     flag_modified(thing, "content")
