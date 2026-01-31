@@ -119,15 +119,27 @@ Generate the Research Plan JSON.
             plan_data = json.loads(response_text)
             sections = plan_data.get("sections", [])
             
+            # --- DEDICATED TEMPLATE TRACE LOGGING ---
+            try:
+                with open("template_execution_trace.log", "a", encoding="utf-8") as f:
+                    from datetime import datetime
+                    f.write(f"\n{'='*60}\n")
+                    f.write(f"[{datetime.now().isoformat()}] PLANNER STEP\n")
+                    f.write(f"{'-'*60}\n")
+                    f.write(f"SYSTEM PROMPT:\n{system_prompt}\n\n")
+                    f.write(f"USER PROMPT (CONTEXT):\n{user_content}\n\n")
+                    f.write(f"{'-'*60}\n")
+                    f.write(f"GENERATED SECTIONS ({len(sections)}):\n")
+                    for i, sec in enumerate(sections):
+                        f.write(f"{i+1}. {sec.get('title')} (ID: {sec.get('id')})\n")
+                        f.write(f"   Instruction: {sec.get('instruction')[:200]}...\n")
+                    f.write(f"{'='*60}\n")
+            except Exception as log_e:
+                print(f"[PLANNER] Trace logging failed: {log_e}")
+            # ----------------------------------------
+            
             if not sections:
                 return PrimitiveResult(success=False, error="Planner generated no sections.")
-                
-            print(f"[PLANNER] Generated {len(sections)} sections.")
-            
-            return PrimitiveResult(
-                success=True,
-                output={target_var: sections}
-            )
             
         except Exception as e:
             return PrimitiveResult(success=False, error=f"Planner failed: {e}")

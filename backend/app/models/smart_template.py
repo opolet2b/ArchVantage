@@ -116,6 +116,7 @@ class SmartAnalysisTemplate(Base):
     steps_count = Column(Integer, default=0)
     pipeline_config = Column(JSON, nullable=False) # The full JSON structure
     document_template_id = Column(String, nullable=True) # Linked to generic Template (Markdown Blueprint)
+
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

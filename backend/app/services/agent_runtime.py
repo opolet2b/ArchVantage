@@ -525,11 +525,14 @@ class AgentRuntime:
 
             # Yield explicit log for user visibility
             node_label = self.nodes.get(current_node, {}).get("metadata", {}).get("label", current_node)
+            # Log start of step
             yield {
-                 "type": "log",
-                 "level": "info",
-                 "message": f"Starting Step '{node_label}'...",
-                 "timestamp": datetime.utcnow().isoformat()
+                "type": "log",
+                "level": "info",
+                "message": f"Starting Step '{node_label}'...",
+                "node_label": node_label,  # Include label for frontend UI
+                "node_id": current_node,
+                "timestamp": datetime.utcnow().isoformat()
             }
 
             node_task = asyncio.create_task(self._execute_node(current_node, state))

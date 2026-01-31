@@ -7,9 +7,10 @@
 "use client";
 
 import * as React from "react";
-import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, Bot, Sparkles, User } from "lucide-react";
+import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, Bot, Sparkles, User, Layers } from "lucide-react";
 import { useCanvasStore } from "./canvas-store";
 import { cn, API_URL } from "@/lib/utils";
+import { ScenarioSelector } from "./scenario-selector";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -41,7 +42,7 @@ interface ModelPreset {
     is_vision?: boolean;
 }
 
-export function CanvasToolbar() {
+export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const { toast } = useToast();
 
     // Selectors to minimize re-renders
@@ -52,7 +53,7 @@ export function CanvasToolbar() {
     const semanticZoomEnabled = useCanvasStore((s) => s.semanticZoomEnabled);
     const selectedThingIds = useCanvasStore((s) => s.selectedThingIds);
     const selectedDomainIds = useCanvasStore((s) => s.selectedDomainIds);
-    const viewport = useCanvasStore((s) => s.viewport);
+    // Viewport moved to ZoomIndicator for performance
 
     // Actions
     const setSelectedModel = useCanvasStore((s) => s.setSelectedModel);
@@ -66,6 +67,7 @@ export function CanvasToolbar() {
 
     const [models, setModels] = React.useState<ModelPreset[]>([]);
     const [isLoadingModels, setIsLoadingModels] = React.useState(true);
+    const [scenarioSelectorOpen, setScenarioSelectorOpen] = React.useState(false);
 
     React.useEffect(() => {
         const fetchModels = async () => {
@@ -142,6 +144,35 @@ export function CanvasToolbar() {
         } catch (error) {
             console.error("Thumbnail capture failed:", error);
             toast({ title: "Capture Failed", description: "Could not generate thumbnail.", variant: "destructive" });
+        }
+    };
+
+    const handleScenarioSelect = async (scenario: any) => {
+        setScenarioSelectorOpen(false);
+        const token = localStorage.getItem("token");
+        try {
+            toast({ title: "Creating Scenario Canvas", description: `Setting up ${scenario.name}...` });
+            const res = await fetch(`${API_URL}/scenarios/${scenario.id}/instantiate`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    scenario_id: scenario.id,
+                    canvas_name: `${scenario.name} Workspace`
+                })
+            });
+
+            if (res.ok) {
+                const newCanvas = await res.json();
+                window.location.href = `/canvas/${newCanvas.id}`;
+            } else {
+                throw new Error("Failed to instantiate");
+            }
+        } catch (e) {
+            console.error(e);
+            toast({ title: "Error", description: "Failed to create scenario canvas.", variant: "destructive" });
         }
     };
 
@@ -239,6 +270,24 @@ export function CanvasToolbar() {
                 </Button>
             </div>
 
+            <div className="flex items-center gap-1 border-l pl-4 ml-4">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-slate-500 hover:text-primary"
+                    onClick={() => setScenarioSelectorOpen(true)}
+                    title="Scenarios (Vertical Modes)"
+                >
+                    <Layers className="h-4 w-4 mr-2" />
+                    Scenarios
+                </Button>
+                <ScenarioSelector
+                    open={scenarioSelectorOpen}
+                    onOpenChange={setScenarioSelectorOpen}
+                    onSelect={handleScenarioSelect}
+                />
+            </div>
+
             <div className="flex items-center gap-2 border-l pl-4 ml-4">
                 <Button
                     variant="ghost"
@@ -260,26 +309,24 @@ export function CanvasToolbar() {
                     <Switch
                         id="links-toggle"
                         checked={showLinks}
-                        onCheckedChange={toggleShowLinks}
+                        onCheckedChange={() => toggleShowLinks()}
                     />
                 </div>
             </div>
 
-            <div className="flex items-center gap-4 border-l pl-4 ml-4 h-8">
+            <div className="flex items-center gap-2 border-l pl-4 ml-4 h-8">
                 <div className="flex items-center gap-2">
                     <Label htmlFor="semantic-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
                         Semantic
                     </Label>
                     <Switch
                         id="semantic-toggle"
-                        checked={semanticZoomEnabled}
+                        checked={!!semanticZoomEnabled}
                         onCheckedChange={setSemanticZoomEnabled}
                     />
                 </div>
 
-                <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 tabular-nums min-w-[45px] justify-center">
-                    {Math.round(viewport.zoom * 100)}%
-                </div>
+                <ZoomIndicator />
             </div>
 
             <div className="flex items-center gap-2 border-l pl-4 ml-4">
@@ -340,6 +387,15 @@ export function CanvasToolbar() {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
+        </div >
+    );
+});
+
+function ZoomIndicator() {
+    const viewport = useCanvasStore((s) => s.viewport);
+    return (
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 tabular-nums min-w-[45px] justify-center">
+            {Math.round(viewport.zoom * 100)}%
         </div>
     );
 }

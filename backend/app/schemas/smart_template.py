@@ -207,6 +207,7 @@ class SmartAnalysisTemplateBase(BaseModel):
     pipeline_config: Dict[str, Any] # stores the steps, edges, etc.
     document_template_id: Optional[str] = None
 
+
 class SmartAnalysisTemplateCreate(SmartAnalysisTemplateBase):
     pass
 
@@ -218,6 +219,7 @@ class SmartAnalysisTemplateUpdate(BaseModel):
     steps_count: Optional[int] = None
     pipeline_config: Optional[Dict[str, Any]] = None
     document_template_id: Optional[str] = None
+
 
 class SmartAnalysisTemplateResponse(SmartAnalysisTemplateBase):
     id: str

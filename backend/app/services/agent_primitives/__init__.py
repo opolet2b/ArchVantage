@@ -21,6 +21,7 @@ from app.services.agent_primitives.planner import PlannerPrimitive
 from app.services.agent_primitives.compiler import CompilerPrimitive
 from app.services.agent_primitives.auditor import AuditorPrimitive
 from app.services.agent_primitives.refiner import RefinerPrimitive
+from app.services.agent_primitives.structured_template_primitive import StructuredTemplatePrimitive
 
 # Registry of all available primitives
 PRIMITIVE_REGISTRY = {
@@ -40,6 +41,7 @@ PRIMITIVE_REGISTRY = {
     "COMPILER": CompilerPrimitive,
     "AUDITOR": AuditorPrimitive,
     "REFINER": RefinerPrimitive,
+    "STRUCTURED_TEMPLATE": StructuredTemplatePrimitive,
     # Legacy aliases
     "AGENT": LLMGenerationPrimitive,
     "ANALYZER": LLMGenerationPrimitive,

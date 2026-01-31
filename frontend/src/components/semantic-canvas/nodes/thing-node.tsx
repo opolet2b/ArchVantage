@@ -353,6 +353,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     // Local Browser State
     const [browsingUrl, setBrowsingUrl] = React.useState<string | null>(null);
+
+    // Ghost Node Check
+    const isGhost = (currentThing.content as any)?.is_ghost;
     const [history, setHistory] = React.useState<string[]>([]);
     const [forwardHistory, setForwardHistory] = React.useState<string[]>([]);
 
@@ -1578,7 +1581,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         )}
 
                         {/* Main Content */}
-                        <div className="flex-1 min-h-0 overflow-y-auto px-1">
+                        <div className="flex-1 min-h-0 overflow-y-auto px-1 custom-scrollbar">
                             <SelectableContent thingId={thing.id}>
                                 {showAsMarkdown ? (
                                     <MarkdownViewer
@@ -1624,22 +1627,32 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 if ((currentThing.rag_status as any) === "processing" || (currentThing.rag_status as any) === "pending") {
                     return (
                         <SelectableContent thingId={thing.id}>
-                            <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-4">
-                                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                                <div className="space-y-1">
-                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                                        Processing Document...
-                                    </p>
-                                    <div className="w-48 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                        <div
-                                            className="h-full bg-blue-500 transition-all duration-500 ease-out"
-                                            style={{ width: `${ingestionProgress?.percent || 0}%` }}
-                                        />
-                                    </div>
-                                    <p className="text-xs text-slate-500">
-                                        {ingestionProgress ? `${ingestionProgress.current} / ${ingestionProgress.total} chunks` : "Initializing..."}
-                                    </p>
+                            <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-6">
+                                {/* Status Message (Top) */}
+                                <p className="text-base font-semibold text-slate-700 dark:text-slate-200 animate-pulse">
+                                    {(thing.content as any).processing_status || "Processing Document..."}
+                                </p>
+
+                                {/* Heartbeat / Loader (Middle) */}
+                                <div className="relative">
+                                    <div className="absolute inset-0 bg-blue-400 blur-lg opacity-20 animate-pulse rounded-full"></div>
+                                    <Loader2 className="relative w-10 h-10 animate-spin text-blue-500" />
                                 </div>
+
+                                {/* Progress Bar (Bottom - Only for Ingestion) */}
+                                {ingestionProgress && (
+                                    <div className="space-y-1">
+                                        <div className="w-48 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                            <div
+                                                className="h-full bg-blue-500 transition-all duration-500 ease-out"
+                                                style={{ width: `${ingestionProgress?.percent || 0}%` }}
+                                            />
+                                        </div>
+                                        <p className="text-xs text-slate-500">
+                                            {`${ingestionProgress.current} / ${ingestionProgress.total} chunks`}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </SelectableContent>
                     );
@@ -2073,15 +2086,17 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // Iconified Mode - compact icon representation
     // =============================================================================
     if (thing.iconified) {
+        const isGhost = thing.content?.is_ghost;
         return (
             <div
                 className={cn(
-                    "w-12 h-12 rounded-lg flex items-center justify-center relative",
-                    "bg-white dark:bg-slate-800 border-2 shadow-md",
-                    "transition-all duration-200 cursor-pointer",
-                    (isSelected || selected)
-                        ? `${colorTheme.borderSelected} ring-2 ring-offset-1 shadow-lg`
-                        : "border-slate-200 dark:border-slate-700 hover:border-slate-300"
+                    "group relative flex flex-col transition-all duration-200",
+                    "bg-white dark:bg-slate-900",
+                    "rounded-xl shadow-sm border",
+                    // Ghost Node Styling
+                    isGhost ? "opacity-70 border-dashed border-slate-400 bg-slate-50/50" : selected ? "ring-2 ring-primary border-primary shadow-md z-10" : "border-slate-200 dark:border-slate-800 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700",
+                    "overflow-hidden",
+                    thing.iconified && "rounded-full"
                 )}
                 title={thing.title || getDefaultTitle()}
                 style={{
@@ -2174,7 +2189,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 data-thing-id={thing.id}
                 className={cn(
                     "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md relative group",
-                    (isSelected || selected)
+                    // Ghost Node Styling
+                    isGhost ? "opacity-70 border-dashed border-slate-400 bg-slate-50/50" : (isSelected || selected)
                         ? `${colorTheme.borderSelected} ring-2 ring-offset-1 shadow-lg`
                         : "border-slate-200 dark:border-slate-700",
                     thing.type === "conversation" && "hover:shadow-lg"

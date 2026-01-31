@@ -145,6 +145,27 @@ export interface Canvas {
 }
 
 /**
+ * Scenario Configuration (matches Backend Model)
+ */
+export interface Scenario {
+    id: string;
+    name: string;
+    description: string | null;
+    icon: string | null;
+    theme_color: string | null;
+    configuration: {
+        ui_overrides?: {
+            toolbox_macros?: any[];
+            sidebar_right?: any;
+            labels?: Record<string, string>;
+        };
+        domain_definitions?: any[];
+        automations?: any[];
+        [key: string]: any;
+    };
+}
+
+/**
  * Zoom level categories for semantic rendering.
  */
 export type ZoomLevel = "domain" | "label" | "summary" | "preview" | "paragraph" | "full";
@@ -199,7 +220,13 @@ interface CanvasState {
     visionModel: string | null;
     setVisionModel: (model: string | null) => void;
 
+
+
     setViewport: (viewport: Viewport) => void;
+
+    // Scenario State
+    activeScenario: Scenario | null;
+    setActiveScenario: (scenario: Scenario | null) => void;
 
     // Selection Highlight State
     highlightedFragment: { thingId: string; fragment: any } | null;
@@ -423,6 +450,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     visionModel: null,
     setVisionModel: (model) => set({ visionModel: model }),
 
+    // Scenario State
+    activeScenario: null,
+    setActiveScenario: (scenario) => set({ activeScenario: scenario }),
+
     setViewport: (viewport) => set({ viewport }),
 
     // Selection Highlight
@@ -493,6 +524,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 zoomLevel: getZoomLevel(canvas.viewport.zoom),
                 isLoading: false,
             });
+
+            // Load Scenario if configured
+            if (config.scenario_id) {
+                try {
+                    const scenRes = await fetch(`${API_URL}/scenarios/${config.scenario_id}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    if (scenRes.ok) {
+                        const scenario = await scenRes.json();
+                        set({ activeScenario: scenario });
+                    }
+                } catch (e) {
+                    console.error("Failed to load scenario", e);
+                }
+            } else {
+                set({ activeScenario: null });
+            }
         } catch (err) {
             set({
                 error: err instanceof Error ? err.message : "Unknown error",

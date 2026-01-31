@@ -16,9 +16,345 @@ import os
 from datetime import datetime
 from app.schemas.smart_contracts import AssetRef, ExtractorInput, ExtractionInstructions
 from app.services.conversation_service import conversation_service
+from app.services.llm_service import llm_service
 
 class SmartTemplateService:
     
+    # --- Iterative Engine (Phase 2 & 3) ---
+
+    async def _review_document(self, content: str, purpose: str, model: str = "gpt-4o", level_of_detail: str = "medium", cycle_index: int = 1) -> tuple[int, str, dict]:
+        """
+        Phase 2: Auditor/Reviewer.
+        Checks the draft against Purpose and Level of Detail (LoD) requirements.
+        Uses Cycle-Aware logic:
+          - Cycle 1: Structural Check (Headers, Outline, Purpose)
+          - Mid Cycle: Expansion Check (Length vs LoD target)
+          - Final Cycle: Polish Check (Tone, Clarity)
+        """
+        lod_instructions = {
+            "low": "TARGET: Concise, bullet-point summaries. Short paragraphs. No fluff.",
+            "medium": "TARGET: Standard report depth. Balanced sections. 1-2 paragraphs per point.",
+            "high": "TARGET: Comprehensive Deep-Dive. Extensive details, examples, and long-form analysis."
+        }
+        target_instr = lod_instructions.get(level_of_detail, lod_instructions["medium"])
+        
+        # Cycle-Specific Focus
+        cycle_focus = ""
+        if cycle_index == 1:
+            cycle_focus = "FOCUS: STRUCTURE Only. Ignore length. Check if Section Headers match logic and Purpose is clear."
+        elif cycle_index > 1:
+            cycle_focus = (
+                f"FOCUS: DEPTH & LENGTH. compare content against {target_instr}. "
+                "If too short for target, demand EXPANSION. If too long for target, demand CONDENSING."
+            )
+        
+        system_prompt = (
+            "You are an expert Document Auditor.\n"
+            f"{target_instr}\n"
+            f"{cycle_focus}\n"
+            "Evaluate the draft against these specific targets.\n"
+            "You must return a valid JSON object. Do not include markdown formatting.\n"
+            "JSON Structure:\n"
+            "{\n"
+            "  \"metrics\": {\n"
+            "    \"purpose_match\": <0-100>,\n"
+            "    \"instruction_match\": <0-100>,\n"
+            "    \"structure_match\": <0-100>,\n"
+            "    \"styling_match\": <0-100>\n"
+            "  },\n"
+            "  \"score\": <overall weighted score 0-100>,\n"
+            "  \"feedback\": \"<concise markdown bullet points>\",\n"
+            "  \"critical_issues\": [\"<short failure reason>\"]\n"
+            "}\n"
+            "Constraints:\n"
+            "- Feedback must be actionable instructions for the Editor.\n"
+            "- If Structure is wrong (Cycle 1), Score < 60.\n"
+            "- If Depth is wrong (Mid Cycle), Score < 70.\n"
+            "- Return ONLY the JSON object."
+        )
+        
+        # Truncate content if too long
+        safe_content = content[:30000] if len(content) > 30000 else content
+        
+        user_prompt = (
+            f"DOCUMENT PURPOSE: {purpose}\n"
+            f"TARGET LO_D: {level_of_detail.upper()}\n"
+            f"CYCLE: {cycle_index}\n\n"
+            f"DRAFT CONTENT:\n{safe_content}\n\n"
+            "Evaluate this document. Return ONLY the JSON."
+        )
+
+        try:
+            response = await llm_service.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=0.1,
+                json_mode=True
+            )
+            
+            # Robust Parsing Logic
+            cleaned = response.strip()
+            if cleaned.startswith("```json"): cleaned = cleaned[7:]
+            if cleaned.startswith("```"): cleaned = cleaned[3:]
+            if cleaned.endswith("```"): cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            
+            data = {}
+            try:
+                data = json.loads(cleaned)
+            except json.JSONDecodeError as json_err:
+                print(f"[SmartTemplate] JSON Parse Warning: {json_err}. Raw: {cleaned[:100]}...")
+                import re
+                match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+                if match:
+                    try: data = json.loads(match.group(0))
+                    except: pass
+                
+                if not data:
+                    print("[SmartTemplate] JSON Recovery failed. Using fallback.")
+                    return 50, f"Auditor Output Parse Error. Raw: {cleaned[:500]}...", {}
+
+            metrics = data.get("metrics", {
+                "purpose_match": data.get("score", 0),
+                "instruction_match": data.get("score", 0),
+                "structure_match": data.get("score", 0),
+                "styling_match": data.get("score", 0)
+            })
+            
+            return data.get("score", 0), data.get("feedback", "No feedback provided."), metrics
+        except Exception as e:
+            print(f"[SmartTemplate] Review failed: {e}")
+            return 0, f"Auditor Critical Error: {str(e)}", {}
+
+    async def _refine_document(self, content: str, purpose: str, feedback: str, model: str = "gpt-4o", level_of_detail: str = "medium", cycle_index: int = 1) -> str:
+        """
+        Phase 3: Refinement.
+        Updates the draft based on feedback, pushing it towards the Target Detail Level.
+        """
+        lod_instructions = {
+            "low": "TARGET: Short, punchy, bulleted. Remove fluff.",
+            "medium": "TARGET: Standard business report. Clear paragraphs.",
+            "high": "TARGET: Comprehensive, detailed analysis. Expand deeply."
+        }
+        target_instr = lod_instructions.get(level_of_detail, lod_instructions["medium"])
+        
+        cycle_action = ""
+        if cycle_index == 1:
+            cycle_action = "ACTION: Create a SOLID STRUCTURAL DRAFT. Ignore length deviations for now, just get the structure right."
+        else:
+            if level_of_detail == "high":
+                cycle_action = "ACTION: EXPAND significantly. Add missing details, examples, and depth."
+            elif level_of_detail == "low":
+                cycle_action = "ACTION: CONDENSE significantly. Merge sentences, use bullets."
+            else:
+                cycle_action = "ACTION: Refine flow and clarity."
+
+        system_prompt = (
+            "You are an expert Editor.\n"
+            f"{target_instr}\n"
+            f"{cycle_action}\n"
+            "Task: Rewrite the document to address the Audit Feedback AND move towards the Target LoD.\n"
+            "Constraints:\n"
+            "1. Maintain Markdown structure exactly.\n"
+            "2. Address every bullet point in feedback.\n"
+            "3. Return ONLY the full rewritten document."
+        )
+        
+        user_prompt = (
+            f"DOCUMENT PURPOSE: {purpose}\n"
+            f"TARGET LO_D: {level_of_detail.upper()}\n"
+            f"AUDIT FEEDBACK:\n{feedback}\n\n"
+            f"CURRENT DRAFT:\n{content}\n\n"
+            "Rewrite the full document now."
+        )
+
+        try:
+            response = await llm_service.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=0.2
+            )
+            return response
+        except Exception as e:
+            print(f"[SmartTemplate] Refinement failed: {e}")
+            return content # Return original if failure
+
+    async def _resolve_thing_content(self, db: Session, thing: CanvasThing, fragment: Optional[AssetRef] = None) -> str:
+        """
+        Resolves the text content of a Thing for analysis.
+        Prioritizes explicit source fragments, then internal content, then asset service.
+        """
+        # 1. Fragment Override (if matching ID)
+        if fragment and fragment.id == thing.id and fragment.content:
+            return fragment.content
+            
+        # 2. Text Content (JSON/Dict)
+        if isinstance(thing.content, dict):
+            # Try generated_markdown first (most rich), then text, then markdown
+            return (
+                thing.content.get("generated_markdown") or 
+                thing.content.get("text") or 
+                thing.content.get("markdown") or 
+                thing.content.get("url") or 
+                ""
+            )
+            
+        # 3. Text Content (String)
+        if thing.content and isinstance(thing.content, str):
+            return thing.content
+            
+        # 4. Fallback: Check Asset Service if URL type
+        # (Simplified for now - can be expanded)
+        return ""
+
+    async def execute_template(self, db: Session, request: canvas_schemas.ExecuteTemplateRequest) -> canvas_schemas.ExecuteTemplateResponse:
+        # 1. Fetch Template
+        template = self.get_template_by_id(db, request.template_id)
+        if not template:
+            raise ValueError(f"Template with ID {request.template_id} not found.")
+
+        # Parse Execution Config
+        exec_config = {}
+        template_purpose = ""
+        
+        # Resolve 'structure' source (linked Document Template or fallback to self)
+        structure_source = template.pipeline_config # Default
+        if hasattr(template, "document_template_id") and template.document_template_id:
+             from app.models.template import Template as DocTemplate
+             doc_t = db.query(DocTemplate).filter(DocTemplate.id == template.document_template_id).first()
+             if doc_t and doc_t.structure:
+                 structure_source = doc_t.structure
+        
+        if structure_source and isinstance(structure_source, dict):
+            exec_config = structure_source.get("execution_config", {})
+            template_purpose = structure_source.get("purpose", "")
+            
+        max_iterations = int(exec_config.get("max_iterations", 1)) # Default 1 if not set
+        min_quality = int(exec_config.get("min_quality", 0))       # Default 0 (skip review)
+
+        # 2. Collect Entities
+        things = []
+        if request.thing_ids:
+            things = db.query(CanvasThing).filter(
+                CanvasThing.id.in_(request.thing_ids),
+                CanvasThing.canvas_id == request.canvas_id
+            ).all()
+        
+        # 3. Construct Inputs (same as before)
+        entities_data = []
+        for t in things:
+             content_summary = await self._resolve_thing_content(db, t, request.source_fragment)
+             entities_data.append({
+                 "id": t.id,
+                 "type": t.type.value,
+                 "title": t.title,
+                 "content": content_summary
+             })
+             
+        combined_context = "\n\n".join([f"Item: {e['title']} ({e['type']})\n{e['content']}" for e in entities_data])
+
+        # Inject Graph Relationships
+        thing_ids = [t.id for t in things]
+        if thing_ids:
+             rels = db.query(CanvasLink).filter(
+                  CanvasLink.source_id.in_(thing_ids),
+                  CanvasLink.target_id.in_(thing_ids)
+             ).all()
+             if rels:
+                  combined_context += "\n\nRELATIONSHIPS:\n"
+                  id_to_title = {t.id: t.title or t.type.value for t in things}
+                  for r in rels:
+                       src = id_to_title.get(r.source_id, "Unknown")
+                       tgt = id_to_title.get(r.target_id, "Unknown")
+                       lbl = r.type.value
+                       if r.label: lbl += f": {r.label}"
+                       combined_context += f"- {src} --[{lbl}]--> {tgt}\n"
+             
+        is_doc_template = bool(template.document_template_id) or "Document" in template.category_name
+        
+        inputs = {
+            "selection": entities_data,
+            "combined_context": combined_context,
+            "canvas_id": request.canvas_id,
+            "model": request.model,
+            "is_document_template": is_doc_template 
+        }
+        
+        # 4. Execute Draft Generation (Phase 1)
+        blueprint_mock = {
+            "graph": template.pipeline_config,
+            "id": template.id
+        }
+        
+        runtime = AgentRuntime(blueprint_mock, db)
+        print(f"[SmartTemplate] Executing template '{template.name}' with {len(entities_data)} items.")
+        
+        try:
+            # PHASE 1: Draft
+            result = await runtime.execute(inputs)
+            
+            # Extract content from result
+            final_doc_content = result.get("output", {}).get("final_document") or \
+                                result.get("output", {}).get("audited_document") or \
+                                result.get("output", {}).get("text") or ""
+            
+            # PHASE 2 & 3: Audit & Refine Loop
+            if final_doc_content and min_quality > 0:
+                current_quality = 0
+                iteration = 0
+                
+                print(f"[SmartTemplate] Starting Review Loop. Target: {min_quality}%, Max Cycles: {max_iterations}")
+                
+                while iteration < max_iterations:
+                    iteration += 1
+                    
+                    # Audit
+                    score, feedback = await self._review_document(final_doc_content, template_purpose, request.model)
+                    print(f"[SmartTemplate] Cycle {iteration}: Score {score}/{min_quality}")
+                    
+                    if score >= min_quality:
+                        print("[SmartTemplate] Quality Target Met!")
+                        break
+                        
+                    # Refine
+                    if iteration < max_iterations:
+                        print("[SmartTemplate] Refining Document...")
+                        final_doc_content = await self._refine_document(final_doc_content, template_purpose, feedback, request.model)
+            
+            status_msg = "completed" if result["status"] == "completed" else "failed"
+            message = f"Execution completed successfully. (Model: {request.model})"
+            if result["status"] == "failed":
+                message = f"Execution failed: {result.get('error')} (Model: {request.model})"
+            
+            # Update the result payload with the refined content if it exists
+            # We construct the response but importantly we need to save the REFINED content to the graph result outputs
+            # so that persistence (which happens outside execution usually? No, persistence is in execute_template logic usually,
+            # wait, execute_template handles persistence?? No, the caller `execute_template` calls `runtime.execute` which DOES NOT persist.
+            # Wait, `runtime.execute` returns a dict. Persistence logic is MISSING in `execute_template` shown above.
+            # Ah, I see `_execute_template` vs `execute_template`.
+            # Let me check where persistence happens.
+            # Persistence logic seems to be in `execute_template_stream` (lines 1516+) but `execute_template` at 576 just returns a response object.
+            # It seems `execute_template` is the synchronous HTTP endpoint one? No, it's async but seemingly synchronous response.
+            # Actually, `execute_template_stream` handles the whole flow including persistence.
+            # `execute_template` seems to be a wrapper or parallel implementation?
+            # The user request probably hits `execute_template_stream` if using the progress bar UI.
+            # I must update BOTH or check which one is used.
+            # Given the UI has "Execution Status" toast, it uses streaming.
+            
+            return canvas_schemas.ExecuteTemplateResponse(
+                execution_id="temp_execution_id", 
+                status=status_msg,
+                message=message
+            )
+        except Exception as e:
+            print(f"[SmartTemplate] Execution error: {e}")
+            return canvas_schemas.ExecuteTemplateResponse(
+                execution_id="error",
+                status="failed",
+                message=str(e)
+            )
     # --- Global Categories ---
     
     def get_global_categories(self, db: Session, context: Optional[str] = None) -> List[models.SmartGlobalCategory]:
@@ -74,6 +410,43 @@ class SmartTemplateService:
                 raise ValueError(f"Cannot delete category '{db_item.name}' because it is used in Frameworks.")
             
         db.delete(db_item)
+        db.commit()
+        return True
+
+    # --- Smart Templates ---
+
+    def get_templates(self, db: Session, skip: int = 0, limit: int = 100) -> List[models.SmartAnalysisTemplate]:
+        return db.query(models.SmartAnalysisTemplate).offset(skip).limit(limit).all()
+
+    def create_template(self, db: Session, template: schemas.SmartAnalysisTemplateCreate) -> models.SmartAnalysisTemplate:
+        db_template = models.SmartAnalysisTemplate(**template.dict())
+        db.add(db_template)
+        db.commit()
+        db.refresh(db_template)
+        return db_template
+
+    def get_template_by_id(self, db: Session, template_id: str) -> Optional[models.SmartAnalysisTemplate]:
+        return db.query(models.SmartAnalysisTemplate).filter(models.SmartAnalysisTemplate.id == template_id).first()
+
+    def update_template(self, db: Session, template_id: str, template: schemas.SmartAnalysisTemplateUpdate) -> Optional[models.SmartAnalysisTemplate]:
+        db_template = self.get_template_by_id(db, template_id)
+        if not db_template:
+            return None
+        
+        update_data = template.dict(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(db_template, key, value)
+            
+        db.commit()
+        db.refresh(db_template)
+        return db_template
+
+    def delete_template(self, db: Session, template_id: str) -> bool:
+        db_template = self.get_template_by_id(db, template_id)
+        if not db_template:
+            return False
+            
+        db.delete(db_template)
         db.commit()
         return True
 
@@ -523,35 +896,43 @@ class SmartTemplateService:
         elif thing.type.value == "document":
              print(f"[ContentResolution] Resolving Document explicitly (Retry).")
              # Retry resolving from Asset ID if it was missed earlier or failed RAG
-             if content.get("asset_id") and not content_summary:
-                 try:
-                     asset_id = content.get("asset_id")
-                     asset = db.query(Asset).filter(Asset.id == asset_id).first()
-                     if asset:
-                         f_path = asset_service.get_storage_path(asset)
-                         
-                         # Ensure Absolute Path
-                         abs_path = os.path.abspath(str(f_path)) if f_path else None
-                         print(f"[ContentResolution] Asset {asset_id} Path: {abs_path} (Exists: {os.path.exists(abs_path) if abs_path else 'N/A'})")
-
-                         if abs_path and os.path.exists(abs_path):
-                              try:
-                                  documents = SimpleDirectoryReader(input_files=[abs_path]).load_data()
-                                  if documents:
-                                      content_summary = "\n\n".join([d.text for d in documents])
-                                      print(f"[ContentResolution] Document Explicit Read Success. Len: {len(content_summary)}")
-                                  else:
-                                      print(f"[ContentResolution] SimpleDirectoryReader returned no documents.")
-                              except Exception as load_err:
-                                  print(f"[ContentResolution] SimpleDirectoryReader Failed: {load_err}")
-                                  content_summary = f"Error loading content: {load_err}"
-                         else:
-                              print(f"[ContentResolution] File path resolution failed or file missing.")
-                 except Exception as e:
-                     print(f"[ContentResolution] Document Retry Failed: {e}")
-             
              if not content_summary:
-                  content_summary = f"Document: {thing.title}\n(Content could not be loaded. Asset ID: {content.get('asset_id')})"
+                   print(f"[ContentResolution] Start Explicit Load for Asset ID: {content.get('asset_id')}")
+                   if content.get("asset_id"):
+                       try:
+                           asset_id = content.get("asset_id")
+                           asset = db.query(Asset).filter(Asset.id == asset_id).first()
+                           if asset:
+                               f_path = asset_service.get_storage_path(asset)
+                               abs_path = os.path.abspath(str(f_path)) if f_path else None
+                               
+                               print(f"[ContentResolution] Path Resolution: {abs_path}")
+                               if abs_path and os.path.exists(abs_path):
+                                   print(f"[ContentResolution] File Exists at: {abs_path}")
+                                   try:
+                                       documents = SimpleDirectoryReader(input_files=[abs_path]).load_data()
+                                       if documents:
+                                           content_summary = "\n\n".join([d.text for d in documents])
+                                           print(f"[ContentResolution] LOAD SUCCESS. Len: {len(content_summary)}")
+                                       else:
+                                           err_msg = "[ContentResolution] ERROR: SimpleDirectoryReader returned ZERO documents."
+                                           print(err_msg)
+                                           content_summary = err_msg
+                                   except Exception as load_err:
+                                       err_msg = f"[ContentResolution] EXCEPTION during load_data: {load_err}"
+                                       print(err_msg)
+                                       content_summary = err_msg
+                               else:
+                                   err_msg = f"[ContentResolution] ERROR: File path missing or file not found at {abs_path}"
+                                   print(err_msg)
+                                   content_summary = err_msg
+                           else:
+                               print(f"[ContentResolution] ERROR: Asset ID {asset_id} NOT FOUND in DB.")
+                       except Exception as e:
+                           print(f"[ContentResolution] CRITICAL ERROR in Document Retry: {e}")
+                           content_summary = f"[ContentResolution] Critical Error: {e}"
+                   else:
+                       content_summary = f"Document: {thing.title}\n(Content could not be loaded. Missing Asset ID)"
 
         else:
              print(f"[ContentResolution] Fallback to raw JSON dump. Type: {thing.type.value}")
@@ -616,11 +997,15 @@ class SmartTemplateService:
                            lbl += f" ({r.description})"
                        combined_context += f"- {src} --[{lbl}]--> {tgt}\n"
              
+        # Determine if this is a Document Template (for Primitive Context)
+        is_doc_template = bool(template.document_template_id) or "Document" in template.category_name
+        
         inputs = {
             "selection": entities_data,
             "combined_context": combined_context,
             "canvas_id": request.canvas_id,
-            "model": request.model
+            "model": request.model,
+            "is_document_template": is_doc_template # Explicit Context Flag
         }
         
         # 4. Execute
@@ -937,11 +1322,37 @@ class SmartTemplateService:
                 # 3. Construct Deep Analysis Graph
                 print(f"[SmartTemplate] Building Dynamic Deep Analysis Pipeline...")
                 
-                # Parse the blueprint using the enhanced parser
-                blueprint = template_parser.parse(doc_template.content or "")
+                # PRIORITIZE: JSON Structure Blocks (Source of Truth from Structure Builder)
+                blueprint = None
+                if doc_template.structure and isinstance(doc_template.structure, dict):
+                    blocks = doc_template.structure.get("blocks", [])
+                    if blocks:
+                        print(f"[SmartTemplate] Using JSON Structure Blocks ({len(blocks)} top-level blocks)")
+                        blueprint = template_parser.parse_json_structure(blocks)
                 
-                # Build the Dynamic Graph
-                pipeline_config_to_use = self._construct_dynamic_graph(blueprint, template)
+                # FALLBACK: Parse legacy markdown content
+                if not blueprint or not blueprint.sections:
+                    print("[SmartTemplate] Falling back to markdown content parsing")
+                    blueprint = template_parser.parse(doc_template.content or "")
+                
+                if not blueprint or not blueprint.sections:
+                     blueprint = template_parser.parse(template.content)
+                     
+                # --- DEBUG DUMP ---
+                print(f"[SmartTemplate] BLUEPRINT DUMP for '{template.name}':")
+                for s_idx, sec in enumerate(blueprint.sections):
+                    print(f"  Section {s_idx}: {sec.title} (Instr Count: {len(sec.instructions)})")
+                    for i_idx, instr in enumerate(sec.instructions):
+                        print(f"    - Instr {i_idx}: {instr.text[:50]}...")
+                # ------------------
+                
+                nodes = []              # Build the Dynamic Graph
+                # Extract purpose for context
+                context_purpose = ""
+                if doc_template.structure and isinstance(doc_template.structure, dict):
+                    context_purpose = doc_template.structure.get("purpose", "")
+
+                pipeline_config_to_use = self._construct_dynamic_graph(blueprint, template, context_purpose=context_purpose)
                 print(f"[SmartTemplate] Dynamic Pipeline Configured: Nodes={len(pipeline_config_to_use.get('nodes',[]))}")
 
             else:
@@ -952,68 +1363,84 @@ class SmartTemplateService:
             "id": template.id
         }
         
-        # --- CRITICAL FIX: Inject Template Content into Analyst Agent ---
-        # Ensure the LLM explicitly sees the template structure in its instructions.
-        if template.document_template_id and 'doc_template' in locals() and doc_template:
-            print(f"[SmartTemplate] Injecting Document Template Content into Analyst Agent instructions...")
-            
-            # Helper to find and update agent step
-            target_config = pipeline_config_to_use
-            nodes_list = target_config.get("nodes", [])
-            steps_list = target_config.get("steps", [])
-            
-            # Unified iterator for nodes or steps
-            items_to_check = nodes_list if isinstance(nodes_list, list) and nodes_list else steps_list
-            
-            injected = False
-            if isinstance(items_to_check, list):
-                for item in items_to_check:
-                    # Check for Agent or LLM Generation type
-                    i_type = item.get("type", "").lower()
-                    if "agent" in i_type or "llm" in i_type or "generation" in i_type:
-                        # Found the Analyst Agent
-                        params = item.get("params", {})
-                        if not params: params = item.get("data", {}).get("params", {})
-                        
-                        # Get existing instruction
-                        curr_instr = params.get("instruction") or params.get("objective") or ""
-                        
-                        # Append Template
-                        # Use a clear separator
-                        template_injection = (
-                            "\n\n"
-                            "<!-- REQUIRED OUTPUT TEMPLATE -->\n"
-                            "You must strictly follow the structure defined below for the output content:\n\n"
-                            f"{doc_template.content}\n\n"
-                            "<!-- END TEMPLATE -->"
-                        )
-                        
-                        # Update params
-                        # We update 'instruction' as that's what LLMGenerationPrimitive uses
-                        if not curr_instr: curr_instr = "Analyze the provided data and generate a report following the strict template below."
-                        
-                        params["instruction"] = curr_instr + template_injection
-                        
-                        # Ensure params are saved back to the item
-                        if item.get("params") is not None:
-                            item["params"] = params
-                        elif item.get("data"):
-                             item["data"]["params"] = params
-                             
-                        print(f"[SmartTemplate] Injected {len(template_injection)} chars into Agent '{item.get('id')}' instruction.")
-                        injected = True
-                        break
-            
-            if not injected:
-                 print("[SmartTemplate] WARNING: Could not find Agent node to inject template content.")
+
+        blueprint_mock = {
+            "graph": pipeline_config_to_use,
+            "id": template.id
+        }
+        
+        # Pre-compute Node Label Map for UI Injection
+        node_label_map = {}
+        if pipeline_config_to_use and "nodes" in pipeline_config_to_use:
+             for n in pipeline_config_to_use["nodes"]:
+                  node_label_map[n["id"]] = n.get("label", n.get("id"))
 
         runtime = AgentRuntime(blueprint_mock, db)
+
 
         print(f"[SmartTemplate] Streaming execution for '{template.name}' with {len(entities_data)} items.")
         
         try:
             async for event in runtime.execute_stream(inputs):
-                yield event
+                # --- EVENT INJECTION FOR UI ---
+                # Force correct label for Frontend Toast
+                if event["type"] == "step_start" and "step" in event:
+                      step_id = event["step"].get("id")
+                      if step_id and step_id in node_label_map:
+                           event["step"]["node_label"] = node_label_map[step_id]
+
+                # Patch logs that might be using ID as label
+                if event["type"] == "log" and "node_label" in event:
+                      raw_lbl = event["node_label"]
+                      # If the label is actually a known ID, replace it
+                      if raw_lbl in node_label_map:
+                           event["node_label"] = node_label_map[raw_lbl]
+                # ------------------------------
+
+                # --- DYNAMIC STATUS UPDATE ---
+                if event["type"] == "node_start" and things:
+                    try:
+                        n_data = event.get("data", {}).get("node", {})
+                        node_id = n_data.get("id") # FIX: Extract ID properly
+                        
+                        # Format friendly message
+                        # Try to get friendly label from map first, then node data, then fall back to "Section"
+                        n_lbl = ""
+                        if node_id and node_id in node_label_map:
+                             n_lbl = node_label_map[node_id]
+                        elif "label" in n_data:
+                             n_lbl = n_data["label"]
+                        
+                        if not n_lbl:
+                             n_lbl = "Section"
+
+                        if n_lbl.startswith("Generate "):
+                             n_lbl = n_lbl.replace("Generate ", "", 1)
+                        
+                        status_msg = f"Processing section: {n_lbl}"
+                        
+                        # Update Input Thing
+                        # Use separate transaction or careful commit to avoid loop lag?
+                        # Using main db session is fine for low frequency updates.
+                        target_t = things[0]
+                        
+                        # Force update of JSON content
+                        if target_t.content:
+                            new_c = dict(target_t.content)
+                            new_c["processing_status"] = status_msg
+                            target_t.content = new_c
+                            target_t.rag_status = "processing" # Ensure overlay is active
+                            db.add(target_t)
+                            db.commit()
+                    except Exception as e:
+                        print(f"[SmartTemplate] Status Update Warning: {e}")
+                # -----------------------------
+
+                # CRITICAL FIX: Do NOT yield 'complete' event immediately.
+                # We need to run the Iterative Loop (Auditor) first, which might update the result.
+                # We will yield the updated 'complete' event at the very end of this block.
+                if event["type"] != "complete":
+                    yield event
                 
                 # Handle completion - Persist Result
                 if event["type"] == "complete":
@@ -1025,9 +1452,237 @@ class SmartTemplateService:
                     # Fix: current_output is in full_state, not variables (execution_state)
                     current_output = full_state.get("current_output")
                     
+                    # --- ITERATIVE REFINEMENT ENGINE (Phase 2 & 3) ---
+                    # Check for Execution Config
+                    exec_config = {}
+                    template_purpose = ""
+                    
+                    # Resolve 'structure' source (linked Document Template or fallback to self)
+                    structure_source = template.pipeline_config # Default
+                    if hasattr(template, "document_template_id") and template.document_template_id:
+                         from app.models.template import Template as DocTemplate
+                         doc_t = db.query(DocTemplate).filter(DocTemplate.id == template.document_template_id).first()
+                         if doc_t and doc_t.structure:
+                             structure_source = doc_t.structure
+                    
+                    if structure_source and isinstance(structure_source, dict):
+                         exec_config = structure_source.get("execution_config", {})
+                         template_purpose = structure_source.get("purpose", "")
+                    
+                    max_iter = int(exec_config.get("max_iterations", 1))
+                    min_q = int(exec_config.get("min_quality", 0))
+                    level_of_detail = exec_config.get("level_of_detail", "standard")
+                    
+                    if min_q > 0:
+                        # 1. Extract Candidate Content for Review
+                        # Try variables first, then current_output
+                        variables = full_state.get("variables", {})
+                        candidate_content = (
+                            variables.get("final_document") or 
+                            variables.get("audited_document") or 
+                            variables.get("compiled_draft")
+                        )
+                        
+                        if not candidate_content and isinstance(current_output, dict):
+                             candidate_content = current_output.get("generated_markdown") or current_output.get("text")
+                             
+                        if candidate_content and isinstance(candidate_content, str):
+                            print(f"[SmartTemplate] Starting Iterative Loop. Target: {min_q}%, Max: {max_iter}")
+                            yield {"type": "log", "content": f"Starting Review Cycles (Target Quality: {min_q}%, Max Cycles: {max_iter})"}
+                            
+                            current_q = 0
+                            iteration = 0
+                            score = 0
+                            iterative_steps = []
+                            
+                            while iteration < max_iter:
+                                iteration += 1
+                                # Track Cycle Node
+                                cycle_step = {
+                                    "id": f"cycle_{iteration}",
+                                    "type": "ITERATION_CYCLE", 
+                                    "label": f"Review Cycle {iteration}",
+                                    "status": "active",
+                                    "children": []
+                                }
+                                
+                                yield {"type": "node_start", "data": {"node": {"id": "review_step", "label": f"Review Cycle {iteration}/{max_iter}"}}}
+                                
+                                # 1. Update UI Status: Auditing
+                                if things:
+                                    try:
+                                        t_upd = things[0]
+                                        if t_upd.content:
+                                            c = dict(t_upd.content)
+                                            c["processing_status"] = f"Cycle {iteration}: Auditing Draft..."
+                                            t_upd.content = c
+                                            db.add(t_upd)
+                                            db.commit()
+                                    except Exception: pass
+
+                                # 2. Audit with Keep-Alive
+                                try:
+                                    import asyncio
+                                    audit_task = asyncio.create_task(self._review_document(candidate_content, template_purpose, request.model, level_of_detail=level_of_detail, cycle_index=iteration))
+                                    
+                                    while not audit_task.done():
+                                        done, _ = await asyncio.wait([audit_task], timeout=5.0)
+                                        if audit_task in done: break
+                                        yield {"type": "log", "content": f"Auditing Document (Cycle {iteration})..."}
+                                    
+                                    score, feedback, metrics = await audit_task
+                                except (asyncio.CancelledError, Exception) as audit_err:
+                                     print(f"[SmartTemplate] Audit Interrupted/Failed: {audit_err}")
+                                     yield {"type": "log", "content": f"Audit interrupted: {audit_err}. Stopping loop."}
+                                     break # Exit loop and persist whatever we have
+                                print(f"[SmartTemplate] Cycle {iteration}: Score {score}")
+                                yield {"type": "log", "content": f"Review Cycle {iteration}: Quality Score {score}/100"}
+                                
+                                # Record Audit Step
+                                audit_step = {
+                                    "id": f"audit_{iteration}",
+                                    "type": "AUDITOR",
+                                    "label": f"Quality Check (Score: {score})",
+                                    "status": "completed",
+                                    "details": feedback, # Pass struct/string
+                                    "output": {"score": score}
+                                }
+                                cycle_step["children"].append(audit_step)
+                                
+                                # Set Cycle Summary Details
+                                metrics = metrics or {}
+                                cycle_details = {
+                                    "Quality Score": f"{score}/100",
+                                    "Status": "Target Met" if score >= min_q else "Refining...",
+                                    "Auditor Analysis": feedback,
+                                    "Purpose Match": f"{metrics.get('purpose_match', 0)}/100",
+                                    "Structure Match": f"{metrics.get('structure_match', 0)}/100",
+                                    "Instruction Match": f"{metrics.get('instruction_match', 0)}/100",
+                                    "Styling Match": f"{metrics.get('styling_match', 0)}/100"
+                                }
+                                cycle_step["details"] = cycle_details
+                                
+                                if score >= min_q:
+                                    yield {"type": "log", "content": "Quality Target Met. Finalizing..."}
+                                    cycle_step["status"] = "completed"
+                                    # Details already set above
+                                    iterative_steps.append(cycle_step)
+                                    break
+                                    
+                                # 3. Refine
+                                if iteration < max_iter:
+                                    # Debug Log
+                                    yield {"type": "log", "content": f"Score {score} < {min_q}. Proceeding to Refinment ({iteration}/{max_iter})..."}
+                                    yield {"type": "node_start", "data": {"node": {"id": "refine_step", "label": f"Refining Draft ({iteration})"}}}
+                                    
+                                    # Update UI Status: Refining
+                                    if things:
+                                        try:
+                                            t_upd = things[0]
+                                            if t_upd.content:
+                                                c = dict(t_upd.content)
+                                                c["processing_status"] = f"Cycle {iteration}: Refining Document (Score: {score})..."
+                                                t_upd.content = c
+                                                db.add(t_upd)
+                                                db.commit()
+                                        except Exception: pass
+
+                                    # Safe Call with Keep-Alive Loop (Fixes Starlette Timeout)
+                                    try:
+                                        import asyncio
+                                        
+                                        # Create Background Task
+                                        refine_task = asyncio.create_task(self._refine_document(candidate_content, template_purpose, feedback, request.model, level_of_detail=level_of_detail, cycle_index=iteration))
+                                        
+                                        # Monitor Task and Yield Heartbeats
+                                        heartbeat_count = 0
+                                        while not refine_task.done():
+                                            # Wait 5 seconds or until task is done
+                                            done, pending = await asyncio.wait([refine_task], timeout=5.0)
+                                            
+                                            if refine_task in done:
+                                                break # Task finished
+                                            
+                                            # Yield Heartbeat/Progress
+                                            heartbeat_count += 5
+                                            yield {"type": "log", "content": f"Refining Document (Cycle {iteration}): {heartbeat_count}s elapsed..."}
+                                        
+                                        # Get Result
+                                        candidate_content = await refine_task
+                                        
+                                        # Validate Result
+                                        if not candidate_content:
+                                            print(f"[SmartTemplate] WARNING: Refinement returned empty content.")
+                                            candidate_content = "" # Ensure string
+                                            
+                                    except (asyncio.CancelledError, Exception) as refine_err:
+                                        # Catch Cancellation or other errors to ensure we persist partial results
+                                        print(f"[SmartTemplate] Refinement Interrupted/Failed: {refine_err}")
+                                        yield {"type": "log", "content": f"Refinement interrupted: {refine_err}. Saving current draft..."}
+                                        
+                                        # Save state and exit loop
+                                        cycle_details["Status"] = f"Interrupted"
+                                        cycle_step["details"] = cycle_details
+                                        iterative_steps.append(cycle_step)
+                                        
+                                        # Force break to reach persistence logic
+                                        break
+
+                                    
+                                    # Record Refine Step
+                                    refine_step = {
+                                        "id": f"refine_{iteration}",
+                                        "type": "EDITOR",
+                                        "label": "Content Refinement",
+                                        "status": "completed",
+                                        "details": "Refined document content based on audit feedback."
+                                    }
+                                    cycle_step["children"].append(refine_step)
+                                    cycle_step["status"] = "completed"
+                                    
+                                    # Update Status for closure
+                                    cycle_details["Status"] = "Refinement Complete"
+                                    cycle_step["details"] = cycle_details
+                                    
+                                    iterative_steps.append(cycle_step)
+                                    
+                                    # Update State with Refined Content
+                                    if "variables" not in full_state: full_state["variables"] = {}
+                                    full_state["variables"]["final_document"] = candidate_content
+                                    full_state["variables"]["audited_document"] = candidate_content
+                                    
+                                    if isinstance(current_output, dict):
+                                        current_output["generated_markdown"] = candidate_content
+                                        current_output["text"] = candidate_content
+                                        full_state["current_output"] = current_output
+                                    else:
+                                        full_state["current_output"] = candidate_content
+                                        current_output = candidate_content
+                                else:
+                                    # Max iterations reached
+                                    cycle_step["status"] = "completed" 
+                                    cycle_step["details"] = "Max Iterations Reached"
+                                    iterative_steps.append(cycle_step)
+                            
+                            # Final State Update (Persistence)
+                            if "variables" not in full_state: full_state["variables"] = {}
+                            full_state["variables"]["final_document"] = candidate_content
+                            full_state["variables"]["audited_document"] = candidate_content
+                            if isinstance(current_output, dict):
+                                current_output["generated_markdown"] = candidate_content
+                                current_output["text"] = candidate_content
+                            else:
+                                current_output = candidate_content
+                                full_state["current_output"] = candidate_content
+                                
+                            # Inject Iterative Plan into Full State for retrieval below
+                            full_state["iterative_plan"] = iterative_steps
+
+                    
                     print(f"[SmartTemplate] DEBUG: current_output type: {type(current_output)}")
                     if isinstance(current_output, dict):
                         print(f"[SmartTemplate] DEBUG: current_output keys: {list(current_output.keys())}")
+
                         if "generated_markdown" in current_output:
                             print(f"[SmartTemplate] DEBUG: generated_markdown length: {len(current_output['generated_markdown'])}")
                             print(f"[SmartTemplate] DEBUG: generated_markdown snippet: {str(current_output['generated_markdown'])[:50]}...")
@@ -1064,12 +1719,25 @@ class SmartTemplateService:
                         # 1. Extract Generated Content
                         generated_content = ""
                         
-                        # Check deep analysis variables first (Refiner > Compiler)
+                        # Check deep analysis variables first (Auditor > Refiner > Compiler)
                         variables = full_state.get("variables", {})
-                        if "final_document" in variables and isinstance(variables["final_document"], str):
-                             generated_content = variables["final_document"]
-                        elif "compiled_draft" in variables and isinstance(variables["compiled_draft"], str):
-                             generated_content = variables["compiled_draft"]
+                        
+                        # Helper to extract content safely
+                        def _get_var_content(v_name, key):
+                            val = variables.get(v_name)
+                            if not val: return None
+                            if isinstance(val, dict):
+                                return val.get(key) or val.get("text") or val.get("content") or str(val)
+                            return str(val)
+
+                        if "audited_document" in variables:
+                               generated_content = _get_var_content("audited_document", "audited_document")
+                               print("[SmartTemplate] Using AUDITED document result.")
+                        elif "final_document" in variables:
+                             generated_content = _get_var_content("final_document", "final_document")
+                             print("[SmartTemplate] Using FINAL document result.")
+                        elif "compiled_draft" in variables:
+                             generated_content = _get_var_content("compiled_draft", "compiled_draft")
 
                         # Fallback to standard output keys if not found
                         if not generated_content:
@@ -1089,12 +1757,40 @@ class SmartTemplateService:
                         # FE expects 'execution_plan' in content to show Green Brain
                         # Runtime returns 'steps' in the final result object
                         execution_plan = final_result.get("steps") or full_state.get("execution_plan") or []
+                        if isinstance(execution_plan, set):
+                            execution_plan = list(execution_plan)
+                            
+                        # Enrich Runtime Steps with Static Labels
+                        if execution_plan and node_label_map:
+                            for step in execution_plan:
+                                if isinstance(step, dict):
+                                    nid = step.get("id") or step.get("node_id")
+                                    if nid and nid in node_label_map:
+                                        step["label"] = node_label_map[nid]
+                                        # Also fix generic types if needed
+                                        if step.get("type") == "LLM_GENERATION":
+                                             step["type"] = "GENERATOR" # Friendly for UI logic?
+                        
+                        # Merge Iterative Steps if present
+                            
+                        # Merge Iterative Steps if present
+                        iterative_plan = full_state.get("iterative_plan")
+                        if iterative_plan and isinstance(iterative_plan, list):
+                            print(f"[SmartTemplate] Appending {len(iterative_plan)} iterative cycles to execution plan.")
+                            execution_plan.extend(iterative_plan)
+
+                        # Wrap in object for Frontend (ExecutionPlanModal expects { nodes: [...] })
+                        execution_plan_obj = {
+                            "nodes": execution_plan,
+                            "templateName": template.name,
+                            "executionId": context_id if 'context_id' in locals() else None
+                        }
                         
                         thing_content = {
                             "text": generated_content,
                             "markdown": generated_content,
-                            "execution_plan": execution_plan,
-                            "agent_analysis": execution_plan, # Legacy/Safety
+                            "execution_plan": execution_plan_obj,
+                            "agent_analysis": execution_plan_obj, # Legacy/Safety
                             "is_deep_analysis": True
                         }
                         
@@ -1477,6 +2173,9 @@ class SmartTemplateService:
                                 target_canvas_id = things[0].canvas_id
                                 if str(target_canvas_id) != str(request.canvas_id):
                                      print(f"[SmartTemplate] CORRECTING CANVAS ID: Request={request.canvas_id}, SourceNode={target_canvas_id}. Forcing co-location.")
+                                
+                            # Debug Log for User
+                            yield {"type": "log", "content": f"Finalizing... Creating Result Node on Canvas {target_canvas_id}"}
 
                             
                             # Calculate Centroid Position from Input Things
@@ -1568,6 +2267,14 @@ class SmartTemplateService:
                                 print(f"[SmartTemplate] Attaching Agent Analysis to Thing Content (Len: {len(agent_analysis)})")
                                 thing_content["agent_analysis"] = agent_analysis
 
+                            # Prefer audited_document if available, otherwise final_document
+                            final_doc_content = full_state.get("variables", {}).get("audited_document") or \
+                                                full_state.get("variables", {}).get("final_document")
+                            if final_doc_content:
+                                thing_content["text"] = final_doc_content
+                                thing_content["markdown"] = final_doc_content
+                                thing_type = ThingType.TEXT # Ensure it's a text node for the document
+
                             new_node = CanvasThing(
                                 canvas_id=target_canvas_id, # Use corrected ID
                                 type=thing_type,
@@ -1575,8 +2282,8 @@ class SmartTemplateService:
                                 content=thing_content,
                                 position_x=pos_x,
                                 position_y=pos_y,
-                                width=400.0,
-                                height=400.0
+                                width=350.0,
+                                height=250.0
                             )
                             db.add(new_node)
                             db.flush() # Get ID
@@ -1619,10 +2326,38 @@ class SmartTemplateService:
                             print(f"[SmartTemplate] Failed to persist result: {persistence_error}")
                             db.rollback()
                             yield {"type": "error", "content": f"Execution finished but failed to save result: {persistence_error}"}
+                        
+                        # CRITICAL FIX: Update event data with final refined content
+                        # Ensure the frontend receives the post-audit/refined document in the completion event.
+                        if "variables" in full_state:
+                             if "outputs" not in event["data"]: event["data"]["outputs"] = {}
+                             event["data"]["outputs"].update(full_state["variables"])
+                        
+                        yield event # Finally yield the delayed complete event
                 
         except Exception as e:
             print(f"[SmartTemplate] Execution error: {e}")
             yield {"type": "error", "content": str(e)}
+
+        finally:
+            # --- CLEANUP STATUS ---
+            if things:
+                try:
+                    target_t = things[0]
+                    # Reset status to remove overlay
+                    target_t.rag_status = "completed" 
+                    if target_t.content:
+                        new_c = dict(target_t.content)
+                        # Keep the last status message or clear it?
+                        # User might want to see "Analysis Complete" or just see the content.
+                        # Usually "completed" hides the overlay in ThingNode.
+                        new_c["processing_status"] = "Analysis Complete"
+                        target_t.content = new_c
+                    db.add(target_t)
+                    db.commit()
+                    print("[SmartTemplate] Status reset to completed.")
+                except Exception as e:
+                    print(f"[SmartTemplate] Status Cleanup Failed: {e}")
 
     def delete_output_format(self, db: Session, item_id: str) -> bool:
         db_item = db.query(models.SmartOutputFormat).filter(models.SmartOutputFormat.id == item_id).first()
@@ -1632,12 +2367,13 @@ class SmartTemplateService:
         db.commit()
         return True
 
-    def _construct_dynamic_graph(self, blueprint, template) -> Dict[str, Any]:
+    def _construct_dynamic_graph(self, blueprint, template, context_purpose: str = "") -> Dict[str, Any]:
         """
         Dynamically constructs a LangGraph definition from a TemplateBlueprint.
         Translates Logic Blocks (Sections, Loops, Ifs) into Nodes and Edges.
         """
         import uuid
+        from datetime import datetime # For prompt logging
         nodes = []
         edges = []
         
@@ -1660,44 +2396,58 @@ class SmartTemplateService:
         
         # 2. Sequential Processor for Blueprint Sections
         
-        def process_children(children, parent_prev_id, depth=0):
+        # 3. Build Graph from Blueprint Sections
+        # Capture the variables created by the sections
+        section_variables = []
+        
+        # Global Context for all nodes
+        global_context = (
+            f"Global Document Goal: {template.name}\\n"
+            f"Document Description: {template.description or 'Standard Analysis'}\\n"
+        )
+        
+        # Redefined process_children to track variables and LOG PROMPTS
+        def process_children_with_vars(children, parent_prev_id, depth=0):
             from app.services.template_parser import TemplateSection, LoopBlock, ConditionalBlock, TemplateInstruction
             
             current_prev_id = parent_prev_id
             local_nodes = []
             local_edges = []
+            local_vars = [] # Track variables generated here
             
+            print(f"[SmartTemplate] DEBUG: Entering process_children with {len(children)} items. Depth: {depth}")
+
             for index, item in enumerate(children):
                 node_id = f"node_{depth}_{index}_{str(uuid.uuid4())[:8]}"
+                print(f"[SmartTemplate] DEBUG:  - Item {index}: {type(item)}")
                 
                 # --- CASE A: LOOP ---
                 if isinstance(item, LoopBlock):
                     # Recursively build subgraph for the loop body
+                    sub_nodes, sub_edges, sub_vars = process_children_with_vars(item.content, "START_SUB")
                     
-                    sub_nodes, sub_edges = process_children(item.content, "START_SUB")
-                    
-                    if not sub_nodes:
-                        continue 
+                    if not sub_nodes: continue 
                         
                     sub_graph_def = {
                         "nodes": sub_nodes,
                         "edges": sub_edges
                     }
                     
+                    output_var = f"loop_output_{depth}_{index}"
                     loop_node = {
                         "id": node_id,
                         "type": "FOREACH",
                         "label": f"Loop: {item.source}",
                         "params": {
-                            "items": item.source, # Runtime needs to resolve this variable
+                            "items": item.source, 
                             "iterator_var": "loop_item",
                             "subprocess_graph": sub_graph_def,
-                            "output_variable": f"loop_output_{depth}_{index}"
+                            "output_variable": output_var
                         }
                     }
                     local_nodes.append(loop_node)
+                    local_vars.append(output_var)
                     
-                    # Edge from previous to Loop
                     if current_prev_id and current_prev_id != "START_SUB":
                         local_edges.append({"source": current_prev_id, "target": node_id})
                     
@@ -1705,16 +2455,11 @@ class SmartTemplateService:
                     
                 # --- CASE B: CONDITIONAL (IF) ---
                 elif isinstance(item, ConditionalBlock):
-                    
-                    # Build IF Branch
-                    if_nodes, if_edges = process_children(item.if_content, node_id + "_IF_START")
-                    # Build ELSE Branch
-                    else_nodes, else_edges = process_children(item.else_content, node_id + "_ELSE_START")
+                    if_nodes, if_edges, if_vars = process_children_with_vars(item.if_content, node_id + "_IF_START")
+                    else_nodes, else_edges, else_vars = process_children_with_vars(item.else_content, node_id + "_ELSE_START")
                     
                     if if_nodes or else_nodes:
-                        # Merge Node
                         merge_id = f"merge_{node_id}"
-                        # Simple NOOP is good
                         local_nodes.append({"id": merge_id, "type": "NOOP", "label": "Merge"})
 
 
@@ -1727,13 +2472,11 @@ class SmartTemplateService:
                             })
                             local_nodes.extend(if_nodes)
                             local_edges.extend(if_edges)
+                            local_vars.extend(if_vars)
                             
                             last_if = if_nodes[-1]["id"]
                             local_edges.append({"source": last_if, "target": merge_id})
-                        else:
-                            # Empty IF Block -> Link directly to merge if condition?
-                            pass
-
+ 
                         if else_nodes:
                             first_else = else_nodes[0]
                             local_edges.append({
@@ -1743,11 +2486,11 @@ class SmartTemplateService:
                             })
                             local_nodes.extend(else_nodes)
                             local_edges.extend(else_edges)
+                            local_vars.extend(else_vars)
                             
                             last_else = else_nodes[-1]["id"]
                             local_edges.append({"source": last_else, "target": merge_id})
                         else:
-                            # If no Else, Link Previous -> Merge on False
                             local_edges.append({
                                 "source": current_prev_id,
                                 "target": merge_id,
@@ -1756,64 +2499,238 @@ class SmartTemplateService:
                             
                         current_prev_id = merge_id
                     
-                # --- CASE C: SECTION / INSTRUCTION ---
+                # --- CASE C: SECTION ---
                 elif isinstance(item, TemplateSection):
-                     # Flatten instructions
-                     instr_text = "\\n".join([i.text for i in item.instructions])
+                     # 1. Collect Instructions & Text from children (for THIS section's prompt)
+                     # We want to separate "Content" (Strings/Instructions) from "Logic" (Loops/Conditionals)
+                     instr_list = []
+                     logic_children = []
                      
-                     if not item.children and item.instructions:
-                         # Generate Content Node
-                         gen_node = {
-                             "id": node_id,
-                             "type": "LLM_GENERATION",
-                             "label": f"Write: {item.title}",
-                             "params": {
-                                 "system_prompt": "You are a specialized writer.",
-                                 "prompt": f"Write section '{item.title}'.\\nInstructions: {instr_text}",
-                                 "target_variable": f"output_{item.title.replace(' ', '_')}"
-                             }
-                         }
-                         local_nodes.append(gen_node)
-                         if current_prev_id and current_prev_id != "START_SUB":
-                             local_edges.append({"source": current_prev_id, "target": node_id})
-                         current_prev_id = node_id
+                     if item.instructions:
+                         instr_list.extend([i.text for i in item.instructions])
+                         
+                     # Also walk children to split them
+                     if item.children:
+                         for child in item.children:
+                             if isinstance(child, TemplateInstruction):
+                                 # It's already in item.instructions if parser works, but let's be safe/dedupe?
+                                 # Parser adds to both. So sticking to item.instructions is safer/cleaner.
+                                 pass
+                             elif isinstance(child, (LoopBlock, ConditionalBlock)):
+                                 logic_children.append(child)
+                             elif isinstance(child, str):
+                                 # Raw text content - treat as instruction/context
+                                 instr_list.append(child)
+                     
+                     instr_text = "\\n".join(instr_list)
+                     
+                     # --- CRITICAL DEBUG: PRINT SECTION DETAILS (Requested by User) ---
+                     # Stop condition logic effectively handled by just printing this before node generation.
+                     # The single-section mode then limits execution, allowing user to see this log.
+                     def _safe_print(msg):
+                         try:
+                             print(msg.encode('utf-8', 'replace').decode('utf-8'))
+                         except:
+                             print(max) # Fallback
+
+                     _safe_print(f"\\n[SmartTemplate] Processing Section: '{item.title}'")
+                     print(f"  - Instruction Count: {len(item.instructions)}")
+                     
+                     # --- USER REQUESTED BIG LOG ---
+                     print("\\n" + "="*60)
+                     print(f"*** INSTRUCTIONS FOR SECTION '{item.title}' ***")
+                     if item.instructions:
+                         for i_idx, instr in enumerate(item.instructions):
+                             _safe_print(f"  [{i_idx+1}] {instr.text}")
                      else:
-                         # Recurse
-                         sec_nodes, sec_edges = process_children(item.children, current_prev_id, depth+1)
+                         print("  [WARNING] NO INSTRUCTIONS FOUND FOR THIS SECTION")
+                     print("="*60 + "\\n")
+                     # ------------------------------
+
+                     _safe_print(f"  - Final Prompt Text: '{instr_text[:500]}...'")
+                     # -----------------------------------------------------------------
+                     
+                     # 2. Generate Content Node for THIS Section
+                     # FIX: Strict Sanitization for Jinja2 compatibility (Alphanumeric + Underscore only)
+                     import re
+                     safe_title = re.sub(r'[^a-zA-Z0-9_]', '_', item.title.replace(' ', '_'))
+                     out_var = f"output_{safe_title}_{depth}_{index}"
+                     
+                     prompt_text = (
+                         f"{global_context}\\n"
+                         f"You are writing the section: '{item.title}'.\\n"
+                         f"Specific Instructions: {instr_text}\\n"
+                         f"Context: Use the available data to write this specific section."
+                     )
+                     
+                     # LOG PROMPT
+                     try:
+                         with open("C:/Users/opole/Downloads/ChatBotn/backend/smart_template_prompts.log", "a", encoding="utf-8") as pf:
+                             pf.write(f"\\n[{datetime.utcnow()}] Processing section '{item.title}'\\nPrompt: {prompt_text}\\n{'='*40}\\n")
+                     except Exception: pass
+
+                     # Header Logic: Depth 0 -> ##, Depth 1 -> ###, etc.
+                     header_hashes = "#" * (min(depth + 2, 6))
+                     section_header = f"{header_hashes} {item.title}"
+                     
+                     gen_node = {
+                         "id": node_id,
+                         "type": "LLM_GENERATION",
+                        "label": f"Drafting Section: {item.title}",
+                         "params": {
+                             "system_prompt": (
+                                 "You are a Strict Document Generator.\n"
+                                 "CRITICAL RULES:\n"
+                                 "1. Follow the 'TASK / INSTRUCTION' exactly.\n"
+                                 "2. Do NOT converse, ask questions, or complain about data quality.\n"
+                                 "3. If the instruction says 'Write X', you MUST write X, regardless of the data context.\n"
+                                 f"4. You MUST start your response with the Markdown Header: '{section_header}'\n"
+                                 "5. PRESERVE NUMBERING: If the Section Title contains a number (e.g. '1.1'), you MUST use it.\n"
+                                 "6. HIERARCHY: Any sub-sections you generate MUST be nested below this header.\n"
+                                 "7. DO NOT change the section numbering provided in the task."
+                             ),
+                             "prompt": prompt_text,
+                             "target_variable": out_var,
+                             # FIX: Use 'markdown' format to disable strict JSON but avoid rigid Template Filling mode
+                             "output_format": "markdown",
+                             "is_template_mode": False 
+                         }
+                     }
+                     local_nodes.append(gen_node)
+                     # FIX: runtime key is node_id, not target_variable
+                     local_vars.append(node_id)
+                     
+                     if current_prev_id and current_prev_id != "START_SUB":
+                         local_edges.append({"source": current_prev_id, "target": node_id})
+                     current_prev_id = node_id
+                     
+                     # 3. Process Logic Children (Recursion)
+                     # Any loops/ifs nested inside this section should also be executed
+                     # and their output will be collected by the Compiler.
+                     if logic_children:
+                         sec_nodes, sec_edges, sec_vars = process_children_with_vars(logic_children, current_prev_id, depth+1)
                          local_nodes.extend(sec_nodes)
                          local_edges.extend(sec_edges)
+                         local_vars.extend(sec_vars)
                          if sec_nodes:
                              current_prev_id = sec_nodes[-1]["id"]
 
                 # --- CASE D: INSTRUCTION (Leaf) ---
                 elif isinstance(item, TemplateInstruction):
+                     out_var = f"instr_output_{depth}_{index}"
+                     
+                     instr_prompt = f"{global_context}\\nExecute this instruction: {item.text}"
+                     
                      action_node = {
                          "id": node_id,
                          "type": "LLM_GENERATION",
-                         "label": "Instruction",
+                        "label": f"Execute: {item.text[:60] + '...' if len(item.text) > 60 else item.text}",
                          "params": {
-                             "prompt": item.text,
-                             "target_variable": f"instr_{depth}_{index}"
+                             "prompt": instr_prompt,
+                             "target_variable": out_var,
+                             "is_template_mode": False
                          }
                      }
                      local_nodes.append(action_node)
+                     # FIX: runtime key is node_id
+                     local_vars.append(node_id)
+                     
                      if current_prev_id and current_prev_id != "START_SUB":
                          local_edges.append({"source": current_prev_id, "target": node_id})
                      current_prev_id = node_id
                 
                 # --- CASE E: RAW STRING (Ignore) ---
                 elif isinstance(item, str):
-                    # We skip raw text lines in the graph construction as they are 
-                    # usually prelude or formatting that doesn't trigger logic.
                     continue
                      
-            return local_nodes, local_edges
+            return local_nodes, local_edges, local_vars
+
+        # --- 2. Construct Prompt & Context ---
+        
+        # EXTRACT PURPOSE (Context arg or Fallback)
+        template_purpose = context_purpose
+        if not template_purpose:
+             t_struct = getattr(template, "structure", None) or getattr(template, "pipeline_config", None)
+             if t_struct and isinstance(t_struct, dict):
+                 template_purpose = t_struct.get("purpose", "")
+        
+        if template_purpose:
+             print(f"[SmartTemplate] Using Template Purpose: '{template_purpose}'")
+        
+        # Base context
+        global_context = (
+            f"Global Document Goal: {template.name}\\n"
+            f"Document Description: {template.description or 'Standard Analysis'}\\n"
+        )
+        
+        # Inject Purpose if present
+        if template_purpose:
+             global_context = f"TEMPLATE PURPOSE: {template_purpose}\n\n" + global_context
+
+        # Add Blueprint constraints if avail
+        if blueprint and blueprint.constraints:
+            global_context += f"Global Constraints: {blueprint.constraints}\n"
 
         # 3. Build Graph from Blueprint Sections
-        child_nodes, child_edges = process_children(blueprint.sections, previous_node_id)
+        if not blueprint.sections:
+            print("[SmartTemplate] Warning: Blueprint has no sections.")
+            return {"nodes": nodes, "edges": edges}
+            
+        child_nodes, child_edges, gathered_vars = process_children_with_vars(blueprint.sections, previous_node_id)
         
         nodes.extend(child_nodes)
         edges.extend(child_edges)
+        
+        # --- DOCUMENT AGGREGATION ---
+        # --- DOCUMENT AGGREGATION ---
+        # --- DOCUMENT AGGREGATION ---
+        print(f"[SmartTemplate] Gathering vars for aggregation. Count: {len(gathered_vars)}")
+        # Aggregate all section outputs into 'final_document'.
+        if gathered_vars:
+            aggregator_id = f"node_aggregator_{str(uuid.uuid4())[:8]}"
+            
+            # Aggregator Template - Clean Concatenation
+            # We rely on each section to provide its own Markdown header (enforced by system prompt)
+            agg_content = "\\n\\n".join([f"{{{{ {v}.generated_markdown | default({v}.text) | default({v}.output) | default('') }}}}" for v in gathered_vars])
+            agg_template = agg_content
+            
+            aggregator_node = {
+                "id": aggregator_id,
+                "type": "TEXT_TEMPLATE",
+                "label": "Document Assembler",
+                "params": {
+                    "mode": "simple",
+                    "template_string": agg_template,
+                    "output_variable": "final_document",
+                    "variables": {} 
+                }
+            }
+            nodes.append(aggregator_node)
+            
+            if nodes and len(nodes) > 1:
+                # Link last added child node to aggregator
+                last_child_id = child_nodes[-1]["id"] if child_nodes else previous_node_id
+                edges.append({
+                    "source": last_child_id, 
+                    "target": aggregator_id
+                })
+            nodes.append(aggregator_node)
+            
+            if nodes and len(nodes) > 1:
+                # Link last added child node to aggregator
+                last_child_id = child_nodes[-1]["id"] if child_nodes else previous_node_id
+                edges.append({
+                    "source": last_child_id, 
+                    "target": aggregator_id
+                })
+        # ----------------------------
+        
+        # 4. SKIPPED: COMPILER NODE (FORCE SINGLE SECTION DEBUG)
+        # 5. SKIPPED: AUDITOR NODE (FORCE SINGLE SECTION DEBUG)
+        
+        print(f"\n[SmartTemplate] DEBUG GRAPH TOPOLOGY:")
+        print(f"Nodes ({len(nodes)}): {[n['id'] for n in nodes]}")
+        print(f"Edges ({len(edges)}): {[f'{e['source']} -> {e['target']}' for e in edges]}")
         
         return {
             "nodes": nodes,

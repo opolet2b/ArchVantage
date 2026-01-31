@@ -7,14 +7,14 @@ from app.routers import (
     chat, workflow, rag, search, research, config, conversation,
     agents, auth, users, roles, oauth, tools, mcp_servers,
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
-    smart_template, maintenance, spaces, layout_router
+    smart_template, maintenance, spaces, layout_router, scenarios
 )
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
 from dotenv import load_dotenv
 
 # Import models to register them with Base before create_all
-from app.models import canvas_models, asset_models, prompt_models, smart_template as smart_template_models  # noqa: F401
+from app.models import canvas_models, asset_models, prompt_models, smart_template as smart_template_models, scenario_models  # noqa: F401
 
 load_dotenv()
 
@@ -87,6 +87,7 @@ app.include_router(smart_template.router, prefix="/api/v1", tags=["smart-templat
 app.include_router(maintenance.router, prefix="/api/v1/maintenance", tags=["maintenance"])
 app.include_router(spaces.router, prefix="/api/v1", tags=["spaces"])
 app.include_router(layout_router.router, prefix="/api/v1", tags=["layout"])
+app.include_router(scenarios.router, prefix="/api/v1", tags=["scenarios"])
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the ChatBot API"}

@@ -1,0 +1,10 @@
+Q4 Budget Allocation Justification
+
+The total requested budget for Project Phoenix components is $3.5 Million. Key justification areas include:
+
+Cloud Firewall Appliance (CFA): Direct licensing costs for v9.5.1.
+
+Micro-Segmentation Layer (MSL): Engineering effort for deployment and policy management across 45 services.
+
+Key Management Service Upgrade (KMSU): Primarily driven by professional services fees and cloud usage for HSMs.
+A contingency budget of $500,000 is included in the forecast.

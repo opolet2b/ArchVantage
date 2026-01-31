@@ -287,7 +287,11 @@ class TextTemplatePrimitive(BasePrimitive):
             output_var = params.get("output_variable", "formatted_text")
             
             # Merge state variables with extra variables
-            all_variables = {**state.get("variables", {}), **extra_variables}
+            raw_vars = {**state.get("variables", {}), **extra_variables}
+            # Sanitize keys for Jinja (must be strings)
+            all_variables = {str(k): v for k, v in raw_vars.items()}
+            # Inject Debug Keys for diagnosing missing variables
+            all_variables["_debug_keys"] = list(all_variables.keys())
             
             # Also include secrets (they should be decrypted already)
             all_variables["secrets"] = state.get("secrets", {})
@@ -484,8 +488,34 @@ class TextTemplatePrimitive(BasePrimitive):
                 
             if agent_out:
                 try:
-                    from app.schemas.smart_contracts import VisualizerOutput, VisualPayload
-                    print(f"[TextTemplate] Strict Mode detected. Using VisualizerOutput schema.")
+                    # STRICT CONTRACT MODE CHECK
+                    # Only enter if we are NOT doing a standard text restructuring task
+                    # FIX: Use explicit context flag if available, fallback to content check
+                    variables = state.get("variables", {})
+                    explicit_is_doc = variables.get("is_document_template")
+            
+                    if explicit_is_doc is not None:
+                        is_document_template = explicit_is_doc
+                        print(f"[TEXT_TEMPL] Using explicit 'is_document_template' flag: {is_document_template}")
+                    else:
+                        is_document_template = "<!-- INSTRUCTION" in template_content
+                
+                    is_visualizer_component = bool(params.get("react_component") or params.get("config_schema"))
+                    
+                    # We enter strict mode ONLY if:
+                    # 1. It is explicitly a visualizer component (Charts, etc)
+                    # 2. OR it is NOT a document template (no instructions found)
+                    use_strict_mode = is_visualizer_component or not is_document_template
+                    
+                    if not use_strict_mode:
+                        print(f"[TextTemplate] Bypass Strict Mode: Document Template detected. treating agent_output as source_text.")
+                        # Ensure source_text is populated for the standard path below
+                        if not source_text or not source_text.strip():
+                             source_text = agent_out if isinstance(agent_out, str) else str(agent_out)
+                    
+                    if use_strict_mode:
+                        from app.schemas.smart_contracts import VisualizerOutput, VisualPayload
+                        print(f"[TextTemplate] Strict Mode detected. Using VisualizerOutput schema.")
                     
                     # 0. Pre-render Template with Jinja2 if variables map nicely
                     # This allows {{ findings }} to be resolved from agent_output directly
@@ -501,6 +531,9 @@ class TextTemplatePrimitive(BasePrimitive):
                         else:
                              # If output is string (fallback), exposes it as 'agent_output'
                              render_context = {**state.get("variables", {}), "agent_output": agent_out}
+                        
+                        # Sanitize keys for Jinja kwargs
+                        render_context = {str(k): v for k, v in render_context.items()}
                         
                         # Attempt render
                         # We use a broad context so {{ findings }} works if findings is in agent_out

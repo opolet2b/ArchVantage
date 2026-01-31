@@ -46,6 +46,7 @@ class LinkType(str, Enum):
     TRIGGERS = "triggers"
     BLOCKS = "blocks"
     SUPERSEDES = "supersedes"
+    # Scenarios can add more dynamic types, validation should be loose or handled separately
 
 
 # =============================================================================
@@ -195,7 +196,7 @@ class LinkCreate(BaseModel):
     """Request to create a link between things."""
     source_id: str
     target_id: str
-    type: LinkType = LinkType.RELATED
+    type: str = "related" # Changed from LinkType enum to string
     label: str  # Mandatory
     description: str  # Mandatory
     # Optional target canvas ID for cross-canvas links
@@ -211,7 +212,7 @@ class LinkResponse(BaseModel):
     canvas_id: str
     source_id: str
     target_id: str
-    type: LinkType
+    type: str # Changed from LinkType enum to string
     label: Optional[str]
     description: Optional[str] = None
     target_canvas_id: Optional[str] = None
@@ -227,7 +228,7 @@ class LinkResponse(BaseModel):
 
 class LinkUpdate(BaseModel):
     """Request to update a link."""
-    type: Optional[LinkType] = None
+    type: Optional[str] = None
     label: Optional[str] = None
     description: Optional[str] = None
     source_fragment: Optional[Dict[str, Any]] = None
@@ -247,6 +248,11 @@ class DomainCreate(BaseModel):
     z_index: float = -1.0
     position: Position = Field(default_factory=Position)
     parent_id: Optional[str] = None
+    
+    # Scenario Support
+    type: Optional[str] = None
+    visual_config: Optional[Dict[str, Any]] = None
+    metadata_schema: Optional[Dict[str, Any]] = None
 
 
 class DomainUpdate(BaseModel):
@@ -259,6 +265,10 @@ class DomainUpdate(BaseModel):
     parent_id: Optional[str] = None
     width: Optional[float] = None
     height: Optional[float] = None
+    
+    # Scenario Support
+    visual_config: Optional[Dict[str, Any]] = None
+    metadata_schema: Optional[Dict[str, Any]] = None
 
 
 class DomainResponse(BaseModel):
@@ -274,6 +284,11 @@ class DomainResponse(BaseModel):
     position_y: float
     width: float
     height: float
+    
+    # Scenario Support
+    type: Optional[str] = None
+    visual_config: Optional[Dict[str, Any]] = None
+    metadata_schema: Optional[Dict[str, Any]] = None
 
     created_at: datetime
     updated_at: Optional[datetime]
@@ -378,7 +393,7 @@ class DiscoveredLinkDetail(BaseModel):
     """Details of a discovered link."""
     source_id: str
     target_id: str
-    type: str # LinkType but looser for LLM output tolerance
+    type: str 
     label: str
     description: Optional[str] = None
 
@@ -402,6 +417,7 @@ class ExecuteTemplateRequest(BaseModel):
     thing_ids: List[str] = []
     domain_ids: List[str] = []
     model: Optional[str] = None
+    level_of_detail: Optional[str] = "medium" # low, medium, high
     source_fragment: Optional[FragmentData] = None
 
 class ExecuteTemplateResponse(BaseModel):

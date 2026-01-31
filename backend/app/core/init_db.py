@@ -261,6 +261,75 @@ def run_migrations(db: Session) -> None:
     except Exception as e:
         print(f"canvases analysis_space_id migration check failed: {e}")
 
+    # Migration for domains scenario fields
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='domains'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            # Check visual_config
+            try:
+                result = db.execute(
+                    text("SELECT visual_config FROM domains LIMIT 1")
+                )
+                result.close()
+                print("Migration check: visual_config column already exists in domains.")
+            except Exception:
+                print("Adding 'visual_config' column to domains table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE domains ADD COLUMN visual_config JSON")
+                    )
+                    db.commit()
+                    print("Added 'visual_config' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add visual_config column: {alter_error}")
+                    db.rollback()
+            
+            # Check metadata_schema
+            try:
+                result = db.execute(
+                    text("SELECT metadata_schema FROM domains LIMIT 1")
+                )
+                result.close()
+                print("Migration check: metadata_schema column already exists in domains.")
+            except Exception:
+                print("Adding 'metadata_schema' column to domains table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE domains ADD COLUMN metadata_schema JSON")
+                    )
+                    db.commit()
+                    print("Added 'metadata_schema' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add metadata_schema column: {alter_error}")
+                    db.rollback()
+
+            # Check type (domain definition id)
+            try:
+                result = db.execute(
+                    text("SELECT type FROM domains LIMIT 1")
+                )
+                result.close()
+                print("Migration check: type column already exists in domains.")
+            except Exception:
+                print("Adding 'type' column to domains table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE domains ADD COLUMN type VARCHAR(50)")
+                    )
+                    db.commit()
+                    print("Added 'type' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add type column: {alter_error}")
+                    db.rollback()
+
+    except Exception as e:
+        print(f"domains migration check failed: {e}")
+
 def init_db(db: Session) -> None:
     # 1. Create Default Roles
     roles = ["Admin", "User"]

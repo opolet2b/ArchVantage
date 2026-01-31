@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 // =============================================================================
 
 interface DomainNodeData {
-    domain: Domain;
+    domain: Domain & { visual_config?: any; metadata_schema?: any; type?: string };
     zoomLevel: ZoomLevel;
     depth?: number; // Hierarchy depth: 0 = root, 1 = child, etc.
     parentName?: string; // Name of parent domain for display
@@ -92,9 +92,17 @@ const PRESET_COLORS = [
  * Prevents unnecessary re-renders when canvas state changes but this
  * specific node's props remain the same.
  */
-export const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
+const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
     const { domain, zoomLevel, onUpdate, onContextMenu, depth = 0, parentName } = data;
     const [isEditing, setIsEditing] = React.useState(false);
+
+    // Extract Visual Config
+    const visualConfig = domain.visual_config || {};
+    const iconName = visualConfig.icon; // Icon support TODO
+    const borderRadius = visualConfig.border_radius !== undefined ? visualConfig.border_radius : 12;
+    // If scenario override exists, we might need to access it via store or passed prop, 
+    // but typically it's cached in domain.visual_config on creation.
+
     const [editName, setEditName] = React.useState(domain.name);
     const [editDescription, setEditDescription] = React.useState(domain.description || "");
     const [isColorPickerOpen, setIsColorPickerOpen] = React.useState(false);
@@ -197,11 +205,12 @@ export const DomainNode = React.memo(function DomainNode({ data, selected }: Nod
                 {/* Visual Background Layer - Opacity Applied Here */}
                 <div
                     className={cn(
-                        "absolute inset-0 rounded-xl border-2",
+                        "absolute inset-0 border-2",
                         selected ? "border-solid" : "border-dashed",
                         "transition-all duration-300"
                     )}
                     style={{
+                        borderRadius: borderRadius,
                         borderColor: displayColor,
                         backgroundColor: `${displayColor}${Math.max(10, 30 - depth * 5).toString(16).padStart(2, '0')}`, // Lighter for deeper
                         opacity,

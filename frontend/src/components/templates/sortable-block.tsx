@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { useSortable, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { PromptOptimizerDialog } from "./prompt-optimizer-dialog";
+import { cn } from "@/lib/utils";
 import {
     GripVertical,
     Trash2,
@@ -20,9 +22,11 @@ import {
     GitBranch, // For IF
     ArrowLeftFromLine, // For End/Else?
     ChevronUp,
-    ChevronDown
+    ChevronDown,
+    ChevronRight,
+    Sparkles,
+    Code // For Frontmatter
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface SortableBlockProps {
     block: TemplateBlock;
@@ -86,6 +90,7 @@ export function BlockCard({ block, depth = 0, onUpdate, onDelete, onAddChild, on
             case "instruction": return "border-l-emerald-400 bg-white dark:bg-slate-950";
             case "if": return "border-l-orange-500 bg-orange-50/10";
             case "else": return "border-l-orange-300 bg-orange-50/5";
+            case "frontmatter": return "border-l-gray-500 bg-gray-100 dark:bg-gray-900";
             default: return "border-l-slate-400 bg-white dark:bg-slate-950";
         }
     };
@@ -99,7 +104,7 @@ export function BlockCard({ block, depth = 0, onUpdate, onDelete, onAddChild, on
         <Card className={cn("p-3 border-l-4", getStyles(block.type))}>
             {/* Header Controls */}
             <div className="flex items-center gap-2 mb-2">
-                <div className="cursor- grabbing text-slate-600">
+                <div className="cursor-grabbing text-slate-600">
                     <GripVertical className="h-4 w-4" />
                 </div>
 
@@ -110,6 +115,7 @@ export function BlockCard({ block, depth = 0, onUpdate, onDelete, onAddChild, on
                 {block.type === "text" && <FileText className="h-4 w-4 text-slate-500" />}
                 {block.type === "if" && <GitBranch className="h-4 w-4 text-orange-500" />}
                 {block.type === "else" && <GitBranch className="h-4 w-4 text-orange-300 rotate-180" />}
+                {block.type === "frontmatter" && <Code className="h-4 w-4 text-gray-500" />}
 
                 <span className="text-xs font-bold uppercase text-muted-foreground mr-2">{block.type}</span>
 
@@ -136,11 +142,19 @@ export function BlockCard({ block, depth = 0, onUpdate, onDelete, onAddChild, on
                     {block.content}
                 </div>
             )}
+            {block.type === "frontmatter" && (
+                <div className="text-xs font-mono text-gray-600 bg-gray-50 dark:bg-gray-800 p-2 rounded mt-1 line-clamp-3">
+                    {block.content}
+                </div>
+            )}
         </Card>
     )
 }
 
 export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild, onMove }: SortableBlockProps) {
+    const [isOptimizerOpen, setIsOptimizerOpen] = useState(false);
+    const [isCollapsed, setIsCollapsed] = useState(false);
+
     const {
         attributes,
         listeners,
@@ -170,9 +184,8 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
     const isContainer = block.type === "section" || block.type === "loop" || block.type === "if" || block.type === "else";
 
     // Memoize the child IDs to prevent SortableContext from triggering infinite updates
-    // We use the joined string of IDs as dependency because block.children reference changes on every drag frame
     const childIdString = block.children?.map(b => b.id).join(',') || "";
-    const childIds = React.useMemo(() => block.children?.map(b => b.id) || [], [childIdString]);
+    const childIds = useMemo(() => block.children?.map(b => b.id) || [], [childIdString]);
 
     return (
         <div ref={setNodeRef} style={style} className={cn("mb-3", isDragging && "opacity-30")}>
@@ -183,6 +196,16 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                         <GripVertical className="h-4 w-4" />
                     </div>
 
+                    {/* Collapse Toggle */}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 -ml-1 text-slate-400 hover:text-slate-600"
+                        onClick={(e) => { e.stopPropagation(); setIsCollapsed(!isCollapsed); }}
+                    >
+                        {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </Button>
+
                     {/* Icon & Label */}
                     {block.type === "section" && <LayoutList className="h-4 w-4 text-blue-500" />}
                     {block.type === "loop" && <Repeat className="h-4 w-4 text-purple-500" />}
@@ -192,6 +215,20 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                     {block.type === "else" && <GitBranch className="h-4 w-4 text-orange-300 rotate-180" />}
 
                     <span className="text-xs font-bold uppercase text-muted-foreground mr-2">{block.type}</span>
+
+                    {/* Suggest Button for Instruction */}
+                    {block.type === "instruction" && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                            onClick={(e) => { e.stopPropagation(); setIsOptimizerOpen(true); }}
+                            title="Refine with AI"
+                        >
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            Suggest
+                        </Button>
+                    )}
 
                     {/* Inline Editor */}
                     <div className="flex-1">
@@ -231,6 +268,9 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                         {block.type === "else" && (
                             <span className="text-xs text-muted-foreground italic">Otherwise</span>
                         )}
+                        {(block.type === "instruction" && isCollapsed) && (
+                            <span className="text-xs text-slate-500 line-clamp-1 ml-2">{block.content}</span>
+                        )}
                     </div>
 
                     {/* Actions */}
@@ -262,71 +302,87 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                     </div>
                 </div>
 
-                {/* Content Area */}
-                {(block.type === "instruction" || block.type === "text") && (
-                    <Textarea
-                        value={block.content || ""}
-                        className={cn("min-h-[60px] text-sm", block.type === "text" && "font-mono")}
-                        onChange={(e) => onUpdate(block.id, { content: e.target.value })}
-                        placeholder={block.type === "text" ? "Enter markdown text..." : "Enter instruction..."}
+                {!isCollapsed && (
+                    <>
+                        {/* Content Area */}
+                        {(block.type === "instruction" || block.type === "text") && (
+                            <Textarea
+                                value={block.content || ""}
+                                className={cn("min-h-[60px] text-sm", block.type === "text" && "font-mono")}
+                                onChange={(e) => onUpdate(block.id, { content: e.target.value })}
+                                placeholder={block.type === "text" ? "Enter markdown text..." : "Enter instruction..."}
+                            />
+                        )}
+
+                        {/* Children Container (Recursive) */}
+                        {isContainer && (
+                            <ContainerBodyDroppable parentId={block.id}>
+                                <SortableContext
+                                    items={childIds}
+                                    strategy={verticalListSortingStrategy}
+                                >
+                                    {block.children && block.children.length > 0 ? (
+                                        <>
+                                            {block.children.map((child, idx) => (
+                                                <React.Fragment key={child.id}>
+                                                    <InsertGap parentId={block.id} index={idx} />
+                                                    <SortableBlock
+                                                        block={child}
+                                                        depth={depth + 1}
+                                                        onUpdate={onUpdate}
+                                                        onDelete={onDelete}
+                                                        onAddChild={onAddChild}
+                                                        onMove={onMove}
+                                                    />
+                                                </React.Fragment>
+                                            ))}
+                                            <InsertGap parentId={block.id} index={block.children.length} />
+                                        </>
+                                    ) : (
+                                        <div className="h-10 border border-dashed rounded flex items-center justify-center text-xs text-slate-400">
+                                            Drop here to nest
+                                        </div>
+                                    )}
+                                </SortableContext>
+                            </ContainerBodyDroppable>
+                        )}
+
+                        {/* Add Child Actions (Only for containers) */}
+                        {isContainer && (
+                            <div className="flex gap-2 mt-2 ml-6 flex-wrap">
+                                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "instruction"); }}>
+                                    <Plus className="h-3 w-3" /> Instr
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "text"); }}>
+                                    <FileText className="h-3 w-3" /> Text
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "subsection"); }}>
+                                    <LayoutList className="h-3 w-3" /> Section
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "loop"); }}>
+                                    <Repeat className="h-3 w-3" /> Loop
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "if"); }}>
+                                    <GitBranch className="h-3 w-3" /> IF
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "else"); }}>
+                                    <ArrowLeftFromLine className="h-3 w-3 rotate-180" /> Else
+                                </Button>
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {/* Optimizer Dialog */}
+                {isOptimizerOpen && (
+                    <PromptOptimizerDialog
+                        open={isOptimizerOpen}
+                        onOpenChange={setIsOptimizerOpen}
+                        onAccept={(text) => onUpdate(block.id, { content: text })}
+                        initialText={block.content || ""}
+                        contextType="instruction"
+                        title="Refine Instruction"
                     />
-                )}
-
-                {/* Children Container (Recursive) */}
-                {isContainer && (
-                    <ContainerBodyDroppable parentId={block.id}>
-                        <SortableContext
-                            items={childIds}
-                            strategy={verticalListSortingStrategy}
-                        >
-                            {block.children && block.children.length > 0 ? (
-                                <>
-                                    {block.children.map((child, idx) => (
-                                        <React.Fragment key={child.id}>
-                                            <InsertGap parentId={block.id} index={idx} />
-                                            <SortableBlock
-                                                block={child}
-                                                depth={depth + 1}
-                                                onUpdate={onUpdate}
-                                                onDelete={onDelete}
-                                                onAddChild={onAddChild}
-                                                onMove={onMove}
-                                            />
-                                        </React.Fragment>
-                                    ))}
-                                    <InsertGap parentId={block.id} index={block.children.length} />
-                                </>
-                            ) : (
-                                <div className="h-10 border border-dashed rounded flex items-center justify-center text-xs text-slate-400">
-                                    Drop here to nest
-                                </div>
-                            )}
-                        </SortableContext>
-                    </ContainerBodyDroppable>
-                )}
-
-                {/* Add Child Actions (Only for containers) */}
-                {isContainer && (
-                    <div className="flex gap-2 mt-2 ml-6 flex-wrap">
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "instruction"); }}>
-                            <Plus className="h-3 w-3" /> Instr
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "text"); }}>
-                            <FileText className="h-3 w-3" /> Text
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "subsection"); }}>
-                            <LayoutList className="h-3 w-3" /> Section
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "loop"); }}>
-                            <Repeat className="h-3 w-3" /> Loop
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "if"); }}>
-                            <GitBranch className="h-3 w-3" /> IF
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] gap-1 dashed" onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAddChild(block.id, "else"); }}>
-                            <ArrowLeftFromLine className="h-3 w-3 rotate-180" /> Else
-                        </Button>
-                    </div>
                 )}
             </Card>
         </div>

@@ -303,9 +303,10 @@ class TemplateService:
     def update_template(
         self, 
         template_id: str, 
-        name: Optional[str], 
-        content: Optional[str], 
-        db: Session
+        name: Optional[str] = None, 
+        content: Optional[str] = None, 
+        structure: Optional[List[Dict[str, Any]]] = None,
+        db: Session = None
     ) -> Template:
         """Update an existing template."""
         template = db.query(Template).filter(
@@ -327,6 +328,9 @@ class TemplateService:
         
         if content is not None:
             template.content = content
+
+        if structure is not None:
+            template.structure = structure
         
         db.commit()
         db.refresh(template)
@@ -462,42 +466,59 @@ class TemplateService:
         from app.services.llm_service import llm_service
         from app.models.chat import Message
         
-        system_prompt = """You are a Template Generator. Create a valid Markdown file with YAML Frontmatter.
+        system_prompt = """You are a Template Generator. Create a valid Markdown file with YAML Frontmatter for a "Smart Template" engine.
 
 Rules:
 1. Start with YAML Frontmatter (between ---) containing style definitions:
    - h1_font, h1_color, h2_font, h2_color, body_font, quote_bg_color, etc.
-   - Use appropriate hex color codes based on the user's theme description
+   - Use appropriate hex color codes based on the user's theme description.
 
-2. After the frontmatter, create the Markdown structure:
-   - Use appropriate headers (# ## ###) for sections
-   - Inside sections, write <!-- INSTRUCTION: ... --> blocks describing what data to extract
-   - Do NOT fill sections with fake text, only use instruction blocks as placeholders
+2. After the frontmatter, create the Markdown structure.
 
-3. Use the user's description to determine:
-   - Color theme (pick appropriate hex codes)
-   - Font choices (use web-safe fonts)
-   - Section structure
+3. Available Syntax & Features:
 
-Example output format:
+   a. **Sections & Headers**: Use #, ##, ### for structure.
+
+   b. **Instructions (Dynamic Content)**:
+      Use `<!-- INSTRUCTION: Describe what to generate -->` for content that the AI should generate during execution.
+      Example: `<!-- INSTRUCTION: Summarize the key findings from the provided documents. -->`
+
+   c. **Static Text**:
+      Write normal text for content that should always appear exactly as written (e.g., table headers, disclaimers, labels).
+      Example: `**Disclaimer:** This report is computer-generated.`
+
+   d. **Logic & Control Flow** (Jinja2-style):
+      - **IF/ELSE**: `{% if condition %}` ... `{% endif %}`
+      - **LOOPS**: `{% for item in items %}` ... `{% endfor %}`
+      - Use these to structure complex templates (e.g., iterating over a list of findings).
+
+   e. **Variables**:
+      You can reference variables using `{{ variable_name }}` if applicable, though primarily use Instructions for generation.
+
+4. Design Best Practices:
+   - Use the user's description to determine the Theme (Colors/Fonts).
+   - Create a clean, professional layout.
+   - Use tables for structured data (with static headers and dynamic rows).
+
+Example Output:
 ---
-h1_font: "Arial"
-h1_color: "#2c3e50"
-h2_font: "Arial"
-h2_color: "#34495e"
-body_font: "Georgia"
-quote_bg_color: "#f9f9f9"
+h1_font: "Inter"
+h1_color: "#1e293b"
 ---
-# {{Document Title}}
-<!-- INSTRUCTION: Generate an appropriate title based on the input content. -->
+# {{ Report Title }}
 
 ## Executive Summary
-<!-- INSTRUCTION: Write a brief executive summary of the key points. -->
+<!-- INSTRUCTION: Write a high-level summary of the analysis. -->
 
-> <!-- INSTRUCTION: List any important notes or caveats here. -->
+## Detailed Findings
+| Category | Observation | Impact |
+|----------|-------------|--------|
+<!-- INSTRUCTION: improved the instruction to generate table rows regarding findings -->
+{% for finding in findings %}
+| {{ finding.category }} | {{ finding.observation }} | {{ finding.impact }} |
+{% endfor %}
 
-## Details
-<!-- INSTRUCTION: Provide detailed analysis of the content. -->
+**Note:** This section is confidential.
 """
         
         messages = [
@@ -507,6 +528,37 @@ quote_bg_color: "#f9f9f9"
         
         result = await llm_service.chat(messages, model_name=llm_model)
         return result
+
+    async def optimize_prompt(
+        self,
+        text: str,
+        context_type: str = "instruction",
+        llm_model: str = "default"
+    ) -> str:
+        """
+        Optimize a valid user prompt/instruction for LLM consumption.
+        """
+        from app.services.llm_service import llm_service
+        from app.models.chat import Message
+
+        system_prompt = f"""You are an Expert Prompt Engineer. 
+Your task is to take a rough draft of a {context_type} and rewrite it into a clear, precise, and effective prompt for an LLM.
+
+Rules:
+1. Keep it concise but specific.
+2. Use imperative language (e.g., "Analyze...", "Summarize...", "List...").
+3. If the input is vague, make reasonable assumptions to improve it, or retain the core intent but structure it better.
+4. Do NOT add conversational filler ("Here is the optimized prompt"). JUST return the optimized text.
+"""
+        
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=f"Refine this {context_type}: {text}")
+        ]
+
+        result = await llm_service.chat(messages, model_name=llm_model)
+        return result.strip()
+
 
 
 # Singleton instance

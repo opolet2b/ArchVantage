@@ -394,24 +394,13 @@ MODE: SEMANTIC ANALYSIS
             payload_size = len(str(messages))
             print(f"[EXTRACTOR] calling LLM at {start_time}. Payload size: {payload_size/1024:.2f} KB")
             
-            if payload_size > 100 * 1024: # > 100KB
-                 warn_msg = f"[EXTRACTOR] WARNING: Large payload detected ({payload_size/1024:.2f} KB). This may cause slowness or timeouts."
-                 print(warn_msg)
-                 # Yield warning to callbacks
-                 if status_callbacks:
-                     for cb in status_callbacks:
-                         try:
-                             if asyncio.iscoroutinefunction(cb):
-                                 await cb(warn_msg)
-                             else:
-                                 cb(warn_msg)
-                         except Exception: pass
-
+            print(f"[EXTRACTOR] DEBUG: Invoking llm_service.chat()...")
             response_text = await llm_service.chat(**call_kwargs)
+            print(f"[EXTRACTOR] DEBUG: llm_service.chat() RETURNED. Length: {len(response_text)}")
             
             end_time = time.time()
             duration = end_time - start_time
-            print(f"[EXTRACTOR] DEBUG: LLM returned text of length {len(response_text)}")
+            print(f"[EXTRACTOR] DEBUG: LLM duration: {duration:.2f}s")
             
             try:
                 # Debug Log: Final Response
@@ -543,6 +532,14 @@ MODE: SEMANTIC ANALYSIS
                          ]
                      } 
                      
+                # --- SANITIZATION FIX ---
+                # Ensure only 'extracted_elements' is kept to prevent malformed garbage keys (e.g. "final{")
+                # from checking downstream processing.
+                if isinstance(extracted_data, dict) and "extracted_elements" in extracted_data:
+                     # Filter strictly
+                     extracted_data = {"extracted_elements": extracted_data["extracted_elements"]}
+                # ------------------------
+
                 state["variables"][target_variable] = extracted_data
                 state["variables"]["extractor_output"] = extracted_data
                 

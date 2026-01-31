@@ -2,10 +2,12 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Save, Loader2, RotateCcw, Sparkles, Trash2, AlertTriangle, FileText } from "lucide-react"
+
+import { Save, Loader2, RotateCcw, Sparkles, Trash2, AlertTriangle, FileText, Settings2 } from "lucide-react"
 import { API_URL } from "@/lib/utils"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
 import { Checkbox } from "@/components/ui/checkbox"
+import { useCanvasStore } from "../semantic-canvas/canvas-store"
 
 interface ModelConfigProps {
     onSave?: () => void
@@ -50,6 +52,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [availableModels, setAvailableModels] = useState<string[]>([])
     const [presets, setPresets] = useState<Preset[]>([])
     const [selectedPreset, setSelectedPreset] = useState("")
+
 
     const [loading, setLoading] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -286,6 +289,9 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 </CardHeader>
                 <CardContent className="space-y-6">
 
+
+
+
                     {/* Global Defaults Section */}
                     <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border space-y-4">
                         <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -334,6 +340,11 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                             </div>
                         </div>
                     </div>
+
+
+
+
+
 
 
                     <div className="relative">
@@ -581,49 +592,51 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             </Card>
 
             {/* Custom Modal Overlay for Reset Confirmation */}
-            {showResetDialog && (
-                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-                        <div className="flex gap-4 mb-4">
-                            <div className="p-2 bg-yellow-100 dark:bg-yellow-900 rounded-full h-10 w-10 flex-shrink-0 flex items-center justify-center">
-                                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-semibold">Embedding Model Changed</h3>
-                                <p className="text-sm text-muted-foreground mt-1">
-                                    Changing the embedding model usually requires re-indexing your entire database to ensure search results are accurate.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="my-4 p-4 border rounded-md bg-slate-50 dark:bg-slate-950">
-                            <div className="flex items-start space-x-3">
-                                <Checkbox
-                                    id="resetDb"
-                                    checked={resetDbChecked}
-                                    onCheckedChange={(c) => setResetDbChecked(!!c)}
-                                />
-                                <div className="grid gap-1.5 leading-none">
-                                    <label
-                                        htmlFor="resetDb"
-                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                    >
-                                        Reset & Re-index Database
-                                    </label>
-                                    <p className="text-xs text-muted-foreground">
-                                        Uncheck ONLY if you are certain the new model is compatible with existing vectors (e.g. same model, different provider).
+            {
+                showResetDialog && (
+                    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                        <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+                            <div className="flex gap-4 mb-4">
+                                <div className="p-2 bg-yellow-100 dark:bg-yellow-900 rounded-full h-10 w-10 flex-shrink-0 flex items-center justify-center">
+                                    <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold">Embedding Model Changed</h3>
+                                    <p className="text-sm text-muted-foreground mt-1">
+                                        Changing the embedding model usually requires re-indexing your entire database to ensure search results are accurate.
                                     </p>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setShowResetDialog(false)}>Cancel</Button>
-                            <Button onClick={() => executeSaveDefaultEmbedding(resetDbChecked)}>Confirm & Save</Button>
+                            <div className="my-4 p-4 border rounded-md bg-slate-50 dark:bg-slate-950">
+                                <div className="flex items-start space-x-3">
+                                    <Checkbox
+                                        id="resetDb"
+                                        checked={resetDbChecked}
+                                        onCheckedChange={(c) => setResetDbChecked(!!c)}
+                                    />
+                                    <div className="grid gap-1.5 leading-none">
+                                        <label
+                                            htmlFor="resetDb"
+                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                        >
+                                            Reset & Re-index Database
+                                        </label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Uncheck ONLY if you are certain the new model is compatible with existing vectors (e.g. same model, different provider).
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2">
+                                <Button variant="outline" onClick={() => setShowResetDialog(false)}>Cancel</Button>
+                                <Button onClick={() => executeSaveDefaultEmbedding(resetDbChecked)}>Confirm & Save</Button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     )
 }

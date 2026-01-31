@@ -6,7 +6,7 @@ Provides CRUD operations for templates and folders with permission checks.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 
 from app.core.database import get_db
@@ -35,12 +35,52 @@ class TemplateCreate(BaseModel):
     folder_id: Optional[str] = None
     content: str = ""
 
-
 class TemplateUpdate(BaseModel):
     """Schema for updating a template."""
     name: Optional[str] = None
     content: Optional[str] = None
+    structure: Optional[Any] = None # Accepts List (legacy) or Dict (new JSON structure)
 
+# ... (endpoints)
+
+@router.put("/{template_id}")
+async def update_template(
+    template_id: str,
+    data: TemplateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update a template. Requires WRITE permission on folder."""
+    template = db.query(Template).filter(Template.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    # Check permission on folder
+    if template.folder_id:
+        if not template_service.check_permission(
+            current_user.id, 
+            template.folder_id, 
+            TemplatePermissionLevel.WRITE, 
+            db
+        ):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    
+    try:
+        updated = template_service.update_template(
+            template_id=template_id,
+            name=data.name,
+            content=data.content,
+            structure=data.structure,
+            db=db
+        )
+        return {
+            "id": updated.id,
+            "name": updated.name,
+            "path": updated.path,
+            "message": "Template updated successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 class RenderPreviewRequest(BaseModel):
     """Schema for preview rendering."""
@@ -148,6 +188,7 @@ async def get_template(
         "name": template.name,
         "path": template.path,
         "content": template.content,
+        "structure": template.structure,
         "folder_id": template.folder_id,
         "created_by": template.created_by,
         "last_modified": template.last_modified.isoformat() 
@@ -217,6 +258,7 @@ async def update_template(
             template_id=template_id,
             name=data.name,
             content=data.content,
+            structure=data.structure,
             db=db
         )
         return {
@@ -363,11 +405,42 @@ async def generate_template(
             description=data.description,
             llm_model=data.llm_model
         )
+        print(f"[Backend Generate] Returning content length: {len(content)}")
+        print(f"[Backend Generate] Content preview: {content[:200]}...")
         return {"content": content}
     except Exception as e:
         raise HTTPException(
             status_code=500, 
             detail=f"Generation failed: {str(e)}"
+        )
+
+
+class PromptOptimizeRequest(BaseModel):
+    """Schema for optimizing a prompt."""
+    text: str
+    context_type: str = "instruction"  # 'instruction' or 'purpose'
+    llm_model: str = "default"
+
+
+@router.post("/optimize-prompt")
+async def optimize_prompt(
+    data: PromptOptimizeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Optimize a user text into a high-quality LLM prompt.
+    """
+    try:
+        optimized = await template_service.optimize_prompt(
+            text=data.text,
+            context_type=data.context_type,
+            llm_model=data.llm_model
+        )
+        return {"content": optimized}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Optimization failed: {str(e)}"
         )
 
 

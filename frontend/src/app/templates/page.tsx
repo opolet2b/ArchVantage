@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
     FolderPlus,
     FilePlus,
+    HelpCircle,
     RefreshCw,
     ChevronRight,
     ChevronDown,
@@ -25,7 +26,10 @@ import {
     Loader2,
     Palette,
     Code,
-    Upload
+    Upload,
+    Sidebar,
+    SidebarClose,
+    SidebarOpen
 } from "lucide-react";
 import {
     Dialog,
@@ -35,6 +39,9 @@ import {
     DialogFooter,
     DialogDescription,
 } from "@/components/ui/dialog";
+import { Slider } from "@/components/ui/slider";
+import { Card } from "@/components/ui/card";
+import { PromptOptimizerDialog } from "@/components/templates/prompt-optimizer-dialog";
 import {
     Select,
     SelectContent,
@@ -43,12 +50,19 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
     ThemeDesigner,
     ThemeSettings,
     parseYamlToSettings,
     settingsToYaml,
 } from "@/components/templates/theme-designer";
 import { TemplateStructureBuilder } from "@/components/templates/structure-builder";
+import { TemplateParserClient, TemplateBlock } from "@/components/templates/template-parser-client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
@@ -97,10 +111,25 @@ export default function TemplatesPage() {
     const [llmModels, setLlmModels] = useState<{ name: string, id: string }[]>([]);
     const [selectedLlm, setSelectedLlm] = useState<string>("default");
 
-    // Editor View Mode
-    // Link the "Visual/Code" view mode state
     const [structureViewMode, setStructureViewMode] = useState<"visual" | "code">("visual");
     const [templateName, setTemplateName] = useState("");
+    const [templatePurpose, setTemplatePurpose] = useState(""); // New Purpose Field
+    const [isPurposeExpanded, setIsPurposeExpanded] = useState(true); // Collapsible Purpose State
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Collapsible Sidebar State
+    const [isOptimizerOpen, setIsOptimizerOpen] = useState(false); // Optimizer Dialog State
+
+    const [minQuality, setMinQuality] = useState(80);
+
+    const [maxIterations, setMaxIterations] = useState(3);
+    const [levelOfDetail, setLevelOfDetail] = useState("standard");
+
+    // Lifted State for Template Blocks (JSON Structure)
+    const [blocks, setBlocks] = useState<any[]>([]);
+
+    // Sync blocks to markdown for preview/legacy support
+    useEffect(() => {
+        // Only sync if in visual mode to avoid overwriting manual markdown edits?
+    }, [blocks]);
 
     // Fetch template tree
     const fetchTree = useCallback(async () => {
@@ -137,10 +166,18 @@ export default function TemplatesPage() {
                 });
                 if (response.ok) {
                     const data = await response.json();
-                    const models = Object.entries(data.presets || {}).map(([id, preset]: [string, any]) => ({
-                        id,
-                        name: preset.name || id,
-                    }));
+                    let models: { name: string, id: string }[] = [];
+                    if (Array.isArray(data.presets)) {
+                        models = data.presets.map((preset: any) => ({
+                            id: preset.model_name || preset.name,
+                            name: preset.name || preset.model_name,
+                        }));
+                    } else {
+                        models = Object.entries(data.presets || {}).map(([id, preset]: [string, any]) => ({
+                            id: preset.model_name || preset.name || id,
+                            name: preset.name || id,
+                        }));
+                    }
                     setLlmModels(models);
                     if (models.length > 0 && selectedLlm === "default") {
                         setSelectedLlm(models[0].id);
@@ -187,6 +224,7 @@ export default function TemplatesPage() {
         return markdownContent;
     };
 
+
     // Select and load a template
     const selectTemplate = async (templateId: string) => {
         try {
@@ -199,6 +237,49 @@ export default function TemplatesPage() {
                 const data = await response.json();
                 setSelectedTemplate(data);
                 setTemplateName(data.name);
+
+                // Handle Structure & Purpose (JSON Source of Truth)
+                if (data.structure) {
+                    let struct = data.structure;
+                    if (data.level_of_detail) {
+                        // Fallback for legacy templates where it might be top-level (if any exist during migration)
+                        // But we prioritize structure.execution_config
+                    }    // Handle potential double-stringification or legacy format
+                    if (typeof struct === 'string') {
+                        try { struct = JSON.parse(struct); } catch (e) { }
+                    }
+
+                    if (Array.isArray(struct)) {
+                        // Legacy: Structure is just the blocks array
+                        setBlocks(struct);
+                        setTemplatePurpose("");
+                        setMinQuality(80);
+                        setMaxIterations(3);
+                    } else if (typeof struct === 'object') {
+                        // New Format: { purpose: string, blocks: array, execution_config: ... }
+                        setBlocks(struct.blocks || []);
+                        setTemplatePurpose(struct.purpose || "");
+                        if (struct.execution_config) {
+                            setMinQuality(struct.execution_config.min_quality || 80);
+                            setMaxIterations(struct.execution_config.max_iterations || 3);
+                            setLevelOfDetail(struct.execution_config.level_of_detail || "standard");
+                        } else {
+                            setMinQuality(80);
+                            setMaxIterations(3);
+                            setLevelOfDetail("standard");
+                        }
+                    }
+                } else {
+                    setBlocks([]);
+                    setTemplatePurpose("");
+                    setMinQuality(80);
+                    setMaxIterations(3);
+                }
+
+
+
+                // ...
+
 
                 // Parse content into theme and markdown
                 const { yaml, markdown } = parseTemplateContent(data.content || "");
@@ -215,6 +296,28 @@ export default function TemplatesPage() {
         if (!selectedTemplate) return;
         setIsSaving(true);
         try {
+            // Ensure structure is synced with content
+            const blocksToSave = structureViewMode === 'code'
+                ? TemplateParserClient.parse(markdownContent)
+                : blocks;
+
+            // If in code mode, also update the blocks state to match
+            if (structureViewMode === 'code') {
+                setBlocks(blocksToSave);
+            }
+
+            // Construct new JSON structure with Purpose
+            // Construct new JSON structure with Purpose
+            const fullStructure = {
+                purpose: templatePurpose,
+                blocks: blocksToSave,
+                execution_config: {
+                    min_quality: minQuality,
+                    max_iterations: maxIterations,
+                    level_of_detail: levelOfDetail
+                }
+            };
+
             const response = await fetch(`${API_URL}/templates/${selectedTemplate.id}`, {
                 method: "PUT",
                 headers: {
@@ -224,6 +327,8 @@ export default function TemplatesPage() {
                 body: JSON.stringify({
                     name: templateName,
                     content: mergeContent(),
+
+                    structure: fullStructure, // Save the synced JSON structure with purpose
                 }),
             });
             if (response.ok) {
@@ -308,6 +413,7 @@ export default function TemplatesPage() {
                     setSelectedTemplate(null);
                     setThemeSettings({});
                     setMarkdownContent("");
+                    setBlocks([]);
                 }
                 await fetchTree();
             }
@@ -359,10 +465,21 @@ export default function TemplatesPage() {
             });
             if (response.ok) {
                 const data = await response.json();
+                console.log("[Generate] Raw response data:", data);
+
                 // Parse AI-generated content
                 const { yaml, markdown } = parseTemplateContent(data.content);
+                console.log("[Generate] Parsed Markdown length:", markdown.length);
+                console.log("[Generate] Parsed YAML:", yaml);
+
                 setThemeSettings(parseYamlToSettings(yaml));
                 setMarkdownContent(markdown);
+
+                // Parse into visual blocks immediately
+                const newBlocks = TemplateParserClient.parse(markdown);
+                console.log("[Generate] Parsed Blocks:", newBlocks);
+                setBlocks(newBlocks);
+
                 setShowGenerateDialog(false);
                 setGenerateDescription("");
             }
@@ -447,42 +564,23 @@ export default function TemplatesPage() {
 
     return (
         <div className="flex h-screen">
-            {/* Left Panel - Tree Explorer */}
-            <div className="w-72 border-r bg-slate-50 dark:bg-slate-900/50 flex flex-col">
-                {/* Explorer Header */}
-                <div className="p-3 border-b flex items-center justify-between">
+            {/* Left Panel ... */}
+            <div className={`border-r bg-slate-50 dark:bg-slate-900/50 flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${isSidebarOpen ? "w-72 translate-x-0 opacity-100" : "w-0 -translate-x-full opacity-0"}`}>
+                {/* ... Explorer Header & Tree ... */}
+                <div className="p-3 border-b flex items-center justify-between min-w-[288px]">
                     <h2 className="font-semibold text-sm">Templates</h2>
                     <div className="flex gap-1">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title="New Folder"
-                            onClick={() => setIsCreatingFolder(true)}
-                        >
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="New Folder" onClick={() => setIsCreatingFolder(true)}>
                             <FolderPlus className="h-4 w-4" />
                         </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title="New Template"
-                            onClick={() => setIsCreatingTemplate(true)}
-                        >
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="New Template" onClick={() => setIsCreatingTemplate(true)}>
                             <FilePlus className="h-4 w-4" />
                         </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title="Refresh"
-                            onClick={fetchTree}
-                        >
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Refresh" onClick={fetchTree}>
                             <RefreshCw className="h-4 w-4" />
                         </Button>
                     </div>
                 </div>
-
                 {/* Tree View */}
                 <div className="flex-1 overflow-y-auto p-2">
                     {loading ? (
@@ -506,55 +604,215 @@ export default function TemplatesPage() {
                 {selectedTemplate ? (
                     <>
                         {/* Editor Header */}
-                        <div className="p-3 border-b flex items-center justify-between bg-white dark:bg-slate-900">
-                            <div>
-                                <Input
-                                    value={templateName}
-                                    onChange={(e) => setTemplateName(e.target.value)}
-                                    className="font-semibold h-8 text-lg px-2 border-transparent hover:border-slate-200 focus:border-slate-300 w-[300px]"
-                                />
-                                <p className="text-xs text-muted-foreground px-2">{selectedTemplate.path}</p>
+                        <div className="p-3 border-b bg-white dark:bg-slate-900 space-y-3">
+                            {/* Top Row: Name and Actions */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 text-slate-500"
+                                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                                        title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+                                    >
+                                        {isSidebarOpen ? <SidebarClose className="h-4 w-4" /> : <SidebarOpen className="h-4 w-4" />}
+                                    </Button>
+                                    <div>
+                                        <Input
+                                            value={templateName}
+                                            onChange={(e) => setTemplateName(e.target.value)}
+                                            className="font-semibold h-8 text-lg px-2 border-transparent hover:border-slate-200 focus:border-slate-300 w-[300px]"
+                                        />
+                                        <p className="text-xs text-muted-foreground px-2">{selectedTemplate.path}</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    <Select value={selectedLlm} onValueChange={setSelectedLlm}>
+                                        <SelectTrigger className="w-[180px] h-9">
+                                            <SelectValue placeholder="Select LLM" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {llmModels.map((model) => (
+                                                <SelectItem key={model.id} value={model.id}>
+                                                    {model.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Button variant="outline" size="sm" onClick={() => setShowGenerateDialog(true)}>
+                                        <Sparkles className="h-4 w-4 mr-1" />
+                                        AI Generate
+                                    </Button>
+                                    <Button size="sm" onClick={saveTemplate} disabled={isSaving}>
+                                        {isSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+                                        Save
+                                    </Button>
+                                </div>
                             </div>
-                            <div className="flex gap-2 items-center">
-                                {/* LLM Model Selector */}
-                                <Select value={selectedLlm} onValueChange={setSelectedLlm}>
-                                    <SelectTrigger className="w-[180px] h-9">
-                                        <SelectValue placeholder="Select LLM" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {llmModels.map((model) => (
-                                            <SelectItem key={model.id} value={model.id}>
-                                                {model.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setShowGenerateDialog(true)}
-                                >
-                                    <Sparkles className="h-4 w-4 mr-1" />
-                                    AI Generate
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    onClick={saveTemplate}
-                                    disabled={isSaving}
-                                >
-                                    {isSaving ? (
-                                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                    ) : (
-                                        <Save className="h-4 w-4 mr-1" />
+
+                            {/* Template Purpose Field (Highlighted) */}
+                            <div className="px-3 pb-2">
+                                <Card className="bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800 transition-all">
+                                    <div
+                                        className="flex items-center justify-between p-3 cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/20 rounded-t transition-colors"
+                                        onClick={() => setIsPurposeExpanded(!isPurposeExpanded)}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            {isPurposeExpanded ? (
+                                                <ChevronDown className="h-4 w-4 text-amber-600 transition-transform" />
+                                            ) : (
+                                                <ChevronRight className="h-4 w-4 text-amber-600 transition-transform" />
+                                            )}
+                                            <Sparkles className="h-4 w-4 text-amber-600" />
+                                            <label className="text-sm font-semibold text-amber-900 dark:text-amber-100 cursor-pointer">
+                                                Template Purpose & AI Settings
+                                            </label>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {!isPurposeExpanded && (
+                                                <span className="text-xs text-muted-foreground hidden sm:inline-block truncate max-w-[200px]">
+                                                    {templatePurpose || "No purpose defined"}
+                                                </span>
+                                            )}
+                                            {isPurposeExpanded && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-6 text-xs text-amber-700 hover:text-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setIsOptimizerOpen(true);
+                                                    }}
+                                                >
+                                                    <Sparkles className="h-3 w-3 mr-1" />
+                                                    Suggest
+                                                </Button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {isPurposeExpanded && (
+                                        <div className="p-3 pt-0 animate-in slide-in-from-top-2 duration-200">
+                                            <Textarea
+                                                value={templatePurpose}
+                                                onChange={(e) => setTemplatePurpose(e.target.value)}
+                                                placeholder="Describe what this template is for (e.g., 'A technical audit report focusing on security vulnerabilities'). This guides the AI."
+                                                className="h-20 text-sm resize-none bg-white dark:bg-slate-950/50 focus:bg-white dark:focus:bg-slate-950 transition-colors border-amber-100 dark:border-amber-900"
+                                            />
+
+                                            <div className="mt-3 pt-3 border-t border-amber-200/50 dark:border-amber-800/50 flex flex-col gap-4">
+
+                                                {/* 1. Level of Detail */}
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between items-center text-xs">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="font-medium text-amber-900 dark:text-amber-100">Level of Detail</span>
+                                                            <TooltipProvider>
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <HelpCircle className="h-3.5 w-3.5 text-amber-500 cursor-help" />
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent className="max-w-xs">
+                                                                        <p>Impacts document length and depth:</p>
+                                                                        <ul className="list-disc ml-4 mt-1 space-y-0.5">
+                                                                            <li><strong>Low:</strong> Bullet points / Concise.</li>
+                                                                            <li><strong>Medium:</strong> Several paragraphs / Standard.</li>
+                                                                            <li><strong>High:</strong> Detailed sections / Potential multi-page.</li>
+                                                                        </ul>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
+                                                        </div>
+                                                    </div>
+                                                    <Select value={levelOfDetail} onValueChange={setLevelOfDetail}>
+                                                        <SelectTrigger className="h-8 text-xs bg-white/50 dark:bg-slate-900/50 border-amber-200 dark:border-amber-800">
+                                                            <SelectValue placeholder="Select detail..." />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="low">Low (Concise)</SelectItem>
+                                                            <SelectItem value="standard">Standard</SelectItem>
+                                                            <SelectItem value="high">High (Comprehensive)</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="flex gap-6">
+                                                    {/* 2. Target Quality */}
+                                                    <div className="flex-1 space-y-2">
+                                                        <div className="flex justify-between items-center text-xs">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="font-medium text-amber-900 dark:text-amber-100">Target Quality</span>
+                                                                <TooltipProvider>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <HelpCircle className="h-3.5 w-3.5 text-amber-500 cursor-help" />
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent className="max-w-xs">
+                                                                            <p>Synthesized quality indicator (0-100%). Analysis continues until this score is met or max cycles are reached.</p>
+                                                                        </TooltipContent>
+                                                                    </Tooltip>
+                                                                </TooltipProvider>
+                                                            </div>
+                                                            <span className="font-mono text-amber-700 bg-amber-100/50 dark:bg-amber-900/30 px-1.5 rounded">{minQuality}%</span>
+                                                        </div>
+                                                        <Slider
+                                                            value={[minQuality]}
+                                                            max={100}
+                                                            step={5}
+                                                            onValueChange={([val]) => setMinQuality(val)}
+                                                            className="cursor-pointer"
+                                                        />
+                                                    </div>
+
+                                                    {/* 3. Review Cycles */}
+                                                    <div className="flex-1 space-y-2">
+                                                        <div className="flex justify-between items-center text-xs">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="font-medium text-amber-900 dark:text-amber-100">Max Cycles</span>
+                                                                <TooltipProvider>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger asChild>
+                                                                            <HelpCircle className="h-3.5 w-3.5 text-amber-500 cursor-help" />
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent className="max-w-xs">
+                                                                            <p>Number of review + refactoring loops. Process stops when this limit is reached or Quality Target is met.</p>
+                                                                        </TooltipContent>
+                                                                    </Tooltip>
+                                                                </TooltipProvider>
+                                                            </div>
+                                                            <span className="font-mono text-amber-700 bg-amber-100/50 dark:bg-amber-900/30 px-1.5 rounded">{maxIterations}</span>
+                                                        </div>
+                                                        <Slider
+                                                            value={[maxIterations]}
+                                                            max={10}
+                                                            step={1}
+                                                            onValueChange={([val]) => setMaxIterations(val)}
+                                                            className="cursor-pointer"
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                            </div>
+                                        </div>
                                     )}
-                                    Save
-                                </Button>
+                                </Card>
                             </div>
                         </div>
+
+                        {/* Prompt Optimizer Dialog */}
+                        <PromptOptimizerDialog
+                            open={isOptimizerOpen}
+                            onOpenChange={setIsOptimizerOpen}
+                            onAccept={setTemplatePurpose}
+                            initialText={templatePurpose}
+                            contextType="purpose"
+                            title="Refine Template Purpose"
+                        />
 
                         {/* Editor Content - Tabbed View */}
                         <div className="flex-1 overflow-hidden">
                             <Tabs defaultValue="markdown" className="h-full flex flex-col">
+
                                 <TabsList className="mx-4 mt-2">
                                     <TabsTrigger value="theme" className="gap-2">
                                         <Palette className="h-4 w-4" />
@@ -625,8 +883,9 @@ export default function TemplatesPage() {
 
                                     {structureViewMode === "visual" ? (
                                         <TemplateStructureBuilder
+                                            blocks={blocks}
+                                            onChange={setBlocks}
                                             markdown={markdownContent}
-                                            onChange={setMarkdownContent}
                                         />
                                     ) : (
                                         <Textarea

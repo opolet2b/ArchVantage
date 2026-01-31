@@ -1,9 +1,9 @@
 
 export interface TemplateBlock {
     id: string;
-    type: "section" | "instruction" | "loop" | "text" | "if" | "else" | "subsection";
+    type: "section" | "instruction" | "loop" | "text" | "if" | "else" | "subsection" | "frontmatter";
     title?: string; // For sections
-    content?: string; // For instructions, text, or if-conditions
+    content?: string; // For instructions, text, if-conditions, or frontmatter yaml
     loopSource?: string; // For loops
     children?: TemplateBlock[]; // Nested blocks
 }
@@ -26,15 +26,49 @@ export class TemplateParserClient {
         const endIfRegex = /<!--\s*ENDIF\s*-->/i;
         const headerRegex = /^(#{1,6})\s+(.*)/;
 
+        // State for frontmatter detection
+        let inFrontmatter = false;
+        let frontmatterContent: string[] = [];
+        let frontmatterStarted = false;
+
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
+            const line = lines[i];
+            const trimmedLine = line.trim();
+
+            // Handle YAML Frontmatter (lines between first --- and second ---)
+            if (trimmedLine === '---') {
+                if (!frontmatterStarted) {
+                    // Start of frontmatter
+                    frontmatterStarted = true;
+                    inFrontmatter = true;
+                    continue;
+                } else if (inFrontmatter) {
+                    // End of frontmatter
+                    inFrontmatter = false;
+                    if (frontmatterContent.length > 0) {
+                        root.push({
+                            id: crypto.randomUUID(),
+                            type: "frontmatter",
+                            content: frontmatterContent.join('\n')
+                        });
+                        frontmatterContent = [];
+                    }
+                    continue;
+                }
+            }
+
+            if (inFrontmatter) {
+                frontmatterContent.push(line);
+                continue;
+            }
+
+            if (!trimmedLine) continue;
 
             const currentContext = stack[stack.length - 1];
             const currentList = currentContext.list;
 
             // 1. Loop Start
-            const loopStartMatch = line.match(beginLoopRegex);
+            const loopStartMatch = trimmedLine.match(beginLoopRegex);
             if (loopStartMatch) {
                 const newLoop: TemplateBlock = {
                     id: crypto.randomUUID(),
@@ -160,7 +194,10 @@ export class TemplateParserClient {
         let markdown = "";
 
         blocks.forEach(block => {
-            if (block.type === "section") {
+            if (block.type === "frontmatter") {
+                // Serialize frontmatter with delimiters
+                markdown += `---\n${block.content}\n---\n\n`;
+            } else if (block.type === "section") {
                 markdown += `\n## ${block.title}\n`;
                 if (block.children) markdown += this.serialize(block.children);
 
@@ -172,39 +209,6 @@ export class TemplateParserClient {
             } else if (block.type === "if") {
                 markdown += `\n<!-- IF: ${block.content} -->\n`;
                 if (block.children) markdown += this.serialize(block.children);
-                // We don't close IF here automatically if an ELSE follows, but logic implies ELSE text follows.
-                // Actually, serialize is recursive.
-
-                // PROBLEM: "ELSE" is a sibling block in our parser but syntactically it's a continuation.
-                // We need to handle the ENDIF.
-                // Simple hack: The NEXT block might be ELSE. If so, don't write ENDIF yet?
-                // No, standard markdown structure is serial.
-                // IF -> Children -> (Maybe ELSE -> Children) -> ENDIF.
-
-                // If the *next* block in this list is ELSE, we skip ENDIF. 
-                // But strictly, IF block encapsulates its children. 
-                // ELSE block encapsulates its children.
-                // So:
-                // <!-- IF ... -->
-                // ... children
-                // <!-- ENDIF --> ? No, that closes it.
-
-                // CORRECT LOGIC:
-                // IF block should produce <!-- IF ... --> ...content...
-                // If followed by ELSE block, that produces <!-- ELSE --> ...content...
-                // The ENDIF is tricky.
-
-                // Let's assume for now we just write ENDIF after IF block, 
-                // unless we check if next sibling is ELSE?
-                // Complexity: The parser treats them as siblings.
-                // For serialization, we might implicitly add ENDIF if the type changes?
-
-                // Let's explicitly close IF. If ELSE follows, it's weird.
-                // Specs: <!-- IF --> ... <!-- ELSE --> ... <!-- ENDIF -->
-                // So IF/ELSE structure is one unit with two branches.
-                // Our parser split them into "IF Block" and "ELSE Block".
-                // That's fine.
-                // We need to know if we should write ENDIF.
 
             } else if (block.type === "else") {
                 markdown += `<!-- ELSE -->\n`;

@@ -1,0 +1,5 @@
+The ChatBot application is designed to be a versatile AI assistant.
+It supports local and cloud LLMs, including OpenAI, Anthropic, and Ollama.
+One of its key features is the ability to orchestrate agents using a visual drag-and-drop interface.
+It also includes a RAG (Retrieval-Augmented Generation) system that can ingest PDF, DOCX, and other files.
+The RAG system uses ChromaDB as the vector database.

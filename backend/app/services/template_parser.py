@@ -55,7 +55,7 @@ class TemplateParser:
         stack = []
 
         # Regex
-        instruction_regex = re.compile(r'<!--\s*INSTRUCTION:\s*(.*?)\s*-->', re.IGNORECASE)
+        instruction_regex = re.compile(r'<!--\s*INSTRUCTIONS?:\s*(.*?)\s*-->', re.IGNORECASE)
         begin_loop_regex = re.compile(r'<!--\s*BEGIN LOOP:\s*(.*?)\s*-->', re.IGNORECASE)
         end_loop_regex = re.compile(r'<!--\s*END LOOP\s*-->', re.IGNORECASE)
         if_regex = re.compile(r'<!--\s*IF:\s*(.*?)\s*-->', re.IGNORECASE)
@@ -63,9 +63,37 @@ class TemplateParser:
         endif_regex = re.compile(r'<!--\s*ENDIF\s*-->', re.IGNORECASE)
         header_regex = re.compile(r'^(#{1,6})\s+(.*)')
 
+        # State for multi-line instruction parsing
+        in_instruction_block = False
+        instruction_buffer = []
+
         for line in lines:
             line = line.strip()
             
+            # --- 0. Handle Multi-Line Instruction Block ---
+            if in_instruction_block:
+                if "-->" in line:
+                    # End of block
+                    parts = line.split("-->", 1)
+                    instruction_buffer.append(parts[0].strip())
+                    
+                    full_instr_text = " ".join(instruction_buffer).strip()
+                    
+                    # Add to context
+                    current_list.append(TemplateInstruction(text=full_instr_text))
+                    if current_section:
+                        current_section.instructions.append(TemplateInstruction(text=full_instr_text))
+                        
+                    in_instruction_block = False
+                    instruction_buffer = []
+                    
+                    # Process remainder of line? Usually nothing after -->
+                    continue
+                else:
+                    # accumulate
+                    instruction_buffer.append(line)
+                    continue
+
             # --- 1. Headers (Top Level or breaking loop?) ---
             header_match = header_regex.match(line)
             if header_match:
@@ -144,17 +172,25 @@ class TemplateParser:
                  continue
             
             # --- 7. Instructions ---
-            instruction_match = instruction_regex.search(line)
-            if instruction_match:
-                # Add to both the raw list structure AND the simple 'instructions' list for legacy compat
-                instr_text = instruction_match.group(1).strip()
+            # Check for start of instruction
+            # Support both single-line "<!-- INSTRUCTION: ... -->" and multi-line "<!-- INSTRUCTION: ..."
+            start_instr_match = re.search(r'<!--\s*INSTRUCTIONS?:\s*(.*)', line, re.IGNORECASE)
+            if start_instr_match:
+                content_start = start_instr_match.group(1).strip()
                 
-                # Add to context list
-                current_list.append(TemplateInstruction(text=instr_text))
-                
-                # Also populate the simple flat list if we are directly in a section
-                if current_section and current_context['type'] == 'section':
-                    current_section.instructions.append(TemplateInstruction(text=instr_text))
+                # Check if it closes on the same line
+                if "-->" in content_start:
+                    parts = content_start.split("-->", 1)
+                    instr_text = parts[0].strip()
+                    
+                    # Add Logic
+                    current_list.append(TemplateInstruction(text=instr_text))
+                    if current_section:
+                        current_section.instructions.append(TemplateInstruction(text=instr_text))
+                else:
+                    # Start of multi-line
+                    in_instruction_block = True
+                    instruction_buffer.append(content_start)
                 continue
             
             # --- 8. Content (Text) ---
@@ -162,6 +198,117 @@ class TemplateParser:
                  current_list.append(line)
                  if current_section:
                      current_section.content += line + "\n"
+
+        return TemplateBlueprint(sections=sections)
+
+    def parse_json_structure(self, blocks: List[Dict[str, Any]]) -> TemplateBlueprint:
+        """
+        Parses JSON blocks from Structure Builder into a TemplateBlueprint.
+        This handles the JSON block format: {'id', 'type', 'title', 'content', 'children'}.
+        """
+        sections: List[TemplateSection] = []
+
+        def process_block(block: Dict[str, Any], depth: int = 0) -> Any:
+            """
+            Recursively process a single block from the JSON structure.
+            """
+            b_type = block.get("type", "section")
+            b_title = block.get("title") or block.get("label") or ""
+            b_content = block.get("content") or ""
+            b_children = block.get("children") or []
+
+            # Skip frontmatter blocks - they are metadata, not content
+            if b_type == "frontmatter":
+                return None
+
+            # Map block types to parser types
+            if b_type == "section":
+                # Process children recursively
+                child_items = []
+                child_instructions = []
+                for child in b_children:
+                    processed = process_block(child, depth + 1)
+                    if processed:
+                        if isinstance(processed, TemplateInstruction):
+                            child_instructions.append(processed)
+                        child_items.append(processed)
+
+                section = TemplateSection(
+                    title=b_title,
+                    level=depth + 2,  # ## for depth 0, ### for depth 1, etc.
+                    content=b_content,
+                    instructions=child_instructions,
+                    children=child_items
+                )
+                return section
+
+            elif b_type == "instruction":
+                return TemplateInstruction(text=b_content or b_title)
+
+            elif b_type == "text":
+                # Raw text is treated as an instruction
+                if b_content:
+                    return TemplateInstruction(text=b_content)
+                return None
+
+            elif b_type == "loop":
+                loop_source = block.get("loopSource") or "items"
+                loop_content = []
+                for child in b_children:
+                    processed = process_block(child, depth + 1)
+                    if processed:
+                        loop_content.append(processed)
+                return LoopBlock(source=loop_source, content=loop_content)
+
+            elif b_type == "if":
+                condition = b_content or "true"
+                if_content = []
+                for child in b_children:
+                    processed = process_block(child, depth + 1)
+                    if processed:
+                        if_content.append(processed)
+                return ConditionalBlock(
+                    condition=condition,
+                    if_content=if_content,
+                    else_content=[]
+                )
+
+            elif b_type == "else":
+                # Else blocks are handled by ConditionalBlock, but standalone, treat children
+                else_content = []
+                for child in b_children:
+                    processed = process_block(child, depth + 1)
+                    if processed:
+                        else_content.append(processed)
+                # Return as a simple section wrapper for now
+                if else_content:
+                    return TemplateSection(
+                        title="Else",
+                        level=depth + 2,
+                        content="",
+                        instructions=[],
+                        children=else_content
+                    )
+                return None
+
+            return None
+
+        # Process top-level blocks
+        for block in blocks:
+            processed = process_block(block, depth=0)
+            if processed:
+                if isinstance(processed, TemplateSection):
+                    sections.append(processed)
+                else:
+                    # Wrap non-section items in a default section
+                    wrapper = TemplateSection(
+                        title="Content",
+                        level=2,
+                        content="",
+                        instructions=[processed] if isinstance(processed, TemplateInstruction) else [],
+                        children=[processed] if not isinstance(processed, TemplateInstruction) else []
+                    )
+                    sections.append(wrapper)
 
         return TemplateBlueprint(sections=sections)
 

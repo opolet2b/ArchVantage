@@ -30,22 +30,29 @@ import {
     MessageSquare,
     FileText,
     GitBranch,
-    ArrowLeftFromLine
+    ArrowLeftFromLine,
+    PanelLeftClose,
+    PanelLeftOpen
 } from "lucide-react";
 import { DraggablePaletteItem } from "./draggable-palette-item";
 import { SortableBlock, BlockCard, InsertGap } from "./sortable-block";
 import { Card } from "@/components/ui/card";
 
 interface StructureBuilderProps {
-    markdown: string;
-    onChange: (markdown: string) => void;
+    blocks: TemplateBlock[];
+    onChange: (blocks: TemplateBlock[]) => void;
+    markdown?: string; // Optional for legacy initialization
 }
 
-export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilderProps) {
-    const [blocks, setBlocks] = useState<TemplateBlock[]>([]);
+export function TemplateStructureBuilder({ blocks, onChange, markdown }: StructureBuilderProps) {
+    // Removed internal blocks state
+    // const [blocks, setBlocks] = useState<TemplateBlock[]>([]);
+
+    // Internal state for UI only
     const [activeId, setActiveId] = useState<string | null>(null);
     const [activeBlock, setActiveBlock] = useState<TemplateBlock | null>(null);
     const [activePaletteType, setActivePaletteType] = useState<string | null>(null);
+    const [isPaletteOpen, setIsPaletteOpen] = useState(true);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -58,12 +65,15 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
         })
     );
 
-    // Initial Parse
+    // Initial Parse from Legacy Markdown (Only if blocks are empty and markdown exists)
     useEffect(() => {
         if (blocks.length === 0 && markdown) {
-            setBlocks(TemplateParserClient.parse(markdown));
+            const parsed = TemplateParserClient.parse(markdown);
+            if (parsed.length > 0) {
+                onChange(parsed);
+            }
         }
-    }, [markdown]); // Added dependency
+    }, [markdown]); // Run once when markdown loads
 
     // Helper to find a block by ID (recursive)
     const findBlock = (id: string, items: TemplateBlock[]): TemplateBlock | undefined => {
@@ -78,8 +88,9 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
     };
 
     const updateBlocks = (newBlocks: TemplateBlock[]) => {
-        setBlocks(newBlocks);
-        onChange(TemplateParserClient.serialize(newBlocks));
+        onChange(newBlocks);
+        // Removed serialization side-effect
+        // onChange(TemplateParserClient.serialize(newBlocks));
     };
 
     // --- Actions ---
@@ -257,53 +268,50 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
 
         // Cross-container move or reorder
         if (activeInfo.parent?.id !== overInfo.parent?.id || isContainerDrop) {
-            setBlocks((items) => {
-                const newItems = JSON.parse(JSON.stringify(items));
-                const aInfo = findParent(activeId, newItems);
+            const newItems = JSON.parse(JSON.stringify(blocks));
+            const aInfo = findParent(activeId, newItems);
 
-                let oInfo: { parent: TemplateBlock | null, index: number, list: TemplateBlock[] } | null = null;
+            let oInfo: { parent: TemplateBlock | null, index: number, list: TemplateBlock[] } | null = null;
 
-                if (isContainerDrop && overInfo?.parent) { // overInfo.parent is the container
-                    const cBlock = findBlock(overInfo.parent.id, newItems);
-                    if (cBlock) {
-                        if (!cBlock.children) cBlock.children = [];
-                        oInfo = {
-                            parent: cBlock,
-                            index: cBlock.children.length, // Append
-                            list: cBlock.children
-                        };
-                    }
-                } else {
-                    oInfo = findParent(overIdString, newItems);
+            if (isContainerDrop && overInfo?.parent) { // overInfo.parent is the container
+                const cBlock = findBlock(overInfo.parent.id, newItems);
+                if (cBlock) {
+                    if (!cBlock.children) cBlock.children = [];
+                    oInfo = {
+                        parent: cBlock,
+                        index: cBlock.children.length, // Append
+                        list: cBlock.children
+                    };
                 }
+            } else {
+                oInfo = findParent(overIdString, newItems);
+            }
 
-                if (aInfo && oInfo) {
-                    const [moved] = aInfo.list.splice(aInfo.index, 1);
-                    oInfo.list.splice(oInfo.index, 0, moved);
-                    return newItems;
-                }
-                return items;
-            });
+            if (aInfo && oInfo) {
+                const [moved] = aInfo.list.splice(aInfo.index, 1);
+                oInfo.list.splice(oInfo.index, 0, moved);
+                onChange(newItems);
+            }
         } else {
             // Same container reorder
             if (activeInfo.index !== overInfo.index) {
-                setBlocks((items) => {
-                    const newItems = JSON.parse(JSON.stringify(items));
-                    const aInfo = findParent(activeId, newItems);
+                const newItems = JSON.parse(JSON.stringify(blocks));
+                const aInfo = findParent(activeId, newItems);
 
-                    if (aInfo) {
-                        if (aInfo.parent) {
-                            const p = findBlock(aInfo.parent.id, newItems);
-                            if (p && p.children) {
-                                p.children = arrayMove(p.children, aInfo.index, overInfo!.index);
-                            }
-                        } else {
-                            return arrayMove(newItems, aInfo.index, overInfo!.index);
+                if (aInfo) {
+                    if (aInfo.parent) {
+                        const p = findBlock(aInfo.parent.id, newItems);
+                        if (p && p.children) {
+                            p.children = arrayMove(p.children, aInfo.index, overInfo!.index);
                         }
-                        return newItems;
+                    } else {
+                        // Root reorder
+                        const reordered = arrayMove(newItems, aInfo.index, overInfo!.index) as TemplateBlock[];
+                        onChange(reordered);
+                        return; // Early return as we updated root
                     }
-                    return items;
-                });
+                    onChange(newItems);
+                }
             }
         }
     };
@@ -338,65 +346,63 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
                 targetParentId = overId.replace("drop-zone-", "").replace("container-body-", "");
             }
 
-            setBlocks((currentBlocks) => {
-                const newBlocks = JSON.parse(JSON.stringify(currentBlocks));
-                let blockToAdd: TemplateBlock | null = null;
+            const newBlocks = JSON.parse(JSON.stringify(blocks));
+            let blockToAdd: TemplateBlock | null = null;
 
-                // Palette
-                if (active.data.current?.isPaletteItem) {
-                    const type = active.data.current.type;
-                    const actualType = type === "subsection" ? "section" : type;
-                    blockToAdd = {
-                        id: crypto.randomUUID(),
-                        type: actualType as any,
-                        title: actualType === "section" ? "New Section" : undefined,
-                        children: (actualType === "instruction" || actualType === "text") ? undefined : []
-                    };
-                    if (actualType === "instruction") blockToAdd.content = "Describe...";
-                    if (actualType === "if") blockToAdd.content = "Condition...";
-                    if (actualType === "loop") blockToAdd.loopSource = "Source";
-                } else {
-                    // Existing
-                    const activeInfo = findParent(String(active.id), newBlocks);
-                    if (activeInfo) {
-                        const [moved] = activeInfo.list.splice(activeInfo.index, 1);
-                        blockToAdd = moved;
-                    }
+            // Palette
+            if (active.data.current?.isPaletteItem) {
+                const type = active.data.current.type;
+                const actualType = type === "subsection" ? "section" : type;
+                blockToAdd = {
+                    id: crypto.randomUUID(),
+                    type: actualType as any,
+                    title: actualType === "section" ? "New Section" : undefined,
+                    children: (actualType === "instruction" || actualType === "text") ? undefined : []
+                };
+                if (actualType === "instruction") blockToAdd.content = "Describe...";
+                if (actualType === "if") blockToAdd.content = "Condition...";
+                if (actualType === "loop") blockToAdd.loopSource = "Source";
+            } else {
+                // Existing
+                const activeInfo = findParent(String(active.id), newBlocks);
+                if (activeInfo) {
+                    const [moved] = activeInfo.list.splice(activeInfo.index, 1);
+                    blockToAdd = moved;
                 }
+            }
 
-                if (blockToAdd) {
-                    if (targetParentId === "root") {
-                        if (targetIndex !== -1) {
-                            newBlocks.splice(targetIndex, 0, blockToAdd);
-                        } else {
-                            newBlocks.push(blockToAdd);
-                        }
+            if (blockToAdd) {
+                if (targetParentId === "root") {
+                    if (targetIndex !== -1) {
+                        newBlocks.splice(targetIndex, 0, blockToAdd);
                     } else {
-                        // Find target
-                        const findTarget = (list: TemplateBlock[]): TemplateBlock | null => {
-                            for (const item of list) {
-                                if (item.id === targetParentId) return item;
-                                if (item.children) {
-                                    const f = findTarget(item.children);
-                                    if (f) return f;
-                                }
+                        newBlocks.push(blockToAdd);
+                    }
+                } else {
+                    // Find target
+                    const findTarget = (list: TemplateBlock[]): TemplateBlock | null => {
+                        for (const item of list) {
+                            if (item.id === targetParentId) return item;
+                            if (item.children) {
+                                const f = findTarget(item.children);
+                                if (f) return f;
                             }
-                            return null;
-                        };
-                        const target = findTarget(newBlocks);
-                        if (target) {
-                            if (!target.children) target.children = [];
-                            if (targetIndex !== -1) {
-                                target.children.splice(targetIndex, 0, blockToAdd);
-                            } else {
-                                target.children.push(blockToAdd);
-                            }
+                        }
+                        return null;
+                    };
+                    const target = findTarget(newBlocks);
+                    if (target) {
+                        if (!target.children) target.children = [];
+                        if (targetIndex !== -1) {
+                            target.children.splice(targetIndex, 0, blockToAdd);
+                        } else {
+                            target.children.push(blockToAdd);
                         }
                     }
                 }
-                // Trigger change handled by effect
-                return newBlocks;
-            });
+            }
+            // Trigger change
+            onChange(newBlocks);
             return;
         }
 
@@ -418,32 +424,34 @@ export function TemplateStructureBuilder({ markdown, onChange }: StructureBuilde
             const overInfo = findParent(overId, blocks);
             if (overInfo) {
                 // Insert before 'over'
-                setBlocks(items => {
-                    const newItems = JSON.parse(JSON.stringify(items));
-                    const info = findParent(overId, newItems);
-                    if (info) {
-                        info.list.splice(info.index, 0, newBlock);
-                    }
-                    return newItems;
-                });
+                const newItems = JSON.parse(JSON.stringify(blocks));
+                const info = findParent(overId, newItems);
+                if (info) {
+                    info.list.splice(info.index, 0, newBlock);
+                    onChange(newItems);
+                }
             } else {
                 // Append to root if unsure
-                setBlocks(prev => [...prev, newBlock]);
+                onChange([...blocks, newBlock]);
             }
         }
 
-        // Final Sync for Reorder is automatic via state effect
+        // Final Sync for Reorder is automatic via state effect -> Removed, handled here logic? 
+        // Reordering is handled in handleDragOver. Drop is for new insertions.
     };
 
     // Sync changes to parent when blocks change
+    // REMOVED: Managed by parent via onChange now.
+    /*
     useEffect(() => {
         if (blocks.length > 0) {
             onChange(TemplateParserClient.serialize(blocks));
         }
     }, [blocks, onChange]);
+    */
 
     return (
-        <TemplateCanvas blocks={blocks} sensors={sensors} activeId={activeId} activeBlock={activeBlock} activePaletteType={activePaletteType} handleDragStart={handleDragStart} handleDragOver={handleDragOver} handleDragEnd={handleDragEnd} handleUpdate={handleUpdate} handleDelete={handleDelete} addBlock={addBlock} handleMove={handleMove} />
+        <TemplateCanvas blocks={blocks} sensors={sensors} activeId={activeId} activeBlock={activeBlock} activePaletteType={activePaletteType} handleDragStart={handleDragStart} handleDragOver={handleDragOver} handleDragEnd={handleDragEnd} handleUpdate={handleUpdate} handleDelete={handleDelete} addBlock={addBlock} handleMove={handleMove} isPaletteOpen={isPaletteOpen} setIsPaletteOpen={setIsPaletteOpen} />
     );
 }
 
@@ -460,9 +468,11 @@ interface TemplateCanvasProps {
     handleDelete: (id: string) => void;
     addBlock: (parentId: string, type: string) => void;
     handleMove: (id: string, direction: 'up' | 'down') => void;
+    isPaletteOpen: boolean;
+    setIsPaletteOpen: (open: boolean) => void;
 }
 
-function TemplateCanvas({ blocks, sensors, activeId, activeBlock, activePaletteType, handleDragStart, handleDragOver, handleDragEnd, handleUpdate, handleDelete, addBlock, handleMove }: TemplateCanvasProps) {
+function TemplateCanvas({ blocks, sensors, activeId, activeBlock, activePaletteType, handleDragStart, handleDragOver, handleDragEnd, handleUpdate, handleDelete, addBlock, handleMove, isPaletteOpen, setIsPaletteOpen }: TemplateCanvasProps) {
     const { setNodeRef, isOver } = useDroppable({
         id: "root-canvas",
         data: { isRoot: true }
@@ -476,30 +486,50 @@ function TemplateCanvas({ blocks, sensors, activeId, activeBlock, activePaletteT
             onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
         >
-            <div className="grid grid-cols-12 gap-6 h-full">
+            <div className="flex h-full">
                 {/* Palette */}
-                <div className="col-span-3 border-r pr-4 space-y-4">
-                    <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Blocks
+                <div
+                    className={cn(
+                        "border-r pr-4 space-y-4 transition-all duration-300 ease-in-out shrink-0 overflow-hidden",
+                        activePaletteType ? "w-64" : (isPaletteOpen ? "w-64" : "w-12 pr-0 items-center flex flex-col")
+                    )}
+                >
+                    <div className="flex items-center justify-between mb-2">
+                        {isPaletteOpen && (
+                            <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                                Blocks
+                            </div>
+                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-slate-400"
+                            onClick={() => setIsPaletteOpen(!isPaletteOpen)}
+                            title={isPaletteOpen ? "Collapse Palette" : "Expand Palette"}
+                        >
+                            {isPaletteOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+                        </Button>
                     </div>
 
-                    <DraggablePaletteItem type="section" label="Section" icon={LayoutList} colorClass="text-blue-500" />
-                    <DraggablePaletteItem type="instruction" label="Instruction" icon={MessageSquare} colorClass="text-emerald-500" />
-                    <DraggablePaletteItem type="loop" label="Loop" icon={Repeat} colorClass="text-purple-500" />
-                    <DraggablePaletteItem type="text" label="Text" icon={FileText} colorClass="text-slate-500" />
-                    <DraggablePaletteItem type="if" label="If Condition" icon={GitBranch} colorClass="text-orange-500" />
-                    <DraggablePaletteItem type="else" label="Else" icon={ArrowLeftFromLine} colorClass="text-orange-300" />
+                    <DraggablePaletteItem type="section" label="Section" icon={LayoutList} colorClass="text-blue-500" collapsed={!isPaletteOpen} />
+                    <DraggablePaletteItem type="instruction" label="Instruction" icon={MessageSquare} colorClass="text-emerald-500" collapsed={!isPaletteOpen} />
+                    <DraggablePaletteItem type="loop" label="Loop" icon={Repeat} colorClass="text-purple-500" collapsed={!isPaletteOpen} />
+                    <DraggablePaletteItem type="text" label="Text" icon={FileText} colorClass="text-slate-500" collapsed={!isPaletteOpen} />
+                    <DraggablePaletteItem type="if" label="If Condition" icon={GitBranch} colorClass="text-orange-500" collapsed={!isPaletteOpen} />
+                    <DraggablePaletteItem type="else" label="Else" icon={ArrowLeftFromLine} colorClass="text-orange-300" collapsed={!isPaletteOpen} />
 
-                    <div className="mt-8 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-slate-600 dark:text-slate-400">
-                        <strong>Tip:</strong> Drag blocks onto the canvas area.
-                    </div>
+                    {isPaletteOpen && (
+                        <div className="mt-8 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md text-xs text-slate-600 dark:text-slate-400">
+                            <strong>Tip:</strong> Drag blocks onto the canvas area.
+                        </div>
+                    )}
                 </div>
 
                 {/* Canvas */}
                 <div
                     ref={setNodeRef}
                     className={cn(
-                        "col-span-9 h-full overflow-y-auto pr-2 pb-20 transition-colors rounded-lg",
+                        "flex-1 h-full overflow-y-auto pr-2 pb-20 transition-colors rounded-lg",
                         isOver ? "bg-blue-50/30 dark:bg-blue-900/10" : ""
                     )}
                 >

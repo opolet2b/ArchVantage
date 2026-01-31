@@ -161,7 +161,7 @@ class LLMService:
         try:
             llm = self._get_model(model_name)
             
-            # Handle JSON mode request
+            # Handle JSON mode and Temperature for Ollama
             # canvas.py sends response_format={"type": "json_object"}
             if kwargs.get("response_format") == {"type": "json_object"}:
                  # Try to apply JSON mode if supported
@@ -170,6 +170,11 @@ class LLMService:
                  elif isinstance(llm, ChatOllama):
                       llm = llm.bind(format="json")
             
+            # Special handling for ChatOllama: temperature must be bound, not passed in invoke kwargs
+            if isinstance(llm, ChatOllama) and "temperature" in kwargs:
+                 temp = kwargs.pop("temperature")
+                 llm = llm.bind(temperature=temp)
+
             # Remove response_format from kwargs to avoid passing it to ainvoke (which might be strict)
             kwargs.pop("response_format", None)
 
@@ -195,7 +200,7 @@ class LLMService:
             async def heartbeat(stop_event):
                 start_time = time.time()
                 while not stop_event.is_set():
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(30)
                     if not stop_event.is_set():
                         elapsed = time.time() - start_time
                         msg = f"Heartbeat: AI still working on '{model_name}'... [elapsed {elapsed:.0f}s]"
@@ -218,16 +223,23 @@ class LLMService:
                     llm.ainvoke(langchain_messages, **invoke_kwargs),
                     timeout=600.0
                 )
-                print(f"[LLMService] DEBUG: llm.ainvoke returned. Content len: {len(response.content) if response.content else 0}")
+                
+                # Post-processing: Remove <think> tags (Reasoning Models)
+                import re
+                content = response.content
+                if "<think>" in content:
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                
+                print(f"[LLMService] DEBUG: llm.ainvoke returned. Content len: {len(content) if content else 0}")
                 
                 # --- TEMPORARY DEBUG LOG ---
                 try:
                     with open("raw_llm_response.log", "w", encoding="utf-8") as f:
                         f.write(f"MODEL: {model_name}\n")
-                        f.write(f"RESPONSE CONTENT:\n{response.content}\n")
+                        f.write(f"RESPONSE CONTENT:\n{content}\n")
                 except: pass
                 
-                return response.content
+                return content
             except asyncio.TimeoutError:
                 err_msg = f"CRITICAL: TimeoutError for '{model_name}' after 600s."
                 print(f"[LLMService] {err_msg}")
@@ -260,6 +272,32 @@ class LLMService:
             print(f"Error generating title: {e}")
             return "New " + type.capitalize()
 
+    async def chat_completion(self, system_prompt: str, user_prompt: str, model: str = "default", temperature: float = 0.7, json_mode: bool = False) -> str:
+        """
+        Simple wrapper for one-off chat completions.
+        """
+        from app.models.chat import Message
+        
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=user_prompt)
+        ]
+        
+        full_response = ""
+        # The chat method is an async generator, generic args handle config
+        # Note: The existing `chat` method does not appear to be an async generator.
+        # It returns a single string. The loop below will only run once.
+        # If `chat` is intended to stream, its implementation needs to change.
+        # For now, assuming it returns the full response directly.
+        kwargs = {}
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+            
+        response_content = await self.chat(messages, model_name=model, temperature=temperature, **kwargs)
+        full_response = response_content
+                
+        return full_response
+
     def _extract_json(self, text: str) -> str:
         """Extracts JSON block from a string that might contain other text."""
         import re
@@ -270,9 +308,49 @@ class LLMService:
             return mj.group(1).strip()
             
         # Try to find anything between first { and last }
+        # Recursive peeling: matches { ... } including newlines
+        # We try to parse. If it fails, we look for a nested { ... } inside and try again.
+        import json
+        
+        candidates = []
+        # Find all top-level brace blocks? No, just outermost first.
         m = re.search(r"(\{[\s\S]*\})", text)
         if m:
-            return m.group(1).strip()
+            outer = m.group(1).strip()
+            candidates.append(outer)
+            
+            # Peel layers: Check for inner { ... }
+            current = outer
+            for _ in range(3): # Max depth 3
+                # Regex for inner block: ignore first char, look for next {
+                m_inner = re.search(r"(\{[\s\S]*\})", current[1:-1])
+                if m_inner:
+                    inner = m_inner.group(1).strip()
+                    candidates.append(inner)
+                    current = inner
+                else:
+                    break
+        
+        # Try to parse candidates from innermost to outermost (or vice versa? Innermost likely the real data if wrapped)
+        # Actually outermost might be {{ json }}
+        # If we have [ "{ { data } }", "{ data }" ]
+        # The second one is valid.
+        
+        for cand in candidates:
+             try:
+                 json.loads(cand)
+                 return cand # Found valid JSON!
+             except:
+                 continue
+                 
+        # If all valid parse attempts fail, return the most likely candidate (innermost or outermost?)
+        # Return outermost trimmed as fallback, logic elsewhere handles the error.
+        if candidates:
+            # Check for double-brace heuristic again just in case
+            c = candidates[0]
+            if c.startswith("{{") and c.endswith("}}"):
+                 return c[1:-1].strip()
+            return c
             
         return text.strip()
 

@@ -73,6 +73,8 @@ class RAGStatus(str, Enum):
 class LinkType(str, Enum):
     """
     Types of relationships between things.
+    
+    Standard types are listed here, but Scenarios can define custom string types.
     """
     RELATED = "related"
     REFERENCES = "references"
@@ -323,10 +325,11 @@ class CanvasLink(Base):
         nullable=False
     )
     
+    # Changed from Enum to String to support dynamic scenario link types
     type = Column(
-        SQLEnum(LinkType),
+        String(50), 
         nullable=False,
-        default=LinkType.RELATED
+        default="related"
     )
     label = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
@@ -389,6 +392,11 @@ class Domain(Base):
     description = Column(Text, nullable=True)
     color = Column(String(7), default="#6366f1")  # Hex color
     z_index = Column(Float, nullable=False, default=-1.0) # Z-Order (-1 default to stay behind things)
+    
+    # Scenario Support
+    type = Column(String(50), nullable=True) # ID of the domain definition in the scenario
+    visual_config = Column(JSON, nullable=True) # Override/Cached visual styles
+    metadata_schema = Column(JSON, nullable=True) # Enforced metadata schema
     
     # Position and size (auto-calculated from children)
     position_x = Column(Float, default=0.0)

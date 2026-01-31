@@ -5,7 +5,7 @@ Database models for the Templates Management Module.
 Supports folders, templates, and folder-level permissions.
 """
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, Enum
+    Column, Integer, String, Text, DateTime, ForeignKey, Enum, JSON
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -62,6 +62,7 @@ class Template(Base):
     name = Column(String, nullable=False)
     path = Column(String, nullable=False, unique=True)  # e.g., "/HR/Resumes/exec_v1.md"
     content = Column(Text, nullable=True)  # Full markdown with YAML frontmatter
+    structure = Column(JSON, nullable=True)  # Structured JSON representation (New Source of Truth)
     folder_id = Column(String, ForeignKey("template_folders.id"), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

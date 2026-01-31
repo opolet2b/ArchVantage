@@ -2440,8 +2440,9 @@ async def discover_links(
         for link_data in links_data:
             source = link_data.get("source_id")
             target = link_data.get("target_id")
-            l_type = link_data.get("type", "related").lower()
-            label = link_data.get("label", "")
+            l_type_val = link_data.get("type")
+            l_type = (l_type_val if l_type_val else "related").lower()
+            label = link_data.get("label") or ""
             
             # Validate IDs exist in our scope
             valid_ids = set(things_map.keys()) | set(domains_map.keys())

@@ -1,0 +1,27 @@
+{
+  "8e67bbb9-7da7-45ba-b147-46dfdcf13bc5": {
+    "id": "8e67bbb9-7da7-45ba-b147-46dfdcf13bc5",
+    "name": "Meteo old",
+    "expectations": "Provide the weather",
+    "constraints": "provide anyting that is not weather related",
+    "system_prompt": "You are an AI assistant designed to help with specific tasks.\n\nOBJECTIVES:\nProvide the weather\n",
+    "knowledge_base": [
+      "AngebotsantwortZK04TOGAFSAFe.tex.pdf",
+      "Budget Allocation Justification.txt"
+    ],
+    "skills": []
+  },
+  "6e5c941c-ce1a-49bf-bf39-b1c9adb7d494": {
+    "id": "6e5c941c-ce1a-49bf-bf39-b1c9adb7d494",
+    "name": "Meteo Report",
+    "expectations": "Provide the weather for the given location",
+    "constraints": "provide anything that is not related to the weather",
+    "system_prompt": "You are an AI assistant designed to help with specific tasks.\n\nOBJECTIVES:\nProvide the weather for the given location\n\nCONSTRAINTS:\nprovide anything that is not related to the weather\n",
+    "knowledge_base": [
+      "Technical Debt Review.txt"
+    ],
+    "skills": [
+      "weather"
+    ]
+  }
+}

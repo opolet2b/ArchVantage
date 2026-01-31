@@ -1,0 +1,3 @@
+Q4 Technical Debt Review
+
+Project P-205 (Legacy System Migration) carries significant technical debt related to outdated authentication libraries (OAuth1). This debt directly increases the risk level for Project Phoenix, as the legacy system may bypass new MSL policies. An immediate action plan is required, possibly increasing the budget for P-205 by $100,000.

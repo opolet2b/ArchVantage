@@ -1,0 +1,202 @@
+DEBUG LOG FOR CONVERSATION: 81b71482-c983-4c52-b0ba-d454d162a662
+TIMESTAMP: 20260126_184736
+LAST USER MESSAGE: how is legal governance related to legal functional content
+================================================================================
+
+--- EXECUTION LOG ---
+Resolving context for 81b71482-c983-4c52-b0ba-d454d162a662
+Found conversation node: 242a6581-86b5-49e3-809c-bfa8ddc4c7fc
+Conversation is in domain: ac3dd7da-1b0b-40e7-9481-6dffd16443ec
+Found 1 explicitly linked domains.
+Added 33 items from linked domain Legal View
+Found 33 linked context nodes.
+Injected 36 graph relationships into context.
+
+--- LINKED ITEMS SUMMARY ---
+- [ThingType.ARCHIMATE_ELEMENT] European Legal Act (ID: 0a1947cd-fd5d-4bcb-856c-07d55923ee5d)
+- [ThingType.ARCHIMATE_ELEMENT] Legislation on Data Information and Knowledge Exchange (ID: 12c9be4d-cd51-416a-abb7-2878294af753)
+- [ThingType.ARCHIMATE_ELEMENT] European Library of Architecture Principles (ID: 1741bc4c-7d15-4180-b65b-efa2f48bc39b)
+- [ThingType.ARCHIMATE_ELEMENT] Legal Act Representation (ID: 21bd4eda-afc8-4835-98ae-cfe6a6f8d535)
+- [ThingType.ARCHIMATE_ELEMENT] Digital Solution Requirement (ID: 33da70bd-a683-4ba2-9410-712841ccdbc4)
+- [ThingType.ARCHIMATE_ELEMENT] Legal Governance content (ID: 3759b510-821c-4a5a-8625-13266343ce46)
+- [ThingType.ARCHIMATE_ELEMENT] Public Policy Constraint (ID: 432587ec-7ad0-4f50-aaca-f076e6db201f)
+- [ThingType.ARCHIMATE_ELEMENT] Digital Solution Architecture Decision (ID: 452bc646-c156-4447-8b60-ba80ea1e588c)
+- [ThingType.ARCHIMATE_ELEMENT] Granularity of Legal Requirements (ID: 558d961a-a273-4072-8ffc-9a72a7c953ed)
+- [ThingType.ARCHIMATE_ELEMENT] Shared Legal Content (ID: 5a78be78-f60c-4920-bcb1-c18d65e5950a)
+- [ThingType.ARCHIMATE_ELEMENT] Legal Functional content (ID: 66c664d7-c725-4d7a-8dd4-58db11991a61)
+- [ThingType.ARCHIMATE_ELEMENT] Legal Interoperability Agreement (ID: 7b3444f3-de74-4cf6-9b33-029b00bd0dcb)
+- [ThingType.ARCHIMATE_ELEMENT] Binding power (ID: 7df97e81-cab2-49ab-a7ab-0f776ab4a16a)
+- [ThingType.ARCHIMATE_ELEMENT] Public Policy Context (ID: 918227dd-48b7-4fcf-9c94-40ddefb3ec3c)
+- [ThingType.ARCHIMATE_ELEMENT] Legal Act (ID: 9a189b33-9375-45ab-b87d-719f5c0f0937)
+- [ThingType.ARCHIMATE_ELEMENT] Architecture Principle (ID: a79c7adb-8924-497e-804c-facbc4a129b0)
+- [ThingType.ARCHIMATE_ELEMENT] Solution Building Block (ID: a8b57f14-aa0e-4090-8fa1-b2e49825eb59)
+- [ThingType.ARCHIMATE_ELEMENT] Legislation Catalogue (ID: a8c59684-dc0c-4ab0-bc97-0c978a3dfc99)
+- [ThingType.ARCHIMATE_ELEMENT] Delegation of Powers Provisioning Digital Public Services (ID: ac33730f-baf1-418a-ae4a-9efcebe67c7c)
+- [ThingType.ARCHIMATE_ELEMENT] Legal Clauses (ID: acbae7ad-4de8-4bae-9e2b-2f23f034932c)
+- [ThingType.ARCHIMATE_ELEMENT] Legislation on Digital Public Services (ID: ad3aa573-ba7d-4b11-a701-d060982cf30b)
+- [ThingType.ARCHIMATE_ELEMENT] European Legal Interoperability Agreeement (ID: b8d43bfc-fa2b-44b6-b6cb-0d71dad5c122)
+- [ThingType.ARCHIMATE_ELEMENT] National Legal Act (ID: ba77358b-a2d2-471f-87a0-1b785effdc3f)
+- [ThingType.ARCHIMATE_ELEMENT] Assumptions & Constraints (ID: c9164e3f-479e-4152-a898-912281293d9a)
+- [ThingType.ARCHIMATE_ELEMENT] Public Policy Objective (ID: cdec33c9-8036-4435-96ff-ac21c7b31eee)
+- [ThingType.ARCHIMATE_ELEMENT] Public Policy (ID: cf1d977c-723e-4440-8ee9-78991ac04720)
+- [ThingType.ARCHIMATE_ELEMENT] Binding Instrument (ID: d4dd3a51-2ddd-43ca-999e-e09c4cd28d1e)
+- [ThingType.ARCHIMATE_ELEMENT] National Legal Interoperability Agreement (ID: d884cac5-da06-4c84-b604-2a979ec3ff50)
+- [ThingType.ARCHIMATE_ELEMENT] Digital-ready Policymaking (ID: e84ac069-a4f4-4844-9a70-383840c284e5)
+- [ThingType.ARCHIMATE_ELEMENT] Jurisdiction (ID: e98ba574-3cb6-4085-813b-73d63db35a44)
+- [ThingType.ARCHIMATE_ELEMENT] Interoperability Specification (ID: f7576b11-4983-4daf-96e7-876e37c98c4c)
+- [ThingType.ARCHIMATE_ELEMENT] Non-binding Instrument (ID: f9bd2825-6cb5-494e-bb50-097417daf6c2)
+- [ThingType.ARCHIMATE_ELEMENT] Legal Agreement (ID: fe47657e-c3d5-49da-a303-91f88ae8c2ce)
+
+--- CITATIONS (USED IN CONTEXT) ---
+
+--- MANIFEST TEXT ---
+You have access to the following context items:
+- European Legal Act (ThingType.ARCHIMATE_ELEMENT)
+- Legislation on Data Information and Knowledge Exchange (ThingType.ARCHIMATE_ELEMENT)
+- European Library of Architecture Principles (ThingType.ARCHIMATE_ELEMENT)
+- Legal Act Representation (ThingType.ARCHIMATE_ELEMENT)
+- Digital Solution Requirement (ThingType.ARCHIMATE_ELEMENT)
+- Legal Governance content (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy Constraint (ThingType.ARCHIMATE_ELEMENT)
+- Digital Solution Architecture Decision (ThingType.ARCHIMATE_ELEMENT)
+- Granularity of Legal Requirements (ThingType.ARCHIMATE_ELEMENT)
+- Shared Legal Content (ThingType.ARCHIMATE_ELEMENT)
+- Legal Functional content (ThingType.ARCHIMATE_ELEMENT)
+- Legal Interoperability Agreement (ThingType.ARCHIMATE_ELEMENT)
+- Binding power (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy Context (ThingType.ARCHIMATE_ELEMENT)
+- Legal Act (ThingType.ARCHIMATE_ELEMENT)
+- Architecture Principle (ThingType.ARCHIMATE_ELEMENT)
+- Solution Building Block (ThingType.ARCHIMATE_ELEMENT)
+- Legislation Catalogue (ThingType.ARCHIMATE_ELEMENT)
+- Delegation of Powers Provisioning Digital Public Services (ThingType.ARCHIMATE_ELEMENT)
+- Legal Clauses (ThingType.ARCHIMATE_ELEMENT)
+- Legislation on Digital Public Services (ThingType.ARCHIMATE_ELEMENT)
+- European Legal Interoperability Agreeement (ThingType.ARCHIMATE_ELEMENT)
+- National Legal Act (ThingType.ARCHIMATE_ELEMENT)
+- Assumptions & Constraints (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy Objective (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy (ThingType.ARCHIMATE_ELEMENT)
+- Binding Instrument (ThingType.ARCHIMATE_ELEMENT)
+- National Legal Interoperability Agreement (ThingType.ARCHIMATE_ELEMENT)
+- Digital-ready Policymaking (ThingType.ARCHIMATE_ELEMENT)
+- Jurisdiction (ThingType.ARCHIMATE_ELEMENT)
+- Interoperability Specification (ThingType.ARCHIMATE_ELEMENT)
+- Non-binding Instrument (ThingType.ARCHIMATE_ELEMENT)
+- Legal Agreement (ThingType.ARCHIMATE_ELEMENT)
+
+KNOWN RELATIONSHIPS:
+- "Legal Governance content" --[related: "Influence"]--> "Legal Functional content"
+- "Digital-ready Policymaking" --[derived_from: "Realization"]--> "Public Policy"
+- "Legal Interoperability Agreement" --[related: "Specialization"]--> "Legal Agreement"
+- "Public Policy Constraint" --[related: "Specialization"]--> "Public Policy Context"
+- "European Legal Interoperability Agreeement" --[related: "Specialization"]--> "Legal Interoperability Agreement"
+- "National Legal Interoperability Agreement" --[related: "Specialization"]--> "Legal Interoperability Agreement"
+- "Binding power" --[related: "Specialization"]--> "Legal Act"
+- "Legislation Catalogue" --[related: "Association"]--> "Legal Act"
+- "Public Policy" --[derived_from: "Realization"]--> "Public Policy Constraint"
+- "Public Policy Objective" --[related: "Association"]--> "Public Policy"
+- "Delegation of Powers Provisioning Digital Public Services" --[related: "Influence"]--> "Public Policy Context"
+- "Delegation of Powers Provisioning Digital Public Services" --[related: "Association"]--> "Public Policy"
+- "Legal Act Representation" --[related: "Association"]--> "Legal Act"
+- "Legal Act" --[related: "Association"]--> "Public Policy"
+- "Legal Act" --[contains: "Aggregation"]--> "Legal Clauses"
+- "Legislation on Digital Public Services" --[related: "Specialization"]--> "Legislation Catalogue"
+- "Jurisdiction" --[related: "Specialization"]--> "Legal Act"
+- "Granularity of Legal Requirements" --[related: "Influence"]--> "Public Policy Context"
+- "Granularity of Legal Requirements" --[related: "Association"]--> "Legal Act"
+- "Legislation on Data Information and Knowledge Exchange" --[related: "Specialization"]--> "Legislation on Digital Public Services"
+- "Shared Legal Content" --[contains: "Aggregation"]--> "Legal Governance content"
+- "Shared Legal Content" --[contains: "Aggregation"]--> "Legal Functional content"
+- "European Library of Architecture Principles" --[contains: "Aggregation"]--> "Architecture Principle"
+- "Architecture Principle" --[related: "Influence"]--> "Legal Functional content"
+- "Architecture Principle" --[related: "Influence"]--> "Legal Governance content"
+- "Architecture Principle" --[related: "Influence"]--> "Digital Solution Requirement"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Legal Functional content"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Legal Governance content"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Interoperability Specification"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Digital Solution Requirement"
+- "Digital Solution Requirement" --[related: "Association"]--> "Legal Governance content"
+- "Digital Solution Requirement" --[related: "Association"]--> "Legal Functional content"
+- "Digital Solution Architecture Decision" --[related: "Influence"]--> "Legal Functional content"
+- "Digital Solution Architecture Decision" --[related: "Influence"]--> "Legal Governance content"
+- "Assumptions & Constraints" --[related: "Influence"]--> "Legal Functional content"
+- "Assumptions & Constraints" --[related: "Influence"]--> "Legal Governance content"
+
+--- FULL CONTEXT DATA (LLM INPUT) ---
+You have access to the following context items:
+- European Legal Act (ThingType.ARCHIMATE_ELEMENT)
+- Legislation on Data Information and Knowledge Exchange (ThingType.ARCHIMATE_ELEMENT)
+- European Library of Architecture Principles (ThingType.ARCHIMATE_ELEMENT)
+- Legal Act Representation (ThingType.ARCHIMATE_ELEMENT)
+- Digital Solution Requirement (ThingType.ARCHIMATE_ELEMENT)
+- Legal Governance content (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy Constraint (ThingType.ARCHIMATE_ELEMENT)
+- Digital Solution Architecture Decision (ThingType.ARCHIMATE_ELEMENT)
+- Granularity of Legal Requirements (ThingType.ARCHIMATE_ELEMENT)
+- Shared Legal Content (ThingType.ARCHIMATE_ELEMENT)
+- Legal Functional content (ThingType.ARCHIMATE_ELEMENT)
+- Legal Interoperability Agreement (ThingType.ARCHIMATE_ELEMENT)
+- Binding power (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy Context (ThingType.ARCHIMATE_ELEMENT)
+- Legal Act (ThingType.ARCHIMATE_ELEMENT)
+- Architecture Principle (ThingType.ARCHIMATE_ELEMENT)
+- Solution Building Block (ThingType.ARCHIMATE_ELEMENT)
+- Legislation Catalogue (ThingType.ARCHIMATE_ELEMENT)
+- Delegation of Powers Provisioning Digital Public Services (ThingType.ARCHIMATE_ELEMENT)
+- Legal Clauses (ThingType.ARCHIMATE_ELEMENT)
+- Legislation on Digital Public Services (ThingType.ARCHIMATE_ELEMENT)
+- European Legal Interoperability Agreeement (ThingType.ARCHIMATE_ELEMENT)
+- National Legal Act (ThingType.ARCHIMATE_ELEMENT)
+- Assumptions & Constraints (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy Objective (ThingType.ARCHIMATE_ELEMENT)
+- Public Policy (ThingType.ARCHIMATE_ELEMENT)
+- Binding Instrument (ThingType.ARCHIMATE_ELEMENT)
+- National Legal Interoperability Agreement (ThingType.ARCHIMATE_ELEMENT)
+- Digital-ready Policymaking (ThingType.ARCHIMATE_ELEMENT)
+- Jurisdiction (ThingType.ARCHIMATE_ELEMENT)
+- Interoperability Specification (ThingType.ARCHIMATE_ELEMENT)
+- Non-binding Instrument (ThingType.ARCHIMATE_ELEMENT)
+- Legal Agreement (ThingType.ARCHIMATE_ELEMENT)
+
+KNOWN RELATIONSHIPS:
+- "Legal Governance content" --[related: "Influence"]--> "Legal Functional content"
+- "Digital-ready Policymaking" --[derived_from: "Realization"]--> "Public Policy"
+- "Legal Interoperability Agreement" --[related: "Specialization"]--> "Legal Agreement"
+- "Public Policy Constraint" --[related: "Specialization"]--> "Public Policy Context"
+- "European Legal Interoperability Agreeement" --[related: "Specialization"]--> "Legal Interoperability Agreement"
+- "National Legal Interoperability Agreement" --[related: "Specialization"]--> "Legal Interoperability Agreement"
+- "Binding power" --[related: "Specialization"]--> "Legal Act"
+- "Legislation Catalogue" --[related: "Association"]--> "Legal Act"
+- "Public Policy" --[derived_from: "Realization"]--> "Public Policy Constraint"
+- "Public Policy Objective" --[related: "Association"]--> "Public Policy"
+- "Delegation of Powers Provisioning Digital Public Services" --[related: "Influence"]--> "Public Policy Context"
+- "Delegation of Powers Provisioning Digital Public Services" --[related: "Association"]--> "Public Policy"
+- "Legal Act Representation" --[related: "Association"]--> "Legal Act"
+- "Legal Act" --[related: "Association"]--> "Public Policy"
+- "Legal Act" --[contains: "Aggregation"]--> "Legal Clauses"
+- "Legislation on Digital Public Services" --[related: "Specialization"]--> "Legislation Catalogue"
+- "Jurisdiction" --[related: "Specialization"]--> "Legal Act"
+- "Granularity of Legal Requirements" --[related: "Influence"]--> "Public Policy Context"
+- "Granularity of Legal Requirements" --[related: "Association"]--> "Legal Act"
+- "Legislation on Data Information and Knowledge Exchange" --[related: "Specialization"]--> "Legislation on Digital Public Services"
+- "Shared Legal Content" --[contains: "Aggregation"]--> "Legal Governance content"
+- "Shared Legal Content" --[contains: "Aggregation"]--> "Legal Functional content"
+- "European Library of Architecture Principles" --[contains: "Aggregation"]--> "Architecture Principle"
+- "Architecture Principle" --[related: "Influence"]--> "Legal Functional content"
+- "Architecture Principle" --[related: "Influence"]--> "Legal Governance content"
+- "Architecture Principle" --[related: "Influence"]--> "Digital Solution Requirement"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Legal Functional content"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Legal Governance content"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Interoperability Specification"
+- "Solution Building Block" --[derived_from: "Realization"]--> "Digital Solution Requirement"
+- "Digital Solution Requirement" --[related: "Association"]--> "Legal Governance content"
+- "Digital Solution Requirement" --[related: "Association"]--> "Legal Functional content"
+- "Digital Solution Architecture Decision" --[related: "Influence"]--> "Legal Functional content"
+- "Digital Solution Architecture Decision" --[related: "Influence"]--> "Legal Governance content"
+- "Assumptions & Constraints" --[related: "Influence"]--> "Legal Functional content"
+- "Assumptions & Constraints" --[related: "Influence"]--> "Legal Governance content"
+
+No specific text content was retrieved for these items (they may be large files, images, or empty).
+Answer the user's question to the best of your ability.
+================================================================================

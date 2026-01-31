@@ -1652,7 +1652,7 @@ function CanvasViewInner() {
 
         } else if (action.startsWith("execute_template:")) {
             const templateId = action.split(":")[1];
-            const { selectedThingIds, selectedDomainIds, things, domains, selectedModel, visionModel } = useCanvasStore.getState();
+            const { selectedThingIds, selectedDomainIds, things, domains, selectedModel, visionModel, levelOfDetail } = useCanvasStore.getState();
             let tIds: string[] = [];
             let dIds: string[] = [];
 
@@ -1710,7 +1710,9 @@ function CanvasViewInner() {
                         template_id: templateId,
                         thing_ids: tIds,
                         canvas_id: canvasId,
+
                         model: activeModel,
+                        level_of_detail: levelOfDetail,
                         source_fragment: fragment ? {
                             ...fragment,
                             start_offset: (fragment as any).startOffset,
@@ -1743,27 +1745,86 @@ function CanvasViewInner() {
 
                             if (event.type === "step_start") {
                                 const stepName = event.step.node_label || event.step.node_type;
+                                // Clean up step name if it looks like an ID
+                                const displayName = stepName.startsWith("node_") ? "Processing Step" : stepName;
+
                                 updateToast({
                                     id: toastId,
-                                    title: "Running Analysis...",
-                                    description: `Executing Step: ${stepName} `,
+                                    title: displayName.includes("Section") ? `Processing ${displayName}` : displayName,
+                                    description: (
+                                        <div className="flex flex-col gap-2 mt-1">
+                                            {/* Heartbeat Line */}
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <div className="relative flex h-2 w-2">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                                                </div>
+                                                <span className="font-medium">Analysis in progress...</span>
+                                            </div>
+                                        </div>
+                                    ),
                                     duration: 1000000,
                                 });
                             } else if (event.type === "progress") {
-                                // Progress event (e.g. timeout waiting)
                                 updateToast({
                                     id: toastId,
-                                    description: event.message,
+                                    description: (
+                                        <div className="flex flex-col gap-2 mt-1">
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <div className="relative flex h-2 w-2">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                                                </div>
+                                                <span className="font-medium">{event.message}</span>
+                                            </div>
+                                        </div>
+                                    ),
                                     duration: 1000000
                                 });
                             } else if (event.type === "log") {
-                                // Real-time log from backend (Extractor warnings, Heartbeats)
-                                updateToast({
-                                    id: toastId,
-                                    description: event.message,
-                                    // Use a simpler title if it's a heartbeat, or keep "Running Analysis..."
-                                    duration: 1000000
-                                });
+                                const isStartStep = event.message.includes("Starting Step");
+                                const displayMessage = (isStartStep && event.node_label)
+                                    ? `Processing section: ${event.node_label}`
+                                    : event.message;
+
+                                // Only update title if it's a significant step change
+                                if (isStartStep && event.node_label) {
+                                    updateToast({
+                                        id: toastId,
+                                        title: `Processing: ${event.node_label}`,
+                                        description: (
+                                            <div className="flex flex-col gap-2 mt-1">
+                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                    <div className="relative flex h-2 w-2">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                                                    </div>
+                                                    <span className="font-medium">Generating content...</span>
+                                                </div>
+                                            </div>
+                                        ),
+                                        duration: 1000000
+                                    });
+                                } else {
+                                    // For normal logs, just show the text 
+                                    // BUT KEEP THE TITLE if possible? Toast updates overwrite everything.
+                                    // We just update description to show the log message as the "heartbeat" text
+                                    updateToast({
+                                        id: toastId,
+                                        description: (
+                                            <div className="flex flex-col gap-2 mt-1">
+                                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                    <div className="relative flex h-2 w-2">
+                                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                                                    </div>
+                                                    <span>{displayMessage}</span>
+                                                </div>
+                                            </div>
+                                        ),
+                                        duration: 1000000
+                                    });
+                                }
                             } else if (event.type === "complete") {
                                 const result = event.data;
                                 if (result.status === "completed") {

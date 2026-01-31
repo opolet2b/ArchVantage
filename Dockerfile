@@ -1,7 +1,7 @@
 # ==========================================
 # Stage 1: Build Frontend
 # ==========================================
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Install dependencies (use ci for reproducible builds if lockfile exists)
@@ -17,7 +17,7 @@ RUN npm run build
 # ==========================================
 # Stage 2: Final Runtime Image
 # ==========================================
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Install system dependencies
 # - nodejs/npm: For running the frontend server

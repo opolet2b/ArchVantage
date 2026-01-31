@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { ArrowRight, CheckCircle2, Circle, Clock, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,15 @@ interface ExecutionPlanModalProps {
 
 const FormattedJson = ({ data }: { data: any }) => {
     if (!data) return <span className="text-slate-400 italic">No data</span>;
+
+    // Check for Metrics Pattern
+    const isMetricsObject = data && typeof data === 'object' && (
+        "Purpose Match" in data || "Quality Score" in data
+    );
+
+    if (isMetricsObject) {
+        return <MetricsDisplay details={data} />;
+    }
 
     // Recursive renderer for cleaner view
     const renderValue = (val: any): React.ReactNode => {
@@ -75,6 +85,53 @@ const FormattedJson = ({ data }: { data: any }) => {
     };
 
     return <div className="text-xs font-mono overflow-x-hidden">{renderValue(data)}</div>;
+};
+
+const MetricsDisplay = ({ details }: { details: any }) => {
+    const parseScore = (val: any) => {
+        if (typeof val === 'number') return val;
+        if (typeof val === 'string') {
+            const match = val.match(/(\d+)/);
+            return match ? parseInt(match[1]) : 0;
+        }
+        return 0;
+    };
+
+    const metricKeys = ["Quality Score", "Purpose Match", "Structure Match", "Instruction Match", "Styling Match"];
+    // Sort to put Quality Score first
+    const sortedEntries = Object.entries(details)
+        .filter(([k]) => metricKeys.includes(k) || k.endsWith("Match") || k.includes("Score"))
+        .sort((a, b) => {
+            if (a[0] === "Quality Score") return -1;
+            if (b[0] === "Quality Score") return 1;
+            return a[0].localeCompare(b[0]);
+        });
+
+    return (
+        <div className="space-y-3 p-2 bg-white dark:bg-slate-950 rounded border border-slate-100 dark:border-slate-800">
+            {sortedEntries.map(([k, v]) => {
+                const score = parseScore(v);
+                const isMain = k === "Quality Score";
+                return (
+                    <div key={k} className="space-y-1">
+                        <div className="flex justify-between text-xs">
+                            <span className={cn("font-medium", isMain ? "text-blue-600 dark:text-blue-400 font-bold" : "text-slate-600 dark:text-slate-400")}>{k}</span>
+                            <span className="font-mono">{String(v)}</span>
+                        </div>
+                        <Progress value={score} className={cn("h-1.5", isMain ? "h-2.5" : "")} />
+                    </div>
+                );
+            })}
+
+            {/* Show other details (like Feedback) as text */}
+            {Object.entries(details).filter(([k]) => !metricKeys.includes(k) && !k.endsWith("Match") && !k.includes("Score")).map(([k, v]) => (
+                <div key={k} className="mt-3 text-xs border-t pt-2">
+                    <span className="font-bold block text-slate-700 dark:text-slate-300 mb-1">{k}:</span>
+                    <div className="text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{String(v)}</div>
+                </div>
+            ))}
+        </div>
+    );
 };
 
 const ExecutionNodeItem = ({ node, isLast, depth = 0 }: { node: ExecutionNode, isLast: boolean, depth?: number }) => {

@@ -208,7 +208,7 @@ export function TextThingEditor({
                             ref={textareaRef}
                             value={editedContent}
                             onChange={(e) => setEditedContent(e.target.value)}
-                            className="w-full h-full font-mono text-base resize-none bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus-visible:ring-1 p-6 shadow-inner leading-relaxed"
+                            className="w-full h-full font-mono text-base resize-none bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus-visible:ring-1 p-6 shadow-inner leading-relaxed overflow-y-auto custom-scrollbar"
                             placeholder="Type your content here..."
                             autoFocus
                             onDrop={handleTextareaDrop}

@@ -1,0 +1,346 @@
+{
+    "81b71482-c983-4c52-b0ba-d454d162a662": {
+        "id": "81b71482-c983-4c52-b0ba-d454d162a662",
+        "title": "Legal Governance and Content",
+        "created_at": "2026-01-26T18:46:50.476556",
+        "updated_at": "2026-01-26T18:48:07.068834",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "how is legal governance related to legal functional content"
+            },
+            {
+                "role": "assistant",
+                "content": "Legal Governance content and Legal Functional content are closely related and often interact within a legal framework. They are both components of **Shared Legal Content**.\n\nHere's how they are related, based on the provided context:\n\n*   **Influence:** Legal Governance content can **influence** Legal Functional content. This means that the rules, policies, and structures defined by legal governance can shape the operational aspects and specific functions outlined in legal functional content.\n*   **Shared Root:** Both are aggregated under **Shared Legal Content**, indicating they are parts of a common body of legal information and directives.\n*   **Architectural Principles:** **Architecture Principles** can influence both Legal Governance content and Legal Functional content. This suggests that overarching design principles for legal systems or digital solutions can impact both the governance structures and the functional specifications.\n*   **Digital Solution Requirements:** Both Legal Governance content and Legal Functional content are associated with **Digital Solution Requirements**. This highlights that both governance aspects (e.g., who can do what, compliance) and functional aspects (e.g., what the system should do) are crucial when defining requirements for digital solutions.\n*   **Digital Solution Architecture Decisions:** Similarly, **Digital Solution Architecture Decisions** can influence both Legal Functional content and Legal Governance content, showing that architectural choices have ramifications for both.\n*   **Assumptions & Constraints:** Both are influenced by **Assumptions & Constraints**, indicating that underlying assumptions and limitations will shape both the governance structures and the functional details.\n*   **Solution Building Blocks:** Finally, both Legal Governance content and Legal Functional content can be realized as **Solution Building Blocks**. This implies that both aspects are tangible components that can be used to construct a complete legal solution or system.\n\nIn essence, Legal Governance content sets the framework, rules, and oversight for how legal processes and systems operate, while Legal Functional content describes the specific actions, operations, and services that these legal processes perform. The governance content guides and informs the creation and implementation of the functional content.\n\nHere's a visual representation of some of these relationships:\n"
+            }
+        ]
+    },
+    "fa95f301-9e78-4a29-a3b7-d9eec7279c04": {
+        "id": "fa95f301-9e78-4a29-a3b7-d9eec7279c04",
+        "title": "Continuous Improvement Inquiry",
+        "created_at": "2026-01-26T19:48:00.225052",
+        "updated_at": "2026-01-26T19:48:15.876044",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "is there anything related to continuous improvement"
+            },
+            {
+                "role": "assistant",
+                "content": "Error: Error code: 400 - {'error': {'message': 'This endpoint\\'s maximum context length is 32768 tokens. However, you requested about 90887 tokens (90887 of text input). Please reduce the length of either one, or use the \"middle-out\" transform to compress your prompt automatically.', 'code': 400, 'metadata': {'provider_name': None}}}"
+            }
+        ]
+    },
+    "0dabf5c6-60ca-406e-8353-60dcda599ec3": {
+        "id": "0dabf5c6-60ca-406e-8353-60dcda599ec3",
+        "title": "New Conversation",
+        "created_at": "2026-01-26T20:05:05.239367",
+        "updated_at": "2026-01-26T20:05:19.907836",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "is there any reference to continues improvement"
+            }
+        ]
+    },
+    "3377abdf-1977-4d61-8340-8a0fab991b65": {
+        "id": "3377abdf-1977-4d61-8340-8a0fab991b65",
+        "title": "New Conversation",
+        "created_at": "2026-01-26T20:06:31.143835",
+        "updated_at": "2026-01-26T20:06:39.087634",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "is there any reference to continuous improvement"
+            }
+        ]
+    },
+    "b7276e7a-248c-4837-ac9f-bd19c7c0b889": {
+        "id": "b7276e7a-248c-4837-ac9f-bd19c7c0b889",
+        "title": "New Conversation",
+        "created_at": "2026-01-26T20:08:21.591920",
+        "updated_at": "2026-01-26T20:08:30.039171",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "is there any reference to continuous improvement"
+            }
+        ]
+    },
+    "e81246fe-520a-48ce-9c24-60c3018d6794": {
+        "id": "e81246fe-520a-48ce-9c24-60c3018d6794",
+        "title": "New Conversation",
+        "created_at": "2026-01-26T20:09:13.123267",
+        "updated_at": "2026-01-26T20:09:22.236857",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "is there any reference to continuous improvement"
+            }
+        ]
+    },
+    "ee6de077-a974-4a6b-b4c2-2f5a7eb1990d": {
+        "id": "ee6de077-a974-4a6b-b4c2-2f5a7eb1990d",
+        "title": "New Conversation",
+        "created_at": "2026-01-26T20:12:33.436958",
+        "updated_at": "2026-01-26T20:12:41.140244",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "is there any reference to continuous improvement"
+            }
+        ]
+    },
+    "a0334a42-1011-4c26-a721-5ade333ac7d7": {
+        "id": "a0334a42-1011-4c26-a721-5ade333ac7d7",
+        "title": "Continuous Improvement Reference",
+        "created_at": "2026-01-27T07:33:12.743540",
+        "updated_at": "2026-01-27T07:58:05.336613",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "Is there any mention of Continuous improvement"
+            },
+            {
+                "role": "user",
+                "content": "Is there anu mention of continuous improvement"
+            },
+            {
+                "role": "user",
+                "content": "Is there any mention of continuous improvement"
+            },
+            {
+                "role": "user",
+                "content": "Is there any mention of continuous improvement"
+            },
+            {
+                "role": "user",
+                "content": "Is there any mention of continuous improvement"
+            },
+            {
+                "role": "assistant",
+                "content": "The EIRA\u00a9 is subject to continuous improvement, with new challenges and ideas arising from its application. The ISA\u00b2 Programme actively encourages feedback, additional thoughts, and open dialogue to advance the EIRA\u00a9. To facilitate this, an open change and release management process has been established for the EIRA\u00a9. Stakeholders from public administrations involved in architecture and interoperability can provide comments on the EIRA\u00a9 release page on Joinup, where the latest releases and change logs are also available."
+            },
+            {
+                "role": "user",
+                "content": "Is there any mention of continuous improvement"
+            },
+            {
+                "role": "assistant",
+                "content": "The EIRA\u00a9 is subject to continuous improvement, with new challenges and ideas arising from its application. The ISA\u00b2 Programme actively encourages feedback, additional thoughts, and open dialogue to advance the EIRA\u00a9. Stakeholders from public administrations involved in architecture and interoperability can provide comments on the EIRA\u00a9 release page on Joinup, where information about the change and release management process, as well as the latest releases and change logs, can be found."
+            }
+        ]
+    },
+    "9492cf2a-6763-4ff0-8751-f3235e9b32ad": {
+        "id": "9492cf2a-6763-4ff0-8751-f3235e9b32ad",
+        "title": "Continuous Improvement Query",
+        "created_at": "2026-01-27T11:31:01.694619",
+        "updated_at": "2026-01-27T12:59:48.057943",
+        "archived": false,
+        "messages": [
+            {
+                "role": "user",
+                "content": "Is there any continuous improvement?"
+            },
+            {
+                "role": "user",
+                "content": "Are there any continuous improvements?"
+            },
+            {
+                "role": "user",
+                "content": "Are there any continuous improvements?"
+            },
+            {
+                "role": "user",
+                "content": "Are there any continuous improvements?"
+            },
+            {
+                "role": "assistant",
+                "content": "Yes, there are continuous improvements. The European Interoperability Reference Architecture (EIRA) is currently in its 6th version, indicating ongoing development and refinement. The paper also notes that while the underlying standards are solid, the practical application and cloud-specific guidance still need work, suggesting areas for future continuous improvement."
+            },
+            {
+                "role": "user",
+                "content": "Is there continuous improvement?"
+            },
+            {
+                "role": "user",
+                "content": "Is there continuous improvement?"
+            },
+            {
+                "role": "assistant",
+                "content": "Yes, there is continuous improvement. The European Interoperability Reference Architecture (EIRA) is currently in its 6th version, indicating ongoing development and refinement. The descriptions of all Architecture Building Blocks (ABBs) have been revised. Additionally, there have been minor changes in version 2.0.0, such as the change of the ArchiMate\u00ae icon of representation, the high-level overview becoming a viewpoint, the implementation of 'Hosting and Networking Infrastructure' as a grouping for attached services, and the introduction of a 'Service Discovery Component' on the 'Technical view \u2013 application'."
+            },
+            {
+                "role": "user",
+                "content": "Any continuous Improvement?"
+            },
+            {
+                "role": "assistant",
+                "content": "Yes, there is continuous improvement. The European Interoperability Reference Architecture (EIRA) is currently in its 6th version, indicating ongoing development and refinement. The ISA\u00b2 Programme actively welcomes feedback, additional thoughts, and open dialogue to advance the EIRA, managing new challenges and ideas as they arise through an open change and release management process. Stakeholders can provide comments on the EIRA release page on Joinup, where the latest releases and change logs are also available."
+            },
+            {
+                "role": "user",
+                "content": "Any continuous improvements?"
+            },
+            {
+                "role": "assistant",
+                "content": "Yes, there is continuous improvement. The European Interoperability Reference Architecture (EIRA) is currently in its 6th version, indicating ongoing development and refinement. The ISA\u00b2 Programme actively welcomes feedback, additional thoughts, and open dialogue to advance the EIRA. To facilitate this, an open change and release management process has been established, allowing stakeholders from public administrations to provide comments on the EIRA release page on Joinup. The Joinup community also provides access to the latest releases and change logs."
+            },
+            {
+                "role": "user",
+                "content": "Is there any continuous improvement?"
+            },
+            {
+                "role": "assistant",
+                "content": "Yes, there is continuous improvement. The European Interoperability Reference Architecture (EIRA) is currently in its 6th version, indicating ongoing development and refinement. The ISA\u00b2 Programme actively promotes interoperable digital solutions, and EIRA itself is designed to be future-proof. The framework also leverages established methodologies like TOGAF and ArchiMate, which are subject to their own updates and improvements.\n\nFor example, EIRA has undergone several modifications, including:\n*   An upgrade to align with ArchiMate\u00ae 3.0.\n*   Alignment with the new European Interoperability Framework (EIF), introducing new components like the \"Interoperability Governance viewpoint\" and \"Security and privacy viewpoint,\" as well as new Architecture Building Blocks (ABBs) for the \"Organisational View\" (e.g., \"Security Policy\") and \"Semantic View\" (e.g., \"Open Data\").\n*   Improved use of Interoperability Specifications, allowing any ABB to associate with any specification, and the removal of the \"Data standards\" ABB as a parent.\n*   A simplification of the Legal View, streamlining the \"Public Policy Cycle\" and removing the \"Public Policy Development Enabler.\"\n*   Verification and updating of all ABB descriptions.\n\nThese changes demonstrate a commitment to evolving the architecture to meet new standards and improve its usability."
+            },
+            {
+                "role": "user",
+                "content": "Are there interoperability reqiurements?"
+            },
+            {
+                "role": "assistant",
+                "content": "Yes, there are interoperability requirements. The European Interoperability Framework (EIF) lists 12 high-level principles that any European public service should follow, such as openness, data portability, security, and user-centricity. EIRA then translates these principles into concrete design pieces."
+            },
+            {
+                "role": "user",
+                "content": "Are there continuous improvements",
+                "citations": null
+            },
+            {
+                "role": "assistant",
+                "content": "Yes, there are continuous improvements. The European Interoperability Reference Architecture (EIRA) is currently in its 6th version, indicating ongoing development and refinement. The ISA\u00b2 Programme actively pushed for interoperable digital solutions, and the European Interoperability Framework (EIF) principles were a result of this. EIRA then implemented these EIF principles. The framework also borrows its structure from TOGAF and uses ArchiMate's visual language, both of which are well-known and continuously updated methodologies.\n\nFor example, EIRA v2.0.0 included several modifications such as:\n*   **ArchiMate\u00ae 3 upgrade**: Aligning with the newer version of the ArchiMate modeling language.\n*   **Alignment with the new version of the EIF**: Incorporating new viewpoints and Architecture Building Blocks (ABBs) for organizational and semantic views.\n*   **Better use of Interoperability Specifications**: Making specifications more flexible and generalized.\n*   **Simplification of the Legal View**: Streamlining concepts like the Public Policy Cycle.\n*   **Descriptions of all the ABBs have been revised**: Ensuring updated and verified references.\n\nThese changes demonstrate a commitment to continuous improvement and adaptation to evolving needs and standards. \n\nHere's a visual representation of the changes in EIRA v2.0.0: \n",
+                "citations": [
+                    {
+                        "id": "b1fc3365-baf6-42bf-89c9-e32598fd3a65",
+                        "title": "Scanned_Exploring_EIRA.pdf",
+                        "type": "document",
+                        "matches": [
+                            {
+                                "text": "**References**  \n\n1) European Union (2017a). *New European Interoperability Framework Promoting seamless services and data flows for European public administrations*. Publications Office of the European Union. [online] Available at: https://ec.europa.eu/isa2/sites/default/files/eif_brochure_final.pdf. [Accessed 17.05.2023].  \n\n2) European Union (2017b). *Towards a European Interoperability Architecture*. [online] Available at: https://ec.europa.eu/isa2/actions/towards-european-interoperability-architecture_en/ [Accessed 17.05.2023].  \n\n3) European Union (2017c). *Ministerial Declaration on eGovernment - the Tallinn Declaration*. [online] Available at: https://digital-strategy.ec.europa.eu/en/news/ministerial-declaration-egovernment-tallinn-declaration [Accessed 17.05.2023].  \n\n4) European Union (2020). *Berlin Declaration on Digital Society and Value-based Digital Government*. [online] Available at: https://digital-strategy.ec.europa.eu/en/news/berlin-declaration-digital-society-and-value-based-digital-government [Accessed 17.05.2023].  \n\n5) European Union (2023). *EIRA 6.0.0: About the European Interoperability Reference Architecture*. [online] Available at: https://digital-strategy.ec.europa.eu/en/news/berlin-declaration-digital-society-and-value-based-digital-government [Accessed 17.05.2023].  \n\n6) Josey, A. (2019). *ArchiMate\u00ae 3.1 Specification A Pocket Guide*. Van Haren Publishing, \u2019s-Hertogenbosch, Fourth edition, November 2019.  \n\n7) Priyadarshini (2023).",
+                                "score": 0.33544870376990965,
+                                "page": null,
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "*ArchiMate\u00ae 3.1 Specification A Pocket Guide*. Van Haren Publishing, \u2019s-Hertogenbosch, Fourth edition, November 2019.  \n\n7) Priyadarshini (2023). *What is TOGAF\u00ae: How and Why is It important?* [online] Available at: https://www.simplelearn.com/reasons-to-get-togaf-certification-article#:~:text=TOGAF%C2%AE%20or%20T%2880%9CThe%20Open,Department%20of%20Defense%20(DoD) [Accessed 17.05.2023].  \n\n8) TOGAF (2023). *Digital Edition of the TOGAF Standard. ADM Techniques. 2. Architecture Principles*. [online] Available at: https://pubs.opengroup.org/togaf-standard/adm-techniques/chap02.html [Accessed 17.05.2023].  \n\n326  \n\n\n### Description of Diagrams, Tables, or Images:  \nThis page contains **no diagrams, tables, or images**. It consists solely of textual content: a header (\u201cEUFIRE 2023\u201d), an acknowledgments section, a list of references, and a page number (\u201c326\u201d) at the bottom center.",
+                                "score": 0.3194506804409843,
+                                "page": null,
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "- The page number \u201c323\u201d appears at the bottom center of the page.\n\n--- Page 9 ---\n### Transcription of Text on Page 9 (Page Number: 324)  \n\n**Header:**  \nEUFIRE 2023  \n\n**Table (Two Columns):**  \n| The Technical view - Application | The Technical view - Infrastructure |  \n|----------------------------------|-----------------------------------|  \n| Human Interface                  | IaaS                              |  \n| Digital Solution Service         | Computing Hosting, Networking, and Data Hosting Infrastructure |  \n| Digital Solution Component       | Application Service               |  \n| Shared Platform                  | Data Access Service               |  \n| API Discovery and Catalogue Service | Intranet Service                 |  \n| API Catalogue                    | Remote Desktop Service            |  \n| API                              | VPN Service                       |  \n| Service Registry                 | Web Service                       |  \n| Service Discovery and Registry Service | On Premise Facility          |  \n| Software Component Discovery and Catalogue Service | Application Interface |  \n| Software Components Catalogue    | Data Interface                    |  \n| API Catalogue Component          | Intranet Service                  |  \n| Web Service                      | Data Virtualization               |  \n| Service Registry Component       | Data Warehouse                    |  \n| Software Component Catalogue Component | Data Server Software Environment |  \n| Orchestration Service            | Data Lake                         |  \n| Orchestration Component          | Data Hub                          |  \n\n**Source:**  \nSource: EIRA 6.0.0 Specifications (European Union, 2023)  \n\n**Figure Caption:**  \nFigure 4 pictures an example of a ABBs composition to describe a Solution Architecture using FIRA ArchiMate extension.  \n\n**Page Number:**  \n324  \n\n\n### Description of Diagrams, Tables, or Images  \n\n- **Table**:  \n  The page contains a single, centered two - column table. The left column is titled *\u201cThe Technical view - Application\u201d* and the right column is titled *\u201cThe Technical view - Infrastructure\u201d*.",
+                                "score": 0.31769759075833287,
+                                "page": null,
+                                "bbox": null,
+                                "row_id": null
+                            }
+                        ]
+                    },
+                    {
+                        "id": "2a9d9467-3532-4788-bc52-b3913051e6a3",
+                        "title": "eira_v2_0_0_overview.pdf",
+                        "type": "document",
+                        "matches": [
+                            {
+                                "text": "European Interoperability Reference Architecture (EIRA\u00a9) v2.0.0 \nIntroduction to the European Interoperability Reference Architecture v2.0.0 18 \n2.7 Application \nThe EIRA\u00a9 has been successfully piloted in a number of Member States , European \nprojects and services of the European Commission. Information on previous and \nongoing piloting activities can also be found in the project's Joinup space. \n  \n2.8 Continuous improvement \nAs the EIRA\u00a9 is being applied , new challenges and ideas for the EIRA\u00a9 arise and \nneed to be managed. Therefore the ISA\u00b2 Programme welcomes feedback, additional \nthoughts, and open dialog on the idea of advancing the EIRA\u00a9. To facilitate this, the \nISA\u00b2 Programme set up an open change and release management process for the  \nEIRA\u00a9. Stakeholders working for public administrations in the field of architecture \nand interoperability can provide their comments on the EIRA\u00a9 release page on Joinup \n(registration and/or login is required). More information about this process can be \nfound in the EI RA\u00a9 community on Joinup. The EI RA\u00a9 community on Joinup also \ncontains the latest releases of the EIRA\u00a9 and change logs.",
+                                "score": 0.3452298027961927,
+                                "page": "19",
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "- **Visual Cue**: This is a straightforward version - alignment statement, presented in a single line (no bullet points), distinguishing it from more complex modifications.  \n\n#### b. *\u201cAlignment with the new version of the EIF (the New European Interoperability Framework)\u201d*  \n- **Details**: Uses bullet points to list new components:  \n  - *\u201cInteroperability Governance viewpoint\u201d*, *\u201cIntegrated Public Service Governance\u201d*, *\u201cSecurity and privacy viewpoint\u201d* (new viewpoints).  \n  - *\u201cEIF Underlying Principles\u201d* (new view).  \n  - New Architecture Building Blocks (ABBs) for *\u201cOrganisational View\u201d*: *\u201cSecurity Policy\u201d*, *\u201cSecurity Framework\u201d* (a specialization of *\u201cSecurity Policy\u201d*).  \n  - New ABBs for *\u201cSemantic View\u201d*: *\u201cOpen Data\u201d*, *\u201cBase Registry\u201d* (a specialization of *\u201cMaster Data\u201d*).  \n- **Visual Cue**: Bullet points break down complex updates into digestible items, emphasizing the structured nature of EIRA\u2019s alignment with EIF.  \n\n#### c. *\u201cBetter use of Interoperability Specifications\u201d*  \n- **Details**: Bullet points explain technical shifts:  \n  - Each view now has a grouping for Interoperability Specifications, allowing any ABB to associate with any specification.  \n  - Removal of the *\u201cData standards\u201d* ABB as a parent (implementing ABBs are now specialized for Semantic Interoperability).  \n  - *\u201cInteroperability Specification Underpinning view\u201d* becomes a viewpoint (with adaptations).  \n  - *\u201cTechnical Interoperability Specification\u201d* is no longer tied to the *\u201cService Registry Component\u201d* but to the broader *\u201cDigital Service Infrastructure\u201d*.  \n- **Visual Cue**: Bullet points highlight a shift toward more flexible and generalized specifications, with clear separation of architectural concepts.  \n\n#### d.",
+                                "score": 0.3373824263916791,
+                                "page": null,
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "Based on EU Better Regulation (list of phases) and Oxford dictionary (cycle definition)  \nhttp://ec.europa.eu/smart-regulation/guidelines/ug_chap1_en.htm (chapter 2 \"What is Better Regulation ?\")  \nhttp://publicadministrationtheone.blogspot.be/2012/08/public-policy-models-of-policy-making_27.html  \nPublic Policy \nFormulation \nand \nImplementation \nInstrument \n  Public Policy Formulation Instrument: Technique or means for the development of pertinent and acceptable proposed \ncourses of action for dealing with public problems. \nPublic Policy Implementation Instrument: Technique or means for the carrying out of a policy decision. \nThis ABB is a key interoperability enabler (*) for assessing the compatibility of legal/juridical certainty in exchanged \ninformation. \n \nBased on NCPI and OECD definitions. \nhttps://web.stanford.edu/group/ncpi/unspecified/assessment_states/framework.html   \nhttps://www.oecd.org/edu/ceri/The%20Nature%20of%20Policy%20Change%20and%20Implementation.pdf    \n \n(*)DECISION (EU) 2015/2240 OF THE EUROPEAN PARLIAMENT AND OF THE COUNCIL of 25 November 2015 establishing a \nprogramme on interoperability solutions and common frameworks for European public administrations, businesses and \ncitizens (ISA2 programme) as a means for modernising the public sector.",
+                                "score": 0.33306437991776466,
+                                "page": "73",
+                                "bbox": null,
+                                "row_id": null
+                            }
+                        ]
+                    },
+                    {
+                        "id": "bfd59abb-0089-440e-a267-7f11cb1e306a",
+                        "title": "how_does_eira_support_interoperability_v1_0_0.pdf",
+                        "type": "document",
+                        "matches": [
+                            {
+                                "text": "How EIRA supports interoperability v1.0.0 \n \nFigure 1: EIF Levels of interoperability \nEach deserves special attention when a new European public service is established. The practical \nimplementation of the conceptual model for cross-border/cross-sectoral services requires each of \nthese levels to be taken into account. \n2.2.1 Legal interoperability \nEach public administration contributing to the provision of a European public service works within \nits own national legal framework. Sometimes, incompatibilities between legislation in different \nMember States make working together more complex or even impossible, even where such \nlegislation is the result of transposing European directives into national law. Legal initiatives may \nbe needed to remedy such situations. When information is exchanged between Member States to \nprovide European public services, the legal validity of such information must be maintained across \nborders and data protecti on legislation in both originating and receiving countries must be \nrespected. \nLegal interoperability covers the broader environment of laws, policies, procedures and \ncooperation agreements needed to allow the seamless exchange of information between different \norganisations, regions and countries. \n2.2.2 Organisational interoperability \nThis aspect of interoperability is concerned with how organisations, such as public administrations \nin different Member States, cooperate to achieve their mutually agreed goals. In practice, \norganisational interoperability implies integrating business processes and related data exchange. \nOrganisational interoperability also aims to meet the requirements of the user community by \nmaking services available, easily identifiable, accessible and user-focused.  \n  Page 7 of 28",
+                                "score": 0.307744350856284,
+                                "page": "7",
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "CONCLUSION ...................................................................................................................................................... 20 \nAPPENDIX \u2013 GLOSSARY ................................................................................................................................................ 21 \nAPPENDIX \u2013 EIRA VIEWS .............................................................................................................................................. 22 \nLEGAL VIEW ....................................................................................................................................................................... 22 \nORGANISATION VIEW ........................................................................................................................................................... 23 \nSEMANTIC VIEW .................................................................................................................................................................. 24 \nTECHNICAL VIEW \u2013 APPLICATION ............................................................................................................................................ 25 \nTECHNICAL VIEW \u2013 INFRASTRUCTURE ...................................................................................................................................... 26 \nINTEROPERABILITY SPECIFICATION UNDERPINNING VIEW .............................................................................................................. 27 \nAPPENDIX \u2013 REFERENCES ............................................................................................................................................. 28 \n \n \n  \n  Page 4 of 28",
+                                "score": 0.30504436331401,
+                                "page": "4",
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "--- Page 9 Visuals ---\nTo analyze the visual elements on Page 9, we focus on the **two key visual components**: a comparative matrix and a figure (interoperability exchange matrix).",
+                                "score": 0.30159624423317666,
+                                "page": null,
+                                "bbox": null,
+                                "row_id": null
+                            }
+                        ]
+                    },
+                    {
+                        "id": "8ee52099-66f5-4014-8af5-6bd9422abd1d",
+                        "title": "EIRA_use_cases.pdf",
+                        "type": "document",
+                        "matches": [
+                            {
+                                "text": "Click to edit Master title style \nDO NOT DISTRIBUTE FURTHER \nCompare solution \narchitectures use case \n15 \nBasic Flow \n\u2022 Step 1 - The user maps the SBBs of the existing solution architecture to the \nBBs of the EIRA (or to the BBs of a solution template, if available).   \n\u2022 Step 2 - The user verifies if the interoperability (and other) requirements of \nthe solutions mapped to the EIRA are satisfied by the SBBs of the existing \nsolution architecture. \n\u2022 Step 3 - If  all or a sub-set of SBBs are not fulfilling the requirements, the \nuser can decide to upgrade the existing solutions to make them compliant. \n\u2022 Step 4 \u2013 If an upgrade is not possible, the user can search for \ninteroperability solutions on the Cartography tool, and replace the existing \nsolutions with re-usable solutions. The use case \u2018search for interoperability \nsolutions\u2019 is included in this use case. \n\u2022 Step 5 - If no re-usable solutions are found, the user faces a need for \ndeveloping a new solution. The user can start a development project by \ntaking into account the interoperability (and other) requirements of \ncorresponding BB in the EIRA.  \nMotivation \n- The user has already a solution architecture in place (SBBs of the architecture are already operational in his/her \norganisation) and needs to assess and increase the interoperability maturity level. \nComments \nThis use case is relevant when a solution architecture is \nalready in place (solutions are already in production), and a \nuser faces a specific interoperability challenge that need to be \naddressed by its organisation. \n\u2022 The interoperability maturity of the solution architecture is \nassessed (per each SBB).",
+                                "score": 0.32284081099313655,
+                                "page": "15",
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "Click to edit Master title style \nDO NOT DISTRIBUTE FURTHER \nBasic Flow (continuation) \nManage portfolio use  \ncase (2/2) \nMotivation \n- Due to new circumstances (e.g. budget constraints, new interoperability needs etc.), the existing IT portfolio of the \nuser\u2019s organisation needs to be managed by adding, updating or phasing out solutions. \n \nEIRA \nCart \nDesigning \nAssessing Discovering \nand Reusing \nCommunicating \nand Sharing \n\u2022 Step 5 (update existing solutions) \u2013 The user verifies which existing \u201cnon-\ninteroperable\u201d solutions need to be updated to fulfil new interoperability \nneeds (e.g. an existing application needs now to exchange messages with \nsystems of other European countries). For each of these solutions, the \nuser estimates the effort to be compliant with the interoperability \nrequirements of the related EIRA BB: \n\u2022 Step 5.1 \u2013 If the required effort is acceptable according to the available \nbudget and resources the user launches a project to make the solution \ncompliant with the requirements. The solution is marked as \"to be \nupdated\u201c. \n\u2022 Step 5.2 \u2013 If the required effort is not acceptable \n\u2022 Step 5.2.1 - The user marks the solution as \u201cto be phased out\u201d.  \n\u2022 Step 5.2.2 - The user uses the Cartography Tool to discover and \ndownload existing solutions mapping to the same ABB of the EIRA. \nThe \u201csearch for interoperability solutions\u201d use case is included at \nthis point.  \n\u2022 Step 5.2.3 - The user adds the solution discovered at step 5.2.2. to \nthe portfolio.",
+                                "score": 0.3192799306144134,
+                                "page": "18",
+                                "bbox": null,
+                                "row_id": null
+                            },
+                            {
+                                "text": "Click to edit Master title style \nDO NOT DISTRIBUTE FURTHER 19 \nBasic Flow \n\u2022 Step 1 \u2013 The user conducts an assessment to decide which of the solutions, \nmapping to the same BB of the EIRA, need to be phased out. The \ninteroperability maturity level of the solution is included among the criteria \ntaken into account for the assessment. Other criteria, depending on the \ninternal policies of the organisation, can be added to the assessment. \n\u2022 Step 2 \u2013 The user associates a score to each solution based on the defined \ncriteria, and defines a minimum threshold that a solution needs to reach to \njustify further investments on the solution. \n\u2022 Step 3 \u2013 The user marks as \u201csuperfluous\u201d the solutions that do not reach \nthe defined threshold. \n\u2022 Step 4 -  If two or more solutions can be merged in a single solution, by \ntransferring some of the functionalities of a solution to another one, the \ninvolved solutions are marked as \u201cto be merged\u201d. \n\u2022 Step 5 \u2013 The user considers for phasing out of the portfolio the solutions \nthat are marked as \u201csuperfluous\u201d. \n \nComments \nThis use case is relevant when the user wants to rationalise \nthe portfolio of solutions of its organisation, in case that \nmultiple solutions are mapping to the same BB of the EIRA. \nThis use case is extending the \u2018manage portfolio\u2019 use case. \nOther related use cases \nRationalise portfolio use  \ncase \nMotivation \n- Multiple SBBs in the portfolio of the organisation are mapping to the same BB of the EIRA.  The user wants to reduce \nthe number of solutions in the portfolio while increasing the average interoperability maturity level of the portfolio. \n\u2022 The IT portfolio in the organisation is rationalised;  \n\u201csuperfluous\u201d and \u201cto be merged\u201d solutions are identified \nin the portfolio.",
+                                "score": 0.3092360849814028,
+                                "page": "19",
+                                "bbox": null,
+                                "row_id": null
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    },
+    "98f3add8-7b3a-481f-a3f4-57588691556a": {
+        "id": "98f3add8-7b3a-481f-a3f4-57588691556a",
+        "title": "New Conversation",
+        "created_at": "2026-01-27T14:40:03.871000",
+        "updated_at": "2026-01-27T14:40:03.871008",
+        "archived": false,
+        "messages": []
+    }
+}
