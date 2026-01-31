@@ -12,7 +12,7 @@ router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    print(f"[DEBUG-AUTH] Validating token: {token[:10]}..." if token else "[DEBUG-AUTH] No token received")
+    # print(f"[DEBUG-AUTH] Validating token: {token[:10]}..." if token else "[DEBUG-AUTH] No token received")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -20,7 +20,6 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     )
     payload = decode_access_token(token)
     if payload is None:
-        print("[DEBUG-AUTH] Token decoding failed (invalid or expired)")
         raise credentials_exception
     email: str = payload.get("sub")
     if email is None:
@@ -28,9 +27,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     token_data = TokenData(email=email)
     user = db.query(User).filter(User.email == token_data.email).first()
     if user is None:
-        print(f"[DEBUG-AUTH] User not found for email: {token_data.email}")
         raise credentials_exception
-    print(f"[DEBUG-AUTH] Authentication successful for: {user.email}")
     return user
 
 def get_current_active_user(current_user: User = Depends(get_current_user)):

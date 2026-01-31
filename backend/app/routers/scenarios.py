@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.routers.auth import get_current_user
 from app.models.user import User
 from app.models.scenario_models import Scenario
 from app.models.canvas_models import Canvas, Domain, ThingType, CanvasThing
@@ -26,6 +26,7 @@ router = APIRouter(prefix="/scenarios", tags=["scenarios"])
 # =============================================================================
 
 @router.get("/", response_model=List[ScenarioResponse])
+@router.get("", response_model=List[ScenarioResponse], include_in_schema=False)
 def list_scenarios(
     skip: int = 0,
     limit: int = 100,
@@ -37,6 +38,7 @@ def list_scenarios(
     return scenarios
 
 @router.post("/", response_model=ScenarioResponse)
+@router.post("", response_model=ScenarioResponse, include_in_schema=False)
 def create_scenario(
     scenario: ScenarioCreate,
     db: Session = Depends(get_db),

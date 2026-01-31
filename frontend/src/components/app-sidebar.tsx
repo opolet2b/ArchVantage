@@ -15,6 +15,7 @@ const navItems = [
     { href: "/workflow", icon: GitGraph, label: "Workflows" },
     { href: "/agents-tools", icon: Bot, label: "Agents and Tools" },
     { href: "/smart-analysis", icon: Brain, label: "Smart Analysis" },
+    { href: "/scenarios", icon: Layers, label: "Scenarios" },
 
     { href: "/templates", icon: FileText, label: "Templates" },
 

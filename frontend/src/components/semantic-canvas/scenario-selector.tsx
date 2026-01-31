@@ -37,14 +37,30 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
     // Fetch scenarios on open
     React.useEffect(() => {
         if (open) {
-            setLoading(true);
+            // Check auth
             const token = localStorage.getItem("token");
+            if (!token) {
+                // Optionally redirect or show error state
+                setLoading(false);
+                return;
+            }
+
+            setLoading(true);
             fetch(`${API_URL}/scenarios/`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
-                .then(res => res.json())
+                .then(async res => {
+                    if (res.status === 401) throw new Error("Unauthorized");
+                    if (!res.ok) throw new Error("Failed to load");
+                    return res.json();
+                })
                 .then(data => {
-                    setScenarios(data);
+                    if (Array.isArray(data)) {
+                        setScenarios(data);
+                    } else {
+                        console.error("Scenarios API returned non-array:", data);
+                        setScenarios([]);
+                    }
                     setLoading(false);
                 })
                 .catch(err => {
@@ -88,7 +104,7 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                         <Loader2 className="animate-spin text-muted-foreground" />
                                     </div>
                                 )}
-                                {!loading && scenarios.map(scenario => (
+                                {!loading && Array.isArray(scenarios) && scenarios.map(scenario => (
                                     <div
                                         key={scenario.id}
                                         className={`

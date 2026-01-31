@@ -424,3 +424,6 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
     );
 });
 
+export { DomainNode };
+
+

@@ -9,7 +9,7 @@ PASSWORD = "admin123"
 def login():
     print(f"Logging in as {ADMIN_EMAIL}...")
     try:
-        resp = requests.post("http://localhost:8000/api/v1/auth/access-token", data={
+        resp = requests.post("http://localhost:8000/api/v1/auth/token", data={
             "username": ADMIN_EMAIL,
             "password": PASSWORD
         })
