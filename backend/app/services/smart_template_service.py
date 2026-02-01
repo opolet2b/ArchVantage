@@ -203,6 +203,197 @@ class SmartTemplateService:
             print(f"[SmartTemplate] Refinement failed: {e}")
             return content # Return original if failure
 
+    def _extract_sections(self, document: str) -> list:
+        """
+        Extract sections from a markdown document.
+        Returns list of dicts with title, content, start_line, end_line.
+        """
+        import re
+        
+        sections = []
+        lines = document.split('\n')
+        current_section = None
+        current_start = 0
+        current_content_lines = []
+        
+        for i, line in enumerate(lines):
+            # Match ## or ### headers (section headers)
+            header_match = re.match(r'^(#{2,3})\s+(.+)$', line)
+            
+            if header_match:
+                # Save previous section if exists
+                if current_section:
+                    sections.append({
+                        'title': current_section,
+                        'content': '\n'.join(current_content_lines).strip(),
+                        'start_line': current_start,
+                        'end_line': i - 1,
+                        'level': len(current_section_level)
+                    })
+                
+                # Start new section
+                current_section_level = header_match.group(1)
+                current_section = header_match.group(2)
+                current_start = i
+                current_content_lines = []
+            elif current_section:
+                current_content_lines.append(line)
+        
+        # Don't forget the last section
+        if current_section:
+            sections.append({
+                'title': current_section,
+                'content': '\n'.join(current_content_lines).strip(),
+                'start_line': current_start,
+                'end_line': len(lines) - 1,
+                'level': len(current_section_level) if 'current_section_level' in dir() else 2
+            })
+        
+        return sections
+
+    async def _review_section(
+        self, 
+        section: dict, 
+        document_purpose: str, 
+        model: str = "gpt-4o"
+    ) -> dict:
+        """
+        Review a single section for quality.
+        Returns dict with section info, score, feedback, and pass/fail status.
+        """
+        system_prompt = (
+            "You are a Section Quality Auditor.\n\n"
+            "Evaluate this section's QUALITY on a 0-100 scale:\n"
+            "- Does the content serve its purpose?\n"
+            "- Is the writing clear and accurate?\n"
+            "- Is it well-structured?\n\n"
+            "Return ONLY a valid JSON object:\n"
+            "{\n"
+            "  \"score\": <0-100>,\n"
+            '  \"feedback\": "<concise improvement suggestions>",\n'
+            '  \"issues\": ["<issue1>", "<issue2>"]\n'
+            "}\n\n"
+            "If the section is good, score 80+ and minimal issues."
+        )
+        
+        user_prompt = (
+            f"DOCUMENT PURPOSE: {document_purpose}\n"
+            f"SECTION TITLE: {section['title']}\n\n"
+            f"SECTION CONTENT:\n{section['content'][:5000]}\n\n"
+            "Evaluate this section. Return ONLY the JSON."
+        )
+        
+        try:
+            response = await llm_service.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=0.1,
+                max_tokens=500
+            )
+            
+            # Parse response
+            import json
+            import re
+            
+            # Clean response
+            clean = response.strip()
+            if clean.startswith("```"):
+                clean = re.sub(r'^```(?:json)?\s*', '', clean)
+                clean = re.sub(r'```\s*$', '', clean)
+            
+            data = json.loads(clean)
+            
+            return {
+                'title': section['title'],
+                'content': section['content'],
+                'start_line': section['start_line'],
+                'end_line': section['end_line'],
+                'score': data.get('score', 0),
+                'feedback': data.get('feedback', ''),
+                'issues': data.get('issues', []),
+                'status': 'pass' if data.get('score', 0) >= 70 else 'needs_refinement'
+            }
+            
+        except Exception as e:
+            print(f"[SmartTemplate] Section review failed for '{section['title']}': {e}")
+            return {
+                'title': section['title'],
+                'content': section['content'],
+                'start_line': section['start_line'],
+                'end_line': section['end_line'],
+                'score': 50,  # Default middle score
+                'feedback': f'Review failed: {e}',
+                'issues': [],
+                'status': 'error'
+            }
+
+    async def _refine_section(
+        self, 
+        section: dict, 
+        document_purpose: str, 
+        model: str = "gpt-4o"
+    ) -> str:
+        """
+        Refine a single section based on feedback.
+        Returns the new section content (without the header).
+        """
+        system_prompt = (
+            "You are a Section Editor.\n\n"
+            "Rewrite ONLY this section's content to address the feedback.\n"
+            "IMPORTANT:\n"
+            "- Keep the same general structure and topic\n"
+            "- Address all issues mentioned in feedback\n"
+            "- Return ONLY the new section content (NOT the header)\n"
+            "- Maintain professional writing quality"
+        )
+        
+        user_prompt = (
+            f"DOCUMENT PURPOSE: {document_purpose}\n"
+            f"SECTION TITLE: {section['title']}\n"
+            f"QUALITY SCORE: {section['score']}/100\n"
+            f"FEEDBACK: {section['feedback']}\n"
+            f"ISSUES: {', '.join(section.get('issues', []))}\n\n"
+            f"CURRENT CONTENT:\n{section['content']}\n\n"
+            "Rewrite this section to fix the issues. Return ONLY the new content."
+        )
+        
+        try:
+            response = await llm_service.chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=model,
+                temperature=0.3,
+                max_tokens=2000
+            )
+            return response.strip()
+        except Exception as e:
+            print(f"[SmartTemplate] Section refinement failed for '{section['title']}': {e}")
+            return section['content']  # Return original on failure
+
+    def _replace_section_in_document(self, document: str, section: dict, new_content: str) -> str:
+        """
+        Replace a section's content in the document while preserving the header.
+        Uses regex-based matching instead of line numbers to avoid shifting issues.
+        """
+        import re
+        
+        # Escape the section title for regex
+        escaped_title = re.escape(section['title'])
+        
+        # Build pattern to match the header and its content up to the next header or EOF
+        # The header level can be ## or ###
+        pattern = rf'(^#{2,3}\s+{escaped_title}\s*?\n)(.*?)(?=^#{2,3}\s+|\Z)'
+        
+        def replace_match(match):
+            header = match.group(1)  # Keep the original header
+            return header + new_content + '\n\n'
+        
+        # Replace with MULTILINE and DOTALL flags
+        result = re.sub(pattern, replace_match, document, count=1, flags=re.MULTILINE | re.DOTALL)
+        
+        return result
+
     async def _resolve_thing_content(self, db: Session, thing: CanvasThing, fragment: Optional[AssetRef] = None) -> str:
         """
         Resolves the text content of a Thing for analysis.
@@ -1430,108 +1621,113 @@ class SmartTemplateService:
                     except Exception as e:
                         print(f"[SmartTemplate] DEBUG: Failed to save initial doc: {e}")
                     
-                    # --- ITERATIVE REFINEMENT ENGINE ---
-                    # DISABLED: Iterative refinement causes blocking without proper streaming feedback
-                    # TODO: Re-enable with proper async streaming support
-                    if False and min_q > 0 and final_document:  # Disabled for now
-                        print(f"[SmartTemplate] SKIPPING Iterative Loop (disabled). Target was: {min_q}%, Max: {max_iter}")
-                        yield {"type": "log", "content": "Iterative refinement disabled - using initial generation"}
+                    # --- SECTION-LEVEL ITERATIVE REFINEMENT ENGINE ---
+                    # Reviews each section independently and refines only weak sections
+                    if min_q > 0 and final_document and max_iter > 0:
+                        print(f"[SmartTemplate] Starting Section-Level Refinement. Target: {min_q}%, Max Iterations: {max_iter}")
+                        yield {"type": "log", "content": f"Starting Section Review (Target: {min_q}%)"}
+                        
                         candidate_content = final_document
                         
-                        # print(f"[SmartTemplate] Starting Iterative Loop. Target: {min_q}%, Max: {max_iter}")
-                        # yield {"type": "log", "content": f"Starting Review Cycles (Target Quality: {min_q}%, Max Cycles: {max_iter})"}
-                        
-                        current_q = 0
-                        iteration = 0
-                        score = 0
-                        iterative_steps = []
-                        
-                        while iteration < max_iter:
-                            iteration += 1
+                        for iteration in range(1, max_iter + 1):
+                            yield {"type": "node_start", "data": {"node": {"id": "section_review", "label": f"Section Review Cycle {iteration}/{max_iter}"}}}
+                            print(f"[SmartTemplate] Section Review Cycle {iteration}")
                             
-                            yield {"type": "node_start", "data": {"node": {"id": "review_step", "label": f"Review Cycle {iteration}/{max_iter}"}}}
+                            # Extract sections from document
+                            sections = self._extract_sections(candidate_content)
                             
-                            # Update UI Status
-                            if things:
+                            if not sections:
+                                print(f"[SmartTemplate] No sections found in document")
+                                yield {"type": "log", "content": "No sections found - skipping refinement"}
+                                break
+                            
+                            yield {"type": "log", "content": f"Cycle {iteration}: Found {len(sections)} sections"}
+                            
+                            # Review each section
+                            section_results = []
+                            weak_sections = []
+                            
+                            for section in sections:
+                                yield {"type": "log", "content": f"Reviewing: {section['title'][:40]}..."}
+                                
                                 try:
-                                    t_upd = things[0]
-                                    if t_upd.content:
-                                        c = dict(t_upd.content)
-                                        c["processing_status"] = f"Cycle {iteration}: Auditing Draft..."
-                                        t_upd.content = c
-                                        db.add(t_upd)
-                                        db.commit()
-                                except Exception: pass
-                            
-                            # Audit with Keep-Alive
-                            try:
-                                import asyncio
-                                audit_task = asyncio.create_task(
-                                    self._review_document(
-                                        candidate_content, 
-                                        template_purpose, 
-                                        request.model, 
-                                        level_of_detail=level_of_detail, 
-                                        cycle_index=iteration
+                                    import asyncio
+                                    review_task = asyncio.create_task(
+                                        self._review_section(section, template_purpose, request.model)
                                     )
-                                )
-                                
-                                while not audit_task.done():
-                                    done, _ = await asyncio.wait([audit_task], timeout=5.0)
-                                    if audit_task in done: break
-                                    yield {"type": "log", "content": f"Auditing Document (Cycle {iteration})..."}
-                                
-                                score, feedback, metrics = await audit_task
-                            except Exception as audit_err:
-                                print(f"[SmartTemplate] Audit Interrupted/Failed: {audit_err}")
-                                yield {"type": "log", "content": f"Audit interrupted: {audit_err}. Stopping loop."}
+                                    
+                                    # Heartbeat while reviewing
+                                    while not review_task.done():
+                                        done, _ = await asyncio.wait([review_task], timeout=5.0)
+                                        if review_task in done:
+                                            break
+                                    
+                                    result = await review_task
+                                    section_results.append(result)
+                                    
+                                    # Log per-section score
+                                    status_icon = "✓" if result['score'] >= min_q else "✗"
+                                    yield {
+                                        "type": "section_score",
+                                        "section": result['title'],
+                                        "score": result['score'],
+                                        "status": result['status']
+                                    }
+                                    yield {"type": "log", "content": f"  {status_icon} {result['title'][:30]}: {result['score']}/100"}
+                                    
+                                    if result['score'] < min_q:
+                                        weak_sections.append(result)
+                                        
+                                except Exception as e:
+                                    print(f"[SmartTemplate] Section review failed: {e}")
+                                    continue
+                            
+                            # Calculate overall score
+                            avg_score = sum(r['score'] for r in section_results) / len(section_results) if section_results else 0
+                            print(f"[SmartTemplate] Cycle {iteration}: {len(weak_sections)} weak sections, avg score {avg_score:.0f}")
+                            
+                            yield {"type": "log", "content": f"Average Score: {avg_score:.0f}/100 ({len(weak_sections)} sections need work)"}
+                            
+                            # Check if all sections pass
+                            if not weak_sections:
+                                yield {"type": "log", "content": "✓ All sections meet quality target!"}
                                 break
                             
-                            print(f"[SmartTemplate] Cycle {iteration}: Score {score}")
-                            yield {"type": "log", "content": f"Review Cycle {iteration}: Quality Score {score}/100"}
+                            # Refine weak sections
+                            yield {"type": "log", "content": f"Refining {len(weak_sections)} weak sections..."}
                             
-                            if score >= min_q:
-                                yield {"type": "log", "content": "Quality Target Met. Finalizing..."}
-                                break
-                            
-                            # Refine the document
-                            if things:
+                            for weak in weak_sections:
+                                yield {"type": "refining_section", "section": weak['title'], "iteration": iteration}
+                                yield {"type": "log", "content": f"Refining: {weak['title'][:40]}..."}
+                                
                                 try:
-                                    t_upd = things[0]
-                                    if t_upd.content:
-                                        c = dict(t_upd.content)
-                                        c["processing_status"] = f"Cycle {iteration}: Refining Content..."
-                                        t_upd.content = c
-                                        db.add(t_upd)
-                                        db.commit()
-                                except Exception: pass
-                            
-                            try:
-                                refine_task = asyncio.create_task(
-                                    self._refine_document(
-                                        candidate_content, 
-                                        feedback, 
-                                        template_purpose, 
-                                        request.model, 
-                                        level_of_detail=level_of_detail
+                                    refine_task = asyncio.create_task(
+                                        self._refine_section(weak, template_purpose, request.model)
                                     )
-                                )
-                                
-                                while not refine_task.done():
-                                    done, _ = await asyncio.wait([refine_task], timeout=5.0)
-                                    if refine_task in done: break
-                                    yield {"type": "log", "content": f"Refining Document (Cycle {iteration})..."}
-                                
-                                candidate_content = await refine_task
-                            except Exception as refine_err:
-                                print(f"[SmartTemplate] Refine Failed: {refine_err}")
-                                yield {"type": "log", "content": f"Refinement failed: {refine_err}. Using current version."}
-                                break
+                                    
+                                    while not refine_task.done():
+                                        done, _ = await asyncio.wait([refine_task], timeout=5.0)
+                                        if refine_task in done:
+                                            break
+                                        yield {"type": "log", "content": f"  Still refining {weak['title'][:30]}..."}
+                                    
+                                    new_content = await refine_task
+                                    
+                                    # Replace section in document
+                                    candidate_content = self._replace_section_in_document(
+                                        candidate_content, weak, new_content
+                                    )
+                                    yield {"type": "log", "content": f"  ✓ Refined: {weak['title'][:40]}"}
+                                    
+                                except Exception as e:
+                                    print(f"[SmartTemplate] Section refine failed: {e}")
+                                    yield {"type": "log", "content": f"  ✗ Failed to refine: {weak['title'][:30]}"}
                             
-                            yield {"type": "node_end", "data": {"node": {"id": "review_step", "label": f"Review Cycle {iteration}/{max_iter}"}}}
+                            yield {"type": "node_end", "data": {"node": {"id": "section_review", "label": f"Section Review Cycle {iteration}/{max_iter}"}}}
                         
                         # Use refined content
                         final_document = candidate_content
+                        yield {"type": "log", "content": "Section-level refinement complete"}
                     
                     # --- PERSIST RESULT ---
                     # Update source thing status
