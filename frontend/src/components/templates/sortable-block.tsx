@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PromptOptimizerDialog } from "./prompt-optimizer-dialog";
+import { ConditionBuilder } from "./condition-builder";
 import { cn } from "@/lib/utils";
 import {
     GripVertical,
@@ -252,15 +253,11 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                             </div>
                         )}
                         {block.type === "if" && (
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm px-2">Condition:</span>
-                                <Input
-                                    value={block.content}
-                                    className="h-8 flex-1 font-mono"
-                                    onChange={(e) => onUpdate(block.id, { content: e.target.value })}
-                                    placeholder="e.g. Data Available"
-                                />
-                            </div>
+                            <ConditionBuilder
+                                value={block.content || ""}
+                                onChange={(condition) => onUpdate(block.id, { content: condition })}
+                                compact={true}
+                            />
                         )}
                         {block.type === "text" && (
                             <span className="text-xs text-muted-foreground italic">Raw Text</span>

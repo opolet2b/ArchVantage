@@ -767,35 +767,40 @@ class SmartTemplateService:
                     print(f"[ContentResolution] Asset path resolution error: {e}")
 
             # 1. Try RAG First (Vectorized Content)
-            # CAUTION: We ONLY use RAG if we have a semantic query. 
-            # If query is empty (""), LlamaIndex logic is undefined/random for "retrieve" 
-            # and often returns irrelevant chunks or nothing.
-            # We skip RAG for content resolution (which implies "get everything") and fallback to Direct Read.
+            # Use direct ChromaDB query to retrieve ALL chunks for this source
+            # This is more reliable than semantic search with an empty query
             try:
-                # Query param not currently passed to this function, it defaults to ""
-                query_context = "" 
-                
-                if file_path and query_context:
-                    print(f"[ContentResolution] Attempting RAG Search. Filter source='{file_path}'")
-                    # Use exact source filter to match ingestion metadata
-                    rag_results = rag_service.search(
-                        query=query_context, 
-                        k=100, 
-                        filters={"source": file_path}
-                    )
+                if file_path:
+                    print(f"[ContentResolution] Attempting RAG retrieval for source='{file_path}'")
                     
-                    if rag_results:
-                        texts = [r["text"] for r in rag_results if r.get("text")]
-                        if texts:
-                            print(f"[ContentResolution] RAG Hit! Retrieved {len(texts)} chunks.")
-                            print(f"[ContentResolution] Sample RAG content: {texts[0][:100]}...")
-                            return "\n\n...[Vectorized Content Chunk]...\n\n".join(texts)
-                        else:
-                             print(f"[ContentResolution] RAG results contained no text fields.")
+                    from app.services.rag_service import rag_service
                     
-                    print("[ContentResolution] RAG Index returned NO results for this file.")
+                    # Ensure RAG is initialized
+                    if rag_service._initialized and rag_service.chroma_collection:
+                        # Query ChromaDB directly for all chunks matching this source
+                        # Use 'source' metadata field that was set during ingestion
+                        try:
+                            results = rag_service.chroma_collection.get(
+                                where={"source": file_path},
+                                include=["documents", "metadatas"]
+                            )
+                            
+                            if results and results.get("documents") and len(results["documents"]) > 0:
+                                documents = results["documents"]
+                                print(f"[ContentResolution] RAG Hit! Retrieved {len(documents)} chunks from vector store.")
+                                
+                                # Reconstruct document from chunks (they should be in order)
+                                full_text = "\n\n".join(documents)
+                                print(f"[ContentResolution] Reconstructed {len(full_text)} chars from RAG chunks.")
+                                return full_text
+                            else:
+                                print(f"[ContentResolution] No RAG chunks found for source: {file_path}")
+                        except Exception as chroma_err:
+                            print(f"[ContentResolution] ChromaDB query error: {chroma_err}")
+                    else:
+                        print("[ContentResolution] RAG service not initialized, skipping.")
                 else:
-                    print("[ContentResolution] Skipping RAG: Query is empty (Full Content Resolution Mode).")
+                    print("[ContentResolution] No file_path for RAG lookup.")
                     
             except Exception as e:
                 print(f"[ContentResolution] RAG search exception: {e}")
