@@ -1621,11 +1621,15 @@ class SmartTemplateService:
                     except Exception as e:
                         print(f"[SmartTemplate] DEBUG: Failed to save initial doc: {e}")
                     
+                    # --- Collect process log for Agent Analysis display ---
+                    process_log = [f"## Template: {template.name}", f"Generated document with {len(final_document)} characters."]
+                    
                     # --- SECTION-LEVEL ITERATIVE REFINEMENT ENGINE ---
                     # Reviews each section independently and refines only weak sections
                     if min_q > 0 and final_document and max_iter > 0:
                         print(f"[SmartTemplate] Starting Section-Level Refinement. Target: {min_q}%, Max Iterations: {max_iter}")
                         yield {"type": "log", "content": f"Starting Section Review (Target: {min_q}%)"}
+                        process_log.append(f"\n### Section-Level Review (Target: {min_q}%)")
                         
                         candidate_content = final_document
                         
@@ -1674,6 +1678,7 @@ class SmartTemplateService:
                                         "status": result['status']
                                     }
                                     yield {"type": "log", "content": f"  {status_icon} {result['title'][:30]}: {result['score']}/100"}
+                                    process_log.append(f"- {status_icon} **{result['title']}**: {result['score']}/100")
                                     
                                     if result['score'] < min_q:
                                         weak_sections.append(result)
@@ -1691,6 +1696,7 @@ class SmartTemplateService:
                             # Check if all sections pass
                             if not weak_sections:
                                 yield {"type": "log", "content": "✓ All sections meet quality target!"}
+                                process_log.append(f"\n✓ All sections meet quality target!")
                                 break
                             
                             # Refine weak sections
@@ -1718,6 +1724,7 @@ class SmartTemplateService:
                                         candidate_content, weak, new_content
                                     )
                                     yield {"type": "log", "content": f"  ✓ Refined: {weak['title'][:40]}"}
+                                    process_log.append(f"  - Refined: {weak['title']}")
                                     
                                 except Exception as e:
                                     print(f"[SmartTemplate] Section refine failed: {e}")
@@ -1728,6 +1735,7 @@ class SmartTemplateService:
                         # Use refined content
                         final_document = candidate_content
                         yield {"type": "log", "content": "Section-level refinement complete"}
+                        process_log.append(f"\n---\nRefinement complete.")
                     
                     # --- PERSIST RESULT ---
                     # Update source thing status
@@ -1773,7 +1781,8 @@ class SmartTemplateService:
                                 "content": final_document,  # 'content' key for documents
                                 "format": "markdown",
                                 "generated_from": template.name,
-                                "source_thing_id": source_thing.id if source_thing else None
+                                "source_thing_id": source_thing.id if source_thing else None,
+                                "agent_analysis": "\n".join(process_log) if process_log else None  # For Bot icon display
                             },
                             position_x=new_x,
                             position_y=new_y,
