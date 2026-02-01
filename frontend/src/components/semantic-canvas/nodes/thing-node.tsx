@@ -1747,6 +1747,21 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     );
                 }
 
+                // Generated markdown documents (from Document Templates)
+                if (content.format === "markdown" && textContent) {
+                    return (
+                        <SelectableContent thingId={thing.id}>
+                            <MarkdownViewer
+                                content={textContent}
+                                className="h-full overflow-y-auto px-4 prose prose-sm dark:prose-invert max-w-none"
+                                ancestorIds={[thing.id]}
+                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                selectionEnabled={true}
+                            />
+                        </SelectableContent>
+                    );
+                }
+
                 // Default: plain text viewer
                 return (
                     <SelectableContent thingId={thing.id}>

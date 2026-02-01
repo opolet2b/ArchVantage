@@ -25,51 +25,69 @@ class SmartTemplateService:
     async def _review_document(self, content: str, purpose: str, model: str = "gpt-4o", level_of_detail: str = "medium", cycle_index: int = 1) -> tuple[int, str, dict]:
         """
         Phase 2: Auditor/Reviewer.
-        Checks the draft against Purpose and Level of Detail (LoD) requirements.
-        Uses Cycle-Aware logic:
-          - Cycle 1: Structural Check (Headers, Outline, Purpose)
-          - Mid Cycle: Expansion Check (Length vs LoD target)
-          - Final Cycle: Polish Check (Tone, Clarity)
-        """
-        lod_instructions = {
-            "low": "TARGET: Concise, bullet-point summaries. Short paragraphs. No fluff.",
-            "medium": "TARGET: Standard report depth. Balanced sections. 1-2 paragraphs per point.",
-            "high": "TARGET: Comprehensive Deep-Dive. Extensive details, examples, and long-form analysis."
-        }
-        target_instr = lod_instructions.get(level_of_detail, lod_instructions["medium"])
         
-        # Cycle-Specific Focus
+        Checks the draft against QUALITY metrics:
+        - Accuracy: Does content match the instructions?
+        - Reasoning: Is the logic sound and well-structured?
+        - Relevance: Does content serve the stated purpose?
+        - Clarity: Is the writing clear and professional?
+        
+        NOTE: Level of Details is a FORMAT constraint, NOT a quality metric.
+        The auditor should NOT penalize for length - only for quality issues.
+        """
+        # Level of Details is INFORMATIONAL only - tells auditor what format was requested
+        lod_descriptions = {
+            "brief": "Brief format: bullet points and short paragraphs were requested.",
+            "standard": "Standard format: balanced sections with moderate detail were requested.",
+            "detailed": "Detailed format: comprehensive explanations with examples were requested."
+        }
+        lod_info = lod_descriptions.get(level_of_detail, lod_descriptions["standard"])
+        
+        # Cycle-Specific Focus (but NOT length-based)
         cycle_focus = ""
         if cycle_index == 1:
-            cycle_focus = "FOCUS: STRUCTURE Only. Ignore length. Check if Section Headers match logic and Purpose is clear."
-        elif cycle_index > 1:
             cycle_focus = (
-                f"FOCUS: DEPTH & LENGTH. compare content against {target_instr}. "
-                "If too short for target, demand EXPANSION. If too long for target, demand CONDENSING."
+                "FOCUS THIS CYCLE: Structure and Purpose alignment. "
+                "Check if section headers are logical and content serves the purpose."
+            )
+        else:
+            cycle_focus = (
+                "FOCUS THIS CYCLE: Content Quality and Accuracy. "
+                "Check if arguments are sound, facts are accurate, and writing is clear."
             )
         
         system_prompt = (
-            "You are an expert Document Auditor.\n"
-            f"{target_instr}\n"
-            f"{cycle_focus}\n"
-            "Evaluate the draft against these specific targets.\n"
-            "You must return a valid JSON object. Do not include markdown formatting.\n"
-            "JSON Structure:\n"
+            "You are an expert Document Quality Auditor.\n\n"
+            "IMPORTANT: You are evaluating QUALITY, not FORMAT.\n"
+            f"{lod_info}\n"
+            f"{cycle_focus}\n\n"
+            "QUALITY METRICS (what you should score):\n"
+            "1. purpose_match: Does the content fulfill the stated purpose? (0-100)\n"
+            "2. instruction_match: Does the content follow the template instructions? (0-100)\n"
+            "3. accuracy: Are facts, logic, and reasoning sound? (0-100)\n"
+            "4. clarity: Is the writing clear, professional, and well-organized? (0-100)\n\n"
+            "DO NOT penalize based on length or format - that was the user's choice.\n"
+            "ONLY penalize for actual quality issues:\n"
+            "- Missing required content\n"
+            "- Factual errors or poor reasoning\n"
+            "- Unclear or confusing writing\n"
+            "- Content that doesn't match the stated purpose\n\n"
+            "Return ONLY a valid JSON object (no markdown):\n"
             "{\n"
             "  \"metrics\": {\n"
             "    \"purpose_match\": <0-100>,\n"
             "    \"instruction_match\": <0-100>,\n"
-            "    \"structure_match\": <0-100>,\n"
-            "    \"styling_match\": <0-100>\n"
+            "    \"accuracy\": <0-100>,\n"
+            "    \"clarity\": <0-100>\n"
             "  },\n"
             "  \"score\": <overall weighted score 0-100>,\n"
             "  \"feedback\": \"<concise markdown bullet points>\",\n"
-            "  \"critical_issues\": [\"<short failure reason>\"]\n"
-            "}\n"
+            "  \"issues\": [\"<specific issue to fix>\"]\n"
+            "}\n\n"
             "Constraints:\n"
-            "- Feedback must be actionable instructions for the Editor.\n"
-            "- If Structure is wrong (Cycle 1), Score < 60.\n"
-            "- If Depth is wrong (Mid Cycle), Score < 70.\n"
+            "- Feedback must be actionable for the editor.\n"
+            "- Only list issues that genuinely reduce quality.\n"
+            "- A well-written brief document can score 100.\n"
             "- Return ONLY the JSON object."
         )
         
@@ -78,10 +96,10 @@ class SmartTemplateService:
         
         user_prompt = (
             f"DOCUMENT PURPOSE: {purpose}\n"
-            f"TARGET LO_D: {level_of_detail.upper()}\n"
-            f"CYCLE: {cycle_index}\n\n"
-            f"DRAFT CONTENT:\n{safe_content}\n\n"
-            "Evaluate this document. Return ONLY the JSON."
+            f"FORMAT REQUESTED: {level_of_detail.upper()} (do NOT score based on this)\n"
+            f"REVIEW CYCLE: {cycle_index}\n\n"
+            f"DOCUMENT CONTENT:\n{safe_content}\n\n"
+            "Evaluate this document's QUALITY. Return ONLY the JSON."
         )
 
         try:
@@ -115,11 +133,12 @@ class SmartTemplateService:
                     print("[SmartTemplate] JSON Recovery failed. Using fallback.")
                     return 50, f"Auditor Output Parse Error. Raw: {cleaned[:500]}...", {}
 
+            # Extract metrics (updated keys)
             metrics = data.get("metrics", {
                 "purpose_match": data.get("score", 0),
                 "instruction_match": data.get("score", 0),
-                "structure_match": data.get("score", 0),
-                "styling_match": data.get("score", 0)
+                "accuracy": data.get("score", 0),
+                "clarity": data.get("score", 0)
             })
             
             return data.get("score", 0), data.get("feedback", "No feedback provided."), metrics
@@ -155,10 +174,13 @@ class SmartTemplateService:
             f"{target_instr}\n"
             f"{cycle_action}\n"
             "Task: Rewrite the document to address the Audit Feedback AND move towards the Target LoD.\n"
-            "Constraints:\n"
-            "1. Maintain Markdown structure exactly.\n"
-            "2. Address every bullet point in feedback.\n"
-            "3. Return ONLY the full rewritten document."
+            "CRITICAL CONSTRAINTS:\n"
+            "1. PRESERVE EXACT SECTION ORDER - DO NOT reorder, merge, or split sections.\n"
+            "2. PRESERVE EXACT SECTION HEADERS - Keep all ## and ### headers exactly as they appear.\n"
+            "3. DO NOT add new sections or remove existing sections.\n"
+            "4. Only modify the CONTENT within each section, never the structure.\n"
+            "5. Address every bullet point in feedback.\n"
+            "6. Return ONLY the full rewritten document."
         )
         
         user_prompt = (
@@ -1305,58 +1327,348 @@ class SmartTemplateService:
         # 4. Execute
         pipeline_config_to_use = template.pipeline_config
         
-        # --- DEEP ANALYSIS INTEGRATION ---
+        # --- DOCUMENT TEMPLATE EXECUTION (Deterministic Processing) ---
         if template.document_template_id:
-            print(f"[SmartTemplate] Deep Analysis Mode Detected (DocTemplateID: {template.document_template_id})")
-            from app.services.template_service import template_service
+            print(f"[SmartTemplate] Document Template Mode (DocTemplateID: {template.document_template_id})")
+            from app.services.document_template_service import document_template_service
             from app.models.template import Template as DocTemplate
             
             # 1. Fetch Document Template
             doc_template = db.query(DocTemplate).filter(DocTemplate.id == template.document_template_id).first()
-            if doc_template:
-                # 2. Parse & Validate
-                from app.services.template_parser import template_parser
-                # Use synchronous validate for now or assume content is valid if saved
-                # In a real async flow, we might want to run ai_validate here or during template save.
+            if doc_template and doc_template.structure:
+                structure = doc_template.structure
                 
-                # 3. Construct Deep Analysis Graph
-                print(f"[SmartTemplate] Building Dynamic Deep Analysis Pipeline...")
+                print(f"[SmartTemplate] Executing deterministic template processing...")
+                print(f"[SmartTemplate] Blocks: {len(structure.get('blocks', []))}")
                 
-                # PRIORITIZE: JSON Structure Blocks (Source of Truth from Structure Builder)
-                blueprint = None
-                if doc_template.structure and isinstance(doc_template.structure, dict):
-                    blocks = doc_template.structure.get("blocks", [])
-                    if blocks:
-                        print(f"[SmartTemplate] Using JSON Structure Blocks ({len(blocks)} top-level blocks)")
-                        blueprint = template_parser.parse_json_structure(blocks)
+                # 2. Build context for template execution
+                doc_context = {
+                    **inputs,
+                    "combined_context": combined_context,
+                    "entities": entities_data,
+                    "_model": request.model,
+                }
                 
-                # FALLBACK: Parse legacy markdown content
-                if not blueprint or not blueprint.sections:
-                    print("[SmartTemplate] Falling back to markdown content parsing")
-                    blueprint = template_parser.parse(doc_template.content or "")
+                # 3. Extract execution config
+                exec_config = structure.get("execution_config", {})
+                template_purpose = structure.get("purpose", "")
+                max_iter = int(exec_config.get("max_iterations", 1))
+                min_q = int(exec_config.get("min_quality", 0))
+                level_of_detail = exec_config.get("level_of_detail", "standard")
                 
-                if not blueprint or not blueprint.sections:
-                     blueprint = template_parser.parse(template.content)
-                     
-                # --- DEBUG DUMP ---
-                print(f"[SmartTemplate] BLUEPRINT DUMP for '{template.name}':")
-                for s_idx, sec in enumerate(blueprint.sections):
-                    print(f"  Section {s_idx}: {sec.title} (Instr Count: {len(sec.instructions)})")
-                    for i_idx, instr in enumerate(sec.instructions):
-                        print(f"    - Instr {i_idx}: {instr.text[:50]}...")
-                # ------------------
+                # 4. Execute deterministic template processing
+                yield {"type": "log", "content": f"Processing Document Template: {doc_template.name}"}
+                yield {"type": "node_start", "data": {"node": {"id": "doc_template", "label": "Generating Document Content"}}}
                 
-                nodes = []              # Build the Dynamic Graph
-                # Extract purpose for context
-                context_purpose = ""
-                if doc_template.structure and isinstance(doc_template.structure, dict):
-                    context_purpose = doc_template.structure.get("purpose", "")
-
-                pipeline_config_to_use = self._construct_dynamic_graph(blueprint, template, context_purpose=context_purpose)
-                print(f"[SmartTemplate] Dynamic Pipeline Configured: Nodes={len(pipeline_config_to_use.get('nodes',[]))}")
-
+                try:
+                    # Execute with progress updates via queue
+                    import asyncio
+                    
+                    # Progress queue to receive section names from callback
+                    progress_queue: asyncio.Queue = asyncio.Queue()
+                    current_section = "Initializing..."
+                    
+                    # Callback to put section names in queue
+                    async def progress_callback(section_title: str):
+                        await progress_queue.put(section_title)
+                    
+                    # Create task for document generation with callback
+                    gen_task = asyncio.create_task(
+                        document_template_service.execute(
+                            structure=structure,
+                            context=doc_context,
+                            execution_config=exec_config,
+                            progress_callback=progress_callback
+                        )
+                    )
+                    
+                    # Progress loop - yield section updates and heartbeats
+                    heartbeat_count = 0
+                    while not gen_task.done():
+                        # Wait for either: task done, queue item, or timeout
+                        try:
+                            # Check for new section (non-blocking with short timeout)
+                            section = await asyncio.wait_for(
+                                progress_queue.get(), timeout=0.1
+                            )
+                            current_section = section
+                            yield {"type": "log", "content": f"Processing: {current_section}"}
+                            print(f"[SmartTemplate] Processing section: {current_section}")
+                        except asyncio.TimeoutError:
+                            pass
+                        
+                        # Heartbeat every 5 seconds
+                        heartbeat_count += 1
+                        if heartbeat_count % 50 == 0:  # Every 5 seconds (50 * 0.1s)
+                            elapsed = heartbeat_count // 10
+                            yield {"type": "log", "content": f"Processing: {current_section} ({elapsed}s)"}
+                    
+                    # Get result
+                    final_document, execution_log = await gen_task
+                    
+                    print(f"[SmartTemplate] Document generated: {len(final_document)} chars")
+                    yield {"type": "log", "content": f"Document generated ({len(final_document)} characters)"}
+                    yield {"type": "node_end", "data": {"node": {"id": "doc_template", "label": "Generating Document Content"}}}
+                    
+                    # --- Save debug output ---
+                    try:
+                        debug_dir = "C:/Users/opole/Downloads/ChatBotn/backend/debug_docs"
+                        import os
+                        os.makedirs(debug_dir, exist_ok=True)
+                        with open(f"{debug_dir}/00_INITIAL_DOCUMENT.md", "w", encoding="utf-8") as f:
+                            f.write(f"# INITIAL DOCUMENT (Deterministic Processing)\n")
+                            f.write(f"# Template: {template.name}\n")
+                            f.write(f"# Length: {len(final_document)} chars\n")
+                            f.write(f"# Timestamp: {datetime.utcnow()}\n\n")
+                            f.write("---\n\n")
+                            f.write(final_document)
+                    except Exception as e:
+                        print(f"[SmartTemplate] DEBUG: Failed to save initial doc: {e}")
+                    
+                    # --- ITERATIVE REFINEMENT ENGINE ---
+                    # DISABLED: Iterative refinement causes blocking without proper streaming feedback
+                    # TODO: Re-enable with proper async streaming support
+                    if False and min_q > 0 and final_document:  # Disabled for now
+                        print(f"[SmartTemplate] SKIPPING Iterative Loop (disabled). Target was: {min_q}%, Max: {max_iter}")
+                        yield {"type": "log", "content": "Iterative refinement disabled - using initial generation"}
+                        candidate_content = final_document
+                        
+                        # print(f"[SmartTemplate] Starting Iterative Loop. Target: {min_q}%, Max: {max_iter}")
+                        # yield {"type": "log", "content": f"Starting Review Cycles (Target Quality: {min_q}%, Max Cycles: {max_iter})"}
+                        
+                        current_q = 0
+                        iteration = 0
+                        score = 0
+                        iterative_steps = []
+                        
+                        while iteration < max_iter:
+                            iteration += 1
+                            
+                            yield {"type": "node_start", "data": {"node": {"id": "review_step", "label": f"Review Cycle {iteration}/{max_iter}"}}}
+                            
+                            # Update UI Status
+                            if things:
+                                try:
+                                    t_upd = things[0]
+                                    if t_upd.content:
+                                        c = dict(t_upd.content)
+                                        c["processing_status"] = f"Cycle {iteration}: Auditing Draft..."
+                                        t_upd.content = c
+                                        db.add(t_upd)
+                                        db.commit()
+                                except Exception: pass
+                            
+                            # Audit with Keep-Alive
+                            try:
+                                import asyncio
+                                audit_task = asyncio.create_task(
+                                    self._review_document(
+                                        candidate_content, 
+                                        template_purpose, 
+                                        request.model, 
+                                        level_of_detail=level_of_detail, 
+                                        cycle_index=iteration
+                                    )
+                                )
+                                
+                                while not audit_task.done():
+                                    done, _ = await asyncio.wait([audit_task], timeout=5.0)
+                                    if audit_task in done: break
+                                    yield {"type": "log", "content": f"Auditing Document (Cycle {iteration})..."}
+                                
+                                score, feedback, metrics = await audit_task
+                            except Exception as audit_err:
+                                print(f"[SmartTemplate] Audit Interrupted/Failed: {audit_err}")
+                                yield {"type": "log", "content": f"Audit interrupted: {audit_err}. Stopping loop."}
+                                break
+                            
+                            print(f"[SmartTemplate] Cycle {iteration}: Score {score}")
+                            yield {"type": "log", "content": f"Review Cycle {iteration}: Quality Score {score}/100"}
+                            
+                            if score >= min_q:
+                                yield {"type": "log", "content": "Quality Target Met. Finalizing..."}
+                                break
+                            
+                            # Refine the document
+                            if things:
+                                try:
+                                    t_upd = things[0]
+                                    if t_upd.content:
+                                        c = dict(t_upd.content)
+                                        c["processing_status"] = f"Cycle {iteration}: Refining Content..."
+                                        t_upd.content = c
+                                        db.add(t_upd)
+                                        db.commit()
+                                except Exception: pass
+                            
+                            try:
+                                refine_task = asyncio.create_task(
+                                    self._refine_document(
+                                        candidate_content, 
+                                        feedback, 
+                                        template_purpose, 
+                                        request.model, 
+                                        level_of_detail=level_of_detail
+                                    )
+                                )
+                                
+                                while not refine_task.done():
+                                    done, _ = await asyncio.wait([refine_task], timeout=5.0)
+                                    if refine_task in done: break
+                                    yield {"type": "log", "content": f"Refining Document (Cycle {iteration})..."}
+                                
+                                candidate_content = await refine_task
+                            except Exception as refine_err:
+                                print(f"[SmartTemplate] Refine Failed: {refine_err}")
+                                yield {"type": "log", "content": f"Refinement failed: {refine_err}. Using current version."}
+                                break
+                            
+                            yield {"type": "node_end", "data": {"node": {"id": "review_step", "label": f"Review Cycle {iteration}/{max_iter}"}}}
+                        
+                        # Use refined content
+                        final_document = candidate_content
+                    
+                    # --- PERSIST RESULT ---
+                    # Update source thing status
+                    if things:
+                        try:
+                            target_thing = things[0]
+                            existing_content = target_thing.content or {}
+                            existing_content["analysis_result"] = final_document
+                            existing_content["processing_status"] = "Analysis Complete"
+                            target_thing.content = existing_content
+                            target_thing.rag_status = "completed"
+                            db.add(target_thing)
+                            db.commit()
+                            print(f"[SmartTemplate] Result persisted to thing {target_thing.id}")
+                        except Exception as e:
+                            print(f"[SmartTemplate] Persist Error: {e}")
+                    
+                    # --- CREATE OUTPUT THING ---
+                    new_thing = None
+                    try:
+                        import uuid
+                        
+                        # Calculate position for new thing (offset from source)
+                        source_thing = things[0] if things else None
+                        new_x = (source_thing.position_x + 350) if source_thing else 100
+                        new_y = source_thing.position_y if source_thing else 100
+                        
+                        # Use source thing's canvas_id (NOT request.canvas_id which may be stale)
+                        target_canvas_id = source_thing.canvas_id if source_thing else request.canvas_id
+                        
+                        # DEBUG: Compare request canvas vs source thing canvas
+                        if source_thing and source_thing.canvas_id != request.canvas_id:
+                            print(f"[SmartTemplate] WARNING: Canvas mismatch! request.canvas_id={request.canvas_id} != source_thing.canvas_id={source_thing.canvas_id}")
+                        print(f"[SmartTemplate] Creating output on canvas {target_canvas_id} (source thing canvas)")
+                        
+                        # Create new document thing with the markdown result
+                        new_thing = CanvasThing(
+                            id=str(uuid.uuid4()),
+                            canvas_id=target_canvas_id,
+                            type="document",  # Document type for markdown rendering
+                            title=f"{template.name} - Result",
+                            content={
+                                "content": final_document,  # 'content' key for documents
+                                "format": "markdown",
+                                "generated_from": template.name,
+                                "source_thing_id": source_thing.id if source_thing else None
+                            },
+                            position_x=new_x,
+                            position_y=new_y,
+                            width=400,
+                            height=300,
+                            z_index=100
+                        )
+                        db.add(new_thing)
+                        db.commit()
+                        db.refresh(new_thing)
+                        
+                        print(f"[SmartTemplate] Created output thing {new_thing.id}")
+                        
+                        # IMMEDIATELY notify frontend of new node (don't wait for links)
+                        print(f"[SmartTemplate] YIELDING node_created event for {new_thing.id}")
+                        yield {
+                            "type": "node_created",
+                            "node": {
+                                "id": new_thing.id,
+                                "canvas_id": new_thing.canvas_id,
+                                "type": new_thing.type,
+                                "title": new_thing.title,
+                                "content": new_thing.content,
+                                "position_x": new_thing.position_x,
+                                "position_y": new_thing.position_y,
+                                "width": new_thing.width,
+                                "height": new_thing.height,
+                                "z_index": new_thing.z_index
+                            },
+                            "links": []  # Links will come separately
+                        }
+                        
+                    except Exception as e:
+                        print(f"[SmartTemplate] Failed to create output thing: {e}")
+                        import traceback
+                        traceback.print_exc()
+                    
+                    # --- CREATE LINKS TO ALL SOURCE THINGS (separate step, uses fallback on failure) ---
+                    if new_thing:
+                        created_links = []
+                        try:
+                            # Use simple fallback link - skip AI to avoid blocking
+                            for source_thing in things:
+                                source_summary = source_thing.title or "Source Document"
+                                link = CanvasLink(
+                                    id=str(uuid.uuid4()),
+                                    canvas_id=target_canvas_id,  # Use same canvas as output node
+                                    source_id=source_thing.id,
+                                    target_id=new_thing.id,
+                                    type="derived_from",
+                                    label="Generated from",
+                                    description=f"Analysis result generated from '{source_summary}' using template '{template.name}'"
+                                )
+                                db.add(link)
+                                created_links.append({
+                                    "id": link.id,
+                                    "canvas_id": link.canvas_id,
+                                    "source_id": link.source_id,
+                                    "target_id": link.target_id,
+                                    "type": link.type,
+                                    "label": link.label,
+                                    "description": link.description
+                                })
+                            
+                            if created_links:
+                                db.commit()
+                                print(f"[SmartTemplate] Created {len(created_links)} links from result to sources")
+                                
+                                # Send links as separate event
+                                yield {
+                                    "type": "links_created",
+                                    "links": created_links
+                                }
+                        except Exception as link_err:
+                            print(f"[SmartTemplate] Link creation error: {link_err}")
+                    
+                    # Yield completion event
+                    yield {
+                        "type": "complete",
+                        "data": {
+                            "status": "completed",  # Required by frontend
+                            "final_document": final_document,
+                            "execution_log": execution_log,
+                            "success": True
+                        }
+                    }
+                    return  # Document Template flow complete
+                    
+                except Exception as e:
+                    print(f"[SmartTemplate] Document Template Error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    yield {"type": "error", "content": f"Template execution failed: {e}"}
+                    return
             else:
-                 print(f"[SmartTemplate] WARNING: Document Template ID {template.document_template_id} not found in DB.")
+                print(f"[SmartTemplate] WARNING: Document Template ID {template.document_template_id} not found or has no structure.")
 
         blueprint_mock = {
             "graph": pipeline_config_to_use,
@@ -1490,6 +1802,22 @@ class SmartTemplateService:
                             print(f"[SmartTemplate] Starting Iterative Loop. Target: {min_q}%, Max: {max_iter}")
                             yield {"type": "log", "content": f"Starting Review Cycles (Target Quality: {min_q}%, Max Cycles: {max_iter})"}
                             
+                            # DEBUG: Save initial document (before any refinement) to file
+                            try:
+                                debug_dir = "C:/Users/opole/Downloads/ChatBotn/backend/debug_docs"
+                                import os
+                                os.makedirs(debug_dir, exist_ok=True)
+                                with open(f"{debug_dir}/00_INITIAL_DOCUMENT.md", "w", encoding="utf-8") as f:
+                                    f.write(f"# INITIAL DOCUMENT (Before Refinement)\n")
+                                    f.write(f"# Template: {template.name}\n")
+                                    f.write(f"# Length: {len(candidate_content)} chars\n")
+                                    f.write(f"# Timestamp: {datetime.utcnow()}\n\n")
+                                    f.write("---\n\n")
+                                    f.write(candidate_content)
+                                print(f"[SmartTemplate] DEBUG: Saved initial document to {debug_dir}/00_INITIAL_DOCUMENT.md")
+                            except Exception as e:
+                                print(f"[SmartTemplate] DEBUG: Failed to save initial doc: {e}")
+                            
                             current_q = 0
                             iteration = 0
                             score = 0
@@ -1497,6 +1825,17 @@ class SmartTemplateService:
                             
                             while iteration < max_iter:
                                 iteration += 1
+                                
+                                # DEBUG: Save document before this cycle
+                                try:
+                                    with open(f"{debug_dir}/{iteration:02d}_BEFORE_CYCLE.md", "w", encoding="utf-8") as f:
+                                        f.write(f"# DOCUMENT BEFORE CYCLE {iteration}\n")
+                                        f.write(f"# Length: {len(candidate_content)} chars\n\n")
+                                        f.write("---\n\n")
+                                        f.write(candidate_content)
+                                    print(f"[SmartTemplate] DEBUG: Saved document before cycle {iteration}")
+                                except Exception as e:
+                                    print(f"[SmartTemplate] DEBUG: Failed to save cycle doc: {e}")
                                 # Track Cycle Node
                                 cycle_step = {
                                     "id": f"cycle_{iteration}",
@@ -1614,6 +1953,17 @@ class SmartTemplateService:
                                         if not candidate_content:
                                             print(f"[SmartTemplate] WARNING: Refinement returned empty content.")
                                             candidate_content = "" # Ensure string
+                                        
+                                        # DEBUG: Save document after this refinement cycle
+                                        try:
+                                            with open(f"{debug_dir}/{iteration:02d}_AFTER_REFINEMENT.md", "w", encoding="utf-8") as f:
+                                                f.write(f"# DOCUMENT AFTER CYCLE {iteration} REFINEMENT\n")
+                                                f.write(f"# Length: {len(candidate_content)} chars\n\n")
+                                                f.write("---\n\n")
+                                                f.write(candidate_content)
+                                            print(f"[SmartTemplate] DEBUG: Saved document after cycle {iteration} refinement")
+                                        except Exception as e:
+                                            print(f"[SmartTemplate] DEBUG: Failed to save refined doc: {e}")
                                             
                                     except (asyncio.CancelledError, Exception) as refine_err:
                                         # Catch Cancellation or other errors to ensure we persist partial results
@@ -1674,6 +2024,19 @@ class SmartTemplateService:
                             else:
                                 current_output = candidate_content
                                 full_state["current_output"] = candidate_content
+                            
+                            # DEBUG: Save final document after all cycles
+                            try:
+                                with open(f"{debug_dir}/99_FINAL_DOCUMENT.md", "w", encoding="utf-8") as f:
+                                    f.write(f"# FINAL DOCUMENT (After All Cycles)\n")
+                                    f.write(f"# Template: {template.name}\n")
+                                    f.write(f"# Length: {len(candidate_content)} chars\n")
+                                    f.write(f"# Total Cycles: {iteration}\n\n")
+                                    f.write("---\n\n")
+                                    f.write(candidate_content)
+                                print(f"[SmartTemplate] DEBUG: Saved final document to {debug_dir}/99_FINAL_DOCUMENT.md")
+                            except Exception as e:
+                                print(f"[SmartTemplate] DEBUG: Failed to save final doc: {e}")
                                 
                             # Inject Iterative Plan into Full State for retrieval below
                             full_state["iterative_plan"] = iterative_steps
@@ -2522,7 +2885,7 @@ class SmartTemplateService:
                                  # Raw text content - treat as instruction/context
                                  instr_list.append(child)
                      
-                     instr_text = "\\n".join(instr_list)
+                     instr_text = "\n".join(instr_list)
                      
                      # --- CRITICAL DEBUG: PRINT SECTION DETAILS (Requested by User) ---
                      # Stop condition logic effectively handled by just printing this before node generation.
@@ -2533,18 +2896,18 @@ class SmartTemplateService:
                          except:
                              print(max) # Fallback
 
-                     _safe_print(f"\\n[SmartTemplate] Processing Section: '{item.title}'")
+                     _safe_print(f"\n[SmartTemplate] Processing Section: '{item.title}'")
                      print(f"  - Instruction Count: {len(item.instructions)}")
                      
                      # --- USER REQUESTED BIG LOG ---
-                     print("\\n" + "="*60)
+                     print("\n" + "="*60)
                      print(f"*** INSTRUCTIONS FOR SECTION '{item.title}' ***")
                      if item.instructions:
                          for i_idx, instr in enumerate(item.instructions):
                              _safe_print(f"  [{i_idx+1}] {instr.text}")
                      else:
                          print("  [WARNING] NO INSTRUCTIONS FOUND FOR THIS SECTION")
-                     print("="*60 + "\\n")
+                     print("="*60 + "\n")
                      # ------------------------------
 
                      _safe_print(f"  - Final Prompt Text: '{instr_text[:500]}...'")
@@ -2557,16 +2920,16 @@ class SmartTemplateService:
                      out_var = f"output_{safe_title}_{depth}_{index}"
                      
                      prompt_text = (
-                         f"{global_context}\\n"
-                         f"You are writing the section: '{item.title}'.\\n"
-                         f"Specific Instructions: {instr_text}\\n"
+                         f"{global_context}\n"
+                         f"You are writing the section: '{item.title}'.\n"
+                         f"Specific Instructions: {instr_text}\n"
                          f"Context: Use the available data to write this specific section."
                      )
                      
                      # LOG PROMPT
                      try:
                          with open("C:/Users/opole/Downloads/ChatBotn/backend/smart_template_prompts.log", "a", encoding="utf-8") as pf:
-                             pf.write(f"\\n[{datetime.utcnow()}] Processing section '{item.title}'\\nPrompt: {prompt_text}\\n{'='*40}\\n")
+                             pf.write(f"\n[{datetime.utcnow()}] Processing section '{item.title}'\nPrompt: {prompt_text}\n{'='*40}\n")
                      except Exception: pass
 
                      # Header Logic: Depth 0 -> ##, Depth 1 -> ###, etc.
@@ -2579,15 +2942,17 @@ class SmartTemplateService:
                         "label": f"Drafting Section: {item.title}",
                          "params": {
                              "system_prompt": (
-                                 "You are a Strict Document Generator.\n"
-                                 "CRITICAL RULES:\n"
-                                 "1. Follow the 'TASK / INSTRUCTION' exactly.\n"
-                                 "2. Do NOT converse, ask questions, or complain about data quality.\n"
-                                 "3. If the instruction says 'Write X', you MUST write X, regardless of the data context.\n"
-                                 f"4. You MUST start your response with the Markdown Header: '{section_header}'\n"
-                                 "5. PRESERVE NUMBERING: If the Section Title contains a number (e.g. '1.1'), you MUST use it.\n"
-                                 "6. HIERARCHY: Any sub-sections you generate MUST be nested below this header.\n"
-                                 "7. DO NOT change the section numbering provided in the task."
+                                 "You are a Strict Section Writer.\n"
+                                 "ABSOLUTE RULES - VIOLATION = FAILURE:\n"
+                                 f"1. You are writing ONLY the section titled: '{item.title}'\n"
+                                 f"2. START your response with EXACTLY this header: {section_header}\n"
+                                 "3. Write ONLY the content for THIS SECTION - nothing else.\n"
+                                 "4. DO NOT write any other sections.\n"
+                                 "5. DO NOT write an introduction or summary of the whole document.\n"
+                                 "6. DO NOT repeat the document title or purpose.\n"
+                                 "7. STOP when this section is complete - do not continue to other sections.\n"
+                                 "8. If you need sub-sections, they MUST be nested under this section header.\n"
+                                 "9. PRESERVE any numbering in the section title (e.g. '1.1 Analysis').\n"
                              ),
                              "prompt": prompt_text,
                              "target_variable": out_var,
@@ -2675,6 +3040,20 @@ class SmartTemplateService:
         if not blueprint.sections:
             print("[SmartTemplate] Warning: Blueprint has no sections.")
             return {"nodes": nodes, "edges": edges}
+        
+        # DEBUG: Log all sections in blueprint BEFORE processing
+        print(f"\n[SmartTemplate] *** BLUEPRINT SECTIONS DEBUG ***")
+        print(f"[SmartTemplate] Total sections in blueprint: {len(blueprint.sections)}")
+        for i, sec in enumerate(blueprint.sections):
+            sec_children_summary = f"{len(sec.children)} children" if sec.children else "no children"
+            sec_instr_summary = f"{len(sec.instructions)} instructions" if sec.instructions else "no instructions"
+            print(f"  [{i}] '{sec.title}' (level {sec.level}) - {sec_children_summary}, {sec_instr_summary}")
+            # Also log children types
+            for j, child in enumerate(sec.children[:3]):  # First 3 children only
+                child_type = type(child).__name__
+                child_title = getattr(child, 'title', getattr(child, 'text', str(child)[:30]))
+                print(f"      └─ [{j}] {child_type}: {child_title[:50]}...")
+        print("[SmartTemplate] *** END BLUEPRINT DEBUG ***\n")
             
         child_nodes, child_edges, gathered_vars = process_children_with_vars(blueprint.sections, previous_node_id)
         
@@ -2682,17 +3061,46 @@ class SmartTemplateService:
         edges.extend(child_edges)
         
         # --- DOCUMENT AGGREGATION ---
-        # --- DOCUMENT AGGREGATION ---
-        # --- DOCUMENT AGGREGATION ---
         print(f"[SmartTemplate] Gathering vars for aggregation. Count: {len(gathered_vars)}")
+        print(f"[SmartTemplate] Gathered variable names: {gathered_vars}")
+        
+        # DEBUG: Save aggregation details to file
+        try:
+            debug_dir = "C:/Users/opole/Downloads/ChatBotn/backend/debug_docs"
+            import os
+            os.makedirs(debug_dir, exist_ok=True)
+            with open(f"{debug_dir}/AGGREGATOR_DEBUG.txt", "w", encoding="utf-8") as f:
+                f.write(f"# AGGREGATOR DEBUG INFO\n")
+                f.write(f"# Timestamp: {datetime.utcnow()}\n\n")
+                f.write(f"## Gathered Variables ({len(gathered_vars)}):\n")
+                for i, v in enumerate(gathered_vars):
+                    f.write(f"  {i+1}. {v}\n")
+                f.write("\n")
+        except Exception as e:
+            print(f"[SmartTemplate] DEBUG: Failed to write aggregator debug: {e}")
+        
         # Aggregate all section outputs into 'final_document'.
         if gathered_vars:
             aggregator_id = f"node_aggregator_{str(uuid.uuid4())[:8]}"
             
             # Aggregator Template - Clean Concatenation
             # We rely on each section to provide its own Markdown header (enforced by system prompt)
-            agg_content = "\\n\\n".join([f"{{{{ {v}.generated_markdown | default({v}.text) | default({v}.output) | default('') }}}}" for v in gathered_vars])
-            agg_template = agg_content
+            # Use Jinja2 or-chaining for fallback values (default() only accepts literals)
+            agg_parts = []
+            for v in gathered_vars:
+                # Access the section output dict and try to get generated_markdown, text, or output
+                # Using 'or' chaining which Jinja2 evaluates left-to-right
+                agg_parts.append(
+                    f"{{{{ ({v}.get('generated_markdown') or {v}.get('text') or {v}.get('output', '')) | default('') }}}}"
+                )
+            agg_template = "\n\n".join(agg_parts)
+            
+            # DEBUG: Log and save the aggregator template
+            print(f"[SmartTemplate] Aggregator Template:\n{agg_template[:500]}...")
+            try:
+                with open(f"{debug_dir}/AGGREGATOR_DEBUG.txt", "a", encoding="utf-8") as f:
+                    f.write(f"## Aggregator Template String:\n```\n{agg_template}\n```\n")
+            except Exception: pass
             
             aggregator_node = {
                 "id": aggregator_id,
@@ -2707,18 +3115,9 @@ class SmartTemplateService:
             }
             nodes.append(aggregator_node)
             
-            if nodes and len(nodes) > 1:
-                # Link last added child node to aggregator
-                last_child_id = child_nodes[-1]["id"] if child_nodes else previous_node_id
-                edges.append({
-                    "source": last_child_id, 
-                    "target": aggregator_id
-                })
-            nodes.append(aggregator_node)
-            
-            if nodes and len(nodes) > 1:
-                # Link last added child node to aggregator
-                last_child_id = child_nodes[-1]["id"] if child_nodes else previous_node_id
+            # Link last added child node to aggregator
+            if child_nodes:
+                last_child_id = child_nodes[-1]["id"]
                 edges.append({
                     "source": last_child_id, 
                     "target": aggregator_id

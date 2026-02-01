@@ -1782,10 +1782,12 @@ function CanvasViewInner() {
                                     duration: 1000000
                                 });
                             } else if (event.type === "log") {
-                                const isStartStep = event.message.includes("Starting Step");
+                                // Support both 'content' (new) and 'message' (legacy) field names
+                                const logMessage = event.content || event.message || "";
+                                const isStartStep = logMessage.includes("Starting Step");
                                 const displayMessage = (isStartStep && event.node_label)
                                     ? `Processing section: ${event.node_label}`
-                                    : event.message;
+                                    : logMessage;
 
                                 // Only update title if it's a significant step change
                                 if (isStartStep && event.node_label) {
@@ -1846,8 +1848,27 @@ function CanvasViewInner() {
                                     });
                                 }
                             } else if (event.type === "node_created") {
+                                console.log("[Canvas] node_created event received:", event);
                                 const newNode = event.node;
-                                useCanvasStore.getState().addServerThing(newNode as any);
+                                if (newNode) {
+                                    console.log("[Canvas] Adding new node to store:", newNode.id, newNode.type);
+                                    useCanvasStore.getState().addServerThing(newNode as any);
+                                } else {
+                                    console.error("[Canvas] node_created event missing node data:", event);
+                                }
+                                // Also add any links that came with the node (already created on backend)
+                                if (event.links && Array.isArray(event.links) && event.links.length > 0) {
+                                    console.log("[Canvas] Adding links from node_created:", event.links.length);
+                                    const currentLinks = useCanvasStore.getState().links;
+                                    useCanvasStore.setState({ links: [...currentLinks, ...event.links] });
+                                }
+                            } else if (event.type === "links_created") {
+                                console.log("[Canvas] links_created event received:", event.links?.length);
+                                // Handle links sent separately from node (already created on backend)
+                                if (event.links && Array.isArray(event.links) && event.links.length > 0) {
+                                    const currentLinks = useCanvasStore.getState().links;
+                                    useCanvasStore.setState({ links: [...currentLinks, ...event.links] });
+                                }
                             } else if (event.type === "error") {
                                 updateToast({
                                     id: toastId,

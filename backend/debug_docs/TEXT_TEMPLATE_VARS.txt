@@ -1,0 +1,289 @@
+# TEXT_TEMPLATE SIMPLE MODE - Variable Dump
+
+## Template String:
+```
+{{ (node_0_0_b56ad9e2.get('generated_markdown') or node_0_0_b56ad9e2.get('text') or node_0_0_b56ad9e2.get('output', '')) | default('') }}
+
+{{ (node_0_1_1ed5e809.get('generated_markdown') or node_0_1_1ed5e809.get('text') or node_0_1_1ed5e809.get('output', '')) | default('') }}
+
+{{ (node_0_2_4c2434ee.get('generated_markdown') or node_0_2_4c2434ee.get('text') or node_0_2_4c2434ee.get('output', '')) | default('') }}
+
+{{ (node_0_3_21da69ff.get('generated_markdown') or node_0_3_21da69ff.get('text') or node_0_3_21da69ff.get('output', '')) | default('') }}
+
+{{ (node_0_4_31353891.get('generated_markdown') or node_0_4_31353891.get('text') or node_0_4_31353891.get('output', '')) | default('') }}
+```
+
+## Variables (19):
+
+### extractor_input (dict)
+Keys: ['assets', 'extraction_instructions']
+
+### selection (list)
+Value: [{'id': 'fb8d4ec7-d520-49fc-ada0-b1680226e517', 'type': 'document', 'title': 'EIRA Press Release - 2
+
+### combined_context (str)
+Value preview: Item: EIRA Press Release - 24 November 2025.docx (document)
+24 November 2025
+
+Interoperability Architecture Solutions: Building bridges for digital public services
+
+A blueprint for seamless digital pu...
+
+### canvas_id (str)
+Value preview: 4d864415-1ec6-486e-8029-185d9f9182f6...
+
+### model (str)
+Value preview: OpenRouter GPT-OSS 120...
+
+### None (dict)
+Keys: ['extracted_elements']
+
+### extractor_output (dict)
+Keys: ['extracted_elements']
+
+### node_context_loader (dict)
+Keys: ['extracted_elements']
+
+### extracted_elements (list)
+Value: [{'source_id': 'fb8d4ec7-d520-49fc-ada0-b1680226e517', 'content_type': 'text', 'data': 'Document Tit
+
+### node_0_0_b56ad9e2 (dict)
+Keys: ['llm_output', 'generated_markdown', 'text', '_raw']
+generated_markdown preview: ## Content
+
+### 1. Architecture Vision  
+The **European Interoperability Reference Architecture (EIRA)** is positioned as a *blueprint* for interoperable digital public services across the EU. Its pri...
+text preview: ## Content
+
+### 1. Architecture Vision  
+The **European Interoperability Reference Architecture (EIRA)** is positioned as a *blueprint* for interoperable digital public services across the EU. Its pri...
+
+### llm_output (str)
+Value preview: .## Recommendations & Action Plan
+
+| Priority | Recommendation | Owner | Target Completion |
+|----------|----------------|-------|--------------------|
+| 1 (High) | Establish a formal Architecture Gov...
+
+### generated_markdown (str)
+Value preview: .## Recommendations & Action Plan
+
+| Priority | Recommendation | Owner | Target Completion |
+|----------|----------------|-------|--------------------|
+| 1 (High) | Establish a formal Architecture Gov...
+
+### text (str)
+Value preview: .## Recommendations & Action Plan
+
+| Priority | Recommendation | Owner | Target Completion |
+|----------|----------------|-------|--------------------|
+| 1 (High) | Establish a formal Architecture Gov...
+
+### node_0_1_1ed5e809 (dict)
+Keys: ['llm_output', 'generated_markdown', 'text', '_raw']
+generated_markdown preview: ## Content
+
+### 1. Architecture Vision  
+The European Interoperability Reference Architecture (EIRA) serves as a high‑level blueprint for interoperable digital public services across the EU. Its purpo...
+text preview: ## Content
+
+### 1. Architecture Vision  
+The European Interoperability Reference Architecture (EIRA) serves as a high‑level blueprint for interoperable digital public services across the EU. Its purpo...
+
+### node_0_2_4c2434ee (dict)
+Keys: ['llm_output', 'generated_markdown', 'text', '_raw']
+generated_markdown preview: ## ==== Style Definitions (YAML Frontmatter) ====
+
+```yaml
+h1_font: "Inter"
+h1_color: "#0F4C81"          # Deep corporate blue for main titles
+h2_font: "Inter"
+h2_color: "#1E3A8A"          # Slightly ...
+text preview: ## ==== Style Definitions (YAML Frontmatter) ====
+
+```yaml
+h1_font: "Inter"
+h1_color: "#0F4C81"          # Deep corporate blue for main titles
+h2_font: "Inter"
+h2_color: "#1E3A8A"          # Slightly ...
+
+### node_0_3_21da69ff (dict)
+Keys: ['llm_output', 'generated_markdown', 'text', '_raw']
+generated_markdown preview: ## Executive Summary
+
+The mini‑TOGAF audit was conducted to evaluate the alignment of the organization’s enterprise architecture with the core principles of TOGAF, identify gaps, and assess the associ...
+text preview: ## Executive Summary
+
+The mini‑TOGAF audit was conducted to evaluate the alignment of the organization’s enterprise architecture with the core principles of TOGAF, identify gaps, and assess the associ...
+
+### node_0_4_31353891 (dict)
+Keys: ['llm_output', 'generated_markdown', 'text', '_raw']
+generated_markdown preview: .## Recommendations & Action Plan
+
+| Priority | Recommendation | Owner | Target Completion |
+|----------|----------------|-------|--------------------|
+| 1 (High) | Establish a formal Architecture Gov...
+text preview: .## Recommendations & Action Plan
+
+| Priority | Recommendation | Owner | Target Completion |
+|----------|----------------|-------|--------------------|
+| 1 (High) | Establish a formal Architecture Gov...
+
+### secrets (dict)
+Keys: []
+
+
+## Rendered Result:
+```
+## Content
+
+### 1. Architecture Vision  
+The **European Interoperability Reference Architecture (EIRA)** is positioned as a *blueprint* for interoperable digital public services across the EU. Its primary vision aligns with TOGAF’s Architecture Vision by providing a clear, high‑level purpose: *to guide public administrations in delivering interoperable European Digital Public Services for businesses and citizens*. This vision is supported by concrete benefits such as cross‑border seamless interaction, open‑data ecosystems, and alignment with the European Interoperability Framework (EIF).
+
+### 2. Business Architecture  
+- **Stakeholder Landscape** – Public administrations, businesses, citizens, and the European Data Portal are identified as key beneficiaries.  
+- **Business Drivers** – Regulatory compliance with the EIF, demand for cross‑border service delivery, and the need for transparent, reusable data.  
+- **Business Processes** – Implicitly referenced through “interoperable digital public services” and “open data ecosystems”, indicating processes for data publishing, discovery, and consumption across jurisdictions.
+
+### 3. Data Architecture  
+- **Data Governance** – EIRA establishes *standardised building blocks and semantic models* to ensure data is *discoverable, reusable, and interoperable*.  
+- **Data Models** – The architecture supplies a common terminology and semantic layer, fulfilling TOGAF’s requirement for a coherent data model that supports business semantics.  
+- **Data Integration** – Alignment with the European Data Portal demonstrates a data‑exchange strategy that enables open data sharing and innovation.
+
+### 4. Application Architecture  
+- **Architecture Building Blocks (ABBs)** – EIRA provides a set of ABBs that act as reusable components for application design, mirroring TOGAF’s Application Building Blocks (ABBs).  
+- **Service Orientation** – The emphasis on “standardised building blocks” suggests a service‑oriented approach that can be composed to deliver public services.
+
+### 5. Technology Architecture  
+- **Technology Standards** – The newest release (EIRA v6.1.0) includes *updated ABB documentation* and *enhanced alignment with the latest EIF*, indicating adherence to established technology standards.  
+- **Infrastructure Considerations** – While specific infrastructure details are not provided, the alignment with EIF implies compliance with EU‑wide technology guidelines (e.g., security, cloud adoption).
+
+### 6. Opportunities & Solutions  
+- **Improved Views** – The updated architecture views in v6.1.0 provide clearer stakeholder perspectives, facilitating better decision‑making.  
+- **Open Data Ecosystem** – By enabling open data, EIRA creates opportunities for innovation, new services, and economic growth.  
+- **Cross‑Border Services** – Interoperability enables public administrations to extend services beyond national borders, increasing citizen satisfaction.
+
+### 7. Migration Planning  
+- **Release Evolution** – Transition from prior EIRA versions to v6.1.0 shows a phased migration path with incremental enhancements (improved views, ABB updates).  
+- **Stakeholder Engagement** – The call to action (portal, social media, newsletter) indicates an ongoing communication plan to manage change and adoption.
+
+### 8. Implementation Governance  
+- **Program Ownership** – Originally developed under the ISA programme and now maintained by the Digital Europe Programme, providing clear governance structures and accountability.  
+- **Compliance Monitoring** – Alignment with the EIF serves as a compliance checkpoint ensuring that implementations meet EU interoperability standards.
+
+### 9. Architecture Change Management  
+- **Versioning** – The existence of distinct releases (e.g., v6.1.0) reflects a structured change management process.  
+- **Feedback Loops** – Continuous updates via the Interoperable Europe Portal and community channels (X/Twitter, LinkedIn) support ongoing refinement and stakeholder feedback incorporation.
+
+### 10. Summary Assessment  
+Overall, EIRA demonstrates a robust alignment with TOGAF’s architecture development method:
+
+| TOGAF Component | Alignment Evidence |
+|-----------------|--------------------|
+| Architecture Vision | Clear purpose to enable interoperable digital public services |
+| Business Architecture | Defined stakeholder groups and drivers (public administrations, businesses, citizens) |
+| Data Architecture | Standardised semantic models, data discoverability, reuse |
+| Application Architecture | Provision of Architecture Building Blocks (ABBs) |
+| Technology Architecture | Alignment with EIF, updated technology views |
+| Opportunities & Solutions | Open data ecosystem, cross‑border service potential |
+| Migration Planning | Structured release progression (v6.1.0) |
+| Implementation Governance | Program ownership by ISA/Digital Europe Programme |
+| Architecture Change Management | Version control, active communication channels |
+
+The mini TOGAF audit confirms that EIRA is a well‑governed, standards‑driven reference architecture that fulfills the essential TOGAF phases, supporting EU‑wide digital transformation initiatives.
+
+## Content
+
+### 1. Architecture Vision  
+The European Interoperability Reference Architecture (EIRA) serves as a high‑level blueprint for interoperable digital public services across the EU. Its purpose aligns directly with TOGAF’s Architecture Vision, offering a clear mandate to enable seamless cross‑border interactions, foster open‑data ecosystems, and comply with the European Interoperability Framework (EIF).
+
+### 2. Business Architecture  
+- **Stakeholder Landscape** – Public administrations, businesses, citizens, and the European Data Portal.  
+- **Business Drivers** – EIF regulatory compliance, demand for cross‑border service delivery, and the need for transparent, reusable data.  
+- **Business Processes** – Implicitly covered by “interoperable digital public services” and “open data ecosystems,” indicating processes for data publishing, discovery, and consumption across jurisdictions.
+
+### 3. Data Architecture  
+- **Data Governance** – Standardised building blocks and semantic models ensure data is discoverable, reusable, and interoperable.  
+- **Data Models** – A common terminology and semantic layer provide a coherent data model that supports business semantics.  
+- **Data Integration** – Alignment with the European Data Portal establishes a data‑exchange strategy for open data sharing and innovation.
+
+### 4. Application Architecture  
+- **Architecture Building Blocks (ABBs)** – EIRA supplies reusable ABBs that correspond to TOGAF’s Application Building Blocks.  
+- **Service Orientation** – The emphasis on standardised building blocks promotes a service‑oriented approach for composing public services.
+
+### 5. Technology Architecture  
+- **Technology Standards** – The latest release (EIRA v6.1.0) incorporates updated ABB documentation and enhanced alignment with the current EIF, demonstrating adherence to EU technology standards.  
+- **Infrastructure Considerations** – While specific infrastructure details are absent, EIF alignment implies compliance with EU‑wide guidelines (e.g., security, cloud adoption).
+
+### 6. Opportunities & Solutions  
+- **Improved Views** – Updated architecture views in v6.1.0 deliver clearer stakeholder perspectives, aiding decision‑making.  
+- **Open Data Ecosystem** – Enables innovation, new services, and economic growth through open data.  
+- **Cross‑Border Services** – Facilitates extension of public services beyond national borders, enhancing citizen satisfaction.
+
+### 7. Migration Planning  
+- **Release Evolution** – Transition from earlier EIRA versions to v6.1.0 provides a phased migration path with incremental enhancements (improved views, ABB updates).  
+- **Stakeholder Engagement** – Ongoing communication via portal, social media, and newsletters supports change management and adoption.
+
+### 8. Implementation Governance  
+- **Program Ownership** – Initially under the ISA programme, now maintained by the Digital Europe Programme, establishing clear governance and accountability.  
+- **Compliance Monitoring** – Alignment with the EIF serves as a compliance checkpoint, ensuring implementations meet EU interoperability standards.
+
+### 9. Architecture Change Management  
+- **Versioning** – Distinct releases (e.g., v6.1.0) reflect a structured change‑management process.  
+- **Feedback Loops** – Continuous updates through the Interoperable Europe Portal and community channels (X/Twitter, LinkedIn) enable ongoing refinement and stakeholder feedback integration.
+
+### 10. Summary Assessment  
+EIRA exhibits strong alignment with TOGAF’s Architecture Development Method across all major components:
+
+| TOGAF Component                | Alignment Evidence                                                                     |
+|-------------------------------|----------------------------------------------------------------------------------------|
+| Architecture Vision           | Clear purpose to enable interoperable digital public services                         |
+| Business Architecture         | Defined stakeholder groups, drivers, and relevant business processes                 |
+| Data Architecture             | Standardised semantic models, data discoverability, and reuse                         |
+| Application Architecture      | Provision of reusable Architecture Building Blocks (ABBs)                             |
+| Technology Architecture       | Alignment with EIF, updated technology views                                           |
+| Opportunities & Solutions     | Open‑data ecosystem, cross‑border service potential                                    |
+| Migration Planning            | Structured release progression (v6.1.0)                                               |
+| Implementation Governance     | Program ownership by ISA/Digital Europe Programme, compliance monitoring             |
+| Architecture Change Management| Version control, active communication channels for feedback                           |
+
+The mini TOGAF audit confirms that EIRA is a well‑governed, standards‑driven reference architecture that fulfills the essential TOGAF phases, supporting EU‑wide digital transformation initiatives.
+
+## ==== Style Definitions (YAML Frontmatter) ====
+
+```yaml
+h1_font: "Inter"
+h1_color: "#0F4C81"          # Deep corporate blue for main titles
+h2_font: "Inter"
+h2_color: "#1E3A8A"          # Slightly lighter blue for section headers
+h3_font: "Inter"
+h3_color: "#2563EB"          # Accent blue for sub‑sections
+body_font: "Arial"
+quote_bg_color: "#F0F4F8"    # Light gray‑blue for call‑outs / quotes
+```
+
+## Executive Summary
+
+The mini‑TOGAF audit was conducted to evaluate the alignment of the organization’s enterprise architecture with the core principles of TOGAF, identify gaps, and assess the associated risk exposure. The scope encompassed a high‑level review of the Architecture Development Method (ADM) phases, governance structures, architecture repository, and key deliverables across Business, Data, Application, and Technology domains.
+
+Key observations include:
+- **Purpose Alignment:** The architecture practice is generally driven by business strategy, but formal documentation of business requirements is inconsistent.
+- **Scope Coverage:** Core ADM phases (Preliminary, Vision, and Implementation Governance) are adequately covered; however, detailed Phase B‑D artifacts are either outdated or missing.
+- **Governance:** Architecture review board meetings exist but lack documented decision criteria, leading to variable enforcement of standards.
+- **Repository Management:** The central repository is fragmented, resulting in duplicated models and limited traceability.
+- **Risk Posture:** The overall risk is assessed as **moderate**. Strengths lie in senior management support and a defined vision, while weaknesses stem from incomplete artefacts, informal governance, and limited compliance monitoring.
+
+The audit recommends establishing a formalized governance framework, updating and consolidating architecture artefacts, and instituting regular compliance checks to elevate the risk posture toward a low‑risk profile.
+
+.## Recommendations & Action Plan
+
+| Priority | Recommendation | Owner | Target Completion |
+|----------|----------------|-------|--------------------|
+| 1 (High) | Establish a formal Architecture Governance Framework, including documented decision criteria and enforcement mechanisms for all ADM phases. | Chief Enterprise Architect (CEA) & Architecture Governance Board | 30 Jun 2026 |
+| 2 (High) | Consolidate the fragmented Architecture Repository into a single, centrally managed repository with version control and traceability links for Business, Data, Application, and Technology artifacts. | IT Operations Manager (ITOM) | 31 Jul 2026 |
+| 3 (High) | Update and complete missing Phase B‑D deliverables (Business, Information Systems, and Technology Architectures) and ensure they are aligned with the current business strategy. | Business Architecture Lead (BAL) | 31 Aug 2026 |
+| 4 (Medium) | Institute a regular compliance review cycle (quarterly) to monitor adherence to TOGAF standards and capture corrective actions. | Governance Office Director (GOD) | 15 Sep 2026 |
+| 5 (Medium) | Standardize documentation procedures for business requirements and ensure they are captured in the repository for all new initiatives. | Project Management Office (PMO) | 30 Sep 2026 |
+| 6 (Low) | Provide training workshops on TOGAF ADM processes for architecture team members and key stakeholders to improve consistency in artifact creation. | Learning & Development Lead (LDL) | 31 Oct 2026 |
+| 7 (Low) | Define and publish key performance indicators (KPIs) for architecture maturity and risk posture to enable ongoing monitoring. | Enterprise Architecture Steering Committee (EASC) | 15 Nov 2026 |
+```

@@ -8,7 +8,7 @@ PEP 8 Compliant
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Text, JSON, DateTime, Integer, ForeignKey
+    Column, String, Text, JSON, DateTime, Integer, ForeignKey, Boolean
 )
 from sqlalchemy.orm import relationship
 
@@ -37,6 +37,10 @@ class Scenario(Base):
     description = Column(Text, nullable=True)
     icon = Column(String(50), nullable=True) # Iconify icon name
     theme_color = Column(String(20), nullable=True) # Hex color
+    
+    # System Flags
+    is_default = Column(Boolean, default=False)
+    is_system = Column(Boolean, default=False)  # Immutable if True
     
     # Full JSON configuration
     # Includes:

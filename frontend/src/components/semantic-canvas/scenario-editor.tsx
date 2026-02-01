@@ -12,12 +12,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Save, X, Layers, AlertCircle } from "lucide-react";
-import { Scenario } from "./canvas-store";
+import { AlertCircle, Box, Share2, Wrench, FileJson, Lock } from "lucide-react";
+import { Scenario, DomainDefinition, DomainGroup } from "./canvas-store";
 import { useToast } from "@/components/ui/use-toast";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { DomainPalette } from "./editors/domain-palette";
 
 interface ScenarioEditorProps {
     initialData?: Partial<Scenario>; // if provided, we are editing
@@ -29,53 +30,36 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
     const { toast } = useToast();
     const [saving, setSaving] = React.useState(false);
 
-    // Metadata State
+    // Basic State
     const [name, setName] = React.useState(initialData?.name || "");
     const [description, setDescription] = React.useState(initialData?.description || "");
     const [themeColor, setThemeColor] = React.useState(initialData?.theme_color || "#3b82f6");
+    const [isDefault, setIsDefault] = React.useState(initialData?.is_default || false);
 
-    // Domains State (extracted from configuration)
-    const [domains, setDomains] = React.useState<any[]>(
+    // Domain State
+    const [domains, setDomains] = React.useState<DomainDefinition[]>(
         initialData?.configuration?.domain_definitions || []
     );
-
-    // Advanced Config (JSON)
-    const [advancedConfig, setAdvancedConfig] = React.useState(
-        JSON.stringify(
-            { ...initialData?.configuration, domain_definitions: undefined }, // exclude domains as they are managed via UI
-            null,
-            2
-        )
+    const [groups, setGroups] = React.useState<DomainGroup[]>(
+        initialData?.configuration?.domain_groups || []
+    );
+    const [linkTypes, setLinkTypes] = React.useState<any[]>(
+        initialData?.configuration?.link_types || []
     );
 
-    const handleAddDomain = () => {
-        setDomains([
-            ...domains,
-            {
-                id: `domain_${Date.now()}`,
-                label: "New Domain",
-                visual_config: { primary_color: "#10b981", icon: "box", shape: "rounded" }
-            }
-        ]);
-    };
+    // Advanced Config (JSON) - Excludes UI managed fields
+    const [advancedConfig, setAdvancedConfig] = React.useState("");
 
-    const handleUpdateDomain = (index: number, field: string, value: any) => {
-        const newDomains = [...domains];
-        if (field.startsWith("visual_config.")) {
-            const configField = field.split(".")[1];
-            newDomains[index].visual_config = {
-                ...newDomains[index].visual_config,
-                [configField]: value
-            };
+    React.useEffect(() => {
+        if (initialData?.configuration) {
+            const { domain_definitions, domain_groups, link_types, ...rest } = initialData.configuration;
+            setAdvancedConfig(JSON.stringify(rest, null, 2));
         } else {
-            newDomains[index][field] = value;
+            setAdvancedConfig("{}");
         }
-        setDomains(newDomains);
-    };
+    }, [initialData]);
 
-    const handleDeleteDomain = (index: number) => {
-        setDomains(domains.filter((_, i) => i !== index));
-    };
+    const isSystem = initialData?.is_system;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -102,9 +86,12 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                 name,
                 description,
                 theme_color: themeColor,
+                is_default: isDefault,
                 configuration: {
                     ...parsedExtras,
-                    domain_definitions: domains
+                    domain_definitions: domains,
+                    domain_groups: groups,
+                    link_types: linkTypes
                 }
             };
 
@@ -118,41 +105,82 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
     };
 
     return (
-        <form onSubmit={handleSubmit} className="h-full flex flex-col gap-6 max-w-4xl mx-auto w-full">
+        <form onSubmit={handleSubmit} className="h-full flex flex-col gap-6 max-w-6xl mx-auto w-full">
             <div className="flex items-center justify-between border-b pb-4">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">
-                        {initialData ? "Edit Scenario" : "Create New Scenario"}
-                    </h1>
+                    <div className="flex items-center gap-2">
+                        <h1 className="text-2xl font-bold tracking-tight">
+                            {initialData ? "Edit Scenario" : "Create New Scenario"}
+                        </h1>
+                        {isSystem && <Badge variant="secondary"><Lock className="w-3 h-3 mr-1" /> System Protected</Badge>}
+                        {isDefault && <Badge variant="default">Default Scenaio</Badge>}
+                    </div>
+
                     <p className="text-muted-foreground">Configure your vertical mode.</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>
                         Cancel
                     </Button>
-                    <Button type="submit" disabled={saving}>
-                        {saving && <span className="animate-spin mr-2">⏳</span>}
-                        {initialData ? "Save Changes" : "Create Scenario"}
-                    </Button>
+                    {!isSystem && (
+                        <Button type="submit" disabled={saving}>
+                            {saving && <span className="animate-spin mr-2">⏳</span>}
+                            {initialData ? "Save Changes" : "Create Scenario"}
+                        </Button>
+                    )}
+                    {isSystem && (
+                        <Button type="submit" disabled={saving}>
+                            {saving && <span className="animate-spin mr-2">⏳</span>}
+                            Update Defaults Only
+                        </Button>
+                    )}
                 </div>
             </div>
 
-            <ScrollArea className="flex-1 pr-4">
-                <div className="flex flex-col gap-8 pb-10">
-                    {/* Basic Info */}
+            {isSystem && (
+                <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>System Scenario</AlertTitle>
+                    <AlertDescription>
+                        This is a core system scenario. You can only change whether it is the Default scenario. Content editing is locked.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            <Tabs defaultValue="general" className="flex-1 flex flex-col">
+                <TabsList className="w-full justify-start border-b rounded-none p-0 h-10 bg-transparent">
+                    <TabsTrigger value="general" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        General
+                    </TabsTrigger>
+                    <TabsTrigger value="domains" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        <Box className="w-4 h-4 mr-2" /> Domains
+                    </TabsTrigger>
+                    <TabsTrigger value="relationships" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        <Share2 className="w-4 h-4 mr-2" /> Relationships
+                    </TabsTrigger>
+                    <TabsTrigger value="tools" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        <Wrench className="w-4 h-4 mr-2" /> Tools & Agents
+                    </TabsTrigger>
+                    <TabsTrigger value="json" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        <FileJson className="w-4 h-4 mr-2" /> JSON
+                    </TabsTrigger>
+                </TabsList>
+
+                {/* GENERAL TAB */}
+                <TabsContent value="general" className="flex-1 py-4">
                     <Card>
                         <CardHeader>
                             <CardTitle>Basic Information</CardTitle>
                         </CardHeader>
-                        <CardContent className="grid gap-4">
+                        <CardContent className="grid gap-4 max-w-2xl">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="name">Scenario Name</Label>
                                     <Input
                                         id="name"
-                                        placeholder="e.g. Recruiter Mode"
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
+                                        disabled={isSystem}
                                         required
                                     />
                                 </div>
@@ -160,16 +188,16 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                                     <Label htmlFor="color">Theme Color</Label>
                                     <div className="flex gap-2">
                                         <Input
-                                            id="color"
                                             type="color"
                                             value={themeColor}
                                             onChange={(e) => setThemeColor(e.target.value)}
+                                            disabled={isSystem}
                                             className="w-12 h-10 p-1 cursor-pointer"
                                         />
                                         <Input
                                             value={themeColor}
                                             onChange={(e) => setThemeColor(e.target.value)}
-                                            placeholder="#RRGGBB"
+                                            disabled={isSystem}
                                             className="font-mono uppercase"
                                         />
                                     </div>
@@ -179,105 +207,79 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                                 <Label htmlFor="description">Description</Label>
                                 <Textarea
                                     id="description"
-                                    placeholder="Describe the purpose of this scenario..."
                                     value={description}
                                     onChange={(e) => setDescription(e.target.value)}
+                                    disabled={isSystem}
                                     rows={3}
                                 />
                             </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Domains Editor */}
-                    <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <div>
-                                <CardTitle>Domain Definitions</CardTitle>
-                                <CardDescription>Define the types of entities available in this scenario.</CardDescription>
-                            </div>
-                            <Button type="button" size="sm" variant="outline" onClick={handleAddDomain}>
-                                <Plus className="w-4 h-4 mr-2" /> Add Domain
-                            </Button>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-4">
-                                {domains.length === 0 && (
-                                    <div className="text-sm text-center py-6 text-muted-foreground bg-muted/20 rounded-lg border border-dashed">
-                                        No domains defined. Add one to categorize content.
-                                    </div>
-                                )}
-                                {domains.map((domain, idx) => (
-                                    <div key={idx} className="flex gap-4 items-start p-4 border rounded-lg bg-card shadow-sm">
-                                        <div className="flex-1 grid grid-cols-12 gap-4">
-                                            <div className="col-span-5 space-y-1">
-                                                <Label className="text-xs">Label</Label>
-                                                <Input
-                                                    value={domain.label || ""}
-                                                    onChange={(e) => handleUpdateDomain(idx, "label", e.target.value)}
-                                                    placeholder="e.g. Candidate"
-                                                    className="h-8"
-                                                />
-                                            </div>
-                                            <div className="col-span-5 space-y-1">
-                                                <Label className="text-xs">ID (System Name)</Label>
-                                                <Input
-                                                    value={domain.id || ""}
-                                                    onChange={(e) => handleUpdateDomain(idx, "id", e.target.value)}
-                                                    placeholder="e.g. candidate"
-                                                    className="h-8 font-mono text-xs"
-                                                />
-                                            </div>
-                                            <div className="col-span-2 space-y-1">
-                                                <Label className="text-xs">Color</Label>
-                                                <Input
-                                                    type="color"
-                                                    value={domain.visual_config?.primary_color || "#000000"}
-                                                    onChange={(e) => handleUpdateDomain(idx, "visual_config.primary_color", e.target.value)}
-                                                    className="h-8 p-0.5 w-full"
-                                                />
-                                            </div>
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-muted-foreground hover:text-destructive mt-5 h-8 w-8"
-                                            onClick={() => handleDeleteDomain(idx)}
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* JSON Config */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Advanced Configuration</CardTitle>
-                            <CardDescription>Configure automations, UI overrides, and metadata schemas (JSON).</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <Alert className="mb-4 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300">
-                                <AlertCircle className="w-4 h-4" />
-                                <AlertDescription>
-                                    Modify `automations` and `ui_overrides` here. `domain_definitions` are managed above and will be merged automatically.
-                                </AlertDescription>
-                            </Alert>
-                            <div className="font-mono text-xs">
-                                <Textarea
-                                    value={advancedConfig}
-                                    onChange={(e) => setAdvancedConfig(e.target.value)}
-                                    rows={15}
-                                    className="resize-y"
-                                    placeholder="{}"
+                            <div className="flex items-center gap-2 mt-4 p-4 border rounded bg-muted/20">
+                                <Input
+                                    type="checkbox"
+                                    id="isDefault"
+                                    className="w-4 h-4"
+                                    checked={isDefault}
+                                    onChange={e => setIsDefault(e.target.checked)}
                                 />
+                                <div className="grid gap-1.5 leading-none">
+                                    <Label htmlFor="isDefault" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                        Set as Default Scenario
+                                    </Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        New canvases will use this scenario automatically if selected.
+                                    </p>
+                                </div>
                             </div>
                         </CardContent>
                     </Card>
-                </div>
-            </ScrollArea>
+                </TabsContent>
+
+                {/* DOMAINS TAB */}
+                <TabsContent value="domains" className="flex-1 py-4 h-[600px] flex flex-col">
+                    {isSystem ? (
+                        <div className="flex items-center justify-center h-full text-muted-foreground">System scenarios cannot accept domain modifications.</div>
+                    ) : (
+                        <DomainPalette
+                            groups={groups}
+                            domains={domains}
+                            onChangeGroups={setGroups}
+                            onChangeDomains={setDomains}
+                        />
+                    )}
+                </TabsContent>
+
+                {/* RELATIONSHIPS TAB */}
+                <TabsContent value="relationships" className="flex-1 py-4">
+                    <div className="flex items-center justify-center h-full text-muted-foreground border border-dashed rounded-lg">
+                        Link Type Editor Coming Soon
+                    </div>
+                </TabsContent>
+
+                {/* TOOLS TAB */}
+                <TabsContent value="tools" className="flex-1 py-4">
+                    <div className="flex items-center justify-center h-full text-muted-foreground border border-dashed rounded-lg">
+                        Toolbox Configuration Coming Soon
+                    </div>
+                </TabsContent>
+
+                {/* JSON TAB */}
+                <TabsContent value="json" className="flex-1 py-4">
+                    <Card className="h-full flex flex-col">
+                        <CardHeader>
+                            <CardTitle>Advanced JSON Configuration</CardTitle>
+                        </CardHeader>
+                        <CardContent className="flex-1">
+                            <Textarea
+                                value={advancedConfig}
+                                onChange={(e) => setAdvancedConfig(e.target.value)}
+                                disabled={isSystem}
+                                className="font-mono text-xs h-full resize-none"
+                            />
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
         </form>
     );
 }
+

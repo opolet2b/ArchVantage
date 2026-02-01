@@ -297,19 +297,65 @@ class TextTemplatePrimitive(BasePrimitive):
             all_variables["secrets"] = state.get("secrets", {})
             
             # Create Jinja2 environment with sandboxed settings
+            # IMPORTANT: autoescape=False for markdown content (we don't want HTML escaping)
             env = Environment(
                 loader=BaseLoader(),
-                autoescape=True  # Auto-escape for security
+                autoescape=False  # Disable escaping for markdown content
             )
             
             # Render the template
             template = env.from_string(template_string)
             result = template.render(**all_variables)
             
+            # DEBUG: Log aggregator template details
+            print(f"[TEXT_TEMPLATE SIMPLE] Template String: {template_string[:200]}...")
+            print(f"[TEXT_TEMPLATE SIMPLE] Variable Keys: {list(all_variables.keys())[:10]}...")
+            print(f"[TEXT_TEMPLATE SIMPLE] Result Length: {len(result)}")
+            print(f"[TEXT_TEMPLATE SIMPLE] Result Preview: {result[:300]}...")
+            
+            # DEBUG: Save detailed variable info to file
+            try:
+                debug_dir = "C:/Users/opole/Downloads/ChatBotn/backend/debug_docs"
+                import os
+                os.makedirs(debug_dir, exist_ok=True)
+                
+                # CLEAN DEBUG OUTPUT
+                with open(f"{debug_dir}/AGGREGATOR_READABLE.md", "w", encoding="utf-8") as f:
+                    f.write(f"# Aggregator Debug Report\n\n")
+                    f.write(f"## Template String (What Jinja2 Rendered)\n")
+                    f.write(f"```\n{template_string}\n```\n\n")
+                    
+                    f.write(f"## Section Variable Contents\n\n")
+                    for k, v in all_variables.items():
+                        # Only show node_ variables (the section outputs)
+                        if k.startswith("node_"):
+                            f.write(f"### Variable: `{k}`\n\n")
+                            if isinstance(v, dict):
+                                gm = v.get('generated_markdown', v.get('text', ''))
+                                if gm:
+                                    # Show first 500 chars
+                                    preview = gm[:500] if len(gm) > 500 else gm
+                                    f.write(f"**Content Preview:**\n```markdown\n{preview}\n```\n\n")
+                                    f.write(f"**Full Length:** {len(gm)} chars\n\n")
+                                else:
+                                    f.write(f"**Warning:** No generated_markdown or text key found. Keys: {list(v.keys())}\n\n")
+                            else:
+                                f.write(f"**Type:** {type(v).__name__} (expected dict)\n\n")
+                    
+                    f.write(f"## Final Rendered Result\n\n")
+                    f.write(f"**Total Length:** {len(result)} chars\n\n")
+                    f.write(f"```markdown\n{result[:2000]}{'...(truncated)' if len(result) > 2000 else ''}\n```\n")
+                
+                print(f"[TEXT_TEMPLATE SIMPLE] DEBUG: Saved readable report to {debug_dir}/AGGREGATOR_READABLE.md")
+            except Exception as e:
+                print(f"[TEXT_TEMPLATE SIMPLE] DEBUG: Failed to save vars: {e}")
+            
             return PrimitiveResult(
                 success=True,
                 output={
                     output_var: result,
+                    "generated_markdown": result,  # Also include as generated_markdown for compatibility
+                    "text": result,  # Also include as text for compatibility
                     "status": "SUCCESS",
                     "_raw": result
                 }

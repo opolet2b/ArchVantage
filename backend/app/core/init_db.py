@@ -362,12 +362,84 @@ def init_db(db: Session) -> None:
         print(f"Created admin user: {admin_email}")
         
         # Assign Admin role
-        admin_role = db.query(Role).filter(Role.name == "Admin").first()
         if admin_role:
             user_role = UserRole(user_id=admin_user.id, role_id=admin_role.id, source=UserRoleSource.MANUAL)
             db.add(user_role)
             db.commit()
             print(f"Assigned Admin role to {admin_email}")
+
+    # 3. Seed System Scenarios
+    from app.models.scenario_models import Scenario
+    vanilla = db.query(Scenario).filter(Scenario.name == "Vanilla").first()
+    if not vanilla:
+        print("Seeding 'Vanilla' system scenario...")
+        vanilla = Scenario(
+            name="Vanilla",
+            description="Standard Semantic Canvas without specialized domains.",
+            icon="box",
+            theme_color="#64748b", # Slate-500
+            is_default=True,
+            is_system=True,
+            created_by_id=admin_user.id if admin_user else None,
+            configuration={
+                "domain_definitions": [],
+                "automations": [],
+                "ui_overrides": {}
+            }
+        )
+        db.add(vanilla)
+        db.commit()
+        print("Created 'Vanilla' scenario.")
+    
+    # Run Migrations for Scenarios inside init_db if needed (or prefer run_migrations)
+    # Ideally should be in run_migrations but imports might be tricky. 
+    # Let's rely on run_migrations being called before init_db in main.py
+
+def run_migrations(db: Session) -> None:
+    """
+    Run schema migrations for SQLite.
+    
+    Adds missing columns to existing tables.
+    """
+    # ... (Previous migrations) ...
+
+    # Migration for Scenarios (is_default, is_system)
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='scenarios'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            # Check is_default
+            try:
+                result = db.execute(text("SELECT is_default FROM scenarios LIMIT 1"))
+                result.close()
+            except Exception:
+                print("Adding 'is_default' column to scenarios table...")
+                try:
+                    db.execute(text("ALTER TABLE scenarios ADD COLUMN is_default BOOLEAN DEFAULT 0"))
+                    db.commit()
+                except Exception as e:
+                    print(f"Warning: Could not add is_default: {e}")
+                    db.rollback()
+
+            # Check is_system
+            try:
+                result = db.execute(text("SELECT is_system FROM scenarios LIMIT 1"))
+                result.close()
+            except Exception:
+                print("Adding 'is_system' column to scenarios table...")
+                try:
+                    db.execute(text("ALTER TABLE scenarios ADD COLUMN is_system BOOLEAN DEFAULT 0"))
+                    db.commit()
+                except Exception as e:
+                    print(f"Warning: Could not add is_system: {e}")
+                    db.rollback()
+    except Exception as e:
+        print(f"Scenarios migration check failed: {e}")
+
 
 if __name__ == "__main__":
     db = SessionLocal()

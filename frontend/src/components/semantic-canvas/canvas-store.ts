@@ -147,20 +147,104 @@ export interface Canvas {
 /**
  * Scenario Configuration (matches Backend Model)
  */
+// =============================================================================
+// Advanced Scenario Types
+// =============================================================================
+
+export interface MetadataField {
+    key: string;
+    label: string;
+    type: "text" | "number" | "date" | "boolean" | "select";
+    options?: string[]; // For select type
+    required?: boolean;
+}
+
+export interface DropZone {
+    id: string;
+    label: string;
+    description?: string;
+    dashed_style: boolean; // Render as dashed box
+    accepts_types: string[]; // e.g., ["text", "image"] or ["*"]
+    on_drop_agent_id?: string; // Agent to trigger when content is dropped here
+}
+
+export interface DomainDefinition {
+    id: string;
+    name: string;
+    description?: string;
+    group_id?: string; // For folder organization
+
+    // Visuals
+    visual_config: {
+        color: string;
+        bg_color?: string; // Light tint usually
+        icon?: string;
+        corner_radius?: number; // px
+        border_style?: "solid" | "dashed" | "dotted";
+        width?: number; // Default width
+        height?: number;
+    };
+
+    // Structure
+    metadata_schema: MetadataField[];
+    drop_zones: DropZone[];
+
+    // Organization
+    tags: string[]; // For searching
+}
+
+export interface DomainGroup {
+    id: string;
+    name: string;
+    description?: string;
+    parent_group_id?: string; // Nested groups
+    default_visual_config?: {
+        color: string;
+        icon?: string;
+    };
+}
+
+export interface CustomLinkType {
+    id: string;
+    label: string;
+    color: string;
+    stroke_style: "solid" | "dashed" | "dotted";
+    start_marker?: "none" | "arrow" | "circle";
+    end_marker?: "none" | "arrow" | "circle";
+    icon?: string; // Icon displayed on the line
+}
+
+/**
+ * Scenario Configuration (matches Backend Model)
+ */
 export interface Scenario {
     id: string;
     name: string;
     description: string | null;
     icon: string | null;
     theme_color: string | null;
+
+    // System Flags
+    is_default: boolean;
+    is_system: boolean;
+
     configuration: {
         ui_overrides?: {
             toolbox_macros?: any[];
             sidebar_right?: any;
-            labels?: Record<string, string>;
+            labels?: Record<string, string>; // e.g., "Things" -> "Candidates"
         };
-        domain_definitions?: any[];
+
+        // Structured Definitions
+        domain_definitions: DomainDefinition[];
+        domain_groups: DomainGroup[];
+        link_types: CustomLinkType[];
+
         automations?: any[];
+
+        // Initial layout
+        master_canvas?: any;
+
         [key: string]: any;
     };
 }

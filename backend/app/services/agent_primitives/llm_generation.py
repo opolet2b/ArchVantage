@@ -644,6 +644,7 @@ Schema:
                 output={
                     output_var: final_response,
                     "generated_markdown": final_response,
+                    "text": final_response,  # Added for aggregator template compatibility
                     "_raw": response
                 }
             )

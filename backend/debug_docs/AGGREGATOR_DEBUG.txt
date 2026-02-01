@@ -1,0 +1,22 @@
+# AGGREGATOR DEBUG INFO
+# Timestamp: 2026-01-31 21:41:29.819028
+
+## Gathered Variables (5):
+  1. node_0_0_ff2b28e0
+  2. node_0_1_f1b0f6e7
+  3. node_0_2_2fe364a0
+  4. node_0_3_e331d62a
+  5. node_0_4_a8e991a6
+
+## Aggregator Template String:
+```
+{{ (node_0_0_ff2b28e0.get('generated_markdown') or node_0_0_ff2b28e0.get('text') or node_0_0_ff2b28e0.get('output', '')) | default('') }}
+
+{{ (node_0_1_f1b0f6e7.get('generated_markdown') or node_0_1_f1b0f6e7.get('text') or node_0_1_f1b0f6e7.get('output', '')) | default('') }}
+
+{{ (node_0_2_2fe364a0.get('generated_markdown') or node_0_2_2fe364a0.get('text') or node_0_2_2fe364a0.get('output', '')) | default('') }}
+
+{{ (node_0_3_e331d62a.get('generated_markdown') or node_0_3_e331d62a.get('text') or node_0_3_e331d62a.get('output', '')) | default('') }}
+
+{{ (node_0_4_a8e991a6.get('generated_markdown') or node_0_4_a8e991a6.get('text') or node_0_4_a8e991a6.get('output', '')) | default('') }}
+```

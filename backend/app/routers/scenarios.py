@@ -45,12 +45,22 @@ def create_scenario(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new scenario definition."""
+    # Ensure users can't create system scenarios via API
+    scenario_data = scenario.dict()
+    scenario_data['is_system'] = False 
+    
+    # If this is set to default, unset others
+    if scenario.is_default:
+        db.query(Scenario).filter(Scenario.is_default == True).update({"is_default": False})
+
     db_scenario = Scenario(
         name=scenario.name,
         description=scenario.description,
         icon=scenario.icon,
         theme_color=scenario.theme_color,
         configuration=scenario.configuration,
+        is_default=scenario.is_default,
+        is_system=False,
         created_by_id=current_user.id
     )
     db.add(db_scenario)
@@ -82,7 +92,26 @@ def update_scenario(
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
     
+    # Protect System Scenarios
+    if scenario.is_system:
+        # Allow setting default, but nothing else if it is system
+        # Actually, user provided requirement: "Vanilla Scenario ... cannot be modified"
+        # But setting it as default might be allowed?
+        # Let's say we allow ONLY 'is_default' update for system scenarios?
+        # For now, strict: If system, NO editing of content. 
+        # But we MUST allow 'is_default' toggle.
+        
+        allowed_keys = {'is_default'}
+        update_keys = updates.dict(exclude_unset=True).keys()
+        if any(k for k in update_keys if k not in allowed_keys):
+             raise HTTPException(status_code=403, detail="System scenarios cannot be modified")
+
     update_data = updates.dict(exclude_unset=True)
+    
+    # Handle Default Switch
+    if update_data.get("is_default") is True:
+        db.query(Scenario).filter(Scenario.is_default == True).update({"is_default": False})
+    
     for key, value in update_data.items():
         setattr(scenario, key, value)
     
@@ -100,6 +129,9 @@ def delete_scenario(
     scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    if scenario.is_system:
+        raise HTTPException(status_code=403, detail="System scenarios cannot be deleted")
     
     db.delete(scenario)
     db.commit()

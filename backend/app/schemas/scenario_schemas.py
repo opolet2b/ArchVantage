@@ -19,6 +19,8 @@ class ScenarioBase(BaseModel):
     description: Optional[str] = None
     icon: Optional[str] = None
     theme_color: Optional[str] = "#3b82f6"
+    is_default: bool = False
+    is_system: bool = False
     configuration: Dict[str, Any] = Field(default_factory=dict)
 
 class ScenarioCreate(ScenarioBase):
@@ -31,6 +33,7 @@ class ScenarioUpdate(BaseModel):
     description: Optional[str] = None
     icon: Optional[str] = None
     theme_color: Optional[str] = None
+    is_default: Optional[bool] = None
     configuration: Optional[Dict[str, Any]] = None
 
 class ScenarioResponse(ScenarioBase):
