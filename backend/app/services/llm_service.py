@@ -272,7 +272,7 @@ class LLMService:
             print(f"Error generating title: {e}")
             return "New " + type.capitalize()
 
-    async def chat_completion(self, system_prompt: str, user_prompt: str, model: str = "default", temperature: float = 0.7, json_mode: bool = False) -> str:
+    async def chat_completion(self, system_prompt: str, user_prompt: str, model: str = "default", temperature: float = 0.7, json_mode: bool = False, **kwargs) -> str:
         """
         Simple wrapper for one-off chat completions.
         """
@@ -289,70 +289,86 @@ class LLMService:
         # It returns a single string. The loop below will only run once.
         # If `chat` is intended to stream, its implementation needs to change.
         # For now, assuming it returns the full response directly.
-        kwargs = {}
+        pass_kwargs = kwargs.copy()
         if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
+            pass_kwargs["response_format"] = {"type": "json_object"}
             
-        response_content = await self.chat(messages, model_name=model, temperature=temperature, **kwargs)
+        response_content = await self.chat(messages, model_name=model, temperature=temperature, **pass_kwargs)
         full_response = response_content
                 
         return full_response
 
     def _extract_json(self, text: str) -> str:
-        """Extracts JSON block from a string that might contain other text."""
+        """Extracts JSON block from a string with automated repair for common LLM artifacts."""
         import re
-        
-        # Try to find JSON block between triple backticks
-        mj = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
-        if mj:
-            return mj.group(1).strip()
-            
-        # Try to find anything between first { and last }
-        # Recursive peeling: matches { ... } including newlines
-        # We try to parse. If it fails, we look for a nested { ... } inside and try again.
         import json
+        import ast
         
-        candidates = []
-        # Find all top-level brace blocks? No, just outermost first.
-        m = re.search(r"(\{[\s\S]*\})", text)
-        if m:
-            outer = m.group(1).strip()
-            candidates.append(outer)
+        # 1. Primary Extraction: Try backticks first
+        mj = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+        content = mj.group(1).strip() if mj else text.strip()
+        
+        # 2. Secondary Extraction: Finding the outermost { } or [ ]
+        if not (content.startswith('{') or content.startswith('[')):
+            m = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", content)
+            if m:
+                content = m.group(1).strip()
+        
+        def repair_json(s: str) -> str:
+            # Remove trailing commas in objects/arrays
+            s = re.sub(r',\s*\}', '}', s)
+            s = re.sub(r',\s*\]', ']', s)
             
-            # Peel layers: Check for inner { ... }
-            current = outer
-            for _ in range(3): # Max depth 3
-                # Regex for inner block: ignore first char, look for next {
-                m_inner = re.search(r"(\{[\s\S]*\})", current[1:-1])
-                if m_inner:
-                    inner = m_inner.group(1).strip()
-                    candidates.append(inner)
-                    current = inner
-                else:
-                    break
-        
-        # Try to parse candidates from innermost to outermost (or vice versa? Innermost likely the real data if wrapped)
-        # Actually outermost might be {{ json }}
-        # If we have [ "{ { data } }", "{ data }" ]
-        # The second one is valid.
-        
+            # Handle single-quoted property names and strings (Python-style)
+            # This is risky but often necessary. We look for 'key': or 'string'
+            # Heuristic: only replace ' if it's likely a delimiter (start of string or end of string)
+            # and not an apostrophe inside a word.
+            # Convert {'key': 'value'} -> {"key": "value"}
+            if s.startswith("{") or s.startswith("["):
+                # Basic single-to-double quote swap for keys
+                s = re.sub(r"'(\w+)':", r'"\1":', s)
+                # Swap remaining single quotes to double quotes if they look like string delimiters
+                # but NOT apostrophes like "don't"
+                s = re.sub(r"(?<=[\s\[\{\,])'|'(?=[\s\]\}\,])", '"', s)
+            
+            return s
+
+        candidates = [content]
+        # Try to find innermost blocks if outermost fails
+        m_outer = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", content)
+        if m_outer:
+            candidates.append(m_outer.group(1).strip())
+
         for cand in candidates:
-             try:
-                 json.loads(cand)
-                 return cand # Found valid JSON!
-             except:
-                 continue
-                 
-        # If all valid parse attempts fail, return the most likely candidate (innermost or outermost?)
-        # Return outermost trimmed as fallback, logic elsewhere handles the error.
-        if candidates:
-            # Check for double-brace heuristic again just in case
-            c = candidates[0]
-            if c.startswith("{{") and c.endswith("}}"):
-                 return c[1:-1].strip()
-            return c
+            # Attempt 1: Raw parse
+            try:
+                json.loads(cand, strict=False)
+                return cand
+            except:
+                pass
             
-        return text.strip()
+            # Attempt 2: Repaired parse
+            repaired = repair_json(cand)
+            try:
+                json.loads(repaired, strict=False)
+                print(f"[LLMService] JSON repaired successfully")
+                return repaired
+            except:
+                pass
+
+            # Attempt 3: AST Fallback (for Python dict style)
+            try:
+                # ast.literal_eval is safe for literal structures
+                py_data = ast.literal_eval(cand)
+                if isinstance(py_data, (dict, list)):
+                    print(f"[LLMService] Parsed as Python literal successfully")
+                    return json.dumps(py_data)
+            except:
+                continue
+                
+        # If all valid parse attempts fail, return the best effort
+        print(f"[LLMService] JSON extraction failed. Start: {text[:100]}...")
+        return content
 
     async def generate_zoom_summaries(self, content: str, model_name: str = "default") -> dict:
         """

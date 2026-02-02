@@ -983,10 +983,13 @@ def update_thing(
         existing_content = thing.content or {}
         new_content = request.content.copy() # Ensure we don't modify the input
         
-        preserved_fields = ["description", "generated_description", "vision_model", "source_image", "generated_at"]
+        preserved_fields = [
+            "description", "generated_description", "vision_model", "source_image", "generated_at",
+            "execution_plan", "analysis_result", "processing_status"
+        ]
         for field in preserved_fields:
             # If the field exists in DB but is missing/empty in the request, keep the DB version
-            # This handles the case where frontend sends a stale 'content' object without the async-generated description
+            # This handles the case where frontend sends a stale 'content' object without the async-generated details
             if existing_content.get(field) and not new_content.get(field):
                 print(f"[CanvasRouter] Preserving critical field '{field}' during update.")
                 new_content[field] = existing_content[field]

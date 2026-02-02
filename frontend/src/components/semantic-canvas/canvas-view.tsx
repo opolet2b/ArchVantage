@@ -656,6 +656,10 @@ function CanvasViewInner() {
             slides_ts: t.type === 'slideshow' ? (t.content as any)._analysis_timestamp : undefined,
             has_desc: (t.content as any).description ? true : false,
             has_gen_desc: (t.content as any).generated_description ? true : false,
+            // Track analysis progress precisely
+            plan_len: (t.content as any)?.execution_plan ? JSON.stringify((t.content as any).execution_plan).length : 0,
+            has_result: (t.content as any)?.analysis_result ? true : false,
+            processing_status: (t.content as any)?.processing_status,
         })));
 
         // Only update if something actually changed
@@ -1868,6 +1872,22 @@ function CanvasViewInner() {
                                 if (event.links && Array.isArray(event.links) && event.links.length > 0) {
                                     const currentLinks = useCanvasStore.getState().links;
                                     useCanvasStore.setState({ links: [...currentLinks, ...event.links] });
+                                }
+                            } else if (event.type === "plan_update") {
+                                const newPlan = event.plan;
+                                console.log("[Canvas] plan_update event received:", newPlan);
+                                if (newPlan && targetThings.length > 0) {
+                                    const sourceThingId = targetThings[0].id;
+                                    const currentThing = useCanvasStore.getState().things.find(t => t.id === sourceThingId);
+                                    if (currentThing) {
+                                        console.log(`[Canvas] Updating streaming plan for thing ${sourceThingId}. New plan nodes count: ${Array.isArray(newPlan) ? newPlan.length : (newPlan.nodes ? newPlan.nodes.length : 0)}`);
+                                        useCanvasStore.getState().syncThing(sourceThingId, {
+                                            content: {
+                                                ...currentThing.content,
+                                                execution_plan: newPlan
+                                            }
+                                        });
+                                    }
                                 }
                             } else if (event.type === "error") {
                                 updateToast({

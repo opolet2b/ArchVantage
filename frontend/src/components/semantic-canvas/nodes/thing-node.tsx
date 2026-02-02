@@ -803,6 +803,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         if (thing.content?.execution_plan) {
             let nodes: any[] = [];
             const rawPlan = thing.content.execution_plan as any;
+            console.log(`[ThingNode] Raw execution_plan for ${thing.id}:`, rawPlan);
 
             // Normalize input to array
             if (Array.isArray(rawPlan)) {
@@ -810,6 +811,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             } else if (rawPlan.nodes && Array.isArray(rawPlan.nodes)) {
                 nodes = rawPlan.nodes;
             }
+            console.log(`[ThingNode] Normalized nodes count:`, nodes.length);
 
             // Recursive transformer function
             const transformNodes = (items: any[]): any[] => {
@@ -829,27 +831,40 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         children: []
                     };
 
-                    // Check for nested histories in output (ForEach)
+                    // Recursively handle children if present (Standard nested format)
+                    if (item.children && Array.isArray(item.children)) {
+                        node.children = transformNodes(item.children);
+                    }
+
+                    // Check for nested histories in output (ForEach legacy format)
                     const outputObj = item.output_data || item.output || {};
                     if (outputObj && outputObj._foreach_subhistories && Array.isArray(outputObj._foreach_subhistories)) {
                         const subHistories = outputObj._foreach_subhistories;
-                        node.children = subHistories.map((subHistory: any[], subIdx: number) => ({
+                        const legacyChildren = subHistories.map((subHistory: any[], subIdx: number) => ({
                             id: `${id}_iter_${subIdx}`,
                             type: 'ITERATION',
                             label: `Section ${subIdx + 1}`, // Assuming sequential sections
                             status: 'completed',
                             children: transformNodes(subHistory)
                         }));
+                        node.children = [...node.children, ...legacyChildren];
+                    }
+
+                    if (node.children?.length > 0) {
+                        console.log(`[ThingNode] Node ${id} has ${node.children.length} children`);
                     }
 
                     return node;
                 });
             };
 
+            const transformed = transformNodes(nodes);
+            console.log(`[ThingNode] Transformed plan nodes:`, transformed);
+
             if (nodes.length > 0) {
                 return {
                     templateName: "Deep Agent Plan",
-                    nodes: transformNodes(nodes)
+                    nodes: transformed
                 };
             }
         }
@@ -857,13 +872,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         // Fallback: If we have agent_analysis (stringified JSON)
         if (thing.content?.agent_analysis) {
             try {
-                // Try to parse it if it looks like a plan, otherwise specific format
-                // For now, let's create a synthetic plan based on result existence
+                // If the user wants to keep a minimal trace if no full plan exists:
                 return {
-                    templateName: "Deep Analysis",
+                    templateName: "Analysis Process",
                     nodes: [
-                        { id: "1", type: "extractor", label: "Smart Extractor", status: "completed", details: "Extracted relevant context." },
-                        { id: "2", type: "analyzer", label: "Deep Analyzer", status: "completed", details: "Analysis complete." }
+                        { id: "1", type: "agent", label: "Processing Step", status: "completed", details: thing.content.agent_analysis }
                     ]
                 };
             } catch (e) { }
@@ -2359,7 +2372,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             )}
 
                             {/* Agent Analysis Indicator (Orange Bot) */}
-                            {(thing.content as any)?.agent_analysis && (
+                            {((thing.content as any)?.agent_analysis || (thing.content as any)?.execution_plan) && (
                                 <div
                                     className="flex items-center cursor-pointer hover:opacity-80 mr-2"
                                     title="View Agent Plan"
