@@ -8,6 +8,7 @@
  */
 import { create } from "zustand";
 import { API_URL } from "@/lib/utils";
+import { recalculateZoneLayout } from "@/lib/layout-engine";
 
 // =============================================================================
 // Types
@@ -46,7 +47,8 @@ export type LinkType =
     | "influences"
     | "triggers"
     | "blocks"
-    | "supersedes";
+    | "supersedes"
+    | (string & {});
 
 /**
  * Status of RAG vectorization.
@@ -123,6 +125,14 @@ export interface Domain {
     position_y: number;
     width: number;
     height: number;
+
+    // Scenario Support
+    type?: string;
+    visual_config?: Record<string, any>;
+    metadata_schema?: MetadataField[];
+    metadata_values?: Record<string, any>;
+    drop_zones?: DropZone[];
+
     created_at: string;
     updated_at: string | null;
 }
@@ -154,8 +164,15 @@ export interface Canvas {
 export interface MetadataField {
     key: string;
     label: string;
-    type: "text" | "number" | "date" | "boolean" | "select";
-    options?: string[]; // For select type
+    type: "text" | "number" | "date" | "time" | "boolean" | "select" | "multi-select" | "range" | "tags";
+    options?: { label: string; value: string }[]; // For select type
+    ui_component?: string; // e.g., "dropdown", "radio", "slider", "switch", "checkboxes"
+    min?: number;
+    max?: number;
+    step?: number;
+    decimals?: number; // for range/number
+    true_label?: string; // for boolean
+    false_label?: string; // for boolean
     required?: boolean;
 }
 
@@ -166,6 +183,7 @@ export interface DropZone {
     dashed_style: boolean; // Render as dashed box
     accepts_types: string[]; // e.g., ["text", "image"] or ["*"]
     on_drop_agent_id?: string; // Agent to trigger when content is dropped here
+    layout_mode?: "tiled" | "stacked"; // Layout engine mode
 }
 
 export interface DomainDefinition {
@@ -205,13 +223,14 @@ export interface DomainGroup {
 }
 
 export interface CustomLinkType {
-    id: string;
-    label: string;
-    color: string;
+    id: string; // Acts as the internal "type" key (e.g. "is_managed_by")
+    label: string; // Display Name
+    description: string; // Short Description shown in the dialog selection card
+    color: string; // Visual color class or hex
     stroke_style: "solid" | "dashed" | "dotted";
     start_marker?: "none" | "arrow" | "circle";
     end_marker?: "none" | "arrow" | "circle";
-    icon?: string; // Icon displayed on the line
+    icon?: string; // Lucide icon name
 }
 
 /**
@@ -292,6 +311,11 @@ interface CanvasState {
     selectionMode: "hand" | "selection";
     setSelectionMode: (mode: "hand" | "selection") => void;
 
+    // Grid System
+    snapToGrid: boolean;
+    toggleSnapToGrid: () => void;
+    setSnapToGrid: (enabled: boolean) => void;
+
     // Loading states
     isLoading: boolean;
     error: string | null;
@@ -341,7 +365,8 @@ interface CanvasState {
         height?: number,
         domainId?: string,
         color?: string,
-        scrapeOptions?: Record<string, any>
+        scrapeOptions?: Record<string, any>,
+        canvasId?: string
     ) => Promise<CanvasThing | null>;
     updateThing: (
         thingId: string,
@@ -362,7 +387,8 @@ interface CanvasState {
         description?: string,
         sourceFragment?: Record<string, unknown>,
         targetFragment?: Record<string, unknown>,
-        targetCanvasId?: string
+        targetCanvasId?: string,
+        sourceCanvasId?: string
     ) => Promise<CanvasLink | null>;
     updateLink: (
         linkId: string,
@@ -380,7 +406,13 @@ interface CanvasState {
         description: string,
         position: { x: number; y: number },
         color?: string,
-        parentId?: string | null
+        parentId?: string | null,
+        options?: {
+            type?: string;
+            visual_config?: any;
+            metadata_schema?: any[];
+            drop_zones?: DropZone[];
+        }
     ) => Promise<Domain | null>;
     updateDomain: (
         domainId: string,
@@ -400,6 +432,10 @@ interface CanvasState {
     checkThingInDomain: (thingId: string, x: number, y: number) => string | null;
     checkDomainInDomain: (domainId: string, x: number, y: number) => string | null;
 
+    // Layout Engine
+    setZoneLayoutMode: (domainId: string, zoneId: string, mode: "tiled" | "stacked") => Promise<void>;
+    triggerZoneLayout: (domainId: string, preview?: boolean) => void;
+
     // Selection
     selectThing: (thingId: string, multi?: boolean) => void;
     selectDomain: (domainId: string, multi?: boolean, recursive?: boolean) => void;
@@ -410,7 +446,7 @@ interface CanvasState {
     toggleIconify: (thingId: string) => Promise<void>;
 
     // Batch Analysis Action
-    analyzeBatch: (thingIds: string[], action: "summarize" | "identify_purpose", model?: string) => Promise<string | null>;
+    analyzeBatch: (thingIds: string[], action: "summarize" | "identify_purpose", model?: string, canvasId?: string) => Promise<any>;
 
     // Semantic Discovery
     discoverLinks: (thingIds: string[], domainIds: string[]) => Promise<{ links_created: number; domains_updated: number; details: any[] } | null>;
@@ -419,7 +455,7 @@ interface CanvasState {
     reorderItem: (id: string, action: "front" | "back" | "forward" | "backward") => Promise<void>;
 
     // Smart Analysis Template Execution
-    executeAnalysisTemplate: (templateId: string, thingIds: string[], domainIds: string[]) => Promise<any>;
+    executeAnalysisTemplate: (templateId: string, thingIds: string[], domainIds: string[], canvasId?: string) => Promise<any>;
 
     // Sync Features
     checkSyncStatus: (thingId: string) => Promise<{ status: "synced" | "changed" | "missing_source" | "no_path" | "error"; current_hash?: string; reason?: string }>;
@@ -489,6 +525,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedDomainIds: [],
     selectionMode: "hand", // Default to hand (pan) for better touch/trackpad experience
     setSelectionMode: (mode) => set({ selectionMode: mode }),
+
+    // Grid System
+    snapToGrid: false, // Default to off
+    toggleSnapToGrid: () => set((state) => ({ snapToGrid: !state.snapToGrid })),
+    setSnapToGrid: (enabled) => set({ snapToGrid: enabled }),
     isLoading: false,
     error: null,
 
@@ -652,6 +693,24 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     links: canvas.links,
                     domains: canvas.domains, // sync domains too just in case
                 });
+
+                // Also refresh Active Scenario if one is linked (to catch schema updates)
+                const config = canvas.owner_config || {};
+                if (config.scenario_id) {
+                    try {
+                        const scenRes = await fetch(`${API_URL}/scenarios/${config.scenario_id}`, {
+                            headers: { Authorization: `Bearer ${token}` },
+                        });
+                        if (scenRes.ok) {
+                            const scenario = await scenRes.json();
+                            // Check if different to avoid unnecessary render? 
+                            // Store update will trigger render anyway.
+                            set({ activeScenario: scenario });
+                        }
+                    } catch (e) {
+                        console.error("Failed to refresh scenario", e);
+                    }
+                }
             }
         } catch (err) {
             console.error("Failed to refresh canvas:", err);
@@ -802,8 +861,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add thing to canvas
-    addThing: async (type, content, position, title, width, height, domainId, color, scrapeOptions) => {
-        const { canvasId } = get();
+    addThing: async (type, content, position, title, width, height, domainId, color, scrapeOptions, canvasIdOverride) => {
+        const { canvasId: stateCanvasId } = get();
+        const canvasId = canvasIdOverride || stateCanvasId;
         const token = getAuthToken();
         if (!token || !canvasId) {
             console.error("[Store] Missing token or canvasId");
@@ -852,7 +912,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             }
 
             const thing: CanvasThing = await res.json();
-            set({ things: [...get().things, thing] });
+
+            // Safety Check: Only update local state if we are still on the same canvas
+            if (thing.canvas_id === get().canvasId) {
+                set({ things: [...get().things, thing] });
+            }
             return thing;
         } catch (err) {
             console.error("Failed to add thing:", err);
@@ -998,6 +1062,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     // Add thing from server (already created)
     addServerThing: (thing: CanvasThing) => {
+        // Safety Check
+        if (thing.canvas_id !== get().canvasId) return;
+
         set({
             things: [...get().things, thing]
         });
@@ -1138,8 +1205,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add link between things
-    addLink: async (sourceId, targetId, type, label, description, sourceFragment, targetFragment, targetCanvasId) => {
-        const { canvasId } = get();
+    addLink: async (sourceId, targetId, type, label, description, sourceFragment, targetFragment, targetCanvasId, sourceCanvasIdOverride) => {
+        const { canvasId: stateCanvasId } = get();
+        const canvasId = sourceCanvasIdOverride || stateCanvasId;
         const token = getAuthToken();
         if (!token || !canvasId) return null;
 
@@ -1165,7 +1233,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             if (!res.ok) throw new Error("Failed to add link");
 
             const link: CanvasLink = await res.json();
-            set({ links: [...get().links, link] });
+
+            // Safety Check
+            if (link.canvas_id === get().canvasId) {
+                set({ links: [...get().links, link] });
+            }
             return link;
         } catch (err) {
             console.error("Failed to add link:", err);
@@ -1225,7 +1297,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add domain
-    addDomain: async (name, description, position, color = "#6366f1", parentId = null) => {
+    addDomain: async (name, description, position, color = "#6366f1", parentId = null, options = {}) => {
         const { canvasId } = get();
         const token = getAuthToken();
         if (!token) {
@@ -1238,6 +1310,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
 
         try {
+            console.log("[addDomain] Sending request with options:", options);
             const url = `${API_URL}/canvases/${canvasId}/domains`;
             const res = await fetch(url, {
                 method: "POST",
@@ -1245,7 +1318,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ name, description, position, color, parent_id: parentId }),
+                body: JSON.stringify({ name, description, position, color, parent_id: parentId, ...options }),
             });
             if (!res.ok) {
                 const errorText = await res.text();
@@ -1254,10 +1327,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             }
 
             const domain: Domain = await res.json();
-            set({ domains: [...get().domains, domain] });
+            console.log("[addDomain] Response:", domain); // Check if drop_zones come back
 
-            // Trigger batch update for things inside this new domain
-            get().recalculateDomainAssignments();
+            // Safety Check
+            if (domain.canvas_id === get().canvasId) {
+                set({ domains: [...get().domains, domain] });
+                // Trigger batch update for things inside this new domain
+                get().recalculateDomainAssignments();
+            }
 
             return domain;
         } catch (err) {
@@ -1321,6 +1398,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                         height: updates.height,
                         // FIX: Include parent_id in API call for hierarchy persistence
                         parent_id: updates.parent_id,
+                        drop_zones: updates.drop_zones, // FIX: Persistent layout mode
+                        metadata_values: updates.metadata_values,
                     }),
                 }
             );
@@ -1611,8 +1690,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Batch Analysis
-    analyzeBatch: async (thingIds: string[], action: "summarize" | "identify_purpose", model?: string) => {
-        const { canvasId } = get();
+    analyzeBatch: async (thingIds: string[], action: "summarize" | "identify_purpose", model?: string, canvasIdOverride?: string) => {
+        const { canvasId: stateCanvasId } = get();
+        const canvasId = canvasIdOverride || stateCanvasId;
         const token = getAuthToken();
         if (!token || !canvasId || thingIds.length === 0) return null;
 
@@ -1678,6 +1758,175 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         await get().updateThing(thingId, updates);
     },
 
+
+    setZoneLayoutMode: async (domainId, zoneId, mode) => {
+        const { domains, updateDomain, triggerZoneLayout } = get();
+        const domain = domains.find(d => d.id === domainId);
+        if (!domain || !domain.drop_zones) return;
+
+        const updatedZones = domain.drop_zones.map(z =>
+            z.id === zoneId ? { ...z, layout_mode: mode } : z
+        );
+
+        // 1. Sync Local Update (Ensures triggerZoneLayout sees the change immediately)
+        set({
+            domains: domains.map(d => d.id === domainId ? { ...d, drop_zones: updatedZones } : d)
+        });
+
+        // 2. Trigger Layout (Uses the newly set local state)
+        triggerZoneLayout(domainId);
+
+        // 3. Persist to Server (Async)
+        await updateDomain(domainId, { drop_zones: updatedZones });
+    },
+
+    triggerZoneLayout: (domainId, preview = false) => {
+        const { things, domains, updateThings } = get();
+        const domain = domains.find(d => d.id === domainId);
+        if (!domain || !domain.drop_zones) return;
+
+        let allUpdates: any[] = [];
+        const domainThings = things.filter(t => t.domain_id === domainId);
+        if (domainThings.length === 0) return;
+
+        if (!domain.drop_zones) return;
+
+        const zoneCount = domain.drop_zones.length;
+        const cols = zoneCount === 1 ? 1 : 2;
+        const rows = Math.ceil(zoneCount / cols);
+
+        // Approximate Zone Size (Assuming Domain fills available space)
+        // DomainNode uses `absolute inset-0 pt-8 px-2 pb-2`.
+        const domainContentWidth = domain.width - 16;
+        const domainContentHeight = domain.height - 40; // Approx 32px header + 8px bottom padding
+
+        // Correct spacing: Total = N * Size + (N-1) * Gap
+        // Size = (Total - (N-1) * Gap) / N
+        const zoneWidth = (domainContentWidth - (cols - 1) * 8) / cols;
+        const zoneHeight = (domainContentHeight - (rows - 1) * 8) / rows;
+
+        domain.drop_zones.forEach((zone, index) => {
+            const col = index % cols;
+            const row = Math.floor(index / cols);
+
+            const zoneX = (col * (zoneWidth + 8));
+            const zoneY = (row * (zoneHeight + 8));
+
+            const absZoneX = domain.position_x + 8 + zoneX;
+            const absZoneY = domain.position_y + 32 + zoneY;
+
+            // Spatial selection with fallback (assign to nearest zone or distribute)
+            // Ideally, we respect previous assignment if it exists, but for now we rely on space.
+            // If an item is "orphaned" (outside all zones), we must force it into one.
+
+            // We'll proceed in two passes:
+            // 1. Assign items that are strictly INSIDE a zone.
+            // 2. Collect unassigned events and assign them to the closest zone.
+
+            // Note: This logic here runs PER ZONE iteration, which is inefficient for global assignment.
+            // BETTER APPROACH:
+            // Rewrite the loop to iterate things first, or pre-calculate assignments.
+
+            // However, to minimize refactor risk:
+            // We just need to ensure that if this is the LAST zone, we grab any remaining items?
+            // No, that's messy.
+
+            // Let's rely on a simplified approach:
+            // If it interacts with the zone OR if it's closer to this zone than any other.
+
+            // Simpler: Just filter logic update.
+            let thingsInZone = domainThings.filter(t => {
+                const tCenterX = t.position_x + (t.width || 120) / 2;
+                const tCenterY = t.position_y + (t.height || 60) / 2;
+
+                return tCenterX >= absZoneX && tCenterX < absZoneX + zoneWidth &&
+                    tCenterY >= absZoneY && tCenterY < absZoneY + zoneHeight;
+            });
+
+            // HANDLE ORPHANS (If this is resizing, unexpected items might be outside)
+            // We can't easily tell here if it belongs to another zone without checking all zones.
+            // But we can check if it's "mostly" in this column/row sector?
+
+            // Alternative:
+            // If this is the ONLY zone, it gets everything.
+            if (domain.drop_zones?.length === 1) {
+                thingsInZone = domainThings;
+            }
+            // If multiple zones, we trust the spatial check? 
+            // The issue is items to the RIGHT of the rightmost zone when shrinking.
+            // They need to be pulled in.
+
+            if (domain.drop_zones && domain.drop_zones.length > 1) {
+                // If items are effectively "orphaned" (not in any zone), we should probably run a pre-pass.
+                // But let's try a simpler heuristic for the "Reflow" case:
+                // If we are at the rightmost column, take everything to the right.
+                // If we are at the bottom row, take everything below.
+
+                const isRightmost = col === cols - 1;
+                const isBottom = row === rows - 1;
+
+                const orphans = domainThings.filter(t => {
+                    const tCenterX = t.position_x + (t.width || 120) / 2;
+                    const tCenterY = t.position_y + (t.height || 60) / 2;
+
+                    // Check if strictly outside main bounds
+                    const outsideRight = isRightmost && tCenterX >= absZoneX + zoneWidth;
+                    const outsideBottom = isBottom && tCenterY >= absZoneY + zoneHeight;
+
+                    // Only claim it if it matches our row/col otherwise
+                    const inRow = tCenterY >= absZoneY && tCenterY < absZoneY + zoneHeight;
+                    const inCol = tCenterX >= absZoneX && tCenterX < absZoneX + zoneWidth;
+
+                    if (outsideRight && inRow) return true;
+                    if (outsideBottom && inCol) return true;
+                    if (outsideRight && outsideBottom && isRightmost && isBottom) return true; // Corner case
+
+                    return false;
+                });
+
+                // Merge usage unique check?
+                // thingsInZone is an array.
+                orphans.forEach(o => {
+                    if (!thingsInZone.find(t => t.id === o.id)) {
+                        thingsInZone.push(o);
+                    }
+                });
+            }
+
+            if (thingsInZone.length > 0) {
+                const layoutUpdates = recalculateZoneLayout(
+                    zone,
+                    { x: absZoneX, y: absZoneY, width: zoneWidth, height: zoneHeight },
+                    thingsInZone
+                );
+
+                Object.entries(layoutUpdates).forEach(([id, pos]) => {
+                    const position = pos as { x: number; y: number };
+                    allUpdates.push({
+                        id,
+                        updates: { position_x: position.x, position_y: position.y }
+                    });
+                });
+            }
+        });
+
+        if (allUpdates.length > 0) {
+            if (preview) {
+                // Local update only (faster, no server call)
+                // Map to moveThings format: { id, x, y }
+                const moveUpdates = allUpdates.map(u => ({
+                    id: u.id,
+                    x: u.updates.position_x,
+                    y: u.updates.position_y
+                }));
+                get().moveThings(moveUpdates);
+            } else {
+                // Persistent update
+                updateThings(allUpdates);
+            }
+        }
+    },
+
     // Semantic Discovery
     discoverLinks: async (thingIds: string[], domainIds: string[]) => {
         const { canvasId } = get();
@@ -1725,8 +1974,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Execute Smart Analysis Template
-    executeAnalysisTemplate: async (templateId: string, thingIds: string[], domainIds: string[]) => {
-        const { canvasId, things, selectedModel, visionModel } = get();
+    executeAnalysisTemplate: async (templateId: string, thingIds: string[], domainIds: string[], canvasIdOverride?: string) => {
+        const { canvasId: stateCanvasId, things, selectedModel, visionModel } = get();
+        const canvasId = canvasIdOverride || stateCanvasId;
         const token = getAuthToken();
         if (!token || !canvasId) return null;
 

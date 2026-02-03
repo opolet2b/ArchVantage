@@ -1,27 +1,16 @@
 import os
 import shutil
-from typing import List, Optional
-import chromadb
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, Settings, Document
-from llama_index.vector_stores.chroma import ChromaVectorStore
-try:
-    from llama_index.embeddings.ollama import OllamaEmbedding
-except ImportError:
-    OllamaEmbedding = None
-    print("[RAGService] Warning: `llama-index-embeddings-ollama` not found. Embedding with Ollama will be disabled.")
-from llama_index.core.node_parser import SentenceSplitter
-# Import LLMs for Metadata Extraction (Soft dependency)
-try:
-    from llama_index.llms.ollama import Ollama
-except ImportError:
-    Ollama = None
-    print("[RAGService] Warning: `llama-index-llms-ollama` not found. Metadata extraction with Ollama will be disabled.")
+from typing import List, Optional, TYPE_CHECKING
+# Defer heavy imports
+if TYPE_CHECKING:
+    import chromadb
+    from llama_index.core import VectorStoreIndex, StorageContext, Settings
+    from llama_index.vector_stores.chroma import ChromaVectorStore
+    try:
+        from llama_index.embeddings.ollama import OllamaEmbedding
+    except ImportError:
+        pass
 
-try:
-    from llama_index.llms.openai import OpenAI
-except ImportError:
-    OpenAI = None
-    print("[RAGService] Warning: `llama-index-llms-openai` not found. Metadata extraction with OpenAI will be disabled.")
 
 class RAGService:
     def __init__(self):
@@ -32,16 +21,45 @@ class RAGService:
         self.vector_store = None
         self.storage_context = None
         self.index = None
-        
-        from app.services.config_service import config_service
-        self.config_service = config_service
-        
         self.init_error = None
-        self._initialize_rag()
+        
+        # We do NOT initialize RAG here anymore. 
+        # It must be called explicitly via initialize()
 
-    def _initialize_rag(self):
-        self.init_error = None # Clear previous error
+    def initialize(self):
+        """
+        Explicitly initialize RAG Service. 
+        This loads heavy libraries (llama-index, chromadb) and connects to DB.
+        Should be called during app startup_event.
+        """
+        if self._initialized:
+            return
+
+        print("[RAGService] Initializing RAG Service (loading libraries)...")
+        self.init_error = None
+        
         try:
+            from app.services.config_service import config_service
+            self.config_service = config_service
+            
+            # Heavy Imports - Localized to avoid import-time lag for the whole app
+            import chromadb
+            from llama_index.core import VectorStoreIndex, StorageContext, Settings
+            from llama_index.vector_stores.chroma import ChromaVectorStore
+            from llama_index.core.node_parser import SentenceSplitter
+            
+            # Soft dependencies for metadata extraction
+            try:
+                from llama_index.llms.ollama import Ollama
+            except ImportError:
+                print("[RAGService] Warning: `llama-index-llms-ollama` not found. Metadata extraction with Ollama will be disabled.")
+
+            try:
+                from llama_index.llms.openai import OpenAI
+            except ImportError:
+                print("[RAGService] Warning: `llama-index-llms-openai` not found. Metadata extraction with OpenAI will be disabled.")
+
+
             # Load RAG Config
             config = self.config_service.get_config()
             rag_config = config.get("rag_config", {})
@@ -229,6 +247,7 @@ class RAGService:
     def _get_postprocessors(self, config):
         """Factory for creating postprocessors based on config."""
         from llama_index.core.postprocessor import SimilarityPostprocessor, KeywordNodePostprocessor
+        from llama_index.core import Settings
         
         processors = []
         name = config.get("postprocessor", "none")
@@ -373,11 +392,13 @@ class RAGService:
         elif name == "prev_next":
             try:
                 from llama_index.core.postprocessor import PrevNextNodePostprocessor
-                processors.append(PrevNextNodePostprocessor(
-                    docstore=self.index.docstore, 
-                    num_nodes=int(opts.get("num_nodes", 1)),
-                    mode=opts.get("mode", "both") # next, prev, both
-                ))
+                # Need index for PrevNext
+                if self.index:
+                    processors.append(PrevNextNodePostprocessor(
+                        docstore=self.index.docstore, 
+                        num_nodes=int(opts.get("num_nodes", 1)),
+                        mode=opts.get("mode", "both") # next, prev, both
+                    ))
             except ImportError:
                 print("[RAGService] PrevNextNodePostprocessor not available")
 
@@ -386,6 +407,10 @@ class RAGService:
     def _configure_ollama(self, model_name):
         print(f"[RAGService] Connecting to Ollama for Embeddings (model: {model_name})...")
         try:
+            # Need to import locally
+            from llama_index.embeddings.ollama import OllamaEmbedding
+            from llama_index.core import Settings
+            
             # Conservative settings to prevent "cannot decode batches" and infinite retries
             # 1. Very small batch size (1) means we send one chunk at a time. Slower but stable.
             Settings.embed_batch_size = 1
@@ -413,10 +438,15 @@ class RAGService:
              return llm_service._get_llama_index_model(model_name)
         except Exception as e:
             print(f"[RAGService] Error creating LLM instance for {model_name}: {e}")
+            from llama_index.core import Settings
             return Settings.llm
 
     def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None, vision_model_name: Optional[str] = None, enable_vision: bool = False):
         print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, VisionModel: {vision_model_name}, Vision: {enable_vision})")
+        
+        # Ensure Initialized
+        if not self._initialized:
+             self.initialize()
         
         if self.index is None:
              error_msg = self.init_error or "RAG Service is not initialized. Please check your Embedding Model settings or API Key."
@@ -518,6 +548,9 @@ class RAGService:
         Ingest a PowerPoint file using its pre-extracted JSON structure.
         Delegates to the specialized SlideshowIngestor.
         """
+        if not self._initialized:
+             self.initialize()
+             
         if self.index is None:
              return {"status": "error", "error": "RAG Service is not initialized."}
 
@@ -541,10 +574,15 @@ class RAGService:
         Ingest raw text directly into the index.
         Useful for image descriptions or other generated content.
         """
+        if not self._initialized:
+             self.initialize()
+             
         if self.index is None:
              return {"status": "error", "error": "RAG Service is not initialized."}
 
         try:
+            from llama_index.core import Document, Settings
+            
             # Create a Document object
             doc = Document(text=text, metadata=metadata or {})
             
@@ -624,6 +662,13 @@ class RAGService:
             return {"status": "error", "detail": str(e)}
 
     def query(self, query_text: str, k: int = 4, conversation_id: Optional[str] = None, filters: Optional[dict] = None):
+        if not self._initialized:
+             self.initialize()
+             
+        # Check index again after init attempt
+        if self.index is None:
+            return []
+
         from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
         
         # Build filters
@@ -661,21 +706,14 @@ class RAGService:
         
         Unlike query() which returns only text content, this method
         returns structured results including metadata and relevance scores.
-        
-        Args:
-            query: The search query text.
-            conversation_id: Optional filter by conversation/collection ID.
-            filters: Optional dictionary of metadata filters (e.g. {"canvas_id": "123"})
-            k: Number of results to return.
-            response_mode: Optional override for synthesis mode. If None, uses globally configured setting.
-                           Pass "simple" to force retrieval-only for local docs.
-            
-        Returns:
-            List of dicts with 'text', 'metadata', and 'score' keys.
         """
         try:
             print(f"[RAGService] Search requested. Query: '{query}' Filters: {filters}")
-            if not self._initialized or self.index is None:
+            
+            if not self._initialized:
+                self.initialize()
+            
+            if self.index is None:
                 print(f"[RAGService] Index not initialized. Returning empty.")
                 return []
             
@@ -751,10 +789,15 @@ class RAGService:
             return []
 
     def delete_conversation_embeddings(self, conversation_id: str):
+        if not self._initialized:
+            self.initialize()
+            
         try:
             # Delete directly from Chroma collection
-            self.chroma_collection.delete(where={"conversation_id": conversation_id})
-            return True
+            if self.chroma_collection:
+                self.chroma_collection.delete(where={"conversation_id": conversation_id})
+                return True
+            return False
         except Exception as e:
             print(f"Error deleting embeddings for conversation {conversation_id}: {e}")
             return False
@@ -781,14 +824,19 @@ class RAGService:
         Delete all embeddings associated with a specific source file path,
         regardless of conversation_id. This is used for Asset deletion.
         """
+        if not self._initialized:
+             self.initialize()
+             
         try:
              # Sanitize path format if needed (Windows vs Linux)
              # ChromaDB stores exact string.
              print(f"[RAGService] Globally deleting embeddings for source: {source_path}")
-             self.chroma_collection.delete(
-                 where={"source": source_path}
-             )
-             return True
+             if self.chroma_collection:
+                 self.chroma_collection.delete(
+                     where={"source": source_path}
+                 )
+                 return True
+             return False
         except Exception as e:
             print(f"[RAGService] Error deleting by source {source_path}: {e}")
             return False
@@ -799,16 +847,21 @@ class RAGService:
             os.remove(file_path)
             
         try:
+            if not self._initialized:
+                self.initialize()
+
             # Delete from Chroma collection
-            self.chroma_collection.delete(
-                where={
-                    "$and": [
-                        {"conversation_id": conversation_id},
-                        {"source": file_path}
-                    ]
-                }
-            )
-            return True
+            if self.chroma_collection:
+                self.chroma_collection.delete(
+                    where={
+                        "$and": [
+                            {"conversation_id": conversation_id},
+                            {"source": file_path}
+                        ]
+                    }
+                )
+                return True
+            return False
         except Exception as e:
             print(f"Error deleting embeddings for file {filename}: {e}")
             return False
@@ -818,18 +871,23 @@ class RAGService:
         Deletes all embeddings for a given thing_id that do NOT match the active_batch_id.
         Used for 2-phase sync where new data is ingested with a new batch_id before old data is removed.
         """
+        if not self._initialized:
+             self.initialize()
+             
         try:
             print(f"[RAGService] Cleaning up legacy embeddings for {thing_id} (keeping batch {active_batch_id})")
-            # Note: logical operators in ChromaDB 'where' clause usually support $ne
-            self.chroma_collection.delete(
-                where={
-                    "$and": [
-                        {"thing_id": thing_id},
-                        {"ingestion_batch_id": {"$ne": active_batch_id}}
-                    ]
-                }
-            )
-            return True
+            if self.chroma_collection:
+                # Note: logical operators in ChromaDB 'where' clause usually support $ne
+                self.chroma_collection.delete(
+                    where={
+                        "$and": [
+                            {"thing_id": thing_id},
+                            {"ingestion_batch_id": {"$ne": active_batch_id}}
+                        ]
+                    }
+                )
+                return True
+            return False
         except Exception as e:
             print(f"[RAGService] Error cleaning legacy embeddings: {e}")
             return False
@@ -837,12 +895,22 @@ class RAGService:
     def reset_db(self):
         try:
             print("[RAGService] Resetting Vector Database...")
+            if not self._initialized:
+                 self.initialize()
+
             # Use the same collection name as initialization
-            self.chroma_client.delete_collection("chatbot_rag_v2")
-            self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
-            
-            # Re-initialize index (using new settings if any)
-            self._initialize_rag()
+            if self.chroma_client:
+                self.chroma_client.delete_collection("chatbot_rag_v2")
+                self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
+             
+                # Re-initialize index (using new settings if any)
+                self._initialize_rag() # Re-use internal init logic if separated?
+                # Actually, wait. initialize() is now the main entry.
+                # If we reset DB, we might want to re-run config loading.
+                # Let's just call initialize() again to be safe and ensure all objects are fresh.
+                self._initialized = False 
+                self.initialize()
+                
             print("[RAGService] Database reset complete.")
         except Exception as e:
             print(f"Error resetting DB: {e}")
@@ -862,6 +930,7 @@ class RAGService:
     def reload_config(self):
         """Re-initializes RAG components with latest config without resetting data."""
         print("[RAGService] Reloading configuration...")
-        self._initialize_rag()
+        self._initialized = False # Force re-init
+        self.initialize()
 
 rag_service = RAGService()

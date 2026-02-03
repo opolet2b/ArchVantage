@@ -48,6 +48,14 @@ async def startup_event():
         from app.prompts import ALL_PROMPTS
         prompt_service.register_prompts(ALL_PROMPTS)
         print(f"DEBUG: Registered {len(ALL_PROMPTS)} prompts")
+        
+        # Initialize RAG Service (Load heavy imports now)
+        from app.services.rag_service import rag_service
+        # Run initialization in threadpool to avoid blocking startup if it takes time? 
+        # Actually, main init is sync, so just call it.
+        print("DEBUG: Initializing RAG Service...")
+        rag_service.initialize()
+        print("DEBUG: RAG Service Initialized")
     finally:
         db.close()
 

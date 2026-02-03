@@ -308,7 +308,6 @@ def run_migrations(db: Session) -> None:
                     print(f"Warning: Could not add metadata_schema column: {alter_error}")
                     db.rollback()
 
-            # Check type (domain definition id)
             try:
                 result = db.execute(
                     text("SELECT type FROM domains LIMIT 1")
@@ -326,6 +325,65 @@ def run_migrations(db: Session) -> None:
                 except Exception as alter_error:
                     print(f"Warning: Could not add type column: {alter_error}")
                     db.rollback()
+
+            # Check drop_zones
+            try:
+                result = db.execute(
+                    text("SELECT drop_zones FROM domains LIMIT 1")
+                )
+                result.close()
+                print("Migration check: drop_zones column already exists in domains.")
+            except Exception:
+                print("Adding 'drop_zones' column to domains table...")
+                try:
+                    db.execute(
+                        text("ALTER TABLE domains ADD COLUMN drop_zones JSON")
+                    )
+                    db.commit()
+                    print("Added 'drop_zones' column successfully.")
+                except Exception as alter_error:
+                    print(f"Warning: Could not add drop_zones column: {alter_error}")
+                    db.rollback()
+
+    except Exception as e:
+        print(f"domains migration check failed: {e}")
+
+    # Migration for Scenarios (is_default, is_system)
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='scenarios'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            # Check is_default
+            try:
+                result = db.execute(text("SELECT is_default FROM scenarios LIMIT 1"))
+                result.close()
+            except Exception:
+                print("Adding 'is_default' column to scenarios table...")
+                try:
+                    db.execute(text("ALTER TABLE scenarios ADD COLUMN is_default BOOLEAN DEFAULT 0"))
+                    db.commit()
+                except Exception as e:
+                    print(f"Warning: Could not add is_default: {e}")
+                    db.rollback()
+
+            # Check is_system
+            try:
+                result = db.execute(text("SELECT is_system FROM scenarios LIMIT 1"))
+                result.close()
+            except Exception:
+                print("Adding 'is_system' column to scenarios table...")
+                try:
+                    db.execute(text("ALTER TABLE scenarios ADD COLUMN is_system BOOLEAN DEFAULT 0"))
+                    db.commit()
+                except Exception as e:
+                    print(f"Warning: Could not add is_system: {e}")
+                    db.rollback()
+    except Exception as e:
+        print(f"Scenarios migration check failed: {e}")
 
     except Exception as e:
         print(f"domains migration check failed: {e}")
@@ -395,50 +453,6 @@ def init_db(db: Session) -> None:
     # Ideally should be in run_migrations but imports might be tricky. 
     # Let's rely on run_migrations being called before init_db in main.py
 
-def run_migrations(db: Session) -> None:
-    """
-    Run schema migrations for SQLite.
-    
-    Adds missing columns to existing tables.
-    """
-    # ... (Previous migrations) ...
-
-    # Migration for Scenarios (is_default, is_system)
-    try:
-        result = db.execute(
-            text("SELECT name FROM sqlite_master WHERE type='table' AND name='scenarios'")
-        )
-        table_exists = result.fetchone() is not None
-        result.close()
-
-        if table_exists:
-            # Check is_default
-            try:
-                result = db.execute(text("SELECT is_default FROM scenarios LIMIT 1"))
-                result.close()
-            except Exception:
-                print("Adding 'is_default' column to scenarios table...")
-                try:
-                    db.execute(text("ALTER TABLE scenarios ADD COLUMN is_default BOOLEAN DEFAULT 0"))
-                    db.commit()
-                except Exception as e:
-                    print(f"Warning: Could not add is_default: {e}")
-                    db.rollback()
-
-            # Check is_system
-            try:
-                result = db.execute(text("SELECT is_system FROM scenarios LIMIT 1"))
-                result.close()
-            except Exception:
-                print("Adding 'is_system' column to scenarios table...")
-                try:
-                    db.execute(text("ALTER TABLE scenarios ADD COLUMN is_system BOOLEAN DEFAULT 0"))
-                    db.commit()
-                except Exception as e:
-                    print(f"Warning: Could not add is_system: {e}")
-                    db.rollback()
-    except Exception as e:
-        print(f"Scenarios migration check failed: {e}")
 
 
 if __name__ == "__main__":

@@ -25,8 +25,13 @@ interface DomainPaletteProps {
 
 export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains }: DomainPaletteProps) {
     const [search, setSearch] = React.useState("");
-    const [editingGroup, setEditingGroup] = React.useState<DomainGroup | null>(null);
-    const [editingDomain, setEditingDomain] = React.useState<DomainDefinition | null>(null);
+    const [activeEditor, setActiveEditor] = React.useState<{
+        type: "group" | "domain";
+        data: any;
+    } | null>(null);
+
+    const editingGroup = activeEditor?.type === "group" ? activeEditor.data as DomainGroup : null;
+    const editingDomain = activeEditor?.type === "domain" ? activeEditor.data as DomainDefinition : null;
     const [expandedGroups, setExpandedGroups] = React.useState<Record<string, boolean>>({});
 
     const toggleGroup = (id: string) => {
@@ -59,7 +64,7 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
     const handleCreateGroup = () => {
         const newGroup: DomainGroup = { id: `group_${Date.now()}`, name: "New Group" };
         onChangeGroups([...groups, newGroup]);
-        setEditingGroup(newGroup);
+        setActiveEditor({ type: "group", data: newGroup });
     };
 
     const handleCreateDomain = (groupId?: string) => {
@@ -73,7 +78,7 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
             tags: []
         };
         onChangeDomains([...domains, newDomain]);
-        setEditingDomain(newDomain);
+        setActiveEditor({ type: "domain", data: newDomain });
     };
 
     const handleDeleteDomain = (id: string) => {
@@ -120,7 +125,7 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                                         <span className="text-sm font-medium">{group.name}</span>
                                     </div>
                                     <div className="flex gap-1">
-                                        <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingGroup(group)}>
+                                        <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveEditor({ type: "group", data: group })}>
                                             <Edit className="w-3 h-3" />
                                         </Button>
                                         <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDeleteGroup(group.id)}>
@@ -135,12 +140,12 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                                     <div className="pl-4 pr-2 pb-2 space-y-1">
                                         {domainsByGroup[group.id].map(domain => (
                                             <div key={domain.id} className="flex items-center justify-between p-1.5 rounded-md hover:bg-muted text-sm border">
-                                                <div className="flex items-center gap-2" onClick={() => setEditingDomain(domain)}>
+                                                <div className="flex items-center gap-2" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
                                                     <div className="w-3 h-3 rounded-full border" style={{ background: domain.visual_config.color }}></div>
                                                     <span className="cursor-pointer">{domain.name}</span>
                                                 </div>
                                                 <div className="flex gap-1">
-                                                    <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingDomain(domain)}>
+                                                    <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
                                                         <Edit className="w-3 h-3" />
                                                     </Button>
                                                     <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDeleteDomain(domain.id)}>
@@ -161,12 +166,12 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                                 <h4 className="text-xs font-semibold text-muted-foreground px-2 uppercase tracking-wider">Ungrouped</h4>
                                 {domainsByGroup["ungrouped"].map(domain => (
                                     <div key={domain.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted text-sm border bg-card">
-                                        <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setEditingDomain(domain)}>
+                                        <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
                                             <div className="w-3 h-3 rounded-full border" style={{ background: domain.visual_config.color }}></div>
                                             <span>{domain.name}</span>
                                         </div>
                                         <div className="flex gap-1">
-                                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingDomain(domain)}>
+                                            <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
                                                 <Edit className="w-3 h-3" />
                                             </Button>
                                             <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleDeleteDomain(domain.id)}>
@@ -194,13 +199,13 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                     <div className="space-y-4">
                         <div className="flex justify-between items-center border-b pb-4">
                             <h3 className="text-lg font-semibold flex items-center gap-2"><Folder className="w-4 h-4" /> Edit Group</h3>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => setEditingGroup(null)}><Settings className="w-4 h-4 mr-2" />Close</Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setActiveEditor(null)}><Settings className="w-4 h-4 mr-2" />Close</Button>
                         </div>
                         <DomainGroupEditor
                             group={editingGroup}
                             onChange={(updated) => {
                                 onChangeGroups(groups.map(g => g.id === updated.id ? updated : g));
-                                setEditingGroup(updated);
+                                setActiveEditor({ type: "group", data: updated });
                             }}
                         />
                     </div>
@@ -210,13 +215,13 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                     <div className="space-y-4">
                         <div className="flex justify-between items-center border-b pb-4">
                             <h3 className="text-lg font-semibold flex items-center gap-2"><File className="w-4 h-4" /> Edit Domain</h3>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => setEditingDomain(null)}><Settings className="w-4 h-4 mr-2" />Close</Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => setActiveEditor(null)}><Settings className="w-4 h-4 mr-2" />Close</Button>
                         </div>
                         <DomainDefinitionEditor
                             domain={editingDomain}
                             onChange={(updated) => {
                                 onChangeDomains(domains.map(d => d.id === updated.id ? updated : d));
-                                setEditingDomain(updated);
+                                setActiveEditor({ type: "domain", data: updated });
                             }}
                         />
 
@@ -230,7 +235,7 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                                     const val = e.target.value || undefined;
                                     const updated = { ...editingDomain, group_id: val };
                                     onChangeDomains(domains.map(d => d.id === updated.id ? updated : d));
-                                    setEditingDomain(updated);
+                                    setActiveEditor({ type: "domain", data: updated });
                                 }}
                             >
                                 <option value="">(None - Top Level)</option>

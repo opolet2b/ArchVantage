@@ -312,6 +312,19 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const [isEditingContent, setIsEditingContent] = React.useState(false);
     const [isTrulyFullscreen, setIsTrulyFullscreen] = React.useState(false);
 
+    const [executionPlanOpen, setExecutionPlanOpen] = React.useState(false);
+    const [capturedCanvasId, setCapturedCanvasId] = React.useState<string | undefined>(undefined);
+    // When opening modal, we must capture current canvas ID to ensure execution happens on the same canvas
+    // even if user switches context while modal is open.
+    const handleOpenExecutionPlan = React.useCallback(() => {
+        setCapturedCanvasId(useCanvasStore.getState().canvasId);
+        setExecutionPlanOpen(true);
+    }, []);
+
+    const [linkTypeDialogOpen, setLinkTypeDialogOpen] = React.useState(false);
+    const [selectedTargetId, setSelectedTargetId] = React.useState<string | null>(null);
+    const [pendingTargetCanvasId, setPendingTargetCanvasId] = React.useState<string | null>(null);
+
     // ESC key listener for Truly Fullscreen Editor
     React.useEffect(() => {
         if (!isEditingContent || !isTrulyFullscreen) return;
@@ -794,9 +807,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const [previewContent, setPreviewContent] = React.useState<{ title: string, content: string, type: "image_description" | "scanned_pdf" | "text" }>({ title: "", content: "", type: "text" });
 
     // Execution Plan Modal (Green Brain)
-    const [executionPlanOpen, setExecutionPlanOpen] = React.useState(false);
+    // We replaced generic setExecutionPlanOpen with our capturing handler in the top-level state definition.
 
-    // Construct Execution Plan Data safely
     // Construct Execution Plan Data safely
     const executionPlanData = React.useMemo(() => {
         // Check if we have specific execution_plan in content (future proof)
@@ -1182,13 +1194,18 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     }); // simplified for full thing
 
     // Helper: Create new node from result and link it
-    const createNodeAndLink = React.useCallback(async (text: string, sourceFragment: Fragment) => {
+    const createNodeAndLink = React.useCallback(async (text: string, sourceFragment: Fragment, targetCanvasId?: string) => {
+        // Use provided canvasId or fall back to current prop
+        const cId = targetCanvasId || canvasId;
+        if (!cId) return;
+
         // Calculate position: right of the current node
         const position = { x: thing.position_x + (thing.width || 200) + 50, y: thing.position_y };
 
         // Create new text thing with title derived from source fragment ID
         const newThingTitle = sourceFragment.id || "Analysis Result";
-        const newThing = await addThing("text", { text }, position, newThingTitle);
+        // CRITICAL FIX: Pass cId explicitly to addThing
+        const newThing = await addThing("text", { text }, position, newThingTitle, undefined, undefined, undefined, undefined, undefined, cId);
 
         if (newThing) {
             // Create link
@@ -1199,10 +1216,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 "Analysis",
                 "Analysis result derived from this thing",
                 getFragmentData(sourceFragment), // Use smart label
-                undefined
+                undefined,
+                undefined,
+                cId // CRITICAL FIX: Pass cId explicitly to addLink
             );
         }
-    }, [thing, addThing, addLink]);
+    }, [thing, addThing, addLink, canvasId]);
 
     // Helper to fetch image as base64
     const fetchImageAsBase64 = React.useCallback(async (url: string): Promise<string | null> => {
@@ -1370,7 +1389,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             });
 
             if (result && result.result) {
-                await createNodeAndLink(result.result, fragment);
+                // Pass captured canvasId to ensure creation happens on the source canvas
+                await createNodeAndLink(result.result, fragment, canvasId);
             }
         },
         [canvasId, thing, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64]
@@ -1410,7 +1430,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 model: modelToUse || undefined,
             });
             if (result && result.result) {
-                await createNodeAndLink(result.result, fullThingFragment);
+                // Pass captured canvasId
+                await createNodeAndLink(result.result, fullThingFragment, canvasId);
             }
 
             // Only close and clear on success/completion
@@ -1428,10 +1449,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         setCrossCanvasLinkDialogOpen(true);
     }, [thing.id]);
 
-    // Link Type Dialog State
-    const [linkTypeDialogOpen, setLinkTypeDialogOpen] = React.useState(false);
-    const [selectedTargetId, setSelectedTargetId] = React.useState<string | null>(null);
-    const [pendingTargetCanvasId, setPendingTargetCanvasId] = React.useState<string | null>(null);
+
 
     // Handle selecting a target for the link
     const handleLinkToTarget = React.useCallback((targetId: string) => {
@@ -2118,13 +2136,14 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         return (
             <div
                 className={cn(
-                    "group relative flex flex-col transition-all duration-200",
+                    "group relative flex flex-col items-center justify-center p-2 gap-1 transition-all duration-200",
                     "bg-white dark:bg-slate-900",
                     "rounded-xl shadow-sm border",
                     // Ghost Node Styling
                     isGhost ? "opacity-70 border-dashed border-slate-400 bg-slate-50/50" : selected ? "ring-2 ring-primary border-primary shadow-md z-10" : "border-slate-200 dark:border-slate-800 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700",
                     "overflow-hidden",
-                    thing.iconified && "rounded-full"
+                    // Standard width/height for consistency
+                    "w-[120px] h-[80px]"
                 )}
                 title={thing.title || getDefaultTitle()}
                 style={{
@@ -2134,14 +2153,14 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 onDoubleClick={handleDoubleClick}
             >
                 {/* Main type icon - colored by type */}
-                <Icon className={cn("h-6 w-6", colorTheme.iconColor)} />
+                <Icon className={cn("h-8 w-8 mb-1", colorTheme.iconColor)} />
 
                 {/* Restore button - shown when selected */}
                 {(isSelected || selected) && (
                     <button
                         onClick={handleToggleIconify}
                         className={cn(
-                            "absolute -top-2 -right-2 w-5 h-5 rounded-full text-white",
+                            "absolute top-1 right-1 w-5 h-5 rounded-full text-white",
                             "flex items-center justify-center shadow-md transition-colors",
                             "bg-slate-600 hover:bg-slate-700"
                         )}
@@ -2163,12 +2182,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     className={cn("!w-3 !h-3", colorTheme.handleColor)}
                 />
 
-                {/* Title Label for Iconified State */}
-                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 flex justify-center z-10 pointer-events-none">
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300 bg-white/90 dark:bg-slate-900/90 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-800 shadow-sm truncate text-center backdrop-blur-sm max-w-full">
-                        {thing.title || getDefaultTitle()}
-                    </span>
-                </div>
+                {/* Title Label - Static below icon */}
+                <span className="text-[10px] font-medium text-slate-700 dark:text-slate-300 text-center leading-tight line-clamp-2 w-full px-1">
+                    {thing.title || getDefaultTitle()}
+                </span>
             </div>
         );
     }
@@ -2378,7 +2395,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                     title="View Agent Plan"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        setExecutionPlanOpen(true);
+                                        handleOpenExecutionPlan();
                                     }}
                                 >
                                     <Bot className="h-4 w-4 text-orange-500" />
@@ -2979,6 +2996,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 open={executionPlanOpen}
                 onOpenChange={setExecutionPlanOpen}
                 plan={executionPlanData}
+                canvasId={capturedCanvasId}
             />
 
             {/* Link Type Dialog - Re-added */}

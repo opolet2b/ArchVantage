@@ -37,7 +37,16 @@ export function MultiSelect({ options, selected, onChange, placeholder = "Select
         }
     };
 
-    const filteredOptions = options.filter(opt =>
+    const uniqueOptions = React.useMemo(() => {
+        const seen = new Set();
+        return options.filter(opt => {
+            if (seen.has(opt.value)) return false;
+            seen.add(opt.value);
+            return true;
+        });
+    }, [options]);
+
+    const filteredOptions = uniqueOptions.filter(opt =>
         opt.label.toLowerCase().includes(search.toLowerCase())
     );
 

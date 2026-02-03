@@ -63,7 +63,7 @@ class KnownADGroup(KnownADGroupBase):
     is_manually_added: bool
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class GroupMappingCreate(BaseModel):
     ad_group_id: int

@@ -397,6 +397,8 @@ class Domain(Base):
     type = Column(String(50), nullable=True) # ID of the domain definition in the scenario
     visual_config = Column(JSON, nullable=True) # Override/Cached visual styles
     metadata_schema = Column(JSON, nullable=True) # Enforced metadata schema
+    metadata_values = Column(JSON, nullable=True) # Instance-specific metadata values
+    drop_zones = Column(JSON, nullable=True) # Domain-specific drop zones configuration
     
     # Position and size (auto-calculated from children)
     position_x = Column(Float, default=0.0)

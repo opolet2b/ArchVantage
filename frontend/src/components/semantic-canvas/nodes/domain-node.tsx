@@ -11,30 +11,26 @@
 
 import * as React from "react";
 import { NodeProps, NodeResizer, Handle, Position } from "reactflow";
-import { Domain, ZoomLevel } from "../canvas-store";
+import { useCanvasStore, Domain, ZoomLevel, DropZone, MetadataField } from "../canvas-store";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-
-// =============================================================================
-// Domain Node Data
-// =============================================================================
-
-interface DomainNodeData {
-    domain: Domain & { visual_config?: any; metadata_schema?: any; type?: string };
-    zoomLevel: ZoomLevel;
-    depth?: number; // Hierarchy depth: 0 = root, 1 = child, etc.
-    parentName?: string; // Name of parent domain for display
-    onUpdate?: (domainId: string, updates: { name?: string; description?: string; color?: string }) => void;
-    onContextMenu?: (event: React.MouseEvent, domainId: string) => void;
-    onResizeEnd?: (domainId: string, width: number, height: number, x?: number, y?: number) => void;
-}
-
-// ... resize styles ...
-
-// =============================================================================
-// Domain Node Component
-// =============================================================================
-
+import {
+    MoreHorizontal, GripHorizontal, FolderOpen, Maximize2, LayoutGrid, Layers,
+    Settings, List, Plus, X, Calendar as CalendarIcon, Clock, Hash,
+    Pencil, Palette
+} from 'lucide-react';
+import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HexColorPicker } from "react-colorful";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import {
     Dialog,
     DialogContent,
@@ -47,11 +43,30 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Pencil, Palette } from "lucide-react";
-import { HexColorPicker } from "react-colorful";
+
+// =============================================================================
+// Domain Node Data
+// =============================================================================
+
+interface DomainNodeData {
+    domain: Domain & { visual_config?: any; metadata_schema?: any; type?: string };
+    zoomLevel: ZoomLevel;
+    depth?: number; // Hierarchy depth: 0 = root, 1 = child, etc.
+    parentName?: string; // Name of parent domain for display
+    onUpdate?: (domainId: string, updates: { name?: string; description?: string; color?: string }) => void;
+    onContextMenu?: (event: React.MouseEvent, domainId: string) => void;
+    onResize?: (domainId: string, width: number, height: number, x?: number, y?: number) => void;
+    onResizeEnd?: (domainId: string, width: number, height: number, x?: number, y?: number) => void;
+    minWidth?: number;
+    minHeight?: number;
+}
+
+// ... resize styles ...
+
+// =============================================================================
+// Domain Node Component
+// =============================================================================
+
 
 // =============================================================================
 // Custom resize handle style for better visibility
@@ -93,8 +108,22 @@ const PRESET_COLORS = [
  * specific node's props remain the same.
  */
 const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
-    const { domain, zoomLevel, onUpdate, onContextMenu, depth = 0, parentName } = data;
+    const { domain, zoomLevel, onUpdate, onContextMenu, depth = 0, parentName, minWidth, minHeight } = data;
+    const updateDomain = useCanvasStore(s => s.updateDomain);
+    const setZoneLayoutMode = useCanvasStore(s => s.setZoneLayoutMode); // Layout Engine
+    const activeScenario = useCanvasStore(s => s.activeScenario);
     const [isEditing, setIsEditing] = React.useState(false);
+
+    // Schema Evolution: Prefer the latest schema from the scenario definition if available
+    const definition = React.useMemo(() => {
+        if (!activeScenario?.configuration?.domain_definitions) return null;
+        // Try to match by type or name
+        return activeScenario.configuration.domain_definitions.find(d =>
+            (domain.type && d.name === domain.type) || d.name === domain.name
+        );
+    }, [activeScenario, domain.type, domain.name]);
+
+    const effectiveSchema = definition?.metadata_schema || domain.metadata_schema;
 
     // Extract Visual Config
     const visualConfig = domain.visual_config || {};
@@ -105,6 +134,7 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
 
     const [editName, setEditName] = React.useState(domain.name);
     const [editDescription, setEditDescription] = React.useState(domain.description || "");
+    const [editMetadata, setEditMetadata] = React.useState<Record<string, any>>(domain.metadata_values || {});
     const [isColorPickerOpen, setIsColorPickerOpen] = React.useState(false);
 
     // Buffered color state for the picker
@@ -121,18 +151,22 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
     // Handle open edit dialog
     const handleEditClick = (e: React.MouseEvent) => {
         e.stopPropagation();
+        console.log("[DomainNode] Opening edit dialog for domain:", domain.id, "Schema:", effectiveSchema);
         setEditName(domain.name);
         setEditDescription(domain.description || "");
+        setEditMetadata(domain.metadata_values || {});
         setIsEditing(true);
     };
 
     // Submit update
     const submitUpdate = () => {
         if (editName.trim() && onUpdate) {
+            console.log("[DomainNode] Submitting update. Metadata values:", editMetadata);
             onUpdate(domain.id, {
                 name: editName.trim(),
-                description: editDescription.trim()
-            });
+                description: editDescription.trim(),
+                metadata_values: editMetadata // Updated field name
+            } as any);
         }
         setIsEditing(false);
     };
@@ -162,17 +196,38 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
         zoomLevel === "summary" ? 0.5 :
             zoomLevel === "preview" ? 0.3 : 0.2;
 
+    const [resizeHandle, setResizeHandle] = React.useState<string | null>(null);
+
+    // Calculate dynamic constraints
+    const getConstraints = () => {
+        let minW = minWidth || 200;
+        let minH = minHeight || 150;
+
+        return { minWidth: minW, minHeight: minH };
+    };
+
+    const constraints = getConstraints();
+
     return (
         <>
             {/* Enhanced NodeResizer with visible handles */}
             <NodeResizer
                 color={displayColor}
                 isVisible={selected}
-                minWidth={150}
-                minHeight={100}
+                minWidth={constraints.minWidth}
+                minHeight={constraints.minHeight}
                 handleStyle={resizeHandleStyle}
                 lineStyle={lineHandleStyle}
+                onResizeStart={(_e, params) => {
+                    // setResizeHandle((params as any).handle); // Removed dynamic constraints logic
+                }}
+                onResize={(_e, params) => {
+                    if (data.onResize) {
+                        data.onResize(domain.id, params.width, params.height, params.x, params.y);
+                    }
+                }}
                 onResizeEnd={(_e, params) => {
+                    setResizeHandle(null);
                     if (data.onResizeEnd) {
                         data.onResizeEnd(domain.id, params.width, params.height, params.x, params.y);
                     }
@@ -220,6 +275,63 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                             : 'none',
                     }}
                 />
+
+                {/* Visual Drop Zones - Grid Layout */}
+                {domain.drop_zones && domain.drop_zones.length > 0 && (
+                    <div
+                        className="absolute inset-0 pt-8 px-2 pb-2 grid gap-2 pointer-events-none z-10"
+                        style={{
+                            gridTemplateColumns: domain.drop_zones.length === 1 ? "1fr" : "repeat(2, 1fr)",
+                            gridAutoRows: "1fr"
+                        }}
+                    >
+                        {domain.drop_zones.map((zone, idx) => (
+                            <div
+                                key={zone.id || idx}
+                                className={cn(
+                                    "group/zone pointer-events-auto rounded-md border text-xs flex flex-col items-center justify-center text-center gap-1 transition-all h-full w-full relative",
+                                    zone.dashed_style ? "border-dashed" : "border-solid",
+                                    "bg-white/40 hover:bg-white/70 border-slate-400 dark:border-slate-500 text-slate-700 dark:text-slate-200 shadow-sm overflow-hidden"
+                                )}
+                                title={zone.description}
+                                data-drop-zone-id={zone.id}
+                            >
+                                {/* Layout Mode Toggle - Visible on Hover or Selection */}
+                                <div className={cn(
+                                    "absolute top-1 right-1 transition-opacity z-20",
+                                    selected ? "opacity-100" : "opacity-0 group-hover/zone:opacity-100"
+                                )}>
+                                    <button
+                                        className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-md shadow-md bg-white/95 backdrop-blur-md border border-slate-300 dark:border-slate-600 transition-all hover:scale-110 active:scale-90 flex items-center justify-center"
+                                        title={`Switch to ${zone.layout_mode === 'stacked' ? 'Tiled' : 'Stacked'} Layout`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            // Toggle Logic
+                                            const newMode = zone.layout_mode === 'stacked' ? 'tiled' : 'stacked';
+                                            console.log(`[DomainNode] Toggling zone ${zone.id} to ${newMode}`);
+                                            // Call specialized action that triggers layout
+                                            setZoneLayoutMode(domain.id, zone.id, newMode);
+                                        }}
+                                    >
+                                        {zone.layout_mode === 'stacked' ? (
+                                            <Layers className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                                        ) : (
+                                            <LayoutGrid className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+                                        )}
+                                    </button>
+                                </div>
+
+                                <span className="font-semibold">{zone.label}</span>
+                                {zone.accepts_types && zone.accepts_types.length > 0 && (
+                                    <span className="text-[9px] opacity-70 uppercase tracking-widest">
+                                        {zone.accepts_types.join(", ")}
+                                    </span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Domain label - High Contrast Black on White (Outside Opacity Layer) */}
                 <div
@@ -383,29 +495,281 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
             {/* Edit Dialog - Rendered via Portal or using the Dialog component which handles portalling */}
             {isEditing && (
                 <Dialog open={isEditing} onOpenChange={setIsEditing}>
-                    <DialogContent onClick={(e) => e.stopPropagation()}>
+                    <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
                         <DialogHeader>
-                            <DialogTitle>Edit Domain</DialogTitle>
+                            <DialogTitle className="flex items-center gap-2">
+                                <Settings className="w-5 h-5 text-slate-500" />
+                                Edit Domain: {domain.name}
+                            </DialogTitle>
                         </DialogHeader>
-                        <div className="space-y-4 py-4">
-                            <div className="space-y-2">
-                                <Label>Domain Name <span className="text-red-500">*</span></Label>
-                                <Input
-                                    value={editName}
-                                    onChange={(e) => setEditName(e.target.value)}
-                                    placeholder="Domain Name"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Description</Label>
-                                <Textarea
-                                    value={editDescription}
-                                    onChange={(e) => setEditDescription(e.target.value)}
-                                    placeholder="Describe the purpose of this domain..."
-                                    rows={3}
-                                />
-                            </div>
-                        </div>
+
+                        <Tabs defaultValue="properties" className="w-full flex-1 flex flex-col min-h-0">
+                            <TabsList className="grid w-full grid-cols-2">
+                                <TabsTrigger value="properties">Properties</TabsTrigger>
+                                <TabsTrigger value="metadata" className="flex items-center gap-2">
+                                    <List className="w-4 h-4" />
+                                    Metadata
+                                </TabsTrigger>
+                            </TabsList>
+
+                            <TabsContent value="properties" className="space-y-4 py-4 flex-1 overflow-y-auto pr-2">
+                                <div className="space-y-2">
+                                    <Label>Domain Name <span className="text-red-500">*</span></Label>
+                                    <Input
+                                        value={editName}
+                                        onChange={(e) => setEditName(e.target.value)}
+                                        placeholder="Domain Name"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Description</Label>
+                                    <Textarea
+                                        value={editDescription}
+                                        onChange={(e) => setEditDescription(e.target.value)}
+                                        placeholder="Describe the purpose of this domain..."
+                                        rows={3}
+                                    />
+                                </div>
+                            </TabsContent>
+
+                            <TabsContent value="metadata" className="space-y-4 py-4 flex-1 overflow-y-auto pr-2 min-h-[300px]">
+                                <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-3 rounded-lg border border-indigo-100 dark:border-indigo-900/30 mb-4">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">About Domain Metadata</h4>
+                                        <HelpTooltip contentPath="canvases/domain-metadata" />
+                                    </div>
+                                    <p className="text-[11px] text-indigo-700 dark:text-indigo-300 leading-tight mt-1">
+                                        Governance, agent context, and automatic labeling.
+                                    </p>
+                                </div>
+
+
+                                {effectiveSchema && effectiveSchema.length > 0 ? (
+                                    <div className="space-y-4">
+                                        {effectiveSchema.map((field: MetadataField) => {
+                                            const value = editMetadata[field.key];
+
+                                            const renderField = () => {
+                                                switch (field.type) {
+                                                    case 'text':
+                                                        if (field.ui_component === 'textarea') {
+                                                            return (
+                                                                <Textarea
+                                                                    value={value || ""}
+                                                                    onChange={(e) => setEditMetadata(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                                                    placeholder={`Enter ${field.label}...`}
+                                                                />
+                                                            );
+                                                        }
+                                                        return (
+                                                            <Input
+                                                                value={value || ""}
+                                                                onChange={(e) => setEditMetadata(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                                                placeholder={`Enter ${field.label}...`}
+                                                            />
+                                                        );
+                                                    case 'number':
+                                                        return (
+                                                            <div className="flex gap-2 items-center">
+                                                                <Input
+                                                                    type="number"
+                                                                    value={value ?? ""}
+                                                                    onChange={(e) => {
+                                                                        let val = e.target.value !== "" ? Number(e.target.value) : undefined;
+                                                                        // Enforce Range if set
+                                                                        if (val !== undefined) {
+                                                                            if (field.min !== undefined && val < field.min) val = field.min;
+                                                                            if (field.max !== undefined && val > field.max) val = field.max;
+                                                                        }
+                                                                        setEditMetadata(prev => ({ ...prev, [field.key]: val }));
+                                                                    }}
+                                                                    min={field.min}
+                                                                    max={field.max}
+                                                                    step={field.step || (field.decimals ? 1 / Math.pow(10, field.decimals) : 1)}
+                                                                />
+                                                                {field.ui_component === 'stepper' && (
+                                                                    <div className="flex flex-col gap-0.5">
+                                                                        <Button size="icon" variant="ghost" className="h-4 w-4" onClick={() => setEditMetadata(prev => ({ ...prev, [field.key]: (prev[field.key] || 0) + (field.step || 1) }))}><Plus className="h-2 w-2" /></Button>
+                                                                        <Button size="icon" variant="ghost" className="h-4 w-4" onClick={() => setEditMetadata(prev => ({ ...prev, [field.key]: (prev[field.key] || 0) - (field.step || 1) }))}><X className="h-2 w-2" /></Button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    case 'range':
+                                                        if (field.ui_component === 'slider') {
+                                                            return (
+                                                                <div className="space-y-4 pt-2">
+                                                                    <div className="flex justify-between text-xs text-muted-foreground">
+                                                                        <span>{field.min ?? 0}</span>
+                                                                        <span className="font-bold text-primary">{value ?? field.min ?? 0}</span>
+                                                                        <span>{field.max ?? 100}</span>
+                                                                    </div>
+                                                                    <Slider
+                                                                        min={field.min ?? 0}
+                                                                        max={field.max ?? 100}
+                                                                        step={field.step ?? 1}
+                                                                        value={[value ?? field.min ?? 0]}
+                                                                        onValueChange={(vals) => setEditMetadata(prev => ({ ...prev, [field.key]: vals[0] }))}
+                                                                    />
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <div className="grid grid-cols-2 gap-4">
+                                                                <Input
+                                                                    type="number"
+                                                                    value={value ?? ""}
+                                                                    onChange={(e) => {
+                                                                        let val = Number(e.target.value);
+                                                                        // Enforce Range if set
+                                                                        if (field.min !== undefined && val < field.min) val = field.min;
+                                                                        if (field.max !== undefined && val > field.max) val = field.max;
+                                                                        setEditMetadata(prev => ({ ...prev, [field.key]: val }));
+                                                                    }}
+                                                                    placeholder="Value"
+                                                                />
+                                                                <div className="flex items-center text-xs text-muted-foreground italic">
+                                                                    Range: {field.min ?? 0} - {field.max ?? 100}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    case 'boolean':
+                                                        if (field.ui_component === 'switch') {
+                                                            return (
+                                                                <div className="flex items-center gap-3 py-1">
+                                                                    <Switch
+                                                                        id={`switch-${field.key}`}
+                                                                        checked={!!value}
+                                                                        onCheckedChange={(checked) => setEditMetadata(prev => ({ ...prev, [field.key]: checked }))}
+                                                                    />
+                                                                    <Label htmlFor={`switch-${field.key}`} className="cursor-pointer">
+                                                                        {value ? (field.true_label || "True") : (field.false_label || "False")}
+                                                                    </Label>
+                                                                </div>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <div className="flex items-center gap-2 py-1">
+                                                                <Checkbox
+                                                                    id={`check-${field.key}`}
+                                                                    checked={!!value}
+                                                                    onCheckedChange={(checked) => setEditMetadata(prev => ({ ...prev, [field.key]: checked }))}
+                                                                />
+                                                                <Label htmlFor={`check-${field.key}`} className="cursor-pointer">
+                                                                    {value ? (field.true_label || "True") : (field.false_label || "False")}
+                                                                </Label>
+                                                            </div>
+                                                        );
+                                                    case 'date':
+                                                        return (
+                                                            <div className="relative">
+                                                                <CalendarIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                                                                <Input
+                                                                    type="date"
+                                                                    className="pl-9"
+                                                                    value={value || ""}
+                                                                    onChange={(e) => setEditMetadata(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                                                />
+                                                            </div>
+                                                        );
+                                                    case 'time':
+                                                        return (
+                                                            <div className="relative">
+                                                                <Clock className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                                                                <Input
+                                                                    type="time"
+                                                                    className="pl-9"
+                                                                    value={value || ""}
+                                                                    onChange={(e) => setEditMetadata(prev => ({ ...prev, [field.key]: e.target.value }))}
+                                                                />
+                                                            </div>
+                                                        );
+                                                    case 'select':
+                                                        return (
+                                                            <Select
+                                                                value={value || ""}
+                                                                onValueChange={(v) => setEditMetadata(prev => ({ ...prev, [field.key]: v }))}
+                                                            >
+                                                                <SelectTrigger className="w-full">
+                                                                    <SelectValue placeholder="Select option..." />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {field.options?.map((opt) => (
+                                                                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        );
+                                                    case 'multi-select':
+                                                        return (
+                                                            <MultiSelect
+                                                                options={field.options || []}
+                                                                selected={Array.isArray(value) ? value : []}
+                                                                onChange={(vals) => setEditMetadata(prev => ({ ...prev, [field.key]: vals }))}
+                                                                placeholder="Select multiple..."
+                                                            />
+                                                        );
+                                                    case 'tags':
+                                                        return (
+                                                            <div className="space-y-2">
+                                                                <div className="flex flex-wrap gap-1 min-h-[36px] p-1.5 border rounded-md bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                                                                    {(Array.isArray(value) ? value : []).map((tag, i) => (
+                                                                        <Badge key={i} variant="secondary" className="gap-1">
+                                                                            {tag}
+                                                                            <X className="h-3 w-3 cursor-pointer hover:text-destructive" onClick={() => setEditMetadata(prev => ({ ...prev, [field.key]: (prev[field.key] || []).filter((_: any, idx: number) => idx !== i) }))} />
+                                                                        </Badge>
+                                                                    ))}
+                                                                    <input
+                                                                        className="flex-1 bg-transparent outline-none text-sm px-1 min-w-[60px]"
+                                                                        placeholder="Add tag..."
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter' || e.key === ',') {
+                                                                                e.preventDefault();
+                                                                                const val = e.currentTarget.value.trim();
+                                                                                if (val) {
+                                                                                    setEditMetadata(prev => {
+                                                                                        const tags = Array.isArray(prev[field.key]) ? prev[field.key] : [];
+                                                                                        if (tags.includes(val)) return prev;
+                                                                                        return { ...prev, [field.key]: [...tags, val] };
+                                                                                    });
+                                                                                    e.currentTarget.value = "";
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                                <p className="text-[10px] text-muted-foreground">Press Enter or comma to add tags.</p>
+                                                            </div>
+                                                        );
+                                                    default:
+                                                        return <Input value={value || ""} readOnly />;
+                                                }
+                                            };
+
+                                            return (
+                                                <div key={field.key} className="space-y-2 p-3 border rounded-lg bg-card/50">
+                                                    <div className="flex justify-between items-center">
+                                                        <Label className="text-sm font-semibold flex items-center gap-1.5">
+                                                            {field.label}
+                                                            {field.required && <span className="text-destructive font-bold">*</span>}
+                                                        </Label>
+                                                        <Badge variant="outline" className="text-[10px] font-mono py-0 h-4 px-1 opacity-50 border-none">{field.key}</Badge>
+                                                    </div>
+                                                    {renderField()}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="h-full flex flex-col items-center justify-center text-muted-foreground py-12 border-2 border-dashed rounded-lg">
+                                        <List className="w-12 h-12 mb-2 opacity-20" />
+                                        <p className="text-sm">No metadata schema defined for this domain.</p>
+                                        <p className="text-[11px] mt-1 italic">Define a schema in the Scenario Configuration.</p>
+                                    </div>
+                                )}
+                            </TabsContent>
+                        </Tabs>
+
                         <DialogFooter>
                             <Button
                                 variant="outline"

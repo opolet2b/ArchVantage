@@ -19,6 +19,7 @@ import { Scenario, DomainDefinition, DomainGroup } from "./canvas-store";
 import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { DomainPalette } from "./editors/domain-palette";
+import { LinkTypeEditor } from "./editors/link-type-editor";
 
 interface ScenarioEditorProps {
     initialData?: Partial<Scenario>; // if provided, we are editing
@@ -46,13 +47,16 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
     const [linkTypes, setLinkTypes] = React.useState<any[]>(
         initialData?.configuration?.link_types || []
     );
+    const [keepStandardLinks, setKeepStandardLinks] = React.useState(
+        initialData?.configuration?.keep_standard_links ?? false
+    );
 
     // Advanced Config (JSON) - Excludes UI managed fields
     const [advancedConfig, setAdvancedConfig] = React.useState("");
 
     React.useEffect(() => {
         if (initialData?.configuration) {
-            const { domain_definitions, domain_groups, link_types, ...rest } = initialData.configuration;
+            const { domain_definitions, domain_groups, link_types, keep_standard_links, ...rest } = initialData.configuration;
             setAdvancedConfig(JSON.stringify(rest, null, 2));
         } else {
             setAdvancedConfig("{}");
@@ -91,7 +95,8 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     ...parsedExtras,
                     domain_definitions: domains,
                     domain_groups: groups,
-                    link_types: linkTypes
+                    link_types: linkTypes,
+                    keep_standard_links: keepStandardLinks
                 }
             };
 
@@ -250,9 +255,36 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
 
                 {/* RELATIONSHIPS TAB */}
                 <TabsContent value="relationships" className="flex-1 py-4">
-                    <div className="flex items-center justify-center h-full text-muted-foreground border border-dashed rounded-lg">
-                        Link Type Editor Coming Soon
-                    </div>
+                    {isSystem ? (
+                        <div className="flex items-center justify-center h-full text-muted-foreground">System scenarios cannot accept link modifications.</div>
+                    ) : (
+                        <Card>
+                            <CardContent className="pt-6 space-y-6">
+                                <div className="flex items-center space-x-2 border p-4 rounded-md bg-muted/20">
+                                    <Input
+                                        type="checkbox"
+                                        id="keepStandardLinks"
+                                        className="w-4 h-4"
+                                        checked={keepStandardLinks}
+                                        onChange={e => setKeepStandardLinks(e.target.checked)}
+                                    />
+                                    <div className="grid gap-1.5 leading-none">
+                                        <Label htmlFor="keepStandardLinks" className="text-sm font-medium leading-none cursor-pointer">
+                                            Keep standard link types
+                                        </Label>
+                                        <p className="text-sm text-muted-foreground">
+                                            If checked, custom link types will be added to the standard list instead of replacing it.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <LinkTypeEditor
+                                    linkTypes={linkTypes}
+                                    onChange={setLinkTypes}
+                                />
+                            </CardContent>
+                        </Card>
+                    )}
                 </TabsContent>
 
                 {/* TOOLS TAB */}

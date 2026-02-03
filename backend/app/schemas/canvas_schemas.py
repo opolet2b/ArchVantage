@@ -6,7 +6,7 @@ Pydantic schemas for canvas API requests and responses.
 PEP 8 Compliant
 """
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -252,7 +252,9 @@ class DomainCreate(BaseModel):
     # Scenario Support
     type: Optional[str] = None
     visual_config: Optional[Dict[str, Any]] = None
-    metadata_schema: Optional[Dict[str, Any]] = None
+    metadata_schema: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
+    metadata_values: Optional[Dict[str, Any]] = None
+    drop_zones: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
 
 
 class DomainUpdate(BaseModel):
@@ -268,7 +270,9 @@ class DomainUpdate(BaseModel):
     
     # Scenario Support
     visual_config: Optional[Dict[str, Any]] = None
-    metadata_schema: Optional[Dict[str, Any]] = None
+    metadata_schema: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
+    metadata_values: Optional[Dict[str, Any]] = None
+    drop_zones: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
 
 
 class DomainResponse(BaseModel):
@@ -288,7 +292,9 @@ class DomainResponse(BaseModel):
     # Scenario Support
     type: Optional[str] = None
     visual_config: Optional[Dict[str, Any]] = None
-    metadata_schema: Optional[Dict[str, Any]] = None
+    metadata_schema: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
+    metadata_values: Optional[Dict[str, Any]] = None
+    drop_zones: Optional[Union[List[Dict[str, Any]], Dict[str, Any]]] = None
 
     created_at: datetime
     updated_at: Optional[datetime]

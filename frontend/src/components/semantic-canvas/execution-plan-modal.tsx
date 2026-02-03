@@ -35,8 +35,8 @@ interface ExecutionPlanModalProps {
         templateName?: string;
         currentStepId?: string;
         nodes: ExecutionNode[];
-        executionId?: string;
     } | null;
+    canvasId?: string;
 }
 
 const FormattedJson = ({ data }: { data: any }) => {
@@ -319,7 +319,7 @@ const ExecutionNodeItem = ({ node, isLast, depth = 0 }: { node: ExecutionNode, i
     );
 };
 
-export function ExecutionPlanModal({ open, onOpenChange, plan }: ExecutionPlanModalProps) {
+export function ExecutionPlanModal({ open, onOpenChange, plan, canvasId }: ExecutionPlanModalProps) {
     if (!plan) return null;
 
     return (

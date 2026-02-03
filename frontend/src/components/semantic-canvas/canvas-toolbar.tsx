@@ -303,6 +303,19 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
 
             <div className="flex items-center gap-2 border-l pl-4 ml-4">
                 <div className="flex items-center gap-2">
+                    <Label htmlFor="grid-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
+                        Grid
+                    </Label>
+                    <Switch
+                        id="grid-toggle"
+                        checked={useCanvasStore((s) => s.snapToGrid)}
+                        onCheckedChange={() => useCanvasStore.getState().toggleSnapToGrid()}
+                    />
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2 border-l pl-4 ml-4">
+                <div className="flex items-center gap-2">
                     <Label htmlFor="links-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
                         Links
                     </Label>

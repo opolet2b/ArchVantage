@@ -36,11 +36,13 @@ import { TextThingEditor } from "./nodes/text-thing-editor";
 import { CustomEdge } from "./edges/custom-edge";
 import { CanvasToolbar } from "./canvas-toolbar";
 
-import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport } from "./canvas-store";
+import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport, DomainDefinition } from "./canvas-store";
 
 import { LinkTypeDialog } from "./link-type-dialog";
+import { DomainSelector } from "./domain-selector";
 import { MCPToolConfigDialog, MCPToolConfig } from "./mcp-tool-config-dialog";
 import { layoutService } from "./services/layout-service";
+import { checkZoneLayoutFit } from "@/lib/layout-engine";
 import { cn, API_URL } from "@/lib/utils";
 import {
     Select,
@@ -126,6 +128,7 @@ function CanvasViewInner() {
     const dockPosition = useCanvasStore(s => s.dockPosition);
     const editingThingId = useCanvasStore(s => s.editingThingId);
     const sidebarCollapsed = useCanvasStore(s => s.sidebarCollapsed);
+    const snapToGrid = useCanvasStore(s => s.snapToGrid); // Grid System
 
     // Actions
     const updateViewport = useCanvasStore(s => s.updateViewport);
@@ -156,6 +159,8 @@ function CanvasViewInner() {
     const setSelectionMode = useCanvasStore(s => s.setSelectionMode);
     const toggleShowLinks = useCanvasStore(s => s.toggleShowLinks);
     const setSemanticZoomEnabled = useCanvasStore(s => s.setSemanticZoomEnabled);
+    const triggerZoneLayout = useCanvasStore(s => s.triggerZoneLayout); // Layout Engine
+    const activeScenario = useCanvasStore(s => s.activeScenario);
 
     // Dummy stubs for variables that were previously destructured but now moved to CanvasToolbar
     // We keep them here if there are other parts of the component still using them
@@ -252,6 +257,8 @@ function CanvasViewInner() {
 
     // Link type dialog state
     const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
+    const [showDomainSelector, setShowDomainSelector] = React.useState(false);
+    const [selectedDomainDef, setSelectedDomainDef] = React.useState<DomainDefinition | null>(null);
     const [pendingConnection, setPendingConnection] = React.useState<{
         source: string;
         target: string;
@@ -375,12 +382,65 @@ function CanvasViewInner() {
     // Convert domains to React Flow nodes (memoized, rendered behind things)
     // Handle domain resize end
     // Handle domain resize end
+    // Handle domain resize LIVE (Preview)
     const handleDomainResize = React.useCallback((domainId: string, width: number, height: number, x?: number, y?: number) => {
+        const domain = domains.find(d => d.id === domainId);
+        if (!domain) return;
+
+        // Constraint Check: Can the icons fit in the new size?
+        const domainThings = things.filter(t => t.domain_id === domainId);
+        if (domainThings.length > 0) {
+            const zoneCount = domain.drop_zones?.length || 0;
+            if (zoneCount > 0) {
+                const cols = zoneCount === 1 ? 1 : 2;
+                const rows = Math.ceil(zoneCount / cols);
+
+                const domainContentWidth = width - 16;
+                const domainContentHeight = height - 40;
+
+                // Correct spacing: Size = (Total - (N-1) * Gap) / N
+                const zoneWidth = (domainContentWidth - (cols - 1) * 8) / cols;
+                const zoneHeight = (domainContentHeight - (rows - 1) * 8) / rows;
+
+                const ITEM_W = 120;
+                const ITEM_H = 80;
+                const GAP = 8;
+                const PADDING = 16;
+
+                const availZW = zoneWidth - PADDING * 2;
+                const availZH = zoneHeight - PADDING * 2;
+
+                // Precise capacity: floor((avail + gap) / (item + gap))
+                const actualItemsPerRow = Math.max(0, Math.floor((availZW + GAP) / (ITEM_W + GAP)));
+                const actualItemsPerCol = Math.max(0, Math.floor((availZH + GAP) / (ITEM_H + GAP)));
+
+                const totalCapacity = actualItemsPerRow * actualItemsPerCol * zoneCount;
+
+                if (domainThings.length > totalCapacity) {
+                    return;
+                }
+            }
+        }
+
+        // 1. Update Domain Geometry LOCALLY (using moveDomain which is local-only)
+        moveDomain(domainId, x ?? 0, y ?? 0, width, height);
+
+        // 2. Trigger Layout Recalculation (Fluid Layout PREVIEW)
+        triggerZoneLayout(domainId, true); // true = preview mode (local only, no DB persist)
+    }, [moveDomain, triggerZoneLayout, domains, things]);
+
+    // Handle domain resize END (Commit)
+    const handleDomainResizeEnd = React.useCallback((domainId: string, width: number, height: number, x?: number, y?: number) => {
         const updates: any = { width, height };
         if (x !== undefined) updates.position_x = x;
         if (y !== undefined) updates.position_y = y;
+
+        // 1. Commit Domain Geometry to Backend
         updateDomain(domainId, updates);
-    }, [updateDomain]);
+
+        // 2. Commit Layout to Backend
+        triggerZoneLayout(domainId, false); // false = commit mode
+    }, [updateDomain, triggerZoneLayout]);
 
     const domainNodes: Node[] = React.useMemo(() => domains.map((domain) => {
         // Calculate hierarchy depth
@@ -388,6 +448,25 @@ function CanvasViewInner() {
         // Find parent name if exists
         const parent = domain.parent_id ? domains.find(d => d.id === domain.parent_id) : null;
         const parentName = parent?.name;
+
+        // Calculate required bounds for blocking
+        const domainThings = things.filter(t => t.domain_id === domain.id);
+        let minW = 200;
+        let minH = 150;
+
+        if (domainThings.length > 0) {
+            const zoneCount = domain.drop_zones?.length || 0;
+            const cols = zoneCount === 1 ? 1 : 2;
+            const rows = Math.ceil(zoneCount / cols);
+
+            // To fit at least one item per row/col across zones
+            // MinZoneWidth = 120 (item) + 32 (padding) = 152
+            // MinDomainWidth = cols * 152 + (cols-1)*8 (gap) + 16 (padding)
+            minW = Math.max(minW, cols * 152 + (cols - 1) * 8 + 16);
+            // MinZoneHeight = 80 (item) + 32 (padding) = 112
+            // MinDomainHeight = rows * 112 + (rows-1)*8 (gap) + 40 (domain padding)
+            minH = Math.max(minH, rows * 112 + (rows - 1) * 8 + 40);
+        }
 
         return {
             id: domain.id,
@@ -401,7 +480,10 @@ function CanvasViewInner() {
                 parentName,
                 onUpdate: handleDomainUpdate,
                 onContextMenu: handleDomainContextMenu,
-                onResizeEnd: handleDomainResize,
+                onResize: handleDomainResize, // Live fluid layout
+                onResizeEnd: handleDomainResizeEnd, // Commit
+                minWidth: minW,
+                minHeight: minH,
             },
             draggable: true,
             selectable: true,
@@ -411,7 +493,7 @@ function CanvasViewInner() {
                 height: domain.height || 200,
             },
         };
-    }), [domains, zoomLevel, handleDomainUpdate, handleDomainResize, selectedDomainIds, getHierarchyDepth]);
+    }), [domains, things, zoomLevel, handleDomainUpdate, handleDomainResize, selectedDomainIds, getHierarchyDepth]);
 
     // Combine nodes (memoized)
     const allNodes = React.useMemo(() =>
@@ -420,7 +502,11 @@ function CanvasViewInner() {
     );
 
     // Link type colors
-    const getLinkColor = (linkType: string) => {
+    const getLinkColor = React.useCallback((linkType: string) => {
+        // Check custom scenario types first
+        const customType = activeScenario?.configuration?.link_types?.find((t: any) => t.id === linkType);
+        if (customType?.color) return customType.color;
+
         switch (linkType) {
             case "related": return "#3b82f6"; // blue
             case "references": return "#22c55e"; // green
@@ -435,7 +521,7 @@ function CanvasViewInner() {
             case "supersedes": return "#64748b"; // slate
             default: return "#6366f1"; // indigo fallback
         }
-    };
+    }, [activeScenario]);
 
     // Convert links to React Flow edges (memoized)
     const allEdges: Edge[] = React.useMemo(() => {
@@ -499,6 +585,13 @@ function CanvasViewInner() {
                 // Force mostly integer steps for cleaner look?
                 // Our CustomEdge multiplies offset by 25px.
 
+                const customType = activeScenario?.configuration?.link_types?.find((t: any) => t.id === link.type);
+                const edgeColor = customType?.color || getLinkColor(link.type);
+
+                let strokeDasharray = undefined;
+                if (customType?.stroke_style === 'dashed') strokeDasharray = '5,5';
+                else if (customType?.stroke_style === 'dotted') strokeDasharray = '2,2';
+
                 edges.push({
                     id: link.id,
                     source: link.source_id,
@@ -514,11 +607,12 @@ function CanvasViewInner() {
                         type: MarkerType.ArrowClosed,
                         width: 20,
                         height: 20,
-                        color: getLinkColor(link.type),
+                        color: edgeColor,
                     },
                     style: {
-                        stroke: getLinkColor(link.type),
+                        stroke: edgeColor,
                         strokeWidth: 2,
+                        strokeDasharray,
                     },
                     labelStyle: {
                         fontSize: 12,
@@ -533,16 +627,13 @@ function CanvasViewInner() {
         });
 
         return edges;
-    }, [links, showLinks, hiddenNodeLinks]);
+    }, [links, showLinks, hiddenNodeLinks, activeScenario, getLinkColor]);
 
     // React Flow state - initialized with current nodes
     const [nodes, setNodes, onNodesChange] = useNodesState(allNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(allEdges);
 
     // Sync stores with React Flow state
-    React.useEffect(() => {
-        setNodes(allNodes);
-    }, [allNodes, setNodes]);
 
     React.useEffect(() => {
         setEdges(allEdges);
@@ -638,7 +729,9 @@ function CanvasViewInner() {
             c: d.color,
             n: d.name,
             d: d.description,
-            z: d.z_index
+            z: d.z_index,
+            vc: d.visual_config,
+            dz: d.drop_zones
         })));
         const thingsKey = JSON.stringify(things.map(t => ({
             id: t.id,
@@ -777,19 +870,35 @@ function CanvasViewInner() {
                         n.y
                     );
 
+                    // Auto-Iconify Logic
+                    let shouldIconify = false;
+                    if (targetDomainId) {
+                        const domain = domains.find(d => d.id === targetDomainId);
+                        if (domain && domain.drop_zones && domain.drop_zones.length > 0) {
+                            shouldIconify = true;
+                        }
+                    }
+
                     // Return update payload
                     return {
                         id: n.id,
                         updates: {
                             position_x: n.x,
                             position_y: n.y,
-                            domain_id: targetDomainId
+                            domain_id: targetDomainId,
+                            ...(shouldIconify ? { iconified: true } : {})
                         }
                     };
                 });
 
                 // 3. Atomic Batch Update
                 await updateThings(updates);
+
+                // 4. Trigger Layout Engine for affected domains
+                const affectedDomainIds = new Set(updates.map(u => u.updates.domain_id).filter(Boolean));
+                affectedDomainIds.forEach(domainId => {
+                    if (domainId) triggerZoneLayout(domainId);
+                });
 
                 // =============================================================================
                 // Transclusion Drop Logic
@@ -1334,8 +1443,10 @@ function CanvasViewInner() {
             const { clientX, clientY } = event;
             const position = screenToFlowPosition({ x: clientX, y: clientY });
 
-            // Ideally we'd center on cursor, but position is top-left.
-            // Let's create center logic if needed, or just use click position.
+            // Capture current canvasId to ensure items are added to THIS canvas
+            // even if the user switches while a dialog or async call is pending.
+            const currentCanvasId = useCanvasStore.getState().canvasId;
+            setPendingCanvasId(currentCanvasId);
 
             switch (toolType) {
                 case "text":
@@ -1348,7 +1459,7 @@ function CanvasViewInner() {
                     break;
                 case "domain":
                     setPendingDropPos(position);
-                    setShowDomainDialog(true);
+                    setShowDomainSelector(true);
                     break;
                 case "conversation":
                     // Check for drop collisions
@@ -1483,6 +1594,8 @@ function CanvasViewInner() {
 
     // Handle Context Menu Actions
     const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string, fragment?: any) => {
+        // Capture current canvas ID to allow operations to complete on the correct canvas even if context switches
+        const currentCanvasId = useCanvasStore.getState().canvasId;
         // toast({ title: "Debug Action", description: action }); // Removed debug toast
 
         if (action === "discover_links") {
@@ -1565,7 +1678,7 @@ function CanvasViewInner() {
             // Map UI action to Backend API enum
             const apiAction = action === "summary_analysis" ? "summarize" : action;
 
-            const result = await analyzeBatch(tIds, apiAction as "summarize" | "identify_purpose", selectedModel || undefined);
+            const result = await analyzeBatch(tIds, apiAction as "summarize" | "identify_purpose", selectedModel || undefined, currentCanvasId);
 
             if (result) {
                 // Create a text note with the result
@@ -1575,7 +1688,13 @@ function CanvasViewInner() {
                     "text",
                     { text: `** ${action === "identify_purpose" ? "Purposes" : "Summary"} Analysis **\n\n${result} ` },
                     pos,
-                    `${action === "identify_purpose" ? "Purpose" : "Summary"} Analysis`
+                    `${action === "identify_purpose" ? "Purpose" : "Summary"} Analysis`,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    currentCanvasId
                 );
 
                 if (newThing) {
@@ -1586,7 +1705,11 @@ function CanvasViewInner() {
                             sourceId,
                             "derived_from" as any,
                             "Analysis Source",
-                            "Source item used for this analysis"
+                            "Source item used for this analysis",
+                            undefined,
+                            undefined,
+                            undefined,
+                            currentCanvasId
                         );
                     }
                 }
@@ -1617,7 +1740,7 @@ function CanvasViewInner() {
             toast({ title: "Reordered", description: `Items moved ${reorderAction}.` });
 
         } else if (action === "arrange_things") {
-            const { selectedThingIds, things, selectedDomainIds, loadCanvas, canvasId } = useCanvasStore.getState();
+            const { selectedThingIds, things, selectedDomainIds, loadCanvas } = useCanvasStore.getState();
             let tIds: string[] | undefined = undefined;
 
             if (context === "selection") {
@@ -1639,14 +1762,14 @@ function CanvasViewInner() {
             toast({ title: "Arranging Things", description: "Calculating optimal layout..." });
 
             try {
-                if (canvasId) {
+                if (currentCanvasId) {
                     await layoutService.arrange({
-                        canvas_id: canvasId,
+                        canvas_id: currentCanvasId,
                         thing_ids: tIds
                     });
 
                     // Refresh canvas
-                    await loadCanvas(canvasId);
+                    await loadCanvas(currentCanvasId);
                     toast({ title: "Arrangement Complete", description: "Layout updated." });
                 }
             } catch (e) {
@@ -1704,7 +1827,7 @@ function CanvasViewInner() {
 
             try {
                 const token = localStorage.getItem("token");
-                const response = await fetch(`${API_URL}/canvases/${canvasId}/execute-template/stream`, {
+                const response = await fetch(`${API_URL}/canvases/${currentCanvasId}/execute-template/stream`, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -1713,7 +1836,7 @@ function CanvasViewInner() {
                     body: JSON.stringify({
                         template_id: templateId,
                         thing_ids: tIds,
-                        canvas_id: canvasId,
+                        canvas_id: currentCanvasId,
 
                         model: activeModel,
                         level_of_detail: levelOfDetail,
@@ -1933,6 +2056,7 @@ function CanvasViewInner() {
 
     // Track drop position for dialog-based creation
     const [pendingDropPos, setPendingDropPos] = React.useState<{ x: number, y: number } | null>(null);
+    const [pendingCanvasId, setPendingCanvasId] = React.useState<string | null>(null);
 
     // Form states
     const [textContent, setTextContent] = React.useState("");
@@ -1957,10 +2081,17 @@ function CanvasViewInner() {
                 status: "ready"
             },
             pendingDropPos || getCenterPosition(),
-            config.tool_name
+            config.tool_name,
+            undefined, // width
+            undefined, // height
+            undefined, // domainId
+            undefined, // color
+            undefined, // scrapeOptions
+            pendingCanvasId || undefined // canvasId
         );
         setShowMCPToolDialog(false);
         setPendingDropPos(null);
+        setPendingCanvasId(null);
     };
 
     // File input refs
@@ -1986,12 +2117,15 @@ function CanvasViewInner() {
             undefined, // width
             undefined, // height
             undefined, // domainId
-            undefined  // color
+            undefined, // color
+            undefined, // scrapeOptions
+            pendingCanvasId || undefined // canvasId
         );
 
         setTextContent("");
         setShowTextDialog(false);
         setPendingDropPos(null);
+        setPendingCanvasId(null);
     };
 
     // Add URL
@@ -2013,11 +2147,13 @@ function CanvasViewInner() {
             {
                 depth: scrapeDepth,
                 warn_external: warnExternal
-            }
+            },
+            pendingCanvasId || undefined // canvasId
         );
         setUrlContent("");
         setScrapeDepth(0); // Reset after add
         setPendingDropPos(null);
+        setPendingCanvasId(null);
         setShowUrlDialog(false);
     };
 
@@ -2048,25 +2184,35 @@ function CanvasViewInner() {
             }
         }
 
+        console.log("[CanvasView] Creating domain with def:", selectedDomainDef);
         await addDomain(
             domainName,
             domainDescription,
             dropPos,
-            "#6366f1",
-            parentId
+            selectedDomainDef?.visual_config?.color || "#6366f1",
+            parentId,
+            selectedDomainDef ? {
+                type: selectedDomainDef.id,
+                visual_config: selectedDomainDef.visual_config,
+                metadata_schema: selectedDomainDef.metadata_schema,
+                drop_zones: selectedDomainDef.drop_zones
+            } : undefined
         );
 
         setDomainName("");
         setDomainDescription("");
+        setSelectedDomainDef(null);
         setShowDomainDialog(false);
         setPendingDropPos(null);
+        setPendingCanvasId(null);
     };
 
     // Create new conversation and add to canvas
-    const handleNewConversation = async (position?: { x: number; y: number }, autoLinkTargets: Array<{ id: string; type: string }> = [], color?: string) => {
+    const handleNewConversation = async (position?: { x: number; y: number }, autoLinkTargets: Array<{ id: string; type: string }> = [], color?: string, sourceCanvasId?: string) => {
         const newConvId = await createNewConversation();
         if (newConvId) {
             const pos = position || getCenterPosition();
+            const canvasIdToUse = sourceCanvasId || pendingCanvasId || undefined;
 
             // Detect Domain Grouping
             const targetDomain = autoLinkTargets.find(t => t.type === 'domain');
@@ -2083,7 +2229,9 @@ function CanvasViewInner() {
                 undefined, // width
                 undefined, // height
                 undefined, // domainId (No containment, just linking)
-                color
+                color,
+                undefined, // scrapeOptions
+                canvasIdToUse // override canvasId
             );
 
             if (newThing) {
@@ -2093,7 +2241,17 @@ function CanvasViewInner() {
                 // This satisfies "Linked with the domain" requirement
                 if (autoLinkTargets.length > 0) {
                     for (const target of autoLinkTargets) {
-                        await addLink(newThing.id, target.id, "related", "Context", "Context for this conversation");
+                        await addLink(
+                            newThing.id,
+                            target.id,
+                            "related",
+                            "Context",
+                            "Context for this conversation",
+                            undefined, // sourceFragment
+                            undefined, // targetFragment
+                            undefined, // targetCanvasId
+                            canvasIdToUse // sourceCanvasId
+                        );
                     }
                 }
             }
@@ -2114,12 +2272,19 @@ function CanvasViewInner() {
                 messages: conversation.messages || [],
             },
             pendingDropPos || getCenterPosition(),
-            conversation.title || "Conversation"
+            conversation.title || "Selected Conversation",
+            undefined, // width
+            undefined, // height
+            undefined, // domainId
+            undefined, // color
+            undefined, // scrapeOptions
+            pendingCanvasId || undefined // canvasId
         );
 
         setSelectedConversationId(null);
         setShowConversationDialog(false);
         setPendingDropPos(null);
+        setPendingCanvasId(null);
     };
 
     // Handle file selection from file picker
@@ -2430,6 +2595,8 @@ function CanvasViewInner() {
                                 onEdgesChange={onEdgesChange}
                                 onMove={onMoveEnd}
                                 onEdgesDelete={handleEdgesDelete}
+                                snapToGrid={snapToGrid}
+                                snapGrid={[20, 20]} // Standard 20px grid
                                 onConnect={onConnect}
                                 onNodeDragStart={onNodeDragStart}
                                 onNodeDragStop={onNodeDragStop}
@@ -2480,6 +2647,8 @@ function CanvasViewInner() {
                                 initialLabel={editingLink?.label || ""}
                                 initialDescription={editingLink?.description || ""}
                                 mode={editingLink ? "edit" : "create"}
+                                availableLinkTypes={activeScenario?.configuration?.link_types || []}
+                                keepStandardLinks={activeScenario?.configuration?.keep_standard_links ?? false}
                             />
 
                             <CanvasContextMenu
@@ -2784,6 +2953,24 @@ function CanvasViewInner() {
                     </div>
                 </div>
             )}
+
+            <DomainSelector
+                isOpen={showDomainSelector}
+                onOpenChange={setShowDomainSelector}
+                onSelect={(def) => {
+                    if (def) {
+                        setDomainName(def.name);
+                        setDomainDescription(def.description || "");
+                        setSelectedDomainDef(def);
+                    } else {
+                        setDomainName("");
+                        setDomainDescription("");
+                        setSelectedDomainDef(null);
+                    }
+                    setShowDomainSelector(false);
+                    setShowDomainDialog(true);
+                }}
+            />
         </div >
     );
 }

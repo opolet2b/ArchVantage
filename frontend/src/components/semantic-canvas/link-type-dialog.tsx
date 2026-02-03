@@ -21,23 +21,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { LinkType } from "./canvas-store";
+import { ArrowRight, Link2, GitBranch, Box, Check, X, ArrowUpRight, ArrowLeftRight, Zap, Ban, RefreshCw, Trash2 } from "lucide-react";
+import { LinkType, CustomLinkType } from "./canvas-store";
 import { cn } from "@/lib/utils";
-import { ArrowRight, Link2, GitBranch, Box, Trash2, Check, X, ArrowLeftRight, Zap, Ban, RefreshCw, ArrowUpRight } from "lucide-react";
+import { getIconComponent } from "./icon-utils";
 
-// =============================================================================
-// Link Type Configuration
-// =============================================================================
+
 
 interface LinkTypeConfig {
-    type: LinkType;
+    type: LinkType | string;
     label: string;
     description: string;
     icon: React.ComponentType<{ className?: string }>;
     color: string;
 }
 
-const LINK_TYPES: LinkTypeConfig[] = [
+const DEFAULT_LINK_TYPES: LinkTypeConfig[] = [
     {
         type: "related",
         label: "Related",
@@ -124,12 +123,14 @@ const LINK_TYPES: LinkTypeConfig[] = [
 interface LinkTypeDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (type: LinkType, label: string, description: string) => void;
+    onConfirm: (type: LinkType | string, label: string, description: string) => void;
     onDelete?: () => void;
-    initialType?: LinkType;
+    initialType?: LinkType | string;
     initialLabel?: string;
     initialDescription?: string;
     mode: "create" | "edit";
+    availableLinkTypes?: CustomLinkType[];
+    keepStandardLinks?: boolean;
 }
 
 // =============================================================================
@@ -145,10 +146,33 @@ export function LinkTypeDialog({
     initialLabel = "",
     initialDescription = "",
     mode,
+    availableLinkTypes,
+    keepStandardLinks = false,
 }: LinkTypeDialogProps) {
-    const [selectedType, setSelectedType] = React.useState<LinkType>(initialType);
+    const [selectedType, setSelectedType] = React.useState<LinkType | string>(initialType);
     const [label, setLabel] = React.useState(initialLabel);
     const [description, setDescription] = React.useState(initialDescription);
+
+    const effectiveLinkTypes = React.useMemo(() => {
+        const customTypes = (Array.isArray(availableLinkTypes) && availableLinkTypes.length > 0)
+            ? availableLinkTypes.map(ct => ({
+                type: ct.id,
+                label: ct.label,
+                description: ct.description,
+                icon: getIconComponent(ct.icon),
+                color: ct.color // Pass raw hex color
+            }))
+            : [];
+
+        if (customTypes.length > 0) {
+            if (keepStandardLinks) {
+                return [...DEFAULT_LINK_TYPES, ...customTypes];
+            }
+            return customTypes;
+        }
+
+        return DEFAULT_LINK_TYPES;
+    }, [availableLinkTypes, keepStandardLinks]);
 
     // Reset state when dialog opens
     React.useEffect(() => {
@@ -169,8 +193,8 @@ export function LinkTypeDialog({
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-w-md">
-                <DialogHeader>
+            <DialogContent className="max-w-md max-h-[85vh] flex flex-col p-0 gap-0">
+                <DialogHeader className="px-6 py-4 border-b shrink-0">
                     <DialogTitle>
                         {mode === "create" ? "Create Link" : "Edit Link"}
                     </DialogTitle>
@@ -181,24 +205,40 @@ export function LinkTypeDialog({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 py-4">
+                <div className="space-y-4 px-6 py-4 flex-1 overflow-y-auto min-h-0">
                     {/* Link Type Selection */}
                     <div className="space-y-2">
                         <Label>Link Type</Label>
                         <div className="grid grid-cols-2 gap-2">
-                            {LINK_TYPES.map((config) => {
+                            {effectiveLinkTypes.map((config) => {
                                 const Icon = config.icon;
+                                const isSelected = selectedType === config.type;
+                                const isHex = config.color.startsWith("#");
+
                                 return (
                                     <button
                                         key={config.type}
                                         type="button"
                                         onClick={() => setSelectedType(config.type)}
+                                        style={
+                                            isSelected && isHex
+                                                ? {
+                                                    borderColor: config.color,
+                                                    backgroundColor: `${config.color}15`, // low opacity
+                                                    color: config.color,
+                                                    boxShadow: `0 0 0 2px ${config.color}`
+                                                }
+                                                : isHex
+                                                    ? { color: config.color, borderColor: `${config.color}40` }
+                                                    : undefined
+                                        }
                                         className={cn(
                                             "flex flex-col items-start gap-1 p-3 rounded-lg border-2 transition-all",
                                             "hover:shadow-sm",
-                                            selectedType === config.type
-                                                ? config.color + " ring-2 ring-offset-1"
-                                                : "bg-white border-slate-200 hover:border-slate-300"
+                                            isSelected
+                                                ? (isHex ? "ring-offset-1" : config.color + " ring-2 ring-offset-1")
+                                                : "bg-white hover:border-slate-300",
+                                            !isSelected && !isHex && "border-slate-200"
                                         )}
                                     >
                                         <div className="flex items-center gap-2">
@@ -244,7 +284,7 @@ export function LinkTypeDialog({
                     </div>
                 </div>
 
-                <DialogFooter className="flex justify-between">
+                <DialogFooter className="flex justify-between px-6 py-4 border-t shrink-0">
                     <div>
                         {mode === "edit" && onDelete && (
                             <Button

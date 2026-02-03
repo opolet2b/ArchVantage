@@ -6,7 +6,7 @@ Handles CRUD operations for canvases, things, links, and domains.
 
 PEP 8 Compliant
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import traceback
 import json
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
@@ -46,6 +46,28 @@ from pydantic import BaseModel
 
 
 router = APIRouter()
+
+
+def _get_canvas_with_access(canvas_id: str, db: Session, user: User, abort_if_not_found: bool = True) -> Optional[Canvas]:
+    """
+    Helper to find a canvas if the user has permission (owner, allowed user, or role).
+    """
+    user_role_ids = [role.id for role in user.roles]
+    canvas = db.query(Canvas).filter(
+        Canvas.id == canvas_id,
+        or_(
+            Canvas.owner_id == user.id,
+            Canvas.allowed_users.any(id=user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
+    ).first()
+
+    if not canvas and abort_if_not_found:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Canvas not found or access denied"
+        )
+    return canvas
 
 
 # =============================================================================
@@ -126,9 +148,14 @@ def reorder_canvases(
     # This means if I move it, it moves for everyone. Ideally it should be UserCanvasAssociation, but that's a big refactor.
     # User accepted side effects. So shared order is the way.
     
+    user_role_ids = [role.id for role in current_user.roles]
     canvases = db.query(Canvas).filter(
         Canvas.id.in_(ids),
-        Canvas.owner_id == current_user.id
+        or_(
+            Canvas.owner_id == current_user.id,
+            Canvas.allowed_users.any(id=current_user.id),
+            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
+        )
     ).all()
     
     # Map for quick lookup
@@ -214,24 +241,8 @@ def get_canvas(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get a canvas with all its contents (things, links, domains)."""
-    # Get user's role IDs
-    user_role_ids = [role.id for role in current_user.roles]
-
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id),
-            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
-        )
-    ).first()
-    
-    if not canvas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Canvas not found"
-        )
+    # Use helper for permission check
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
     # Manual construction of response to include enriched links
     # Convert Canvas model to dict-like structure suitable for Pydantic
@@ -276,22 +287,7 @@ def update_canvas(
     # Ideally, we should check for "Write" permission if we had granular permissions.
     # For now, we allow update if user has access.
     
-    user_role_ids = [role.id for role in current_user.roles]
-    
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id),
-            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
-        )
-    ).first()
-    
-    if not canvas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Canvas not found"
-        )
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
     # Update fields
     if request.name is not None:
@@ -401,16 +397,7 @@ def delete_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a canvas and all its contents."""
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
-    ).first()
-    
-    if not canvas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Canvas not found"
-        )
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
     # Cascade delete assets
     from app.services.asset_service import asset_service
@@ -457,13 +444,7 @@ def archive_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Archive a canvas."""
-    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
-    if not canvas:
-        raise HTTPException(status_code=404, detail="Canvas not found")
-        
-    # Permission check (only owner can archive for now)
-    if canvas.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
         
     canvas.is_archived = True
     db.commit()
@@ -477,12 +458,7 @@ def restore_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Restore an archived canvas."""
-    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
-    if not canvas:
-        raise HTTPException(status_code=404, detail="Canvas not found")
-        
-    if canvas.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
         
     canvas.is_archived = False
     db.commit()
@@ -496,19 +472,7 @@ def export_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Export a canvas and all its contents as JSON."""
-    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
-    if not canvas:
-        raise HTTPException(status_code=404, detail="Canvas not found")
-        
-    # Permission check
-    user_role_ids = [r.id for r in current_user.roles]
-    has_access = (
-        canvas.owner_id == current_user.id or
-        current_user.id in canvas.allowed_user_ids or
-        any(rid in canvas.allowed_role_ids for rid in user_role_ids)
-    )
-    if not has_access:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
         
     # Construct export data
     # Recursively dump data
@@ -540,7 +504,7 @@ def export_canvas(
         link_dict = {
             "source_id": l.source_id,
             "target_id": l.target_id,
-            "type": l.type.value,
+            "type": l.type, # Fix: l.type is now a string
             "label": l.label,
             "description": l.description,
             "source_fragment": l.source_fragment,
@@ -560,7 +524,12 @@ def export_canvas(
             "position_x": d.position_x,
             "position_y": d.position_y,
             "width": d.width,
-            "height": d.height
+            "height": d.height,
+            "type": d.type,
+            "visual_config": d.visual_config,
+            "metadata_schema": d.metadata_schema,
+            "metadata_values": d.metadata_values,
+            "drop_zones": d.drop_zones
         }
         domains_data.append(domain_dict)
         
@@ -621,6 +590,11 @@ def import_canvas(
                 position_y=d_data.get("position_y"),
                 width=d_data.get("width"),
                 height=d_data.get("height"),
+                type=d_data.get("type"),
+                visual_config=d_data.get("visual_config"),
+                metadata_schema=d_data.get("metadata_schema"),
+                metadata_values=d_data.get("metadata_values"),
+                drop_zones=d_data.get("drop_zones"),
                 parent_id=None # Set later
             )
             db.add(new_domain)
@@ -773,18 +747,7 @@ async def create_thing(
     print(f"[CanvasRouter] Received create_thing request for canvas {canvas_id}, type: {request.type}")
     print(f"[CanvasRouter] Request Domain ID: {request.domain_id}")
     try:
-        # Verify canvas ownership
-        canvas = db.query(Canvas).filter(
-            Canvas.id == canvas_id,
-            Canvas.owner_id == current_user.id
-        ).first()
-        
-        if not canvas:
-            print(f"[CanvasRouter] Canvas {canvas_id} not found for user {current_user.id}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Canvas not found"
-            )
+        canvas = _get_canvas_with_access(canvas_id, db, current_user)
         
         thing = CanvasThing(
             canvas_id=canvas_id,
@@ -889,17 +852,7 @@ def list_things(
     current_user: User = Depends(get_current_active_user)
 ):
     """List all things on a canvas."""
-    # Verify canvas ownership
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
-    ).first()
-    
-    if not canvas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Canvas not found"
-        )
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
     # Debug log removed to prevent console flooding
     # for t in canvas.things:
@@ -920,10 +873,11 @@ def get_thing(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get a specific thing from the canvas."""
-    thing = db.query(CanvasThing).join(Canvas).filter(
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    
+    thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
-        CanvasThing.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        CanvasThing.canvas_id == canvas_id
     ).first()
     
     if not thing:
@@ -946,17 +900,11 @@ def update_thing(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update a thing's properties."""
-    user_role_ids = [role.id for role in current_user.roles]
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
-    # Allow owner OR shared access
-    thing = db.query(CanvasThing).join(Canvas).filter(
+    thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
-        CanvasThing.canvas_id == canvas_id,
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id),
-            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
-        )
+        CanvasThing.canvas_id == canvas_id
     ).first()
     
     if not thing:
@@ -1047,16 +995,11 @@ def stop_thing_rag(
     Manually stop the RAG / Scraping process for a thing.
     This sets the status to FAILED, which the background worker checks for cancellation.
     """
-    user_role_ids = [role.id for role in current_user.roles]
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
-    thing = db.query(CanvasThing).join(Canvas).filter(
+    thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
-        CanvasThing.canvas_id == canvas_id,
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id),
-            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
-        )
+        CanvasThing.canvas_id == canvas_id
     ).first()
     
     if not thing:
@@ -1090,10 +1033,11 @@ def delete_thing(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a thing from the canvas."""
-    thing = db.query(CanvasThing).join(Canvas).filter(
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+
+    thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
-        CanvasThing.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        CanvasThing.canvas_id == canvas_id
     ).first()
     
     if not thing:
@@ -1128,7 +1072,6 @@ from app.services.asset_service import AssetService
 import os
 import uuid
 import datetime
-from typing import Optional
 from fastapi import UploadFile, File, Form, BackgroundTasks
 
 @router.post("/canvases/{canvas_id}/things/{thing_id}/sync/check")
@@ -1385,17 +1328,7 @@ def create_link(
     current_user: User = Depends(get_current_active_user)
 ):
     """Create a link between two things."""
-    # Verify canvas ownership
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
-    ).first()
-    
-    if not canvas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Canvas not found"
-        )
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
     # Verify source exists (Thing OR Domain)
     source = db.query(CanvasThing).filter(
@@ -1441,7 +1374,7 @@ def create_link(
         canvas_id=canvas_id,
         source_id=request.source_id,
         target_id=request.target_id,
-        type=ModelLinkType(request.type.value),
+        type=request.type,  # Fix: request.type is a string in the schema
         label=request.label,
         description=request.description,
         source_fragment=request.source_fragment,
@@ -1481,10 +1414,11 @@ def update_link(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update a link's type or label."""
-    link = db.query(CanvasLink).join(Canvas).filter(
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    
+    link = db.query(CanvasLink).filter(
         CanvasLink.id == link_id,
-        CanvasLink.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        CanvasLink.canvas_id == canvas_id
     ).first()
     
     if not link:
@@ -1495,7 +1429,7 @@ def update_link(
     
     # Update type if provided
     if request.type is not None:
-        link.type = ModelLinkType(request.type.value)
+        link.type = request.type
     
     # Update label if provided (can be set to None with empty string)
     if request.label is not None:
@@ -1524,10 +1458,11 @@ def delete_link(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a link."""
-    link = db.query(CanvasLink).join(Canvas).filter(
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+
+    link = db.query(CanvasLink).filter(
         CanvasLink.id == link_id,
-        CanvasLink.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        CanvasLink.canvas_id == canvas_id
     ).first()
     
     if not link:
@@ -1553,17 +1488,7 @@ def create_domain(
     current_user: User = Depends(get_current_active_user)
 ):
     """Create a domain container."""
-    # Verify canvas ownership
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
-    ).first()
-    
-    if not canvas:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Canvas not found"
-        )
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
     domain = Domain(
         canvas_id=canvas_id,
@@ -1572,7 +1497,13 @@ def create_domain(
         position_x=request.position.x,
         position_y=request.position.y,
         description=request.description,
-        parent_id=request.parent_id if request.parent_id else None
+        parent_id=request.parent_id if request.parent_id else None,
+        # Scenario Support
+        type=request.type,
+        visual_config=request.visual_config,
+        metadata_schema=request.metadata_schema,
+        metadata_values=request.metadata_values,
+        drop_zones=request.drop_zones
     )
     db.add(domain)
     db.commit()
@@ -1592,10 +1523,11 @@ def update_domain(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update a domain."""
-    domain = db.query(Domain).join(Canvas).filter(
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    
+    domain = db.query(Domain).filter(
         Domain.id == domain_id,
-        Domain.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        Domain.canvas_id == canvas_id
     ).first()
     
     if not domain:
@@ -1619,6 +1551,16 @@ def update_domain(
         domain.width = request.width
     if request.height is not None:
         domain.height = request.height
+    if request.visual_config is not None:
+        domain.visual_config = request.visual_config
+    if request.metadata_schema is not None:
+        domain.metadata_schema = request.metadata_schema
+    if request.metadata_values is not None:
+        domain.metadata_values = request.metadata_values
+    if request.drop_zones is not None:
+        domain.drop_zones = request.drop_zones
+    if request.height is not None:
+        domain.height = request.height
     
     db.commit()
     db.refresh(domain)
@@ -1633,10 +1575,11 @@ def delete_domain(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a domain (things inside are un-grouped, not deleted)."""
-    domain = db.query(Domain).join(Canvas).filter(
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+
+    domain = db.query(Domain).filter(
         Domain.id == domain_id,
-        Domain.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        Domain.canvas_id == canvas_id
     ).first()
     
     if not domain:
@@ -1672,10 +1615,11 @@ async def summarize_thing(
     """
     Generate AI summaries for a thing at different zoom levels.
     """
-    thing = db.query(CanvasThing).join(Canvas).filter(
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    
+    thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
-        CanvasThing.canvas_id == canvas_id,
-        Canvas.owner_id == current_user.id
+        CanvasThing.canvas_id == canvas_id
     ).first()
     
     if not thing:
@@ -1734,17 +1678,7 @@ def query_canvas(
     Inherits permissions from the canvas.
     """
     # 1. Check Permissions (read access is sufficient)
-    # We reuse the logic from get_canvas
-    user_role_ids = [role.id for role in current_user.roles]
-
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id),
-            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
-        )
-    ).first()
+    canvas = _get_canvas_with_access(canvas_id, db, current_user)
     
     if not canvas:
         # Check for Admin override if user is not found in implicit permissions
