@@ -1,0 +1,54 @@
+﻿
+> frontend@0.1.0 build
+> next build
+
+node.exe : [baseline-browser-mapping] The data in this 
+module is over two months old.  To ensure accurate 
+Baseline data, please update: `npm i 
+baseline-browser-mapping@latest -D`
+Au caractère C:\Program Files\nodejs\npm.ps1:29 : 3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([baseline-br  
+  ows...ping@latest -D`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Ôû▓ Next.js 16.0.3 (Turbopack)
+   - Environments: .env.local
+   - Experiments (use with caution):
+     ┬À proxyTimeout: 300000
+
+   Creating an optimized production build ...
+[baseline-browser-mapping] The data in this module is over 
+two months old.  To ensure accurate Baseline data, please 
+update: `npm i baseline-browser-mapping@latest -D`
+ Ô£ô Compiled successfully in 16.5s
+   Running TypeScript ...
+Failed to compile.
+
+./src/components/semantic-canvas/canvas-view.tsx:1681:128
+Type error: Argument of type 'string | null' is not 
+assignable to parameter of type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | 
+undefined'.
+
+[0m [90m 1679 |[39m             [36mconst[39m 
+apiAction [33m=[39m action [33m===[39m 
+[32m"summary_analysis"[39m [33m?[39m 
+[32m"summarize"[39m [33m:[39m action[33m;[39m
+ [90m 1680 |[39m
+[31m[1m>[22m[39m[90m 1681 |[39m             
+[36mconst[39m result [33m=[39m [36mawait[39m 
+analyzeBatch(tIds[33m,[39m apiAction [36mas[39m 
+[32m"summarize"[39m [33m|[39m 
+[32m"identify_purpose"[39m[33m,[39m selectedModel 
+[33m||[39m undefined[33m,[39m 
+currentCanvasId)[33m;[39m
+ [90m      |[39m                                         
+                                                           
+                            [31m[1m^[22m[39m
+ [90m 1682 |[39m
+ [90m 1683 |[39m             [36mif[39m (result) {
+ [90m 1684 |[39m                 [90m// Create a text 
+note with the result[39m[0m
+Next.js build worker exited with code: 1 and signal: null

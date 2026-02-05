@@ -153,6 +153,13 @@ class DocumentIngestor:
             print(f"[DocumentIngestor] Created {total_nodes} nodes. Starting insertion...")
             
             for i, node in enumerate(nodes):
+                # OPTIMIZATION: Prevent LlamaIndex from storing the whole node content in metadata redundantly
+                # This is the single biggest cause of bloat in Chroma. SQLite stores the text in document field.
+                if "_node_content" not in node.excluded_embed_metadata_keys:
+                    node.excluded_embed_metadata_keys.append("_node_content")
+                if "_node_content" not in node.excluded_llm_metadata_keys:
+                    node.excluded_llm_metadata_keys.append("_node_content")
+
                 print(f"[DocumentIngestor] Embedding Document Node {i+1}/{total_nodes}...")
                 index.insert_nodes([node])
                 if progress_callback:

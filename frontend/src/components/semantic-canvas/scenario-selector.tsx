@@ -82,7 +82,7 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
+            <DialogContent className="max-w-[90vw] h-[90vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Layers className="w-5 h-5 text-primary" />
@@ -165,42 +165,37 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                         <div className="grid grid-cols-2 gap-4 mt-4">
                                             <Card>
                                                 <CardHeader className="pb-2">
-                                                    <CardTitle className="text-sm font-medium">Domain Definitions</CardTitle>
+                                                    <CardTitle className="text-sm font-medium">Content Types (Domains)</CardTitle>
                                                 </CardHeader>
                                                 <CardContent>
                                                     <div className="flex flex-wrap gap-2">
                                                         {selected.configuration.domain_definitions?.map((d: any) => (
-                                                            <Badge key={d.id} variant="outline" style={{ borderColor: d.visual_config?.primary_color }}>
-                                                                {d.label}
+                                                            <Badge key={d.id} variant="outline" style={{ borderColor: d.visual_config?.color }}>
+                                                                {d.name}
                                                             </Badge>
                                                         )) || <span className="text-muted-foreground text-sm">None</span>}
                                                     </div>
                                                 </CardContent>
                                             </Card>
-                                            <Card>
-                                                <CardHeader className="pb-2">
-                                                    <CardTitle className="text-sm font-medium">Specialized Tools</CardTitle>
-                                                </CardHeader>
-                                                <CardContent>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {selected.configuration.ui_overrides?.toolbox_macros?.map((m: any) => (
-                                                            <Badge key={m.id} variant="secondary">
-                                                                {m.label}
-                                                            </Badge>
-                                                        )) || <span className="text-muted-foreground text-sm">None</span>}
-                                                    </div>
-                                                </CardContent>
-                                            </Card>
+
+                                            {selected.configuration.ui_overrides?.toolbox_macros && selected.configuration.ui_overrides.toolbox_macros.length > 0 && (
+                                                <Card>
+                                                    <CardHeader className="pb-2">
+                                                        <CardTitle className="text-sm font-medium">Specialized Tools</CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {selected.configuration.ui_overrides.toolbox_macros.map((m: any) => (
+                                                                <Badge key={m.id} variant="secondary">
+                                                                    {m.label}
+                                                                </Badge>
+                                                            ))}
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            )}
                                         </div>
 
-                                        <Card className="flex-1 mt-4 bg-muted/20">
-                                            <CardHeader className="pb-2">
-                                                <CardTitle className="text-sm font-medium">Scenario Preview</CardTitle>
-                                            </CardHeader>
-                                            <CardContent className="h-full flex items-center justify-center text-muted-foreground text-sm italic">
-                                                Active Automation Rules: {selected.configuration.automations?.length || 0}
-                                            </CardContent>
-                                        </Card>
                                     </div>
                                 );
                             })()

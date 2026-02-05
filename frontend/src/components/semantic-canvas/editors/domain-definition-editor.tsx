@@ -110,7 +110,11 @@ export function DomainDefinitionEditor({ domain, onChange }: DomainDefinitionEdi
             id: `zone_${Date.now()}`,
             label: "Drop Zone",
             dashed_style: true,
-            accepts_types: ["*"]
+            accepts_types: ["*"],
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100
         };
         onChange({
             ...domain,
@@ -130,6 +134,22 @@ export function DomainDefinitionEditor({ domain, onChange }: DomainDefinitionEdi
                 <div className="space-y-2">
                     <Label>ID (System)</Label>
                     <Input value={domain.id} onChange={e => onChange({ ...domain, id: e.target.value })} className="font-mono bg-muted" />
+                </div>
+            </div>
+
+            <div className="flex items-center space-x-2 border p-3 rounded-md bg-muted/20">
+                <Checkbox
+                    id="createByDefault"
+                    checked={domain.create_by_default}
+                    onCheckedChange={v => onChange({ ...domain, create_by_default: !!v })}
+                />
+                <div className="grid gap-1.5 leading-none">
+                    <Label htmlFor="createByDefault" className="text-sm font-medium leading-none cursor-pointer">
+                        Create by default
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                        Automatically instantiate this domain when the scenario is applied to a canvas.
+                    </p>
                 </div>
             </div>
 

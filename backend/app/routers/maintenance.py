@@ -12,6 +12,7 @@ router = APIRouter()
 class CleanupRequest(BaseModel):
     files: List[str] = []
     embeddings: List[str] = []
+    purge_unlabelled: bool = False
 
 @router.get("/scan")
 def scan_orphans(

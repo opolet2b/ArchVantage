@@ -1,0 +1,13 @@
+--- Columns in embeddings ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'segment_id', 'TEXT', 1, None, 0)
+(2, 'embedding_id', 'TEXT', 1, None, 0)
+(3, 'seq_id', 'BLOB', 1, None, 0)
+(4, 'created_at', 'TIMESTAMP', 1, 'CURRENT_TIMESTAMP', 0)
+--- Columns in embedding_metadata ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'key', 'TEXT', 1, None, 2)
+(2, 'string_value', 'TEXT', 0, None, 0)
+(3, 'int_value', 'INTEGER', 0, None, 0)
+(4, 'float_value', 'REAL', 0, None, 0)
+(5, 'bool_value', 'INTEGER', 0, None, 0)

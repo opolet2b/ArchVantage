@@ -313,7 +313,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const [isTrulyFullscreen, setIsTrulyFullscreen] = React.useState(false);
 
     const [executionPlanOpen, setExecutionPlanOpen] = React.useState(false);
-    const [capturedCanvasId, setCapturedCanvasId] = React.useState<string | undefined>(undefined);
+    const [capturedCanvasId, setCapturedCanvasId] = React.useState<string | null>(null);
     // When opening modal, we must capture current canvas ID to ensure execution happens on the same canvas
     // even if user switches context while modal is open.
     const handleOpenExecutionPlan = React.useCallback(() => {

@@ -870,12 +870,34 @@ function CanvasViewInner() {
                         n.y
                     );
 
-                    // Auto-Iconify Logic
+                    let dropZoneId: string | undefined;
                     let shouldIconify = false;
+
+                    // Drop Zone Detection
                     if (targetDomainId) {
                         const domain = domains.find(d => d.id === targetDomainId);
                         if (domain && domain.drop_zones && domain.drop_zones.length > 0) {
-                            shouldIconify = true;
+                            shouldIconify = true; // Legacy behavior: iconify if domain has zones? Or only if configured.
+
+                            // Calculate Hit (Center of Item relative to Domain)
+                            const thing = things.find(t => t.id === n.id);
+                            const w = thing?.width ?? 400;
+                            const h = thing?.height ?? 300;
+                            const cx = n.x + w / 2;
+                            const cy = n.y + h / 2;
+
+                            const rx = cx - domain.position_x;
+                            const ry = cy - domain.position_y;
+
+                            const hitZone = domain.drop_zones.find(z =>
+                                rx >= z.x && rx <= (z.x + z.width) &&
+                                ry >= z.y && ry <= (z.y + z.height)
+                            );
+
+                            if (hitZone) {
+                                dropZoneId = hitZone.id;
+                                console.log(`[CanvasView] Hit Drop Zone: ${dropZoneId}`);
+                            }
                         }
                     }
 
@@ -887,7 +909,8 @@ function CanvasViewInner() {
                             position_y: n.y,
                             domain_id: targetDomainId,
                             ...(shouldIconify ? { iconified: true } : {})
-                        }
+                        },
+                        transientExtras: dropZoneId ? { drop_zone_id: dropZoneId } : undefined
                     };
                 });
 
@@ -1523,7 +1546,9 @@ function CanvasViewInner() {
                         "archimate_tool",
                         {},
                         position,
-                        "ArchiMate Importer"
+                        undefined, // width
+                        undefined, // height
+                        "ArchiMate Importer" // title
                     );
                     break;
             }
@@ -1551,7 +1576,9 @@ function CanvasViewInner() {
                             file_hash: upload.file_hash,
                         },
                         position, // Use drop position
-                        file.name
+                        undefined, // width
+                        undefined, // height
+                        file.name // title
                     );
                 }
             } else {
@@ -1568,7 +1595,9 @@ function CanvasViewInner() {
                             content: text,
                         },
                         position,
-                        file.name
+                        undefined, // width
+                        undefined, // height
+                        file.name // title
                     );
                 } else {
                     const upload = await uploadFile(file);
@@ -1584,7 +1613,9 @@ function CanvasViewInner() {
                                 file_size: file.size,
                             },
                             position,
-                            file.name
+                            undefined, // width
+                            undefined, // height
+                            file.name // title
                         );
                     }
                 }
@@ -1688,13 +1719,11 @@ function CanvasViewInner() {
                     "text",
                     { text: `** ${action === "identify_purpose" ? "Purposes" : "Summary"} Analysis **\n\n${result} ` },
                     pos,
-                    `${action === "identify_purpose" ? "Purpose" : "Summary"} Analysis`,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    undefined,
-                    currentCanvasId
+                    undefined, // width
+                    undefined, // height
+                    `${action === "identify_purpose" ? "Purpose" : "Summary"} Analysis`, // title
+                    undefined, // color
+                    undefined // scrapeOptions
                 );
 
                 if (newThing) {
@@ -2081,13 +2110,11 @@ function CanvasViewInner() {
                 status: "ready"
             },
             pendingDropPos || getCenterPosition(),
-            config.tool_name,
             undefined, // width
             undefined, // height
-            undefined, // domainId
+            config.tool_name, // title
             undefined, // color
-            undefined, // scrapeOptions
-            pendingCanvasId || undefined // canvasId
+            undefined // scrapeOptions
         );
         setShowMCPToolDialog(false);
         setPendingDropPos(null);
@@ -2113,13 +2140,11 @@ function CanvasViewInner() {
             "text",
             { text: textContent },
             pendingDropPos || getCenterPosition(),
-            textContent.slice(0, 30),
             undefined, // width
             undefined, // height
-            undefined, // domainId
+            textContent.slice(0, 30), // title
             undefined, // color
-            undefined, // scrapeOptions
-            pendingCanvasId || undefined // canvasId
+            undefined // scrapeOptions
         );
 
         setTextContent("");
@@ -2139,16 +2164,14 @@ function CanvasViewInner() {
             "url",
             { url: urlContent.trim() },
             position,
-            urlContent.trim(),
-            undefined,
-            undefined,
-            undefined,
-            undefined,
+            undefined, // width
+            undefined, // height
+            urlContent.trim(), // title
+            undefined, // color
             {
                 depth: scrapeDepth,
                 warn_external: warnExternal
-            },
-            pendingCanvasId || undefined // canvasId
+            }
         );
         setUrlContent("");
         setScrapeDepth(0); // Reset after add
@@ -2225,13 +2248,11 @@ function CanvasViewInner() {
                     messages: [],
                 },
                 pos,
-                "New Conversation",
                 undefined, // width
                 undefined, // height
-                undefined, // domainId (No containment, just linking)
+                "New Conversation", // title
                 color,
-                undefined, // scrapeOptions
-                canvasIdToUse // override canvasId
+                undefined // scrapeOptions
             );
 
             if (newThing) {
@@ -2272,13 +2293,11 @@ function CanvasViewInner() {
                 messages: conversation.messages || [],
             },
             pendingDropPos || getCenterPosition(),
-            conversation.title || "Selected Conversation",
             undefined, // width
             undefined, // height
-            undefined, // domainId
+            conversation.title || "Selected Conversation", // title
             undefined, // color
-            undefined, // scrapeOptions
-            pendingCanvasId || undefined // canvasId
+            undefined // scrapeOptions
         );
 
         setSelectedConversationId(null);
@@ -2328,9 +2347,8 @@ function CanvasViewInner() {
         }
     };
 
-    const processFiles = async (files: File[]) => {
+    const processFiles = async (files: File[], position: { x: number; y: number }) => {
         for (const file of files) {
-            // ... (Simple processing logic)
             if (file.type.startsWith("image/")) {
                 const upload = await uploadFile(file);
                 if (upload) {
@@ -2340,14 +2358,15 @@ function CanvasViewInner() {
                             filename: file.name,
                             file_path: upload.url,
                             asset_id: upload.id,
+                            file_hash: upload.file_hash,
                         },
-                        getCenterPosition(),
-                        file.name
+                        position, // Use drop position
+                        undefined, // width
+                        undefined, // height
+                        file.name // title
                     );
                 }
             } else {
-                // Document logic
-                // ...
                 const textExtensions = ['.txt', '.md', '.json', '.xml', '.html', '.htm', '.yaml', '.yml', '.log'];
                 const isTextFile = textExtensions.some(ext => file.name.toLowerCase().endsWith(ext)) ||
                     (file.type.startsWith('text/') && !file.type.includes('csv'));
@@ -2360,8 +2379,10 @@ function CanvasViewInner() {
                             filename: file.name,
                             content: text,
                         },
-                        getCenterPosition(),
-                        file.name
+                        position,
+                        undefined, // width
+                        undefined, // height
+                        file.name // title
                     );
                 } else {
                     const upload = await uploadFile(file);
@@ -2372,11 +2393,14 @@ function CanvasViewInner() {
                                 filename: file.name,
                                 file_path: upload.url,
                                 asset_id: upload.id,
+                                file_hash: upload.file_hash,
                                 file_type: file.type,
                                 file_size: file.size,
                             },
-                            getCenterPosition(),
-                            file.name
+                            position,
+                            undefined, // width
+                            undefined, // height
+                            file.name // title
                         );
                     }
                 }
@@ -2387,13 +2411,13 @@ function CanvasViewInner() {
 
     const handleImageSelectReused = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
-        await processFiles(files);
+        await processFiles(files, getCenterPosition());
         if (e.target) e.target.value = "";
     };
 
     const handleDocumentSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(e.target.files || []);
-        await processFiles(files);
+        await processFiles(files, getCenterPosition());
         if (e.target) e.target.value = "";
     };
 
@@ -2444,7 +2468,9 @@ function CanvasViewInner() {
                     slides: uploadedSlides
                 },
                 pendingDropPos || getCenterPosition(),
-                "Image Slideshow"
+                undefined, // width
+                undefined, // height
+                "Image Slideshow" // title
             );
         }
 

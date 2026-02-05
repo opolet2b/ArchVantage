@@ -14,12 +14,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, Box, Share2, Wrench, FileJson, Lock } from "lucide-react";
+import { AlertCircle, Box, Share2, Wrench, FileJson, Lock, Zap } from "lucide-react";
 import { Scenario, DomainDefinition, DomainGroup } from "./canvas-store";
 import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { DomainPalette } from "./editors/domain-palette";
 import { LinkTypeEditor } from "./editors/link-type-editor";
+import { AutomationEditor } from "./editors/automation-editor";
 
 interface ScenarioEditorProps {
     initialData?: Partial<Scenario>; // if provided, we are editing
@@ -50,13 +51,16 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
     const [keepStandardLinks, setKeepStandardLinks] = React.useState(
         initialData?.configuration?.keep_standard_links ?? false
     );
+    const [automations, setAutomations] = React.useState<any[]>(
+        initialData?.configuration?.automations || []
+    );
 
     // Advanced Config (JSON) - Excludes UI managed fields
     const [advancedConfig, setAdvancedConfig] = React.useState("");
 
     React.useEffect(() => {
         if (initialData?.configuration) {
-            const { domain_definitions, domain_groups, link_types, keep_standard_links, ...rest } = initialData.configuration;
+            const { domain_definitions, domain_groups, link_types, keep_standard_links, automations, ...rest } = initialData.configuration;
             setAdvancedConfig(JSON.stringify(rest, null, 2));
         } else {
             setAdvancedConfig("{}");
@@ -96,7 +100,8 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     domain_definitions: domains,
                     domain_groups: groups,
                     link_types: linkTypes,
-                    keep_standard_links: keepStandardLinks
+                    keep_standard_links: keepStandardLinks,
+                    automations: automations
                 }
             };
 
@@ -165,6 +170,9 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     </TabsTrigger>
                     <TabsTrigger value="tools" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         <Wrench className="w-4 h-4 mr-2" /> Tools & Agents
+                    </TabsTrigger>
+                    <TabsTrigger value="automations" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        <Zap className="w-4 h-4 mr-2" /> Automations
                     </TabsTrigger>
                     <TabsTrigger value="json" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         <FileJson className="w-4 h-4 mr-2" /> JSON
@@ -292,6 +300,20 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     <div className="flex items-center justify-center h-full text-muted-foreground border border-dashed rounded-lg">
                         Toolbox Configuration Coming Soon
                     </div>
+                </TabsContent>
+
+                {/* AUTOMATIONS TAB */}
+                <TabsContent value="automations" className="flex-1 py-4">
+                    <Card>
+                        <CardContent className="pt-6">
+                            <AutomationEditor
+                                domains={domains}
+                                automations={automations}
+                                onChange={setAutomations}
+                                disabled={isSystem}
+                            />
+                        </CardContent>
+                    </Card>
                 </TabsContent>
 
                 {/* JSON TAB */}

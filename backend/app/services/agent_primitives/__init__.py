@@ -22,6 +22,19 @@ from app.services.agent_primitives.compiler import CompilerPrimitive
 from app.services.agent_primitives.auditor import AuditorPrimitive
 from app.services.agent_primitives.refiner import RefinerPrimitive
 from app.services.agent_primitives.structured_template_primitive import StructuredTemplatePrimitive
+from app.services.agent_primitives.canvas_primitives import (
+    CanvasSetPropertyPrimitive,
+    CanvasMovePrimitive,
+    CanvasLinkPrimitive,
+    CanvasMoveToZonePrimitive,
+    CanvasMoveToCanvasPrimitive
+)
+from app.services.agent_primitives.logic_primitives import (
+    LogicIfElsePrimitive,
+    CanvasQueryPrimitive,
+    CanvasCreateLinkPrimitive
+)
+from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
 
 # Registry of all available primitives
 PRIMITIVE_REGISTRY = {
@@ -42,6 +55,17 @@ PRIMITIVE_REGISTRY = {
     "AUDITOR": AuditorPrimitive,
     "REFINER": RefinerPrimitive,
     "STRUCTURED_TEMPLATE": StructuredTemplatePrimitive,
+    # Canvas Automations
+    "CANVAS_SET_PROPERTY": CanvasSetPropertyPrimitive,
+    "CANVAS_MOVE": CanvasMovePrimitive,
+    "CANVAS_LINK": CanvasLinkPrimitive, # Legacy basic link
+    "CANVAS_MOVE_TO_ZONE": CanvasMoveToZonePrimitive,
+    "CANVAS_MOVE_TO_CANVAS": CanvasMoveToCanvasPrimitive,
+    "EXECUTE_PIPELINE": GenericPipelinePrimitive,
+    # Logic & Advanced Canvas
+    "LOGIC_IF_ELSE": LogicIfElsePrimitive,
+    "CANVAS_QUERY": CanvasQueryPrimitive,
+    "CANVAS_CREATE_LINK": CanvasCreateLinkPrimitive,
     # Legacy aliases
     "AGENT": LLMGenerationPrimitive,
     "ANALYZER": LLMGenerationPrimitive,

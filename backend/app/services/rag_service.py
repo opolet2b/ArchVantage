@@ -1,5 +1,6 @@
 import os
 import shutil
+import threading
 from typing import List, Optional, TYPE_CHECKING
 # Defer heavy imports
 if TYPE_CHECKING:
@@ -28,9 +29,8 @@ class RAGService:
 
     def initialize(self):
         """
-        Explicitly initialize RAG Service. 
-        This loads heavy libraries (llama-index, chromadb) and connects to DB.
-        Should be called during app startup_event.
+        Lazy Initialization of RAG Service.
+        Should be called automatically by public methods before use.
         """
         if self._initialized:
             return
@@ -108,12 +108,20 @@ class RAGService:
                     
                 print(f"[RAGService] Using Default Embedding Preset: {embedding_preset.get('name')} ({provider}/{model})")
             else:
-                # Fallback to legacy rag_config
-                provider = rag_config.get("embedding_provider", "ollama")
-                model = rag_config.get("embedding_model", "nomic-embed-text")
+                # Try legacy rag_config but NO hardcoded defaults
+                provider = rag_config.get("embedding_provider")
+                model = rag_config.get("embedding_model")
                 api_key = rag_config.get("embedding_api_key")
                 api_base = None
-                print(f"[RAGService] No Default Embedding Preset. Using legacy config: {provider}/{model}")
+                
+                if not model:
+                    msg = "CRITICAL: No default embedding model configured in presets or rag_config. Initialization aborted."
+                    print(f"[RAGService] {msg}")
+                    self.init_error = msg
+                    self.index = None
+                    return
+                
+                print(f"[RAGService] No Default Embedding Preset. Using configured legacy: {provider}/{model}")
 
             parsing_strategy = rag_config.get("parsing_strategy", "recursive")
             chunk_size = int(rag_config.get("chunk_size", 512)) # Lower default to 512
@@ -215,6 +223,13 @@ class RAGService:
             # Or just use v2 and let user handle "reset" if they change models.
             # Plan said: enforce "Clear & Re-index".
             self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
+            
+            # Diagnostic: Log dimension of existing/created collection
+            try:
+                # Access hidden _collection to check metadata/dim if needed, 
+                # but simplest is just checking what it expects now.
+                print(f"[RAGService] Collection '{self.chroma_collection.name}' initialized.")
+            except: pass
             
             # Set up Vector Store and Storage Context
             self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
@@ -442,6 +457,7 @@ class RAGService:
             return Settings.llm
 
     def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None, vision_model_name: Optional[str] = None, enable_vision: bool = False):
+        self.initialize()
         print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, VisionModel: {vision_model_name}, Vision: {enable_vision})")
         
         # Ensure Initialized
@@ -452,6 +468,11 @@ class RAGService:
              error_msg = self.init_error or "RAG Service is not initialized. Please check your Embedding Model settings or API Key."
              print(f"[RAGService] Ingestion blocked: {error_msg}")
              return {"status": "error", "error": error_msg}
+
+        # IDEMPOTENCY CHECK: Skip if file already in Chroma
+        if self.is_file_ingested(file_path):
+             print(f"[RAGService] Skipping ingestion: File already exists in index: {file_path}")
+             return {"status": "success", "detail": "already_ingested"}
 
         try:
             # Check magic bytes for legacy OLE files first
@@ -570,6 +591,7 @@ class RAGService:
             return {"status": "error", "error": str(e)}
 
     def ingest_text(self, text: str, metadata: Optional[dict] = None):
+        self.initialize()
         """
         Ingest raw text directly into the index.
         Useful for image descriptions or other generated content.
@@ -593,6 +615,11 @@ class RAGService:
                print(f"[RAGService] Ingesting {len(nodes)} nodes from text content.")
                try:
                    for i, node in enumerate(nodes):
+                       # OPTIMIZATION: Prevent LlamaIndex from storing the whole node content in metadata redundantly
+                       # Chroma stores the text anyway in the document field.
+                       node.excluded_embed_metadata_keys.append("_node_content")
+                       node.excluded_llm_metadata_keys.append("_node_content")
+                       
                        print(f"[RAGService] Embedding Text Node {i+1}/{len(nodes)}...")
                        self.index.insert_nodes([node])
                except Exception as ie:
@@ -662,9 +689,14 @@ class RAGService:
             return {"status": "error", "detail": str(e)}
 
     def query(self, query_text: str, k: int = 4, conversation_id: Optional[str] = None, filters: Optional[dict] = None):
-        if not self._initialized:
-             self.initialize()
-             
+        try:
+            self.initialize()
+            if not self._initialized or not self.querying_config:
+                return "RAG Service is not initialized or configured."
+        except Exception as e:
+            print(f"[RAGService] Error during query initialization: {e}")
+            return [] # Or raise, depending on desired error handling
+
         # Check index again after init attempt
         if self.index is None:
             return []
@@ -820,6 +852,7 @@ class RAGService:
             return f"Error reading file: {str(e)}"
 
     def delete_by_source(self, source_path: str):
+        self.initialize()
         """
         Delete all embeddings associated with a specific source file path,
         regardless of conversation_id. This is used for Asset deletion.
@@ -892,6 +925,36 @@ class RAGService:
             print(f"[RAGService] Error cleaning legacy embeddings: {e}")
             return False
 
+    def delete_by_canvas(self, canvas_id: str):
+        self.initialize()
+        """Delete all embeddings associated with a specific canvas."""
+        if not self._initialized:
+             self.initialize()
+        try:
+            if self.chroma_collection:
+                print(f"[RAGService] Deleting all embeddings for canvas: {canvas_id}")
+                self.chroma_collection.delete(where={"canvas_id": canvas_id})
+                return True
+            return False
+        except Exception as e:
+            print(f"[RAGService] Error deleting by canvas {canvas_id}: {e}")
+            return False
+
+    def delete_by_thing(self, thing_id: str):
+        self.initialize()
+        """Delete all embeddings associated with a specific thing."""
+        if not self._initialized:
+             self.initialize()
+        try:
+            if self.chroma_collection:
+                print(f"[RAGService] Deleting all embeddings for thing: {thing_id}")
+                self.chroma_collection.delete(where={"thing_id": thing_id})
+                return True
+            return False
+        except Exception as e:
+            print(f"[RAGService] Error deleting by thing {thing_id}: {e}")
+            return False
+
     def reset_db(self):
         try:
             print("[RAGService] Resetting Vector Database...")
@@ -932,5 +995,39 @@ class RAGService:
         print("[RAGService] Reloading configuration...")
         self._initialized = False # Force re-init
         self.initialize()
+
+    def is_file_ingested(self, file_path: str) -> bool:
+        """Check if a file has already been ingested into the current collection."""
+        if not self._initialized:
+            self.initialize()
+            
+        if not self.chroma_collection:
+            return False
+            
+        try:
+            # Query by source metadata
+            results = self.chroma_collection.get(
+                where={"source": file_path},
+                limit=1,
+                include=["metadatas"]
+            )
+            return len(results.get("ids", [])) > 0
+        except Exception as e:
+            print(f"[RAGService] Error checking ingestion status for {file_path}: {e}")
+            return False
+
+    def clear_database_cache(self):
+        """Force a VACUUM on the underlying SQLite database to reclaim space."""
+        import sqlite3
+        db_file = os.path.join(self.persist_directory, "chroma.sqlite3")
+        if os.path.exists(db_file):
+             print(f"[RAGService] Performing VACUUM on {db_file}...")
+             try:
+                 conn = sqlite3.connect(db_file)
+                 conn.execute("VACUUM;")
+                 conn.close()
+                 print("[RAGService] VACUUM complete.")
+             except Exception as e:
+                 print(f"[RAGService] VACUUM failed: {e}")
 
 rag_service = RAGService()

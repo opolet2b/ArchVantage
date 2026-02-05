@@ -1,0 +1,128 @@
+--- Table: migrations ---
+(0, 'dir', 'TEXT', 1, None, 1)
+(1, 'version', 'INTEGER', 1, None, 2)
+(2, 'filename', 'TEXT', 1, None, 0)
+(3, 'sql', 'TEXT', 1, None, 0)
+(4, 'hash', 'TEXT', 1, None, 0)
+Sample: ('sysdb', 1, '00001-collections.sqlite.sql', 'CREATE TABLE collections (\n    id TEXT PRIMARY KEY,\n    name TEXT NOT NULL,\n    topic TEXT NOT NULL,\n    UNIQUE (name)\n);\n\nCREATE TABLE collection_metadata (\n    collection_id TEXT REFERENCES collections(id) ON DELETE CASCADE,\n    key TEXT NOT NULL,\n    str_value TEXT,\n    int_value INTEGER,\n    float_value REAL,\n    PRIMARY KEY (collection_id, key)\n);\n', '38352d725ad1c16074fac420b22b4633')
+
+--- Table: acquire_write ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'lock_status', 'INTEGER', 1, None, 0)
+Sample: (1, 1)
+
+--- Table: collection_metadata ---
+(0, 'collection_id', 'TEXT', 0, None, 1)
+(1, 'key', 'TEXT', 1, None, 2)
+(2, 'str_value', 'TEXT', 0, None, 0)
+(3, 'int_value', 'INTEGER', 0, None, 0)
+(4, 'float_value', 'REAL', 0, None, 0)
+(5, 'bool_value', 'INTEGER', 0, None, 0)
+
+--- Table: segment_metadata ---
+(0, 'segment_id', 'TEXT', 0, None, 1)
+(1, 'key', 'TEXT', 1, None, 2)
+(2, 'str_value', 'TEXT', 0, None, 0)
+(3, 'int_value', 'INTEGER', 0, None, 0)
+(4, 'float_value', 'REAL', 0, None, 0)
+(5, 'bool_value', 'INTEGER', 0, None, 0)
+
+--- Table: tenants ---
+(0, 'id', 'TEXT', 0, None, 1)
+Sample: ('default_tenant',)
+
+--- Table: databases ---
+(0, 'id', 'TEXT', 0, None, 1)
+(1, 'name', 'TEXT', 1, None, 0)
+(2, 'tenant_id', 'TEXT', 1, None, 0)
+Sample: ('00000000-0000-0000-0000-000000000000', 'default_database', 'default_tenant')
+
+--- Table: collections ---
+(0, 'id', 'TEXT', 0, None, 1)
+(1, 'name', 'TEXT', 1, None, 0)
+(2, 'dimension', 'INTEGER', 0, None, 0)
+(3, 'database_id', 'TEXT', 1, None, 0)
+(4, 'config_json_str', 'TEXT', 0, None, 0)
+(5, 'schema_str', 'TEXT', 0, None, 0)
+Sample: ('a299f56b-057d-4c7d-9158-2c792edc616a', 'chatbot_rag', 384, '00000000-0000-0000-0000-000000000000', '{}', '{"defaults":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}},"float_list":{"vector_index":{"enabled":false,"config":{"space":"l2","embedding_function":{"type":"known","name":"default","config":{}},"hnsw":{"ef_construction":100,"max_neighbors":16,"ef_search":100,"num_threads":22,"batch_size":100,"sync_threshold":1000,"resize_factor":1.2}}}},"sparse_vector":{"sparse_vector_index":{"enabled":false,"config":{"embedding_function":{"type":"unknown"},"bm25":false}}},"int":{"int_inverted_index":{"enabled":true,"config":{}}},"float":{"float_inverted_index":{"enabled":true,"config":{}}},"bool":{"bool_inverted_index":{"enabled":true,"config":{}}}},"keys":{"file_name":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"page_label":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"last_modified_date":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"#embedding":{"float_list":{"vector_index":{"enabled":true,"config":{"space":"l2","embedding_function":{"type":"known","name":"default","config":{}},"source_key":"#document","hnsw":{"ef_construction":100,"max_neighbors":16,"ef_search":100,"num_threads":22,"batch_size":100,"sync_threshold":1000,"resize_factor":1.2}}}}},"file_size":{"int":{"int_inverted_index":{"enabled":true,"config":{}}}},"creation_date":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"thing_id":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"doc_id":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"file_path":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"asset_id":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"canvas_id":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"type":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"_node_type":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"slide_number":{"int":{"int_inverted_index":{"enabled":true,"config":{}}}},"_node_content":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"#document":{"string":{"fts_index":{"enabled":true,"config":{}},"string_inverted_index":{"enabled":false,"config":{}}}},"file_type":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"ref_doc_id":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"source":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}},"document_id":{"string":{"fts_index":{"enabled":false,"config":{}},"string_inverted_index":{"enabled":true,"config":{}}}}}}')
+
+--- Table: maintenance_log ---
+(0, 'id', 'INT', 0, None, 1)
+(1, 'timestamp', 'INT', 1, None, 0)
+(2, 'operation', 'TEXT', 1, None, 0)
+
+--- Table: segments ---
+(0, 'id', 'TEXT', 0, None, 1)
+(1, 'type', 'TEXT', 1, None, 0)
+(2, 'scope', 'TEXT', 1, None, 0)
+(3, 'collection', 'TEXT', 1, None, 0)
+Sample: ('1f2746cb-5be5-4909-a2de-fcda4785b85d', 'urn:chroma:segment/vector/hnsw-local-persisted', 'VECTOR', 'a299f56b-057d-4c7d-9158-2c792edc616a')
+
+--- Table: embeddings ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'segment_id', 'TEXT', 1, None, 0)
+(2, 'embedding_id', 'TEXT', 1, None, 0)
+(3, 'seq_id', 'BLOB', 1, None, 0)
+(4, 'created_at', 'TIMESTAMP', 1, 'CURRENT_TIMESTAMP', 0)
+Sample: (1, 'bdd004bd-0a5e-4d43-b1bf-071e9f360321', '556774c8-60a6-4f8e-ab52-f2517d6c06cf', 1, '2025-12-08 12:59:15')
+
+--- Table: embedding_metadata ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'key', 'TEXT', 1, None, 2)
+(2, 'string_value', 'TEXT', 0, None, 0)
+(3, 'int_value', 'INTEGER', 0, None, 0)
+(4, 'float_value', 'REAL', 0, None, 0)
+(5, 'bool_value', 'INTEGER', 0, None, 0)
+Sample: (1, '_node_type', 'TextNode', None, None, None)
+
+--- Table: max_seq_id ---
+(0, 'segment_id', 'TEXT', 0, None, 1)
+(1, 'seq_id', 'INTEGER', 0, None, 0)
+Sample: ('bdd004bd-0a5e-4d43-b1bf-071e9f360321', 3001091)
+
+--- Table: embedding_fulltext_search ---
+(0, 'string_value', '', 0, None, 0)
+Sample: ('Workbook\n6.0\nSAFe® for  \nArchitects\nArchitecting for Continuous  \nValue Flow with SAFe®',)
+
+--- Table: embedding_fulltext_search_data ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'block', 'BLOB', 0, None, 0)
+Sample: (1, b'\x81\xb7\xc1\x08\x90\xc5\x82\xcd\x01')
+
+--- Table: embedding_fulltext_search_idx ---
+(0, 'segid', '', 1, None, 1)
+(1, 'term', '', 1, None, 2)
+(2, 'pgno', '', 0, None, 0)
+Sample: (1, b'', 2)
+
+--- Table: embedding_fulltext_search_content ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'c0', '', 0, None, 0)
+Sample: (1, 'Workbook\n6.0\nSAFe® for  \nArchitects\nArchitecting for Continuous  \nValue Flow with SAFe®')
+
+--- Table: embedding_fulltext_search_docsize ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'sz', 'BLOB', 0, None, 0)
+Sample: (1, b'U')
+
+--- Table: embedding_fulltext_search_config ---
+(0, 'k', '', 1, None, 1)
+(1, 'v', '', 0, None, 0)
+Sample: ('version', 4)
+
+--- Table: embeddings_queue ---
+(0, 'seq_id', 'INTEGER', 0, None, 1)
+(1, 'created_at', 'TIMESTAMP', 1, 'CURRENT_TIMESTAMP', 0)
+(2, 'operation', 'INTEGER', 1, None, 0)
+(3, 'topic', 'TEXT', 1, None, 0)
+(4, 'id', 'TEXT', 1, None, 0)
+(5, 'vector', 'BLOB', 0, None, 0)
+(6, 'encoding', 'TEXT', 0, None, 0)
+(7, 'metadata', 'TEXT', 0, None, 0)
+Sample: (3000761, '2025-12-20 11:15:53', 0, 'persistent://default/default/a299f56b-057d-4c7d-9158-2c792edc616a', 'a386a6ae-c08b-4f11-8163-27c1f5bf408b', b'\xc7ex\xbd>8\x05=-\xed{\xbda=\xf8;\x1c\xe1|=t\xf6\x8c=\xd6\x8f\xd0\xbb^\x14\x9d=\xb3\x08\t\xbd\xffw\xa2<P\xfaD=;50<qsE=\xf0E\x8c\xbdD\xb64\xbd+\xb8\xb3\xbc\xb4\xce\xc1=\xb0\x98\xb5\xbd\xc4\xb71\xbb\xf3s\xeb\xbc\x9e\xf2~<\xc4-\xd6\xbc\xce\x90U=\xe5\x9dn=\xb2f\x82\xbc\x83\xee7=\xc3fZ\xbdK\x90)=\xa1\xf2P=\x99\xd8\x02\xbe\x93\xe0i\xbcJ\xbd\x85<\xe5\x90\x8d=i\xac\x18=I@\x87=\xfd\x8da=\x0f\xe6\x0b=\xb3\xb3\x9f\xbda5\r=\x7f$\x91\xbcJ\xc4#\xbdW\x06\x83\xbd\x15\xa4w\xbc\x81\xd1\xb7<\xe7\xff\xb2<k\xa7\xce\xbd\x9c\xd6\xb8\xbcy\xf3\x95\xbd\xdf+\x06=Ae==D\x1cq\xbd\xa6\xf8\x98\xbdW\xd8\xa5<\xaa\xdeX\xbc\x15\xc3\xbb\xbc\xf4yN=\x99w\x8a\xbc\x84,J\xbdT\x12\xbe\xbc\xbf\xb8e\xbd\xf0\xb8\xec\xbcZl\xdc\xbc\xf8\xba\x9d\xbdS\xe7\\=/e\xf2\xbab\x06\x1a\xbd\x04\x88\xa5\xbdE\x06\xab=\'\x07\x88;\\7Z\xbbT\xc1\xa5\xbd\xf6\xca\xcd<*\xbb\x8e=#\xb5V\xbb\xdf\xe4\xc2\xbc\xae\x1a\x11=m\x87\xb1\xbcZ,1\xbd-\x02V\xbd\xc7*\x02\xbe\x07\xef\x81\xbc\x98;\xf1;S\nV<}%\xb8:\x80\xa6\x7f\xbd\xc9<\x03=\x12\xe0\x8c=(qp<\x1f\x8aB\xbc\xa5\xd8\x07\xbd\xfd;\xcf;\xae\x0c]=\\\xef\xb8\xbc\x95\xfe\xa6;,&\xf6\xbc\xf1e\x7f=\xe4\xad|\xbd\xf3u0\xbddU\xcf<;\xb2\xe1=1@\xb8<\xa4\xbbQ=\xe7\x0b\x03>\x1b\x03H\xbd|\x89\xb9\xbd\x105\xb1\xbd\\\xf6\xec<\xb3\x19!< \x81\x13=\xc9\xe7k\xbc?\xc8\xce\xbc{\x91\xb7<*\xf5\xf8\xbc\x8b6\x0f;\x1f\xf3~=\x90o\xbd\xbc\xb4\xed\x97\xbc\x86Kb\xbd\xf2Wv=\x9fa\x92=\xf5\xc8\x05>;\xe8\x0e\xbcq&\xfd<\xfe\xa0\x8a\xbc\xf8QX\xbb\xb4\xba\x15\xbd\xa4\x0f\x8b<\xf6\xb8\xe8\t\xaa\x10\xf0<\xba\xbf\x18=\xaf\xbf\xda\xbc(\xe5\xd2=\xca\xa2"=\x9f\xb6\x11\xbc7E\xdd<\xac?\x16\xbc\x8f\xdd\xfe\xbd\xe1<\x17=\xd3\x95\x00\xbcx\x84\x1a=\x11|!\xbc\xee\n\xdc=\x03\xb2\x1f\xbd:\x07\xcb\xbd\x8b\x8a\xad\xbd\x00p\xa4=w\x0e5\xbd\xe8\xfb?\xbd~`)=\xcc\xfav\xbd\x7f\xeb\x85<\xb1\x19"\xbd\x14\x13z=\xfe|9=\x99\xb5\r\xbck\xb7&\xbd]\x8d\x91<\xf3\xa5:=3\x1fF\xbd\x85\x8ap\xbcr\x92\xf2\xbc\x7f\xf9\x14\xbdq\xceD=\xb5\x82V=\x17\x13\x07\xbb/\xc8P\xbd\xed37<\xf70\x86;\xe5gj\xbd\x0b\xb8\x96\xbd\xe4\xe6\x95\xbc\'M\x86\xbd\xca\xa9\xff:\xb3\xe4\xbc\xbcu\xde\x9a<\xa0`\xe4;\xd82\xb8<\xea\xf0\x8f\xbb,\x94F\xbd^VQ\xbd\x1c\xcb\xbe<<\xcc\x97\xbb\xc8\x8b\xb1;\xa2\xd8\xf6\xbd\xc0\xeb\xee<\x86ZY\xbd\xf2\x120\xbc\xad\xcdY=\xa2\xea\x92\xbc\x8e\xbaZ=\n\xe7\xfd\xbc\x957\xd2\xba\xd2\xb2\xcb\xbc\xc6\x07@;\xfb\x95C\xbd\xd4\x89\x19\xbd\x9e\x95\x07>4\xee\x0e\xbd\x83\x96\x00\xbeGy\x0c=\xa9\xf8\xb5<\xd9m\xb1<BM\x1d=\xf0\xce\xdd\xbc\xee\xean\xbdX\xbbf=\x80\xd5H\xbc\xf2\xf6\xc9\xbc}\xd0\xbe\xbdX\xef\xb8\xbd\xd56s\xbd\xf78\xcc\xbc\xb6-\xba\xbc\xd1:1\xbd>\x1bd=\xcd\x0c<\xbd\x07\xea\x84\xbd\x14\x99\xd6\xbco\xed?\xbd(\xda8=7\xb51=v\xb4\x8b=i\x86\x9c=\x96i\x0e\x8a\x81qB=\x88\xbd&=\x8eT\xd9\xbb.\xe5k<\x0c=%=\xe6\x02N<\x10\x8d\x14=\x7f=\x07\xbd:|M=;\'k<5\xb9\xb2\xbd\xb6\x86S<\x0b\xac&\xbdr\xa4\x05\xbcZ\xd2^:\xa5\x02\xe2\xbc\x8b`\x9f\xbcM\xf7\xcc\xbd\xedc\xa2\xbb\xd6\xd3\x96\xbb^Og\xbc\xa8\x0e\xc0=\xac\xb4\t\xbdI\x83k<\xe8\x9a\xe4=>\xfb\xcc<j\x82\xda=~{\x03\xbd\x8c\xd9!=\xccZ/\xbc\x9a\x1d\xbc<\xd3r+\xbd7*\x8d\xbc\xba2\x03>\xa2}\xf0\xbc\xe9\xfea<\xce_C=e\xf0\xd5\xbc\x8a\x88\xec<\x05t\x1c=\x85U\xfe=\xc2\x01\xd3\xbc\xec/N\xbd\x01G\xaa\xbd\x9b\x12\xfc\xbc\xff8\x01\xbd\xd4W\xde<\xfd#R\xbd\xcf\x17$\xbd\xf1\xbe\xf2\xbcb>O<\xf6\xa3\xf7\xbc*z\x90<\xee?S\xbd\rF2\xbc\xa0B\x11=-}n=\xd280\xbd(a\x1e\xbd!=\xd0\xbb\xb8\x90\x00<\xa5\x8a\x9e=\xb2\xf6%;Wo\x88\xbb\x85\xec:\xbc\xed\xfd\xd6\xbd\x85\xf3\x1f\xbb\xb1}\r\xbaV+:\xbd\x03\xa7g;C\xcb\xd3\xbd\xe0\xc0\x03=Dk\x89<yj\xc0\xbd\xd8g\x8d=U[\xcf<I\x81\xd5;\xcbV\x1f\xbc?|\x7f\xbb\x9f\xa0\x86\xbbg\xfb\x91\xbd;a|<Vk\xf1\xbc3\x97\x8a=\x8d\xef\xee<S8\x18=\xa2c$\xbb\xf9\x88g=$M\'\xbdG\xbd\xce\xbc\x17\xe4`\xbd\x0b\x99z=\xefJ\x82=\xdc\xfe\x8e=3MT<"!\x8b\xb3\x18\xb2\xf6\xbd\x80{.=U\xeb\x90\xbc\xa7\xbdZ=\xdfBe=\x12\xeeZ<\x1cC\'<\xbaE\xfb<VV\r\xbd\xaf\xdbL=\xca\xa8\x98=\xd3EW\xbdlO\x14\xbd\xc4\xdeb;\xd9\xe8\x05=Q\x00\x00<\xfa\xda\xcb\xbc\xc9\xf6g=\x9e~\xae\xbd\x8b\x9b\xb5\xbd\x80\x82\x02=\x14\x1a`<_\xb0\xc7;:\xbe\xe2\xbc\xd3\xa29\xbd\xe72\x88;<\x0c\xfb;\xfbx|=\xf9(O\xbca\x9c\xb2\xbb\x8f\xfa\x9c=q\x876=\x8cq\xd6\xbdmo\xf9;\xb2X\x16=\x10\xc1\x1e;\x1c3\x96=\xfb%\x87=\x1d\xdc\xa5=\x9aD\x14>t\x19\xe5\xbcs\x9a5=0bI\xbd[\xb1\x8a\xbc\xeawG\xbc\xa3\xb3\x1d=\xcb\xe9\x07\xbe\x83\xc1\xcc\xbdj\xeb^\xbd\xad\x00A\xbd \xdfb\xbdL\xe4Z\xbdM\xf1\xb6:(p\xbd=\x16\x84"=i\x10\x9a=\xe5\xdd\x1e=SKq8\xdcv\xc7\xba\xb3\x83\x87=\xdd\xb6\xff<\xa9k\xd5<*\x8b\xe3\xbc$\x9dy=', 'FLOAT32', '{"file_path":"C:\\\\Users\\\\opole\\\\Downloads\\\\ChatBotn\\\\backend\\\\data\\\\01 - SAFe Workbook ARCH (6_0).pdf","ref_doc_id":"316a9986-362e-4d81-a8cf-460be3a840f6","doc_id":"316a9986-362e-4d81-a8cf-460be3a840f6","chroma:document":"© Scaled Agile. Inc.\\n© Scaled Agile, Inc. \\n7.3 Relentless improvement through \\nInspect & Adapt\\n7-16\\n© Scaled Agile. Inc.\\nTerrific Transport Corporation\\n► Step 1: In your group, discuss which Iteration Reviews you will attend in Terrific \\nTransport Corporation’s (TTC’s) first PI, and what you are looking for in those \\nreviews. What will you demo in your Iteration Review?\\n► Step 2: What will you be watching for in the first System Demo? What will you\\nshowcase in the first System Demo?\\n► Step 3: What will you be watching for in the Solution Demo at the end of the first \\nPI? What will you showcase in the Solution Demo?\\n► Step 4: Be prepared to share with the class. \\nDiscussion: Participating in demos\\nSharePrepare\\n10 5\\nminmin\\n7-15\\nWorkbook 170 © Scaled Agile, Inc.","last_modified_date":"2025-11-17","_node_content":"{\\"id_\\": \\"a386a6ae-c08b-4f11-8163-27c1f5bf408b\\", \\"embedding\\": null, \\"metadata\\": {\\"page_label\\": \\"170\\", \\"file_name\\": \\"01 - SAFe Workbook ARCH (6_0).pdf\\", \\"file_path\\": \\"C:\\\\\\\\Users\\\\\\\\opole\\\\\\\\Downloads\\\\\\\\ChatBotn\\\\\\\\backend\\\\\\\\data\\\\\\\\01 - SAFe Workbook ARCH (6_0).pdf\\", \\"file_type\\": \\"application/pdf\\", \\"file_size\\": 47179136, \\"creation_date\\": \\"2025-11-19\\", \\"last_modified_date\\": \\"2025-11-17\\"}, \\"excluded_embed_metadata_keys\\": [\\"file_name\\", \\"file_type\\", \\"file_size\\", \\"creation_date\\", \\"last_modified_date\\", \\"last_accessed_date\\"], \\"excluded_llm_metadata_keys\\": [\\"file_name\\", \\"file_type\\", \\"file_size\\", \\"creation_date\\", \\"last_modified_date\\", \\"last_accessed_date\\"], \\"relationships\\": {\\"1\\": {\\"node_id\\": \\"316a9986-362e-4d81-a8cf-460be3a840f6\\", \\"node_type\\": \\"4\\", \\"metadata\\": {\\"page_label\\": \\"170\\", \\"file_name\\": \\"01 - SAFe Workbook ARCH (6_0).pdf\\", \\"file_path\\": \\"C:\\\\\\\\Users\\\\\\\\opole\\\\\\\\Downloads\\\\\\\\ChatBotn\\\\\\\\backend\\\\\\\\data\\\\\\\\01 - SAFe Workbook ARCH (6_0).pdf\\", \\"file_type\\": \\"application/pdf\\", \\"file_size\\": 47179136, \\"creation_date\\": \\"2025-11-19\\", \\"last_modified_date\\": \\"2025-11-17\\"}, \\"hash\\": \\"27a9d6f8099cb06141ba10d69a9bf4326acdd7c760074f17488c106fbd3e106c\\", \\"class_name\\": \\"RelatedNodeInfo\\"}}, \\"metadata_template\\": \\"{key}: {value}\\", \\"metadata_separator\\": \\"\\\\n\\", \\"text\\": \\"\\", \\"mimetype\\": \\"text/plain\\", \\"start_char_idx\\": 0, \\"end_char_idx\\": 769, \\"metadata_seperator\\": \\"\\\\n\\", \\"text_template\\": \\"{metadata_str}\\\\n\\\\n{content}\\", \\"class_name\\": \\"TextNode\\"}","creation_date":"2025-11-19","file_type":"application/pdf","file_name":"01 - SAFe Workbook ARCH (6_0).pdf","document_id":"316a9986-362e-4d81-a8cf-460be3a840f6","_node_type":"TextNode","page_label":"170","file_size":47179136}')
+
+--- Table: embeddings_queue_config ---
+(0, 'id', 'INTEGER', 0, None, 1)
+(1, 'config_json_str', 'TEXT', 0, None, 0)
+Sample: (1, '{"automatically_purge":true,"_type":"EmbeddingsQueueConfigurationInternal"}')
+

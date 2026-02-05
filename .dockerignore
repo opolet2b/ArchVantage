@@ -16,7 +16,9 @@
 **/*.pdf
 **/* - Copie*
 **/temp_*
-**/output*
+# Avoid broad ignores that match source files like output-formats-tab.tsx
+**/output/
+**/outputs/
 docker_pack/*
 !docker_pack/db
 !docker_pack/data

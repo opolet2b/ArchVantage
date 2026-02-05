@@ -15,7 +15,8 @@ from app.models.user import User
 from app.models.scenario_models import Scenario
 from app.models.canvas_models import Canvas, Domain, ThingType, CanvasThing
 from app.schemas.scenario_schemas import (
-    ScenarioCreate, ScenarioUpdate, ScenarioResponse, InstantiateScenarioRequest
+    ScenarioCreate, ScenarioUpdate, ScenarioResponse, 
+    InstantiateScenarioRequest, ApplyScenarioRequest
 )
 from app.schemas.canvas_schemas import CanvasResponse
 
@@ -166,63 +167,147 @@ def instantiate_scenario(
             "scenario_id": scenario.id,
             "theme_color": scenario.theme_color,
             "automations": config.get("automations", []),
-            "ui_overrides": config.get("ui_overrides", {})
+            "ui_overrides": config.get("ui_overrides", {}),
+            "domain_definitions": config.get("domain_definitions", []),
+            "domain_groups": config.get("domain_groups", [])
         }
     )
     db.add(new_canvas)
     db.flush() # Get ID
     
-    # 2. Instantiate Objects from Scenario Initialization Config
-    init_config = config.get("initialization", {}).get("master_canvas", {})
+    # 2. Instantiate Default Domains from Scenario Definitions
+    domain_definitions = config.get("domain_definitions", [])
+    print(f"[Scenario] Instantiating scenario {scenario.name} with {len(domain_definitions)} definitions")
     
-    # Domains
-    domains_config = init_config.get("domains", [])
-    domain_map = {} # Maps scenario domain type to DB ID if needed? Or just use type.
-    
-    for d_conf in domains_config:
-        # Find definition in domain_definitions list if needed, or use inline
-        # Usually config has "type" which refers to a definition in 'domain_definitions'
-        domain_type = d_conf.get("type")
+    # Track index for staggering
+    created_count = 0
+    for definition in domain_definitions:
+        # Check if we should create this domain by default
+        # Use truthy check for safety
+        is_default = definition.get("create_by_default") or str(definition.get("create_by_default")).lower() == 'true'
+        print(f"  - Definition: {definition.get('name')} (ID: {definition.get('id')}), create_by_default: {is_default}")
         
-        # Look up visual config from scenario definitions
-        definition = next((d for d in config.get("domain_definitions", []) if d["id"] == domain_type), {})
-        
-        new_domain = Domain(
-            canvas_id=new_canvas.id,
-            name=d_conf.get("label") or definition.get("label", "New Domain"),
-            type=domain_type,
-            position_x=d_conf.get("x", 0),
-            position_y=d_conf.get("y", 0),
-            width=d_conf.get("w", 300),
-            height=d_conf.get("h", 400),
-            color=definition.get("visual_config", {}).get("primary_color", scenario.theme_color),
-            visual_config=definition.get("visual_config", {}),
-            metadata_schema=definition.get("metadata_schema", {})
-        )
-        db.add(new_domain)
+        if is_default:
+            def_id = definition.get("id")
+            if not def_id:
+                print("    ! Skipping: No ID found in definition")
+                continue
+
+            v_config = definition.get("visual_config") or {}
+            
+            # Use index to stagger positions so they aren't all on top of each other
+            offset = created_count * 50
+            
+            print(f"    + Creating domain at ({100 + offset}, {100 + offset}) with {len(definition.get('drop_zones', []))} drop zones")
+            
+            new_domain = Domain(
+                canvas_id=new_canvas.id,
+                name=definition.get("name") or definition.get("label") or f"Domain {created_count + 1}",
+                type=def_id,
+                position_x=100 + offset,
+                position_y=100 + offset,
+                width=v_config.get("width", 300),
+                height=v_config.get("height", 400),
+                color=v_config.get("color") or scenario.theme_color or "#3b82f6",
+                visual_config=v_config,
+                metadata_schema=definition.get("metadata_schema") or [],
+                drop_zones=definition.get("drop_zones") or []
+            )
+            db.add(new_domain)
+            created_count += 1
     
-    # Ghost Nodes (Modeled as specific ThingType or just placeholder things)
-    # For now, let's assume we create them as TEXT things with a special "ghost" property in content
-    ghost_nodes = init_config.get("ghost_nodes", [])
-    
-    for g_conf in ghost_nodes:
-        ghost_thing = CanvasThing(
-            canvas_id=new_canvas.id,
-            type=ThingType.TEXT, # Use text as base
-            title=g_conf.get("label", "Placeholder"),
-            position_x=g_conf.get("x", 0),
-            position_y=g_conf.get("y", 0),
-            width=200,
-            height=100,
-            content={
-                "text": g_conf.get("label"), 
-                "is_ghost": True,
-                "on_drop": g_conf.get("on_drop")
-            },
-            iconified=False
-        )
-        db.add(ghost_thing)
+    # Legacy ghost nodes removed as per user preference for "no garbage"
         
     db.commit()
     db.refresh(new_canvas)
     return new_canvas
+
+
+@router.post("/apply-to-canvas/{canvas_id}", response_model=CanvasResponse)
+def apply_to_canvas(
+    canvas_id: str,
+    request: ApplyScenarioRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Apply a scenario to an existing canvas.
+    Updates overrides and provisions default domains.
+    """
+    scenario = db.query(Scenario).filter(Scenario.id == request.scenario_id).first()
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+    if not canvas:
+        raise HTTPException(status_code=404, detail="Canvas not found")
+
+    config = scenario.configuration
+
+    # Update Canvas Config
+    owner_config = canvas.owner_config or {}
+    owner_config.update({
+        "scenario_id": scenario.id,
+        "theme_color": scenario.theme_color,
+        "automations": config.get("automations", []),
+        "ui_overrides": config.get("ui_overrides", {}),
+        "domain_definitions": config.get("domain_definitions", []),
+        "domain_groups": config.get("domain_groups", [])
+    })
+    canvas.owner_config = owner_config
+    db.add(canvas)
+
+    # Provision Default Domains
+    # We look for definitions marked with 'create_by_default'
+    domain_definitions = config.get("domain_definitions", [])
+    print(f"[Scenario] Applying scenario {scenario.name} to canvas {canvas_id}. Found {len(domain_definitions)} definitions.")
+    
+    # Current existing domain types on this canvas to avoid exact duplicates
+    existing_types = {d.type for d in db.query(Domain).filter(Domain.canvas_id == canvas_id).all()}
+    print(f"  - Existing domain types on canvas: {existing_types}")
+    
+    # Track index for staggering
+    created_count = 0
+    for definition in domain_definitions:
+        # Check if we should create this domain by default
+        # Use truthy check for flexibility
+        is_default = definition.get("create_by_default") or str(definition.get("create_by_default")).lower() == 'true'
+        print(f"  - Definition: {definition.get('name')} (ID: {definition.get('id')}), create_by_default: {is_default}")
+
+        if is_default:
+            # Only create if no domain of this type exists
+            def_id = definition.get("id")
+            if not def_id:
+                print("    ! Skipping: No ID found in definition")
+                continue
+
+            if def_id not in existing_types:
+                # Safely get visual config
+                v_config = definition.get("visual_config") or {}
+                
+                # Use index to stagger positions
+                offset = created_count * 50
+                
+                print(f"    + Creating domain at ({100 + offset}, {100 + offset}) with {len(definition.get('drop_zones', []))} drop zones")
+
+                new_domain = Domain(
+                    canvas_id=canvas.id,
+                    name=definition.get("name") or definition.get("label") or f"Domain {created_count + 1}",
+                    type=def_id,
+                    position_x=100 + offset,
+                    position_y=100 + offset,
+                    width=v_config.get("width", 300),
+                    height=v_config.get("height", 400),
+                    color=v_config.get("color") or scenario.theme_color or "#3b82f6",
+                    visual_config=v_config,
+                    metadata_schema=definition.get("metadata_schema") or [],
+                    drop_zones=definition.get("drop_zones") or []
+                )
+                db.add(new_domain)
+                created_count += 1
+            else:
+                print(f"    - Type {def_id} already exists, skipping provisioning.")
+
+    db.commit()
+    db.refresh(canvas)
+    return canvas

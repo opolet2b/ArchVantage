@@ -20,12 +20,19 @@ export interface ScanResult {
         files: number
         embeddings: number
         total_size_mb: number
+        total_embeddings?: number
+        labelled_embeddings?: number
+    }
+    embeddings_summary?: {
+        unlabelled_count: number
+        is_huge: boolean
     }
 }
 
 export interface CleanupRequest {
     files: string[]
     embeddings: string[]
+    purge_unlabelled?: boolean
 }
 
 export const maintenanceService = {

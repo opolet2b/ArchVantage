@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+# DEV_RELOAD_TRIGGER: 2026-02-05 16:38
 # Ensure NLTK resources are loaded before any other imports
 import app.core.nltk_utils
 
@@ -49,13 +50,9 @@ async def startup_event():
         prompt_service.register_prompts(ALL_PROMPTS)
         print(f"DEBUG: Registered {len(ALL_PROMPTS)} prompts")
         
-        # Initialize RAG Service (Load heavy imports now)
+        # Initialize RAG Service (Lazy loading, so no explicit init here)
         from app.services.rag_service import rag_service
-        # Run initialization in threadpool to avoid blocking startup if it takes time? 
-        # Actually, main init is sync, so just call it.
-        print("DEBUG: Initializing RAG Service...")
-        rag_service.initialize()
-        print("DEBUG: RAG Service Initialized")
+        print("DEBUG: RAG Service registered (Lazy Loading)")
     finally:
         db.close()
 

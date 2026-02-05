@@ -52,4 +52,23 @@ To use a different backend URL (e.g., for production deployment):
    ```
 3. Restart the frontend server (`Ctrl+C` then `npm run dev`)
 
-**Note:** The `NEXT_PUBLIC_` prefix is required for Next.js environment variables to be accessible in the browser.
+
+## 5. Running with Docker (Alternative)
+
+For a simplified setup using Docker:
+
+1.  **Prepare Seed Data**:
+    ```bash
+    python scripts/prepare_docker_pack.py
+    ```
+2.  **Build and Run**:
+    ```bash
+    docker compose up --build
+    ```
+3.  **Access**:
+    - Frontend: http://localhost:3000
+    - Backend API: http://localhost:8000/api/v1
+    - API Docs: http://localhost:8000/docs
+
+> [!TIP]
+> See [DOCKER_GUIDE.md](./DOCKER_GUIDE.md) for important performance warnings and Ollama configuration steps.

@@ -68,68 +68,81 @@ class MaintenanceService:
                 results["stats"]["total_size_mb"] += p_file["size"] / (1024 * 1024)
 
         # 2. Scan for Orphaned Embeddings (RAG)
-        # This is harder because iterating *all* vectors is slow.
-        # But we can query the collection if size is manageable.
-        if rag_service._initialized and rag_service.chroma_collection:
-            try:
-                # Limit to first 10000 for sanity? Or get all IDs.
-                # using get() with no args returns everything (metadata only is faster?)
-                collection_data = rag_service.chroma_collection.get(include=["metadatas"])
-                ids = collection_data["ids"]
-                metadatas = collection_data["metadatas"]
+        # We use direct SQLite access to avoid initializing the heavy ChromaDB client
+        # which would hang on massive datasets (e.g. 44GB).
+        try:
+            import sqlite3
+            
+            # Reliable Path Discovery relative to this file
+            # This file is in backend/app/services/
+            # DB is in backend/chroma_db/
+            current_dir = os.path.dirname(os.path.abspath(__file__)) # .../backend/app/services
+            app_dir = os.path.dirname(current_dir)                     # .../backend/app
+            backend_dir = os.path.dirname(app_dir)                     # .../backend
+            chroma_db_path = os.path.join(backend_dir, "chroma_db", "chroma.sqlite3")
+            
+            if not os.path.exists(chroma_db_path):
+                 # Fallback: maybe we are just in "app/services"?
+                 # Try finding "backend" root
+                 pass # path check below will handle it
+            
+            if chroma_db_path:
+                # Connect with timeout to avoid locking issues, but read-only mostly
+                conn = sqlite3.connect(chroma_db_path, timeout=5)
+                cursor = conn.cursor()
                 
-                # We need to check if 'source' or 'asset_id' or 'canvas_id' is valid.
-                # Valid Sources:
-                # - existing assets (Asset ID or File Path)
-                # - existing text things (Thing ID)
-                # - existing conversations (Conversation ID)
+                # Total count
+                cursor.execute('SELECT COUNT(*) FROM embeddings')
+                total_count = cursor.fetchone()[0]
                 
-                # Fetch all valid IDs for quick lookup
-                valid_asset_ids = set(a.id for a in db_assets)
+                # Count with canvas_id
+                cursor.execute('SELECT COUNT(DISTINCT id) FROM embedding_metadata WHERE key = "canvas_id"')
+                with_canvas = cursor.fetchone()[0]
                 
-                # Things are harder. We check Thing IDs?
-                # Usually RAG stores 'asset_id' in metadata if it's from an asset.
-                # If it's a raw text node, it might have 'thing_id' (not consistently implemented yet).
-                # Fallback: Check if 'source' exists as a file (if it's a file path).
+                # Count with conversation_id
+                cursor.execute('SELECT COUNT(DISTINCT id) FROM embedding_metadata WHERE key = "conversation_id"')
+                with_convo = cursor.fetchone()[0]
                 
-                for i, meta in enumerate(metadatas):
-                    is_orphan = False
-                    reason = ""
-                    
-                    asset_id = meta.get("asset_id")
-                    source = meta.get("source", "")
-                    
-                    if asset_id:
-                        if asset_id not in valid_asset_ids:
-                            is_orphan = True
-                            reason = f"Asset {asset_id} does not exist"
-                    elif "data_storage" in source or "data/uploads" in source:
-                        # Check if file exists
-                        if not os.path.exists(source):
-                            is_orphan = True
-                            reason = "Source file missing"
-                            
-                    if is_orphan:
-                        results["embeddings"].append({
-                            "id": ids[i],
-                            "metadata": meta,
-                            "reason": reason
-                        })
-                        results["stats"]["embeddings"] += 1
-
-            except Exception as e:
-                print(f"[Maintenance] Error scanning embeddings: {e}")
+                # Unlabelled orphans (no canvas, no convo)
+                # Note: This is an approximation of bloat
+                cursor.execute('''
+                    SELECT COUNT(*) FROM embeddings 
+                    WHERE id NOT IN (SELECT id FROM embedding_metadata WHERE key IN ("canvas_id", "conversation_id"))
+                ''')
+                unlabelled_orphans = cursor.fetchone()[0]
+                conn.close()
+                
+                results["stats"]["embeddings"] = unlabelled_orphans
+                results["stats"]["total_embeddings"] = total_count
+                results["stats"]["labelled_embeddings"] = with_canvas + with_convo
+                
+                if unlabelled_orphans > 0:
+                    results["embeddings_summary"] = {
+                        "unlabelled_count": unlabelled_orphans,
+                        "is_huge": unlabelled_orphans > 50000
+                    }
+            else:
+                 # No DB file found
+                 results["stats"]["embeddings"] = 0
+                
+        except Exception as e:
+            print(f"[Maintenance] Error scanning embeddings: {e}")
+            # Do not fail the whole scan, just report error in log
                 
         return results
 
-    def delete_orphans(self, db: Session, orphans: Dict[str, List[Any]]) -> Dict[str, int]:
+    def delete_orphans(self, db: Session, orphans: Dict[str, Any]) -> Dict[str, int]:
         """
         Delete selected orphans.
-        orphans input format: {"files": ["full/path/1"], "embeddings": ["id1", "id2"]}
+        orphans input format: {
+            "files": ["full/path/1"], 
+            "embeddings": ["id1", "id2"],
+            "purge_unlabelled": bool (Custom flag for bulk deep clean)
+        }
         """
         deleted_count = {"files": 0, "embeddings": 0}
         
-        # Delete Files
+        # 1. Delete Files
         for file_path in orphans.get("files", []):
             try:
                 p = Path(file_path)
@@ -145,14 +158,83 @@ class MaintenanceService:
             except Exception as e:
                 print(f"[Maintenance] Failed to delete {file_path}: {e}")
 
-        # Delete Embeddings
+        # 2. Delete Specific Embeddings (by ID)
         embedding_ids = orphans.get("embeddings", [])
         if embedding_ids and rag_service._initialized:
              try:
+                 print(f"[Maintenance] Deleting {len(embedding_ids)} specific embeddings...")
                  rag_service.chroma_collection.delete(ids=embedding_ids)
-                 deleted_count["embeddings"] = len(embedding_ids)
+                 deleted_count["embeddings"] += len(embedding_ids)
              except Exception as e:
-                 print(f"[Maintenance] Failed to delete embeddings: {e}")
+                 print(f"[Maintenance] Failed to delete specific embeddings: {e}")
+
+        print(f"[Maintenance] Cleanup Request: orphans={orphans}")
+        
+        # 3. Deep Clean: Purge All Unlabelled
+        # We use direct SQLite deletion for massive datasets to avoid loading the index
+        if orphans.get("purge_unlabelled"):
+            print("[Maintenance] PURGE_UNLABELLED flag is TRUE. Initiating Deep Clean...")
+            try:
+                import sqlite3
+                
+                # Reliable Path Discovery relative to this file
+                current_dir = os.path.dirname(os.path.abspath(__file__)) # .../backend/app/services
+                app_dir = os.path.dirname(current_dir)                     # .../backend/app
+                backend_dir = os.path.dirname(app_dir)                     # .../backend
+                chroma_db_path = os.path.join(backend_dir, "chroma_db", "chroma.sqlite3")
+
+                print(f"[Maintenance] Starting Deep Clean of unlabelled embeddings (Offline Mode)... Path target: {chroma_db_path}")
+
+                print(f"[Maintenance] Starting Deep Clean of unlabelled embeddings (Offline Mode)... Path found: {chroma_db_path}")
+                
+                if chroma_db_path:
+                    conn = sqlite3.connect(chroma_db_path, timeout=30) # Longer timeout for heavy verify
+                    cursor = conn.cursor()
+                    
+                    # 1. Identify valid IDs (Safety Step)
+                    cursor.execute('''
+                        CREATE TEMPORARY TABLE valid_ids AS
+                        SELECT DISTINCT id FROM embedding_metadata 
+                        WHERE key IN ("canvas_id", "conversation_id")
+                    ''')
+                    
+                    # 2. Delete invalid metadata
+                    print("[Maintenance] Purging orphaned metadata...")
+                    cursor.execute("DELETE FROM embedding_metadata WHERE id NOT IN (SELECT id FROM valid_ids)")
+                    deleted_meta = cursor.rowcount
+                    
+                    # 3. Delete invalid embeddings
+                    print("[Maintenance] Purging orphaned embeddings...")
+                    cursor.execute("DELETE FROM embeddings WHERE id NOT IN (SELECT id FROM valid_ids)")
+                    deleted_embeddings = cursor.rowcount
+                    
+                    # 4. Commit Deletion
+                    conn.commit()
+                    print(f"[Maintenance] Purged {deleted_embeddings} embeddings. Committing changes...")
+                    
+                    # 5. Rebuild FTS Index (Crucial for reclaiming space from text index)
+                    try:
+                        print("[Maintenance] Rebuilding Full Text Search index...")
+                        conn.execute("INSERT INTO embedding_fulltext_search(embedding_fulltext_search) VALUES('rebuild')")
+                        conn.commit()
+                    except Exception as fts_error:
+                        print(f"[Maintenance] Warning: Could not rebuild FTS index (might not exist): {fts_error}")
+
+                    # 6. Vacuum (Must be outside transaction in some modes, or just separate step)
+                    print("[Maintenance] Vacuuming database to reclaim disk space (this may take a while)...")
+                    # Re-connect to ensure clean state for Vacuum
+                    conn.close()
+                    conn = sqlite3.connect(chroma_db_path, timeout=300) # High timeout for vacuum
+                    conn.execute("VACUUM")
+                    conn.close()
+                    
+                    deleted_count["embeddings"] += deleted_embeddings
+                    print(f"[Maintenance] Deep Clean finished successfully.")
+                
+            except Exception as e:
+                print(f"[Maintenance] Failed during Deep Clean: {e}")
+                import traceback
+                traceback.print_exc()
                  
         return deleted_count
 

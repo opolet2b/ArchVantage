@@ -55,3 +55,7 @@ class InstantiateScenarioRequest(BaseModel):
     scenario_id: str
     canvas_name: Optional[str] = None
     description: Optional[str] = None
+
+class ApplyScenarioRequest(BaseModel):
+    """Request to apply a scenario to an existing canvas."""
+    scenario_id: str

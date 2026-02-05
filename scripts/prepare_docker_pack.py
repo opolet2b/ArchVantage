@@ -40,7 +40,35 @@ def prepare_pack():
         print("WARNING: No data/ directory found in backend.")
         dst_data.mkdir()
 
-    # 3. Sanitize Config
+    # 3. Copy Assets (Physical files)
+    print("Copying Asset Storage...")
+    src_assets = BACKEND / "data_storage"
+    dst_assets = PACK_DIR / "data_storage"
+    if src_assets.exists():
+        try:
+            shutil.copytree(src_assets, dst_assets, dirs_exist_ok=True)
+        except Exception as e:
+            print(f"WARNING: Could not copy asset storage (possibly space issue): {e}")
+            dst_assets.mkdir(exist_ok=True)
+    else:
+        print("WARNING: No data_storage/ directory found.")
+        dst_assets.mkdir()
+
+    # 4. Copy Vector Store (ChromaDB)
+    print("Copying ChromaDB...")
+    src_chroma = BACKEND / "chroma_db"
+    dst_chroma = PACK_DIR / "chroma_db"
+    if src_chroma.exists():
+        try:
+            shutil.copytree(src_chroma, dst_chroma, dirs_exist_ok=True)
+        except Exception as e:
+            print(f"WARNING: Could not copy ChromaDB (possibly space issue): {e}")
+            dst_chroma.mkdir(exist_ok=True)
+    else:
+        print("WARNING: No chroma_db/ directory found.")
+        dst_chroma.mkdir()
+
+    # 5. Sanitize Config
     print("Sanitizing Config...")
     config_path = dst_data / "config.json"
     if config_path.exists():

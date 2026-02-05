@@ -36,7 +36,7 @@ interface ExecutionPlanModalProps {
         currentStepId?: string;
         nodes: ExecutionNode[];
     } | null;
-    canvasId?: string;
+    canvasId?: string | null;
 }
 
 const FormattedJson = ({ data }: { data: any }) => {

@@ -184,6 +184,12 @@ export interface DropZone {
     accepts_types: string[]; // e.g., ["text", "image"] or ["*"]
     on_drop_agent_id?: string; // Agent to trigger when content is dropped here
     layout_mode?: "tiled" | "stacked"; // Layout engine mode
+
+    // Geometry (Relative to Domain Top-Left)
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 export interface DomainDefinition {
@@ -191,6 +197,7 @@ export interface DomainDefinition {
     name: string;
     description?: string;
     group_id?: string; // For folder organization
+    create_by_default?: boolean;
 
     // Visuals
     visual_config: {
@@ -324,6 +331,10 @@ interface CanvasState {
     selectedModel: string | null;
     setSelectedModel: (model: string | null) => void;
 
+    // Analysis Detail Level
+    levelOfDetail: "low" | "medium" | "high";
+    setLevelOfDetail: (level: "low" | "medium" | "high") => void;
+
     // Selected model for vision operations
     visionModel: string | null;
     setVisionModel: (model: string | null) => void;
@@ -356,18 +367,6 @@ interface CanvasState {
     refreshThings: () => Promise<void>;
 
     // Thing actions
-    addThing: (
-        type: ThingType,
-        content: Record<string, unknown>,
-        position: { x: number; y: number },
-        title?: string,
-        width?: number,
-        height?: number,
-        domainId?: string,
-        color?: string,
-        scrapeOptions?: Record<string, any>,
-        canvasId?: string
-    ) => Promise<CanvasThing | null>;
     updateThing: (
         thingId: string,
         updates: Partial<CanvasThing>
@@ -387,14 +386,13 @@ interface CanvasState {
         description?: string,
         sourceFragment?: Record<string, unknown>,
         targetFragment?: Record<string, unknown>,
-        targetCanvasId?: string,
-        sourceCanvasId?: string
+        targetCanvasId?: string | null,
+        sourceCanvasId?: string | null
     ) => Promise<CanvasLink | null>;
     updateLink: (
         linkId: string,
         updates: Partial<CanvasLink>
     ) => Promise<void>;
-    updateThings: (updates: { id: string; updates: Partial<CanvasThing> }[]) => Promise<void>;
     deleteLink: (linkId: string) => Promise<void>;
 
     // Selection actions
@@ -446,7 +444,7 @@ interface CanvasState {
     toggleIconify: (thingId: string) => Promise<void>;
 
     // Batch Analysis Action
-    analyzeBatch: (thingIds: string[], action: "summarize" | "identify_purpose", model?: string, canvasId?: string) => Promise<any>;
+    analyzeBatch: (thingIds: string[], action: "summarize" | "identify_purpose", model?: string, canvasId?: string | null) => Promise<any>;
 
     // Semantic Discovery
     discoverLinks: (thingIds: string[], domainIds: string[]) => Promise<{ links_created: number; domains_updated: number; details: any[] } | null>;
@@ -455,7 +453,7 @@ interface CanvasState {
     reorderItem: (id: string, action: "front" | "back" | "forward" | "backward") => Promise<void>;
 
     // Smart Analysis Template Execution
-    executeAnalysisTemplate: (templateId: string, thingIds: string[], domainIds: string[], canvasId?: string) => Promise<any>;
+    executeAnalysisTemplate: (templateId: string, thingIds: string[], domainIds: string[], canvasId?: string | null) => Promise<any>;
 
     // Sync Features
     checkSyncStatus: (thingId: string) => Promise<{ status: "synced" | "changed" | "missing_source" | "no_path" | "error"; current_hash?: string; reason?: string }>;
@@ -497,6 +495,14 @@ interface CanvasState {
     // Editing State
     editingThingId: string | null;
     setEditingThingId: (id: string | null) => void;
+
+    // Automation Hooks
+    emitCanvasEvent: (hook: string, payload: Record<string, any>) => Promise<void>;
+
+    // Automation Hooks Helpers
+    // transientExtras allows passing non-persisted data (like drop_zone_id) to the event emitter
+    updateThings: (updates: { id: string; updates: Partial<CanvasThing>; transientExtras?: Record<string, any> }[]) => Promise<void>;
+    addThing: (type: ThingType, content: any, position: { x: number; y: number }, width?: number, height?: number, title?: string, color?: string, scrapeOptions?: any, transientExtras?: Record<string, any>) => Promise<CanvasThing | null>;
 }
 
 /**
@@ -571,9 +577,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedModel: null,
     setSelectedModel: (model) => set({ selectedModel: model }),
 
+    // Analysis Detail Level
+    levelOfDetail: "medium",
+    setLevelOfDetail: (level) => set({ levelOfDetail: level }),
+
     // Selected model for vision operations
     visionModel: null,
     setVisionModel: (model) => set({ visionModel: model }),
+
+    // Automation Hooks
+    emitCanvasEvent: async (hook, payload) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return;
+
+        try {
+            await fetch(`${API_URL}/canvases/${canvasId}/events`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ hook, payload }),
+            });
+        } catch (err) {
+            console.error(`[Store] Failed to emit canvas event ${hook}:`, err);
+        }
+    },
 
     // Scenario State
     activeScenario: null,
@@ -687,11 +717,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             if (res.ok) {
                 const canvas: Canvas = await res.json();
-                // Only update things and links, keep viewport/selection
+                // Update all canvas data silently
                 set({
                     things: canvas.things,
                     links: canvas.links,
-                    domains: canvas.domains, // sync domains too just in case
+                    domains: canvas.domains,
+                    canvasName: canvas.name,
+                    canvasSettings: canvas.owner_config || {},
                 });
 
                 // Also refresh Active Scenario if one is linked (to catch schema updates)
@@ -861,68 +893,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Add thing to canvas
-    addThing: async (type, content, position, title, width, height, domainId, color, scrapeOptions, canvasIdOverride) => {
-        const { canvasId: stateCanvasId } = get();
-        const canvasId = canvasIdOverride || stateCanvasId;
-        const token = getAuthToken();
-        if (!token || !canvasId) {
-            console.error("[Store] Missing token or canvasId");
-            return null;
-        }
-
-        // Automatic Domain Assignment if not specified
-        let finalDomainId = domainId;
-        if (!finalDomainId) {
-            const w = width ?? 400;
-            const h = height ?? 400;
-            finalDomainId = get().findEnclosingDomain(position.x, position.y, w, h) || undefined;
-            if (finalDomainId) {
-            }
-        }
-
-        try {
-            const payload = {
-                type,
-                content: typeof content === 'object' ? {
-                    ...content,
-                    page_number: content.pageNumber,
-                    start_offset: content.startOffset,
-                    end_offset: content.endOffset,
-                    message_id: content.messageId
-                } : content,
-                position: { x: position.x, y: position.y },
-                size: { width: width ?? 400, height: height ?? 400 },
-                title,
-                color,
-                domain_id: finalDomainId,
-                scrape_options: scrapeOptions,
-            };
-            const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
-                method: "POST",
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify(payload),
-            });
-            if (!res.ok) {
-                const errorText = await res.text();
-                console.error(`[Store] Failed to add thing: ${res.status} ${errorText}`);
-                throw new Error("Failed to add thing");
-            }
-
-            const thing: CanvasThing = await res.json();
-
-            // Safety Check: Only update local state if we are still on the same canvas
-            if (thing.canvas_id === get().canvasId) {
-                set({ things: [...get().things, thing] });
-            }
-            return thing;
-        } catch (err) {
-            console.error("Failed to add thing:", err);
-            return null;
-        }
-    },
 
     updateThing: async (thingId, updates) => {
         const { canvasId } = get();
@@ -1025,6 +995,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             // confirm update with server response (handles side effects)
             const oldThings = get().things;
+            const target = oldThings.find(t => t.id === thingId);
             const newThings = oldThings.map((t) => {
                 if (t.id === thingId) {
                     return { ...t, ...serverUpdated };
@@ -1032,6 +1003,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 return t;
             });
             set({ things: newThings });
+
+            // Emit Spatial Automations
+            if (target && newDomainId !== undefined && newDomainId !== target.domain_id) {
+                if (target.domain_id) {
+                    get().emitCanvasEvent("onExit", {
+                        thing_id: thingId,
+                        domain_id: target.domain_id
+                    });
+                }
+                if (newDomainId) {
+                    get().emitCanvasEvent("onEntry", {
+                        thing_id: thingId,
+                        domain_id: newDomainId
+                    });
+                }
+            }
 
             // Dispatch potential conversation update event for UI sync
             if (updates.title && serverUpdated.type === "conversation") {
@@ -1130,14 +1117,71 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         });
     },
 
+    // Add thing
+    addThing: async (type, content, position, width, height, title, color, scrapeOptions, transientExtras) => {
+        const { canvasId, domains } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return null;
+
+        // Auto-assign to domain on creation if dropped inside
+        let finalDomainId = undefined;
+        if (position && width && height) {
+            const autoDomain = get().findEnclosingDomain(position.x, position.y, width, height);
+            if (autoDomain) {
+                finalDomainId = autoDomain;
+            }
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/canvases/${canvasId}/things`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    type,
+                    content,
+                    position,
+                    size: { width, height },
+                    title,
+                    color,
+                    domain_id: finalDomainId,
+                    scrape_options: scrapeOptions,
+                }),
+            });
+
+            if (!res.ok) throw new Error("Failed to add thing");
+
+            const thing: CanvasThing = await res.json();
+
+            set({ things: [...get().things, thing] });
+
+            // Emit Automation Event
+            if (finalDomainId) {
+                get().emitCanvasEvent("onEntry", {
+                    thing_id: thing.id,
+                    domain_id: finalDomainId,
+                    ...transientExtras
+                });
+            }
+
+            return thing;
+        } catch (err) {
+            console.error("Failed to add thing:", err);
+            return null;
+        }
+    },
+
     // Batch update things (Atomic Optimistic + Parallel API)
-    updateThings: async (updates) => {
+    updateThings: async (updates, eventExtras = {}) => {
         const { canvasId, things } = get();
         const token = localStorage.getItem("token");
         if (!token || !canvasId) return;
 
         // 1. Atomic Optimistic Update
         const updatesMap = new Map(updates.map(u => [u.id, u.updates]));
+        const updatesMapExtras = new Map(updates.map(u => [u.id, u.transientExtras]));
 
         const newThings = things.map(t => {
             const update = updatesMap.get(t.id);
@@ -1145,8 +1189,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 return {
                     ...t,
                     ...update,
-                    // Ensure nested objects if any are merged correctly? 
-                    // for now simple shallow merge of properties matches updateThing logic
                 };
             }
             return t;
@@ -1155,8 +1197,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         set({ things: newThings });
 
         // 2. Parallel API Calls
-        // We do not await individual updateThing calls to avoid N sets.
-        // We construct fetches manually.
         try {
             await Promise.all(updates.map(async ({ id, updates }) => {
                 const res = await fetch(
@@ -1168,38 +1208,49 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                             "Content-Type": "application/json",
                         },
                         body: JSON.stringify({
-                            // Map internal keys to API keys if needed
                             content: updates.content,
                             position: (updates.position_x !== undefined || updates.position_y !== undefined)
-                                ? {
-                                    x: updates.position_x,
-                                    y: updates.position_y
-                                }
+                                ? { x: updates.position_x, y: updates.position_y }
                                 : undefined,
                             size: (updates.width !== undefined || updates.height !== undefined)
-                                ? {
-                                    width: updates.width,
-                                    height: updates.height
-                                }
+                                ? { width: updates.width, height: updates.height }
                                 : undefined,
                             title: updates.title,
                             color: updates.color,
                             collapsed: updates.collapsed,
                             iconified: updates.iconified,
-                            domain_id: updates.domain_id // Allow domain_id update
+                            domain_id: updates.domain_id
                         }),
                     }
                 );
 
                 if (!res.ok) {
                     console.error(`Failed to update thing ${id}:`, await res.text());
-                    // We rely on refreshThings() or subsequent updates to fix sync if this fails.
-                    // Doing a partial revert for batch is complex.
+                } else {
+                    // Emit spatial events for each item in batch
+                    const update = updatesMap.get(id);
+                    const original = things.find(t => t.id === id);
+                    if (update && original && update.domain_id !== undefined && update.domain_id !== original.domain_id) {
+                        const extras = updatesMapExtras.get(id) || {};
+                        if (original.domain_id) {
+                            get().emitCanvasEvent("onExit", {
+                                thing_id: id,
+                                domain_id: original.domain_id,
+                                ...extras
+                            });
+                        }
+                        if (update.domain_id) {
+                            get().emitCanvasEvent("onEntry", {
+                                thing_id: id,
+                                domain_id: update.domain_id,
+                                ...extras
+                            });
+                        }
+                    }
                 }
             }));
         } catch (error) {
             console.error("Batch update failed:", error);
-            // Verify state with server?
             get().refreshThings();
         }
     },
@@ -1234,9 +1285,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             const link: CanvasLink = await res.json();
 
-            // Safety Check
             if (link.canvas_id === get().canvasId) {
                 set({ links: [...get().links, link] });
+
+                // Emit Automation Event
+                get().emitCanvasEvent("onLinkCreated", {
+                    link_id: link.id,
+                    source_id: link.source_id,
+                    target_id: link.target_id,
+                    type: link.type
+                });
             }
             return link;
         } catch (err) {
@@ -1690,7 +1748,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Batch Analysis
-    analyzeBatch: async (thingIds: string[], action: "summarize" | "identify_purpose", model?: string, canvasIdOverride?: string) => {
+    analyzeBatch: async (thingIds: string[], action: "summarize" | "identify_purpose", model?: string, canvasIdOverride?: string | null) => {
         const { canvasId: stateCanvasId } = get();
         const canvasId = canvasIdOverride || stateCanvasId;
         const token = getAuthToken();
@@ -1974,7 +2032,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     },
 
     // Execute Smart Analysis Template
-    executeAnalysisTemplate: async (templateId: string, thingIds: string[], domainIds: string[], canvasIdOverride?: string) => {
+    executeAnalysisTemplate: async (templateId: string, thingIds: string[], domainIds: string[], canvasIdOverride?: string | null) => {
         const { canvasId: stateCanvasId, things, selectedModel, visionModel } = get();
         const canvasId = canvasIdOverride || stateCanvasId;
         const token = getAuthToken();

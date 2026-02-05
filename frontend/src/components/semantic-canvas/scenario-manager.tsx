@@ -164,8 +164,16 @@ export function ScenarioManager() {
             if (res.status === 401) throw new Error("Unauthorized");
 
             if (res.ok) {
+                const savedScenario = await res.json();
                 toast({ title: "Success", description: `Scenario ${viewMode === "create" ? "created" : "updated"} successfully.` });
-                setViewMode("list");
+
+                // If we created a new one, transition to edit mode for it
+                if (viewMode === "create") {
+                    setSelectedId(savedScenario.id);
+                    setViewMode("edit");
+                }
+
+                // Refresh list in background
                 fetchScenarios();
             } else {
                 const err = await res.json();
@@ -219,7 +227,7 @@ export function ScenarioManager() {
     // Render Editor Mode
     if (viewMode === "create" || (viewMode === "edit" && selectedScenario)) {
         return (
-            <div className="h-full p-6 pt-2">
+            <div className="h-full w-full max-w-[95vw] mx-auto p-6 pt-2">
                 <ScenarioEditor
                     initialData={viewMode === "edit" ? selectedScenario : undefined}
                     onSave={handleSaveScenario}
@@ -337,47 +345,42 @@ export function ScenarioManager() {
                                     </div>
                                 </div>
                             </div>
-
                             <div className="grid grid-cols-2 gap-6">
                                 <Card>
                                     <CardHeader>
-                                        <CardTitle className="text-base">Domain Definitions</CardTitle>
-                                        <CardDescription>Types of content allowed in this scenario</CardDescription>
+                                        <CardTitle className="text-base">Content Types (Domains)</CardTitle>
+                                        <CardDescription>Visual categories and specialized structures available in this scenario.</CardDescription>
                                     </CardHeader>
                                     <CardContent>
                                         <div className="flex flex-wrap gap-2">
                                             {selectedScenario.configuration.domain_definitions?.map((d: any) => (
-                                                <Badge key={d.id} variant="outline" className="px-3 py-1 text-sm border-2" style={{ borderColor: d.visual_config?.primary_color }}>
-                                                    {d.label}
+                                                <Badge key={d.id} variant="outline" className="px-3 py-1 text-sm border-2" style={{ borderColor: d.visual_config?.color }}>
+                                                    {d.name}
                                                 </Badge>
                                             )) || <span className="text-muted-foreground italic">No domains configured</span>}
                                         </div>
                                     </CardContent>
                                 </Card>
 
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle className="text-base">Specialized Tools</CardTitle>
-                                        <CardDescription>Custom interface actions and tools</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="flex flex-wrap gap-2">
-                                            {selectedScenario.configuration.ui_overrides?.toolbox_macros?.map((m: any) => (
-                                                <Badge key={m.id} variant="secondary" className="px-3 py-1 text-sm">
-                                                    {m.label}
-                                                </Badge>
-                                            )) || <span className="text-muted-foreground italic">No tools configured</span>}
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                                {selectedScenario.configuration.ui_overrides?.toolbox_macros && selectedScenario.configuration.ui_overrides.toolbox_macros.length > 0 && (
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle className="text-base">Specialized Tools</CardTitle>
+                                            <CardDescription>Custom interface actions and tools</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="flex flex-wrap gap-2">
+                                                {selectedScenario.configuration.ui_overrides.toolbox_macros.map((m: any) => (
+                                                    <Badge key={m.id} variant="secondary" className="px-3 py-1 text-sm">
+                                                        {m.label}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
                             </div>
 
-                            <div className="mt-8 pt-8 border-t">
-                                <h3 className="text-lg font-semibold mb-4">Configuration Preview</h3>
-                                <div className="bg-slate-950 text-slate-50 p-4 rounded-lg font-mono text-xs overflow-auto max-h-[400px]">
-                                    <pre>{JSON.stringify(selectedScenario.configuration, null, 2)}</pre>
-                                </div>
-                            </div>
                         </div>
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-8 text-center">

@@ -140,9 +140,9 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                                     <div className="pl-4 pr-2 pb-2 space-y-1">
                                         {domainsByGroup[group.id].map(domain => (
                                             <div key={domain.id} className="flex items-center justify-between p-1.5 rounded-md hover:bg-muted text-sm border">
-                                                <div className="flex items-center gap-2" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
+                                                <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
                                                     <div className="w-3 h-3 rounded-full border" style={{ background: domain.visual_config.color }}></div>
-                                                    <span className="cursor-pointer">{domain.name}</span>
+                                                    <span>{domain.name}</span>
                                                 </div>
                                                 <div className="flex gap-1">
                                                     <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
@@ -166,7 +166,7 @@ export function DomainPalette({ groups, domains, onChangeGroups, onChangeDomains
                                 <h4 className="text-xs font-semibold text-muted-foreground px-2 uppercase tracking-wider">Ungrouped</h4>
                                 {domainsByGroup["ungrouped"].map(domain => (
                                     <div key={domain.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted text-sm border bg-card">
-                                        <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
+                                        <div className="flex items-center gap-2 cursor-pointer flex-1 h-full" onClick={() => setActiveEditor({ type: "domain", data: domain })}>
                                             <div className="w-3 h-3 rounded-full border" style={{ background: domain.visual_config.color }}></div>
                                             <span>{domain.name}</span>
                                         </div>

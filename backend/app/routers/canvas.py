@@ -43,6 +43,12 @@ from app.services.prompt_service import prompt_service
 from app.prompts import SUMMARIZE_PROMPT, EXPLAIN_PROMPT
 from app.routers.canvas_worker import handle_async_vectorization
 from pydantic import BaseModel
+from app.services.automation_service import automation_service
+
+
+class CanvasEventRequest(BaseModel):
+    hook: str
+    payload: Dict[str, Any]
 
 
 router = APIRouter()
@@ -327,6 +333,31 @@ def update_canvas(
     db.refresh(canvas)
     return canvas
 
+@router.post("/canvases/{canvas_id}/events")
+async def report_canvas_event(
+    canvas_id: str,
+    request: CanvasEventRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Report a spatial event (hook) from the frontend.
+    Triggers matching automations defined in the scenario.
+    """
+    # Permission check
+    _get_canvas_with_access(canvas_id, db, current_user)
+    
+    # Process event
+    results = await automation_service.handle_canvas_event(
+        db=db,
+        canvas_id=canvas_id,
+        hook=request.hook,
+        payload=request.payload,
+        user_id=current_user.id
+    )
+    
+    return {"status": "processed", "triggered_count": len(results), "details": results}
+
 @router.post("/canvases/{canvas_id}/auto-rename", response_model=dict)
 async def auto_rename_canvas(
     canvas_id: str,
@@ -432,8 +463,22 @@ def delete_canvas(
         except Exception as e:
              print(f"[CanvasRouter] Error deleting asset {asset_id}: {e}")
 
+    # 3. Delete from RAG (Vector Store) directly using canvas_id
+    try:
+        print(f"[CanvasRouter] Deleting RAG embeddings for canvas {canvas_id}")
+        rag_service.delete_by_canvas(canvas_id)
+    except Exception as e:
+        print(f"[CanvasRouter] Error deleting RAG embeddings for canvas {canvas_id}: {e}")
+
     db.delete(canvas)
     db.commit()
+    
+    # 4. Trigger VACUUM to reclaim space after large deletion
+    try:
+        rag_service.clear_database_cache()
+    except Exception as e:
+        print(f"[CanvasRouter] Failed to vacuum after canvas deletion: {e}")
+
     return {"message": "Canvas deleted"}
 
 
@@ -1047,18 +1092,13 @@ def delete_thing(
         )
     
     
-    # Clean up associated assets (physical files)
-    if thing.content and "asset_id" in thing.content:
-        asset_id = thing.content["asset_id"]
-        from app.services.asset_service import asset_service
-        try:
-            # We assume current_user is owner as verified by query above
-            print(f"[CanvasRouter] Deleting associated asset {asset_id} for thing {thing_id}")
-            asset_service.delete_asset(db, asset_id, current_user.id)
-        except Exception as e:
-            print(f"[CanvasRouter] Warning: Failed to delete asset {asset_id}: {e}")
-            # Continue deleting the thing itself
-            
+    # Clean up RAG embeddings directly via thing_id 
+    try:
+        print(f"[CanvasRouter] Deleting RAG embeddings for thing {thing_id}")
+        rag_service.delete_by_thing(thing_id)
+    except Exception as e:
+        print(f"[CanvasRouter] Error deleting RAG embeddings for thing {thing_id}: {e}")
+
     db.delete(thing)
     db.commit()
     return {"message": "Thing deleted"}

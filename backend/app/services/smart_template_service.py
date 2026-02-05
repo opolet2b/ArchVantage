@@ -3628,7 +3628,7 @@ class SmartTemplateService:
         
         print(f"\n[SmartTemplate] DEBUG GRAPH TOPOLOGY:")
         print(f"Nodes ({len(nodes)}): {[n['id'] for n in nodes]}")
-        print(f"Edges ({len(edges)}): {[f'{e['source']} -> {e['target']}' for e in edges]}")
+        print(f"Edges ({len(edges)}): {[e['source'] + ' -> ' + e['target'] for e in edges]}")
         
         return {
             "nodes": nodes,

@@ -117,9 +117,9 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
     // Schema Evolution: Prefer the latest schema from the scenario definition if available
     const definition = React.useMemo(() => {
         if (!activeScenario?.configuration?.domain_definitions) return null;
-        // Try to match by type or name
+        // Try to match by type (definition ID) or name
         return activeScenario.configuration.domain_definitions.find(d =>
-            (domain.type && d.name === domain.type) || d.name === domain.name
+            (domain.type && d.id === domain.type) || d.name === domain.name
         );
     }, [activeScenario, domain.type, domain.name]);
 
@@ -277,15 +277,15 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                 />
 
                 {/* Visual Drop Zones - Grid Layout */}
-                {domain.drop_zones && domain.drop_zones.length > 0 && (
+                {(domain.drop_zones && domain.drop_zones.length > 0 || definition?.drop_zones && definition.drop_zones.length > 0) && (
                     <div
                         className="absolute inset-0 pt-8 px-2 pb-2 grid gap-2 pointer-events-none z-10"
                         style={{
-                            gridTemplateColumns: domain.drop_zones.length === 1 ? "1fr" : "repeat(2, 1fr)",
+                            gridTemplateColumns: (domain.drop_zones || definition?.drop_zones || []).length === 1 ? "1fr" : "repeat(2, 1fr)",
                             gridAutoRows: "1fr"
                         }}
                     >
-                        {domain.drop_zones.map((zone, idx) => (
+                        {(domain.drop_zones || definition?.drop_zones || []).map((zone, idx) => (
                             <div
                                 key={zone.id || idx}
                                 className={cn(

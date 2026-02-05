@@ -1,0 +1,20 @@
+services:
+  chatbotn:
+    image: semantic-canvas:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/backend/data
+      - ./backend/data_storage:/app/backend/data_storage
+      - ./backend/chroma_db:/app/backend/chroma_db
+      - ./backend/db:/app/backend/db
+    environment:
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - DATABASE_URL=sqlite:///./db/sql_app.db
+      - NEXT_PUBLIC_API_URL=/api/v1
+    restart: unless-stopped

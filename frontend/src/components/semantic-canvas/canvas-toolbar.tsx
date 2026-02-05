@@ -53,6 +53,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const semanticZoomEnabled = useCanvasStore((s) => s.semanticZoomEnabled);
     const selectedThingIds = useCanvasStore((s) => s.selectedThingIds);
     const selectedDomainIds = useCanvasStore((s) => s.selectedDomainIds);
+    const canvasId = useCanvasStore((s) => s.canvasId);
     // Viewport moved to ZoomIndicator for performance
 
     // Actions
@@ -150,29 +151,36 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const handleScenarioSelect = async (scenario: any) => {
         setScenarioSelectorOpen(false);
         const token = localStorage.getItem("token");
+
+        if (!canvasId) {
+            toast({ title: "Error", description: "Could not identify current canvas.", variant: "destructive" });
+            return;
+        }
+
         try {
-            toast({ title: "Creating Scenario Canvas", description: `Setting up ${scenario.name}...` });
-            const res = await fetch(`${API_URL}/scenarios/${scenario.id}/instantiate`, {
+            toast({ title: "Applying Scenario", description: `Configuring ${scenario.name} for this workspace...` });
+            const res = await fetch(`${API_URL}/scenarios/apply-to-canvas/${canvasId}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    scenario_id: scenario.id,
-                    canvas_name: `${scenario.name} Workspace`
+                    scenario_id: scenario.id
                 })
             });
 
             if (res.ok) {
-                const newCanvas = await res.json();
-                window.location.href = `/canvas/${newCanvas.id}`;
+                toast({ title: "Success", description: "Scenario applied successfully." });
+                // We don't redirect anymore! We refresh the current state.
+                // enhanced refreshThings now pulls and applies the owner_config as well.
+                refreshThings();
             } else {
-                throw new Error("Failed to instantiate");
+                throw new Error("Failed to apply scenario");
             }
         } catch (e) {
             console.error(e);
-            toast({ title: "Error", description: "Failed to create scenario canvas.", variant: "destructive" });
+            toast({ title: "Error", description: "Failed to apply scenario.", variant: "destructive" });
         }
     };
 
