@@ -69,12 +69,9 @@ class LLMGenerationPrimitive(BasePrimitive):
             # Resolve variables first
             variables = state.get("variables", {})
             
-            # Prioritize global model override from inputs (e.g. Canvas selection)
-            global_model = variables.get("model")
-            param_model = params.get("model", "default")
-            model = global_model or param_model
-            
-            print(f"[LLM_PRIM] Resolved Model: {model} (Global: {global_model}, Param: {param_model})")
+            # Use centralized config resolution
+            model = self.get_llm_config(state, params)
+            print(f"[LLM_PRIM] Resolved Model: {model}")
             # Smart Template Fix: Some templates pass 'systemPrompt' or 'prompt' instead of 'instruction'
             instruction = params.get("instruction") or params.get("prompt") or params.get("systemPrompt") or ""
             input_context_var = params.get("input_context", "")
@@ -149,6 +146,10 @@ class LLMGenerationPrimitive(BasePrimitive):
                       resolved_instruction = loop_item.get("instruction")
             
             # --- DEBUG LOGGING ---
+            print("\n" + "!"*50)
+            print(f"[LLM_PRIM] EXECUTING! Instruction: {resolved_instruction[:50]}...")
+            print("!"*50 + "\n")
+            
             if "is_template_mode" in params:
                  print("\n\n[TEMPLATE_DEBUGGER] !!! FLAG FOUND IN PARAMS !!!\n\n")
             else:
@@ -161,6 +162,32 @@ class LLMGenerationPrimitive(BasePrimitive):
             )
             print(f"[TEMPLATE_DEBUG] Template Structure Detected: {is_template_mode}")
             # ---------------------
+            
+            # --- CONTEXT TRACE LOGGING ---
+            import os
+            # Resolve to backend root (assuming app is in backend/app)
+            # This file is in backend/app/services/agent_primitives/llm_generation.py
+            # We want backend/execution_debug.log
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            log_path = os.path.join(base_dir, "execution_debug.log")
+            
+            print(f"[LLM_PRIM] Logging context to: {log_path}")
+            
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    from datetime import datetime
+                    f.write(f"\n{'='*60}\n")
+                    f.write(f"[{datetime.utcnow().isoformat()}] [LLM_GENERATION CONTEXT DUMP]\n")
+                    f.write(f"MODEL: {model}\n")
+                    f.write(f"TEMPLATE MODE: {is_template_mode}\n")
+                    f.write(f"INSTRUCTION:\n{resolved_instruction}\n")
+                    f.write(f"{'-'*30}\n")
+                    f.write(f"INPUT CONTEXT (Length: {len(input_context) if input_context else 0}):\n")
+                    f.write(f"{input_context}\n")
+                    f.write(f"{'='*60}\n")
+            except Exception as log_e:
+                 print(f"[LLM_PRIM] Context logging failed: {log_e}")
+            # -----------------------------
             
             # Build messages for LLM
             # TEMPLATE MODE CHECK:

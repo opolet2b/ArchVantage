@@ -302,6 +302,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const dockedThingId = useCanvasStore((state) => state.dockedThingId);
     const dockPosition = useCanvasStore((state) => state.dockPosition);
     const canvasSettings = useCanvasStore((state) => state.canvasSettings);
+    // Processing State for Visual Feedback
+    const processingThings = useCanvasStore((state) => state.processingThings);
+    const processingMessage = processingThings?.[thing.id];
 
     const [selected, setSelected] = React.useState(isSelected);
 
@@ -2186,6 +2189,13 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 <span className="text-[10px] font-medium text-slate-700 dark:text-slate-300 text-center leading-tight line-clamp-2 w-full px-1">
                     {thing.title || getDefaultTitle()}
                 </span>
+
+                {/* Automation Processing Overlay (Iconified) */}
+                {processingMessage && (
+                    <div className="absolute inset-0 z-[60] flex items-center justify-center bg-white/90 dark:bg-slate-900/90 rounded-xl backdrop-blur-sm animate-in fade-in zoom-in-95 duration-700">
+                        <Loader2 className="w-6 h-6 text-blue-500 animate-spin duration-[2000ms]" />
+                    </div>
+                )}
             </div>
         );
     }
@@ -2764,6 +2774,18 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     position={Position.Right}
                     className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}
                 />
+
+                {/* Automation Processing Overlay */}
+                {processingMessage && (
+                    <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-white/90 dark:bg-slate-900/90 rounded-lg backdrop-blur-sm animate-in fade-in zoom-in-95 duration-700">
+                        <div className="flex flex-col items-center gap-2 p-4 text-center">
+                            <Loader2 className="w-8 h-8 text-blue-500 animate-spin duration-[2000ms]" />
+                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-100 bg-white/90 dark:bg-slate-800/90 px-3 py-1 rounded-full shadow-sm border border-slate-200 dark:border-slate-700 animate-pulse duration-1000">
+                                {processingMessage}
+                            </span>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Custom Prompt Dialog */}

@@ -81,16 +81,18 @@ class AgentRuntime:
     and manages execution state.
     """
     
-    def __init__(self, blueprint, db=None):
+    def __init__(self, blueprint, db=None, origin: str = "Manual"):
         """
         Initialize the runtime with a blueprint.
         
         Args:
             blueprint: BlueprintResponse or dict containing the blueprint
             db: Optional database session
+            origin: Tag for log differentiation (e.g. "Automation", "Manual")
         """
         self.blueprint = blueprint
         self.db = db
+        self.origin = origin
         self.steps: List[ExecutionStep] = []
         self._graph = None
         
@@ -115,6 +117,16 @@ class AgentRuntime:
         # Check if we have linear 'steps' instead of nodes (Studio format)
         steps = self.graph_def.steps if hasattr(self.graph_def, 'steps') else self.graph_def.get('steps', [])
         
+        # FIX: Robustly handle stringified steps
+        if isinstance(steps, str):
+            try:
+                import json
+                steps = json.loads(steps)
+                print(f"[RUNTIME] Parsed stringified steps: {len(steps)} items")
+            except Exception as e:
+                print(f"[RUNTIME] Failed to parse steps string: {e}")
+                steps = []
+        
         edges = []
         
         # Debug Logging to File
@@ -123,7 +135,10 @@ class AgentRuntime:
                 ts = datetime.utcnow().isoformat()
                 n_count = len(nodes) if nodes else 0
                 s_count = len(steps) if steps else 0
-                f.write(f"\n[{ts}] [RUNTIME INIT] Nodes: {n_count}, Steps: {s_count}\n")
+                f.write(f"\n[{ts}] [RUNTIME INIT] [{self.origin}] Nodes: {n_count}, Steps: {s_count}\n")
+                print(f"[RUNTIME DEBUG] Graph Def Keys: {list(self.graph_def.keys()) if isinstance(self.graph_def, dict) else 'Not Dict'}")
+                if nodes:
+                    print(f"[RUNTIME DEBUG] First Node Keys: {nodes[0].keys() if isinstance(nodes[0], dict) else 'Not Dict'}")
                 if n_count > 0:
                     f.write(f"[{ts}] [RUNTIME INIT] First Node Params: {nodes[0].get('params')}\n")
         except Exception: pass
@@ -275,6 +290,15 @@ class AgentRuntime:
         First looks for a node with type=START, then falls back to
         topology-based detection (node with no incoming edges).
         """
+        # 0. Check for explicit start_node in graph definition
+        if isinstance(self.graph_def, dict) and "start_node" in self.graph_def:
+            start_node = self.graph_def["start_node"]
+            if start_node in self.nodes:
+                print(f"[RUNTIME] Found explicit start node: {start_node}")
+                return start_node
+            else:
+                 print(f"[RUNTIME WARNING] Graph defines start_node '{start_node}' but it is not in nodes map: {list(self.nodes.keys())}")
+
         # First, look for an explicit START node by type
         for node_id, node in self.nodes.items():
             node_type = node.type if hasattr(node, 'type') else node.get('type')
@@ -420,6 +444,8 @@ class AgentRuntime:
             state["db"] = self.db
             if "inputs" not in state: state["inputs"] = inputs
             current_node = state.get("current_node")
+            if not current_node:
+                current_node = self._get_start_node()
         else:
             state = {
                 "inputs": inputs,
@@ -734,11 +760,14 @@ class AgentRuntime:
 
             # --- START EXECUTE STREAM CHANGE ---
             # Yield Step Complete
-            current_step = self.steps[-1] # The last step added by _execute_node
-            yield {
-                "type": "step_complete",
-                "step": current_step.to_dict()
-            }
+            if self.steps:
+                current_step = self.steps[-1] # The last step added by _execute_node
+                yield {
+                    "type": "step_complete",
+                    "step": current_step.to_dict()
+                }
+            else:
+                 print(f"[RUNTIME ERROR] No steps recorded for node {current_node}. Result: {result.error}")
             # --- END EXECUTE STREAM CHANGE ---
             
             if not result.success:

@@ -75,7 +75,10 @@ class LLMDecisionPrimitive(BasePrimitive):
             from app.services.llm_service import llm_service
             from app.models.chat import Message
             
-            model = params.get("model", "default")
+            # Use centralized config resolution
+            model = self.get_llm_config(state, params)
+            print(f"[LLM_DECISION] Resolved Model: {model}")
+            
             instruction = params.get("instruction", "")
             input_context_var = params.get("input_context", "")
             send_context_to_llm = params.get("send_context_to_llm", True)

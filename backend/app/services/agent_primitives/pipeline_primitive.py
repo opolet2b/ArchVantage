@@ -65,11 +65,13 @@ class GenericPipelinePrimitive(BasePrimitive):
                     
             # Get Primitive
             from app.services.agent_primitives import get_primitive
-            primitive_cls = get_primitive(primitive_name)
-            if not primitive_cls:
+            try:
+                primitive = get_primitive(primitive_name)
+            except ValueError:
                 return PrimitiveResult(success=False, error=f"Primitive '{primitive_name}' not found at step {i}")
             
-            primitive = primitive_cls()
+            # primitive is already an instance returned by get_primitive
+            # primitive = primitive_cls() <-- Removed double instantiation
             
             # Execute
             try:

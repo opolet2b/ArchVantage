@@ -11,7 +11,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Zap, Target, SlidersHorizontal, Maximize2, Sparkles } from "lucide-react";
+import {
+    MoreHorizontal, GripHorizontal, FolderOpen, Maximize2, LayoutGrid, Layers,
+    Settings, List, Plus, X, Calendar as CalendarIcon, Clock, Hash,
+    Pencil, Palette, Sparkles, Target, Zap, Trash2, CheckCircle, AlertTriangle
+} from 'lucide-react';
+import { Textarea } from "@/components/ui/textarea";
 import {
     Dialog,
     DialogContent,
@@ -334,30 +339,65 @@ const CONTEXT_VARIABLES = [
     { value: "{{thing_content}}", label: "Thing Content", description: "The full text or JSON data" },
     { value: "{{thing_name}}", label: "Thing Name", description: "The title or name of the item" },
     { value: "{{thing_type}}", label: "Thing Type", description: "e.g. text, image, document" },
+    { value: "{{drop_zone_id}}", label: "Drop Zone ID", description: "ID of the zone where item was dropped" },
+    { value: "{{source_domain_id}}", label: "Source Domain ID", description: "ID of the domain where event occurred" },
+    { value: "{{domain_content}}", label: "Domain Content (Context)", description: "Text summary of all things in the source domain" },
+    { value: "{{domain_items}}", label: "Domain Items (JSON)", description: "Full JSON list of all things in the source domain" },
 ];
 
-function ContextVariableSelector({ value, onChange, label = "Context Variable" }: { value: string, onChange: (v: string) => void, label?: string }) {
+// --- Helper for inserting text at cursor or appending ---
+function insertText(current: string, toInsert: string, inputRef?: React.RefObject<HTMLTextAreaElement | HTMLInputElement>) {
+    if (inputRef?.current) {
+        const start = inputRef.current.selectionStart || 0;
+        const end = inputRef.current.selectionEnd || 0;
+        return current.substring(0, start) + toInsert + current.substring(end);
+    }
+    return current + (current ? " " : "") + toInsert;
+}
+
+function ContextVariableSelector({ onInsert, label = "Insert Variable" }: { onInsert: (v: string) => void, label?: string }) {
     return (
-        <div className="space-y-1.5">
-            <Label className="text-[10px] font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
-                <Target className="w-3 h-3" /> {label}
-            </Label>
-            <Select value={value} onValueChange={onChange}>
-                <SelectTrigger className="h-8 text-xs bg-muted/30 border-dashed">
-                    <SelectValue placeholder="Select context..." />
-                </SelectTrigger>
-                <SelectContent>
-                    {CONTEXT_VARIABLES.map(v => (
-                        <SelectItem key={v.value} value={v.value}>
-                            <div className="flex flex-col items-start py-0.5">
-                                <span className="font-mono text-[10px] text-primary font-bold">{v.value}</span>
-                                <span className="text-[9px] text-muted-foreground">{v.label} — {v.description}</span>
-                            </div>
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-        </div>
+        <Select value="" onValueChange={onInsert}>
+            <SelectTrigger className="h-7 text-[10px] w-auto gap-2 bg-muted/50 border-dashed min-w-[120px]">
+                <Target className="w-3 h-3 text-muted-foreground" />
+                <SelectValue placeholder={label} />
+            </SelectTrigger>
+            <SelectContent>
+                <div className="px-2 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/20">
+                    Standard Context
+                </div>
+                {CONTEXT_VARIABLES.map(v => (
+                    <SelectItem key={v.value} value={v.value} className="text-xs">
+                        <span className="font-mono text-primary font-semibold mr-2">{v.value}</span>
+                        <span className="text-muted-foreground scale-90">{v.label}</span>
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    );
+}
+
+function SpecificReferencePicker({ domains, onInsert }: { domains: DomainDefinition[], onInsert: (v: string) => void }) {
+    return (
+        <Select value="" onValueChange={(val) => {
+            if (val) onInsert(`{{domain:${val}}}`);
+        }}>
+            <SelectTrigger className="h-7 text-[10px] w-auto gap-2 bg-muted/50 border-dashed min-w-[120px]">
+                <LayoutGrid className="w-3 h-3 text-muted-foreground" />
+                <SelectValue placeholder="Pick Domain..." />
+            </SelectTrigger>
+            <SelectContent>
+                <div className="px-2 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/20">
+                    Target Specific Domain
+                </div>
+                {domains.map(d => (
+                    <SelectItem key={d.id} value={d.id} className="text-xs">
+                        <span className="font-medium mr-2">{d.name}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[100px]">{d.id}</span>
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     );
 }
 
@@ -399,7 +439,7 @@ function WorkflowBuilder({
     canvases?: any[],
     isRoot?: boolean
 }) {
-
+    // ... addStep ... (Keep existing implementation)
     const addStep = (primitive: string) => {
         const newStep: any = {
             id: Math.random().toString(36).substring(7),
@@ -440,6 +480,7 @@ function WorkflowBuilder({
 
     return (
         <div className="space-y-3">
+            {/* ... Header ... */}
             {isRoot && (
                 <div className="flex items-center justify-between pb-1 pt-1">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
@@ -456,9 +497,11 @@ function WorkflowBuilder({
                     </WorkflowPopup>
                 </div>
             )}
+
             <div className="space-y-2">
                 {steps.map((step, idx) => (
                     <div key={step.id || idx} className="border rounded-md p-3 bg-background text-sm relative group">
+                        {/* Header */}
                         <div className="flex items-center justify-between mb-2">
                             <span className="font-semibold flex items-center gap-1.5 opacity-90">
                                 <span className="text-base">{PRIMITIVES.find(p => p.value === step.primitive)?.icon}</span>
@@ -471,46 +514,62 @@ function WorkflowBuilder({
 
                         {/* Step Configuration UI */}
                         <div className="space-y-2">
+                            {/* ... CANVAS_MOVE_TO_ZONE ... (Keep existing) */}
                             {step.primitive === "CANVAS_MOVE_TO_ZONE" && (
-                                <>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <Label className="text-[10px]">Domain</Label>
-                                            <Select
-                                                value={step.inputs.domain_id}
-                                                onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, domain_id: val } })}
-                                            >
-                                                <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                                                <SelectContent>
-                                                    {domains.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div>
-                                            <Label className="text-[10px]">Zone</Label>
-                                            <Select
-                                                value={step.inputs.zone_id}
-                                                onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, zone_id: val } })}
-                                            >
-                                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select Zone" /></SelectTrigger>
-                                                <SelectContent>
-                                                    {domains.find(d => d.id === step.inputs.domain_id)?.drop_zones?.map(z => (
-                                                        <SelectItem key={z.id} value={z.id}>{z.label}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <Label className="text-[10px]">Domain</Label>
+                                        <Select
+                                            value={step.inputs.domain_id}
+                                            onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, domain_id: val } })}
+                                        >
+                                            <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                {domains.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                </>
+                                    <div>
+                                        <Label className="text-[10px]">Zone</Label>
+                                        <Select
+                                            value={step.inputs.zone_id}
+                                            onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, zone_id: val } })}
+                                        >
+                                            <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select Zone" /></SelectTrigger>
+                                            <SelectContent>
+                                                {domains.find(d => d.id === step.inputs.domain_id)?.drop_zones?.map(z => (
+                                                    <SelectItem key={z.id} value={z.id}>{z.label}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
                             )}
 
                             {step.primitive === "LLM_GENERATION" && (
                                 <div className="space-y-3">
-                                    <ContextVariableSelector
-                                        value={step.inputs.context || "{{thing_content}}"}
-                                        onChange={(val) => updateStep(idx, { inputs: { ...step.inputs, context: val } })}
-                                        label="AI Input Context"
-                                    />
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Context Content</Label>
+
+                                        <div className="flex gap-2 mb-1">
+                                            <ContextVariableSelector
+                                                onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + " " + val } })}
+                                                label="Add Variable"
+                                            />
+                                            <SpecificReferencePicker
+                                                domains={domains}
+                                                onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + " " + val } })}
+                                            />
+                                        </div>
+
+                                        <Textarea
+                                            className="min-h-[60px] text-xs font-mono"
+                                            value={step.inputs.context || "{{thing_content}}"}
+                                            onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, context: e.target.value } })}
+                                            placeholder="Content to analyze..."
+                                        />
+                                    </div>
+
                                     <AIPromptStep
                                         prompt={step.inputs.prompt}
                                         onChange={(val) => updateStep(idx, { inputs: { ...step.inputs, prompt: val } })}
@@ -519,6 +578,7 @@ function WorkflowBuilder({
                                 </div>
                             )}
 
+                            {/* ... Other Steps ... */}
                             {step.primitive === "CANVAS_SET_PROPERTY" && (
                                 <div>
                                     <Label className="text-[10px]">Color</Label>
@@ -544,7 +604,7 @@ function WorkflowBuilder({
                                     <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
                                         <div className="space-y-1.5">
                                             <Label className="text-[10px] font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
-                                                <Sparkles className="w-3 h-3" /> Branch Condition (AI Evaluated)
+                                                <Sparkles className="w-3 h-3" /> Branch Condition
                                             </Label>
                                             <Input
                                                 className="h-8 text-xs"
@@ -553,10 +613,27 @@ function WorkflowBuilder({
                                                 placeholder="e.g. Is this a valid recipe?"
                                             />
                                         </div>
-                                        <ContextVariableSelector
-                                            value={step.inputs.context || "{{thing_content}}"}
-                                            onChange={(val) => updateStep(idx, { inputs: { ...step.inputs, context: val } })}
-                                        />
+
+                                        <div className="space-y-1.5">
+                                            <div className="flex justify-between items-center">
+                                                <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Context to Evaluate</Label>
+                                                <div className="flex gap-1">
+                                                    <ContextVariableSelector
+                                                        onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + " " + val } })}
+                                                        label="Add Var"
+                                                    />
+                                                    <SpecificReferencePicker
+                                                        domains={domains}
+                                                        onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + " " + val } })}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <Textarea
+                                                className="h-16 text-xs font-mono"
+                                                value={step.inputs.context || "{{thing_content}}"}
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, context: e.target.value } })}
+                                            />
+                                        </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
@@ -594,6 +671,7 @@ function WorkflowBuilder({
                             {step.primitive === "CANVAS_QUERY" && (
                                 <div className="space-y-2">
                                     <div className="grid grid-cols-2 gap-2">
+
                                         <div>
                                             <Label className="text-[10px]">Target Canvas</Label>
                                             <Select

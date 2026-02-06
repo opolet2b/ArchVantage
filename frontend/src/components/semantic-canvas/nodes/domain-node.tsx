@@ -112,6 +112,7 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
     const updateDomain = useCanvasStore(s => s.updateDomain);
     const setZoneLayoutMode = useCanvasStore(s => s.setZoneLayoutMode); // Layout Engine
     const activeScenario = useCanvasStore(s => s.activeScenario);
+    const activeDropZoneId = useCanvasStore(s => s.activeDropZoneId);
     const [isEditing, setIsEditing] = React.useState(false);
 
     // Schema Evolution: Prefer the latest schema from the scenario definition if available
@@ -296,6 +297,25 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                                 title={zone.description}
                                 data-drop-zone-id={zone.id}
                             >
+                                {/* Target Circle - Visual Guidance */}
+                                {/* Large touch target/visual guide - visible on hover OR when active (dropped) */}
+                                <div className={cn(
+                                    "absolute inset-0 flex items-center justify-center pointer-events-none transition-all duration-300",
+                                    activeDropZoneId === zone.id ? "opacity-100 scale-125" : "opacity-40 group-hover/zone:opacity-100 group-hover/zone:animate-pulse-flash"
+                                )}>
+                                    <div className={cn(
+                                        "w-32 h-32 rounded-full border-4 flex items-center justify-center shadow-sm transition-all",
+                                        activeDropZoneId === zone.id
+                                            ? "bg-green-100/40 border-green-500 shadow-xl scale-110"
+                                            : "border-slate-300 dark:border-slate-500 bg-blue-100/30 group-hover/zone:bg-blue-500/10 group-hover/zone:border-blue-500"
+                                    )}>
+                                        <div className={cn(
+                                            "w-4 h-4 rounded-full transition-colors",
+                                            activeDropZoneId === zone.id ? "bg-green-600 scale-150" : "bg-slate-400 dark:bg-slate-300 group-hover/zone:bg-blue-600"
+                                        )} />
+                                    </div>
+                                </div>
+
                                 {/* Layout Mode Toggle - Visible on Hover or Selection */}
                                 <div className={cn(
                                     "absolute top-1 right-1 transition-opacity z-20",

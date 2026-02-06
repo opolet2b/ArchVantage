@@ -260,6 +260,36 @@ def get_canvas(
     # Use Pydantic's from_attributes mechanism partially by creating an instance
     # OR simpler: return a dict matching the schema.
     
+    # Merge on Read: Enrich owner_config with latest Scenario configuration
+    # This ensures dynamic inheritance of automations, UI overrides, and tool definitions.
+    merged_config = dict(canvas.owner_config or {})
+    scenario_id = merged_config.get("scenario_id")
+    if scenario_id:
+        from app.models.scenario_models import Scenario
+        scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+        if scenario:
+            scen_config = scenario.configuration
+            
+            # 1. Automations (Scenario is source of truth)
+            if scen_config.get("automations"):
+                merged_config["automations"] = scen_config.get("automations")
+                
+            # 2. UI Overrides (Theme, Toolbar, etc.)
+            if scen_config.get("ui_overrides"):
+                merged_config["ui_overrides"] = scen_config.get("ui_overrides")
+
+            # 3. Domain Definitions (Available types)
+            if scen_config.get("domain_definitions"):
+                merged_config["domain_definitions"] = scen_config.get("domain_definitions")
+
+            # 4. Link Types
+            if scen_config.get("link_types"):
+                merged_config["link_types"] = scen_config.get("link_types")
+                
+            # 5. Theme Color (Dynamic from Scenario Model)
+            if scenario.theme_color:
+                merged_config["theme_color"] = scenario.theme_color
+
     response = CanvasWithContents(
         id=canvas.id,
         owner_id=canvas.owner_id,
@@ -268,7 +298,7 @@ def get_canvas(
         viewport=canvas.viewport, # Pydantic handles JSON-to-Model conversion if defined? No, it's a dict in DB usually or JSON column
         allowed_user_ids=[u.id for u in canvas.allowed_users],
         allowed_role_ids=[r.id for r in canvas.allowed_roles],
-        owner_config=canvas.owner_config,
+        owner_config=merged_config, # Return the dynamically enriched config
         position=canvas.position,
         analysis_space_id=canvas.analysis_space_id,
         created_at=canvas.created_at,
@@ -304,8 +334,14 @@ def update_canvas(
         canvas.viewport = request.viewport.model_dump()
 
     if request.owner_config is not None:
+        print(f"[CanvasRouter] Updating owner_config for {canvas_id}")
+        print(f"[CanvasRouter] Incoming automations count: {len(request.owner_config.get('automations', []))}")
+        if request.owner_config.get('automations'):
+             print(f"[CanvasRouter] First automation trigger: {request.owner_config['automations'][0].get('trigger')}")
+
         # Merge with existing config to prevent overwriting
-        current_config = canvas.owner_config or {}
+        current_config = dict(canvas.owner_config or {}) # Force copy to ensure mutation detection?
+        
         # Ensure it's a dict (handle potential None or weird state)
         if not isinstance(current_config, dict):
             current_config = {}

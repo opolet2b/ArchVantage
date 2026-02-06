@@ -499,6 +499,16 @@ interface CanvasState {
     // Automation Hooks
     emitCanvasEvent: (hook: string, payload: Record<string, any>) => Promise<void>;
 
+    // Processing State (Visual Feedback)
+    processingThings: Record<string, string>;
+    processingCounts: Record<string, number>;
+    setThingProcessing: (id: string, message?: string) => void;
+    clearThingProcessing: (id: string) => void;
+
+    // Drop Zone Feedback
+    activeDropZoneId: string | null;
+    flashDropZone: (zoneId: string) => void;
+
     // Automation Hooks Helpers
     // transientExtras allows passing non-persisted data (like drop_zone_id) to the event emitter
     updateThings: (updates: { id: string; updates: Partial<CanvasThing>; transientExtras?: Record<string, any> }[]) => Promise<void>;
@@ -585,14 +595,60 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     visionModel: null,
     setVisionModel: (model) => set({ visionModel: model }),
 
+    // Processing State (Visual Feedback)
+    processingThings: {},
+    processingCounts: {},
+    setThingProcessing: (thingId, message = "Processing...") => set(state => {
+        const currentCount = state.processingCounts[thingId] || 0;
+        return {
+            processingThings: { ...state.processingThings, [thingId]: message },
+            processingCounts: { ...state.processingCounts, [thingId]: currentCount + 1 }
+        };
+    }),
+    clearThingProcessing: (thingId) => set(state => {
+        const currentCount = state.processingCounts[thingId] || 0;
+        const newCount = Math.max(0, currentCount - 1);
+
+        if (newCount === 0) {
+            const newProcessing = { ...state.processingThings };
+            delete newProcessing[thingId];
+            const newCounts = { ...state.processingCounts };
+            delete newCounts[thingId];
+            return {
+                processingThings: newProcessing,
+                processingCounts: newCounts
+            };
+        }
+
+        return {
+            processingCounts: { ...state.processingCounts, [thingId]: newCount }
+        };
+    }),
+
+    // Drop Zone Feedback
+    activeDropZoneId: null,
+    flashDropZone: (zoneId) => {
+        set({ activeDropZoneId: zoneId });
+        // Auto-clear after animation
+        setTimeout(() => {
+            set((state) => (state.activeDropZoneId === zoneId ? { activeDropZoneId: null } : {}));
+        }, 1000);
+    },
+
     // Automation Hooks
     emitCanvasEvent: async (hook, payload) => {
         const { canvasId } = get();
         const token = getAuthToken();
         if (!token || !canvasId) return;
 
+        // Optimistic UI: If a thing is involved, show spinner.
+        const thingId = payload.thing_id as string | undefined;
+        if (thingId) {
+            get().setThingProcessing(thingId, "Running Automation...");
+        }
+
         try {
-            await fetch(`${API_URL}/canvases/${canvasId}/events`, {
+            const res = await fetch(`${API_URL}/canvases/${canvasId}/events`, {
                 method: "POST",
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -600,8 +656,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 },
                 body: JSON.stringify({ hook, payload }),
             });
+
+            if (res.ok) {
+                const results = await res.json();
+
+                // The backend returns { status, triggered_count, details: [] }
+                // We need to check if 'details' (the list of triggered automations) has entries.
+                const triggered = results.details || [];
+
+                if (Array.isArray(triggered) && triggered.length > 0) {
+                    await get().refreshThings();
+                }
+            }
         } catch (err) {
             console.error(`[Store] Failed to emit canvas event ${hook}:`, err);
+        } finally {
+            if (thingId) {
+                // Short delay for visual confirmation
+                setTimeout(() => {
+                    get().clearThingProcessing(thingId);
+                }, 500);
+            }
         }
     },
 
@@ -1233,18 +1308,28 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     if (update && original && update.domain_id !== undefined && update.domain_id !== original.domain_id) {
                         const extras = updatesMapExtras.get(id) || {};
                         if (original.domain_id) {
-                            get().emitCanvasEvent("onExit", {
+                            await get().emitCanvasEvent("onExit", {
                                 thing_id: id,
                                 domain_id: original.domain_id,
                                 ...extras
                             });
                         }
                         if (update.domain_id) {
-                            get().emitCanvasEvent("onEntry", {
+                            await get().emitCanvasEvent("onEntry", {
                                 thing_id: id,
                                 domain_id: update.domain_id,
                                 ...extras
                             });
+
+                            // Explicit onDrop event if we hit a specific zone
+                            if (extras.drop_zone_id) {
+                                await get().emitCanvasEvent("onDrop", {
+                                    thing_id: id,
+                                    domain_id: update.domain_id,
+                                    drop_zone_id: extras.drop_zone_id,
+                                    ...extras
+                                });
+                            }
                         }
                     }
                 }

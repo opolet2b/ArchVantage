@@ -72,23 +72,74 @@ class LogicIfElsePrimitive(BasePrimitive):
         
         prompt = f"""
         Evaluate the following condition based on the context provided.
-        Respond with ONLY 'TRUE' or 'FALSE'.
+        
+        Step 1: Briefly explain your reasoning (1-2 sentences).
+        Step 2: Conclude with "VERDICT: TRUE" or "VERDICT: FALSE".
         
         Condition: {condition}
         
         Context:
-        {context[:1000]}... (truncated)
+        {context[:1500]}...
         """
         
+        # LogicIfElsePrimitive: use configured LLM from Canvas
+        model_name = self.get_llm_config(state)
+        print(f"[LogicIfElse] Using Configured Model: {model_name}")
+
         # Use simple model for speed
-        decision = await llm_service.chat(
-            messages=[{"role": "user", "content": prompt}],
-            model_name="gpt-4o-mini", # Fallback to fast model if available, or default
+        from app.models.chat import Message
+        
+        # --- LOGIC DEBUG LOGGING ---
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        log_path = os.path.join(base_dir, "execution_debug.log")
+
+        print("\n" + "!"*50)
+        print(f"[LogicIfElse] EXECUTING! Condition: {condition}")
+        print("!"*50 + "\n")
+        
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                from datetime import datetime
+                f.write(f"\n{'='*60}\n")
+                f.write(f"[{datetime.utcnow().isoformat()}] [LOGIC_IF_ELSE EVALUATION]\n")
+                f.write(f"CONDITION: {condition}\n")
+                f.write(f"CONTEXT SCOPE (Length: {len(context)}):\n")
+                f.write(f"{context}\n")
+                f.write(f"{'-'*30}\n")
+                f.write(f"FULL PROMPT:\n{prompt}\n")
+                f.write(f"{'='*60}\n")
+        except Exception as log_e:
+             print(f"[LogicIfElse] Logging failed: {log_e}")
+        # ---------------------------
+
+        decision_text = await llm_service.chat(
+            messages=[Message(role="user", content=prompt)],
+            model_name=model_name, 
             temperature=0.0
         )
         
-        is_true = "TRUE" in decision.upper()
-        print(f"[LogicIfElse] Result: {is_true}")
+        # Parse result
+        is_true = "VERDICT: TRUE" in decision_text.upper()
+        
+        # Extract Reasoning (everything before VERDICT)
+        reasoning = decision_text.split("VERDICT:")[0].strip()
+        
+        print(f"[LogicIfElse] 🧠 Reasoning: {reasoning}")
+        print(f"[LogicIfElse] 🎯 Result: {is_true}")
+        
+        # --- LOGIC RESULT LOGGING ---
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n[{datetime.utcnow().isoformat()}] [LOGIC_IF_ELSE RESULT]\n")
+                f.write(f"RAW RESPONSE:\n{decision_text}\n")
+                f.write(f"{'-'*30}\n")
+                f.write(f"PARSED REASONING: {reasoning}\n")
+                f.write(f"FINAL VERDICT: {'TRUE' if is_true else 'FALSE'}\n")
+                f.write(f"{'='*60}\n")
+        except Exception as log_e:
+             print(f"[LogicIfElse] Result logging failed: {log_e}")
+        # ----------------------------
         
         steps_to_run = then_steps if is_true else else_steps
         

@@ -103,7 +103,118 @@ class BasePrimitive(ABC):
         
         def replace_var(match):
             var_path = match.group(1).strip()
-            print(f"[DEBUG resolve_variables] Resolving variable: {var_path}")
+            # print(f"[DEBUG resolve_variables] Resolving variable: {var_path}")
+            
+            # ------------------------------------------------------------------
+            # Lazy Loading: Domain Context
+            # ------------------------------------------------------------------
+            if var_path in ["domain_content", "domain_items", "domain_text"]:
+                db = state.get("db")
+                # Try to find a relevant domain ID in the context
+                # 1. source_domain_id (Event payload)
+                # 2. domain_id (Explicit context)
+                variables = state.get("variables", {})
+                domain_id = variables.get("source_domain_id") or variables.get("domain_id")
+                
+                if db and domain_id:
+                    try:
+                        from app.models.canvas_models import CanvasThing, ThingType
+                        # Fetch all things in the domain
+                        things = db.query(CanvasThing).filter(CanvasThing.domain_id == domain_id).all()
+                        
+                        if var_path == "domain_items":
+                            # Return full JSON list
+                            import json
+                            # Simplified serialization for LLM context
+                            res = []
+                            for t in things:
+                                item_content = t.content
+                                # Truncate massive text content to avoid blowing token limits? 
+                                # Let's assume user wants full context for now, but be careful.
+                                res.append({
+                                    "id": t.id, 
+                                    "type": t.type.value if hasattr(t.type, 'value') else str(t.type),
+                                    "content": item_content
+                                })
+                            return json.dumps(res)
+                            
+                        else: # domain_content or domain_text
+                            # Return human-readable summary
+                            lines = [f"Context from Domain ({domain_id}):"]
+                            for t in things:
+                                t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
+                                content_preview = ""
+                                
+                                # Extract meaningful text based on type
+                                if t_type == "text":
+                                    content_preview = t.content.get("text", "")
+                                elif t_type == "document":
+                                    content_preview = f"Document: {t.content.get('filename')} - {t.content.get('content', '')[:500]}..."
+                                elif t_type == "image":
+                                    content_preview = f"Image: {t.content.get('alt_text') or t.content.get('file_path')}"
+                                else:
+                                    content_preview = str(t.content)[:200]
+                                
+                                lines.append(f"- [{t_type}] {content_preview}")
+                            
+                            return "\n".join(lines)
+                            
+                    except Exception as e:
+                        print(f"[resolve_variables] Failed to fetch domain context: {e}")
+                        return f"<Error fetching domain context: {e}>"
+
+            # ------------------------------------------------------------------
+            # Specific Reference: {{domain:UUID}} or {{thing:UUID}}
+            # ------------------------------------------------------------------
+            if var_path.startswith("domain:") or var_path.startswith("thing:"):
+                ref_type, ref_id = var_path.split(":", 1)
+                ref_id = ref_id.strip()
+                
+                db = state.get("db")
+                if db:
+                    try:
+                        from app.models.canvas_models import CanvasThing, Domain
+                        
+                        if ref_type == "domain":
+                            # Fetch content of ALL things in that domain
+                            things = db.query(CanvasThing).filter(CanvasThing.domain_id == ref_id).all()
+                            if not things: 
+                                return f"<Domain {ref_id} is empty or not found>"
+                                
+                            lines = [f"Context from Domain ({ref_id}):"]
+                            for t in things:
+                                t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
+                                content_preview = ""
+                                if t_type == "text":
+                                    content_preview = t.content.get("text", "")
+                                elif t_type == "document":
+                                    content_preview = f"Document: {t.content.get('filename')} - {t.content.get('content', '')[:500]}..."
+                                else:
+                                    content_preview = str(t.content)[:200]
+                                lines.append(f"- [{t_type}] {content_preview}")
+                            return "\n".join(lines)
+                            
+                        elif ref_type == "thing":
+                            # Fetch content of specific Thing
+                            t = db.query(CanvasThing).filter(CanvasThing.id == ref_id).first()
+                            if not t:
+                                return f"<Thing {ref_id} not found>"
+                                
+                            t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
+                            if t_type == "text":
+                                return t.content.get("text", "")
+                            elif t_type == "document":
+                                return t.content.get("content", "")
+                            else:
+                                return str(t.content)
+                                
+                    except Exception as e:
+                        print(f"[resolve_variables] Failed to fetch specific ref: {e}")
+                        return f"<Error fetching {var_path}: {e}>"
+
+            # ------------------------------------------------------------------
+            # Standard Resolution
+            # ------------------------------------------------------------------
             
             # Determine Context
             if var_path.startswith("variables") or var_path.startswith("inputs") or var_path.startswith("secrets"):
@@ -195,4 +306,47 @@ class BasePrimitive(ABC):
                 return data[dict_key]
         
         # 3. No match found
-        raise KeyError(f"Key '{key}' not found in dictionary")
+
+    def get_llm_config(self, state: Dict[str, Any], params: Dict[str, Any] = None) -> str:
+        """
+        Get the configured LLM model name with fallback logic.
+        
+        Priority:
+        1. 'model' in params (Node-specific override) / 'model' in variables (Global override injected by Automation)
+        2. Canvas owner_config (Database lookup)
+        3. Default fallback
+        """
+        params = params or {}
+        variables = state.get("variables", {})
+        
+        # 1. Check Global/Param Overrides
+        # We prefer the one explicitly passed in variables (from AutomationService injection)
+        # or the one in params if it's set to something other than "default"
+        param_model = params.get("model")
+        global_model = variables.get("model")
+        
+        if param_model and param_model != "default":
+             return param_model
+             
+        if global_model:
+             return global_model
+
+        # 2. Check Canvas Config (DB Lookup)
+        # Often 'canvas_id' is in state root or variables
+        canvas_id = state.get("canvas_id") or variables.get("canvas_id")
+        db = state.get("db")
+        
+        if db and canvas_id:
+             try:
+                 # Lazy import to avoid circular dep at module level
+                 from app.models.canvas_models import Canvas
+                 canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+                 if canvas and canvas.owner_config:
+                     model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
+                     if model:
+                         return model
+             except Exception as e:
+                 print(f"[BasePrimitive] Config lookup failed: {e}")
+                 
+        # 3. Fallback
+        return "gpt-4o-mini"

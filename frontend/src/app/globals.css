@@ -580,3 +580,36 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ========================================= */
+/* ANIMATIONS: Semantic Canvas */
+/* ========================================= */
+
+/* Smooth movement for nodes when NOT dragging */
+/* Applied to the ReactFlow container */
+.animate-movement .react-flow__node {
+  transition: transform 1.5s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  will-change: transform;
+}
+
+/* Custom Pulse Flash for Drop Zones */
+@keyframes pulse-flash {
+
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(1);
+    background-color: oklch(0.92 0.04 255 / 0.2);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+    background-color: oklch(0.55 0.1 255 / 0.4);
+    border-color: oklch(0.55 0.1 255);
+  }
+}
+
+.animate-pulse-flash {
+  animation: pulse-flash 1.5s ease-in-out 3;
+}
