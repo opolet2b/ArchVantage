@@ -9,7 +9,10 @@ PEP 8 Compliant
 from typing import List, Dict, Any, Optional
 import traceback
 import json
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+import os
+import uuid
+import datetime
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -830,10 +833,30 @@ async def create_thing(
     try:
         canvas = _get_canvas_with_access(canvas_id, db, current_user)
         
+        technical_metadata = request.technical_metadata or {}
+        
+        # Enrich Technical Metadata if asset exists
+        asset_id = request.content.get("asset_id")
+        if asset_id:
+            from app.models.asset_models import Asset
+            asset_record = db.query(Asset).filter(Asset.id == asset_id).first()
+            if asset_record:
+                technical_metadata.update({
+                    "file_name": asset_record.original_name,
+                    "mime_type": asset_record.mime_type,
+                    "file_size": asset_record.size_bytes,
+                    "source_type": request.content.get("source_type") or request.type.value
+                })
+                # Check for hash if it was passed in content
+                if request.content.get("file_hash"):
+                    technical_metadata["file_hash"] = request.content.get("file_hash")
+
         thing = CanvasThing(
             canvas_id=canvas_id,
             type=ModelThingType(request.type.value),
             content=request.content,
+            technical_metadata=technical_metadata,
+            custom_metadata=request.custom_metadata,
             position_x=request.position.x,
             position_y=request.position.y,
             width=request.size.width if request.size else None,
@@ -1036,6 +1059,26 @@ def update_thing(
         thing.domain_id = request.domain_id if request.domain_id else None
     if request.title is not None:
         thing.title = request.title
+
+    if request.technical_metadata is not None:
+        current_tech = dict(thing.technical_metadata or {})
+        current_tech.update(request.technical_metadata)
+        thing.technical_metadata = current_tech
+
+    if request.custom_metadata is not None:
+        current_custom = dict(thing.custom_metadata or {})
+        current_custom.update(request.custom_metadata)
+        thing.custom_metadata = current_custom
+        
+    if request.technical_metadata is not None:
+        current_tech = dict(thing.technical_metadata or {})
+        current_tech.update(request.technical_metadata)
+        thing.technical_metadata = current_tech
+
+    if request.custom_metadata is not None:
+        current_custom = dict(thing.custom_metadata or {})
+        current_custom.update(request.custom_metadata)
+        thing.custom_metadata = current_custom
         
         # Sync title to Conversation service if applicable
         if thing.type == "conversation" and thing.content and "conversation_id" in thing.content:
@@ -1159,7 +1202,7 @@ def check_sync_status(
 ):
     """
     Check if the thing's source file has changed.
-    Uses 'source_path' from the underlying Assert and SHA256 hash detection.
+    Uses 'source_path' from technical_metadata (primary) or content (legacy).
     """
     thing = db.query(CanvasThing).join(Canvas).filter(
         CanvasThing.id == thing_id,
@@ -1179,15 +1222,26 @@ def check_sync_status(
     if not asset:
         return {"status": "asset_missing"}
         
-    # Retrieve source path from Thing content (not Asset table)
-    source_path = content.get("source_path")
+    # Retrieve source path from technical_metadata (primary) or content (legacy)
+    tech_meta = thing.technical_metadata or {}
+    source_path = tech_meta.get("source_path") or content.get("source_path")
+    
     stored_hash = content.get("file_hash")
+    
+    # NEW: Default Path Resolution
+    if not source_path:
+        owner_config = thing.canvas.owner_config or {}
+        default_path = owner_config.get("default_source_path")
+        if default_path:
+            # Try to construct path from filename
+            filename = content.get("filename") or (asset.original_name if asset else None)
+            if filename:
+                candidate_path = os.path.join(default_path, filename)
+                if os.path.exists(candidate_path):
+                    source_path = candidate_path
 
     if not source_path:
         # If no source path known, we can't check disk.
-        # But if we have a file_hash, maybe we assume "synced" until user manually updates?
-        # NO, user wants to know if source is missing.
-        # If we don't know the source, we return 'missing_source' which triggers manual select dialog
         return {"status": "missing_source", "reason": "no_source_path"}
         
     if not os.path.exists(source_path):
@@ -1197,7 +1251,7 @@ def check_sync_status(
     try:
         current_hash = AssetService.calculate_file_hash(source_path)
         
-        # If no stored hash (old thing), update it? or assume changed?
+        # If no stored hash (old thing), update it via sync
         if not stored_hash:
              return {"status": "changed", "reason": "no_stored_hash"}
              
@@ -1217,6 +1271,7 @@ async def perform_sync_update(
     thing_id: str,
     file: Optional[UploadFile] = File(None),
     use_source_path: bool = Form(False),
+    new_source_path: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -1234,6 +1289,7 @@ async def perform_sync_update(
         raise HTTPException(status_code=404, detail="Thing not found")
         
     content = thing.content or {}
+    tech_meta = thing.technical_metadata or {}
     old_asset_id = content.get("asset_id")
     
     new_asset = None
@@ -1242,21 +1298,38 @@ async def perform_sync_update(
     
     # 1. Acquire New Data (File Upload OR Read from Source)
     if file:
-        # Case A: User selected a new file manually
+        # Case A: User selected a new file manually (Manual Update / Relink)
         print(f"[SyncUpdate] Updating from uploaded file: {file.filename}")
         # Unpack tuple (Asset, file_hash)
         new_asset, new_file_hash = await AssetService.create_asset(db, file, current_user.id)
         
-    elif use_source_path:
-        # Case B: Sync from existing source path (stored in content)
-        source_path = content.get("source_path")
+        # If user provided a new source path (e.g. pasted in dialog), save it
+        if new_source_path:
+            source_path_used = new_source_path
         
+    elif use_source_path:
+        # Case B: Sync from existing source path (stored in tech_meta or content)
+        # Prioritize passed-in path, then tech_meta, then content
+        source_path = new_source_path or tech_meta.get("source_path") or content.get("source_path")
+        
+        # NEW: Try Default Path Resolution if explicit path is missing
         if not source_path:
-             raise HTTPException(status_code=400, detail="No source path available in thing content.")
-             
+            owner_config = thing.canvas.owner_config or {}
+            default_path = owner_config.get("default_source_path")
+            if default_path:
+                 filename = content.get("filename") or (thing.title if thing.title and "." in thing.title else None)
+                 if filename:
+                     candidate = os.path.join(default_path, filename)
+                     if os.path.exists(candidate):
+                         source_path = candidate
+                         print(f"[SyncUpdate] Resolved source path from default: {source_path}")
+
+        if not source_path:
+             raise HTTPException(status_code=400, detail="No source path available to sync from.")
+              
         if not os.path.exists(source_path):
              raise HTTPException(status_code=404, detail=f"Source file not found: {source_path}")
-             
+              
         print(f"[SyncUpdate] Updating from source path: {source_path}")
         source_path_used = source_path
         
@@ -1265,27 +1338,28 @@ async def perform_sync_update(
              import mimetypes
              import shutil
              from pathlib import Path
+             from app.services.asset_service import STORAGE_ROOT
              
              filename = os.path.basename(source_path)
              mime_type, _ = mimetypes.guess_type(source_path)
-             
+              
              AssetService.ensure_storage_dir()
              today = datetime.datetime.now()
              date_path = Path(f"{today.year}/{today.month:02d}/{today.day:02d}")
-             full_dir = AssetService.STORAGE_ROOT / date_path
+             full_dir = STORAGE_ROOT / date_path
              full_dir.mkdir(parents=True, exist_ok=True)
-             
+              
              file_uuid = str(uuid.uuid4())
              safe_filename = "".join(x for x in filename if x.isalnum() or x in "._- ")
              disk_filename = f"{file_uuid}_{safe_filename}"
              relative_path = str(date_path / disk_filename)
              dest_path = full_dir / disk_filename
-             
+              
              shutil.copy2(source_path, dest_path)
-             
+              
              file_size = dest_path.stat().st_size
              new_file_hash = AssetService.calculate_file_hash(dest_path)
-             
+              
              # Create Asset without source_path/file_hash columns
              new_asset = Asset(
                  owner_id=current_user.id,
@@ -1299,17 +1373,18 @@ async def perform_sync_update(
              db.commit()
              db.refresh(new_asset)
         except Exception as e:
-            print(f"[SyncUpdate] Error copying file from source: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to copy file from source: {e}")
-
+             print(f"[SyncUpdate] Error copying file from source: {e}")
+             raise HTTPException(status_code=500, detail=f"Failed to copy file from source: {e}")
+ 
     else:
         raise HTTPException(status_code=400, detail="Must provide file or set use_source_path=True")
         
     if not new_asset:
         raise HTTPException(status_code=500, detail="Failed to create new asset")
         
-    # 2. Update Thing Content
+    # 2. Update Thing Content and Metadata
     new_content = dict(thing.content or {})
+    new_tech_meta = dict(thing.technical_metadata or {})
     
     # Check if content matches (Hash Comparison)
     # We compare the NEW hash with the OLD hash stored in content
@@ -1317,18 +1392,32 @@ async def perform_sync_update(
     is_same_content = new_file_hash and old_hash and new_file_hash == old_hash
     
     new_content["asset_id"] = new_asset.id
-    # FIX: Store Valid Access URL, not disk path
     new_content["file_path"] = f"/api/v1/assets/{new_asset.id}"
     
-    # Store explicit sync metadata in content
+    # Update Technical Metadata with asset details
+    new_tech_meta.update({
+        "file_name": new_asset.original_name,
+        "mime_type": new_asset.mime_type,
+        "file_size": new_asset.size_bytes,
+        "file_hash": new_file_hash
+    })
+
+    # Update Hash
     if new_file_hash:
         new_content["file_hash"] = new_file_hash
+
+    # Update Source Path in Technical Metadata
     if source_path_used:
+        new_tech_meta["source_path"] = source_path_used
+        # Also update legacy content field for compatibility, or remove it?
+        # Let's keep it sync'd for now
         new_content["source_path"] = source_path_used
-        
+
     thing.content = new_content
+    thing.technical_metadata = new_tech_meta
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(thing, "content")
+    flag_modified(thing, "technical_metadata")
     db.commit()
     
     # 3. Trigger 2-Phase Worker (Only if content changed)
@@ -1349,7 +1438,12 @@ async def perform_sync_update(
         print(f"[SyncUpdate] Content identical. Skipping re-ingestion for {thing_id}.")
 
     status_code = "sync_same_content" if is_same_content else "sync_started"
-    return {"status": status_code, "batch_id": batch_id, "new_asset_id": new_asset.id}
+    return {
+        "status": status_code, 
+        "batch_id": batch_id, 
+        "new_asset_id": new_asset.id,
+        "technical_metadata": new_tech_meta
+    }
 
 @router.post("/canvases/{canvas_id}/sync_all")
 def sync_all_things(
@@ -1366,22 +1460,34 @@ def sync_all_things(
         CanvasThing.type.in_([ModelThingType.document, ModelThingType.image, ModelThingType.slideshow])
     ).all()
     
+    # Helper to get canvas config once
+    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+    owner_config = canvas.owner_config or {} if canvas else {}
+    default_path = owner_config.get("default_source_path")
+    
     results = []
     for t in things:
-        cont = t.content or {}
-        aid = cont.get("asset_id")
+        tech_meta = t.technical_metadata or {}
+        content = t.content or {}
+        source_path = tech_meta.get("source_path") or content.get("source_path")
+        
         status_res = "unknown"
         
-        if aid:
-            a = db.query(Asset).filter(Asset.id == aid).first()
-            if a and a.source_path:
-                if os.path.exists(a.source_path):
-                    status_res = "has_source"
-                    # Optional: Check hash?
-                else:
-                    status_res = "missing_source"
+        # Try default path if missing
+        if not source_path and default_path:
+             filename = content.get("filename")
+             if filename:
+                 candidate = os.path.join(default_path, filename)
+                 if os.path.exists(candidate):
+                     source_path = candidate
+        
+        if source_path:
+            if os.path.exists(source_path):
+                status_res = "has_source"
             else:
-                status_res = "no_path"
+                status_res = "missing_source"
+        else:
+            status_res = "no_path"
         
         results.append({
             "thing_id": t.id,

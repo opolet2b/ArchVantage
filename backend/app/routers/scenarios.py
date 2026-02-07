@@ -169,7 +169,8 @@ def instantiate_scenario(
             "automations": config.get("automations", []),
             "ui_overrides": config.get("ui_overrides", {}),
             "domain_definitions": config.get("domain_definitions", []),
-            "domain_groups": config.get("domain_groups", [])
+            "domain_groups": config.get("domain_groups", []),
+            "thing_metadata_schema": config.get("thing_metadata_schema", [])
         }
     )
     db.add(new_canvas)
@@ -252,7 +253,8 @@ def apply_to_canvas(
         "automations": config.get("automations", []),
         "ui_overrides": config.get("ui_overrides", {}),
         "domain_definitions": config.get("domain_definitions", []),
-        "domain_groups": config.get("domain_groups", [])
+        "domain_groups": config.get("domain_groups", []),
+        "thing_metadata_schema": config.get("thing_metadata_schema", [])
     })
     canvas.owner_config = owner_config
     db.add(canvas)

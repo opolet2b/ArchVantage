@@ -159,7 +159,8 @@ class AutomationService:
                 results.append({
                     "automation_name": auto_name,
                     "status": "triggered_blueprint",
-                    "blueprint_id": blueprint_id
+                    "blueprint_id": blueprint_id,
+                    "output": res.get("output")
                 })
             elif action_type == "pipeline" or "steps" in action:
                 steps = action.get("steps", [])
@@ -179,9 +180,53 @@ class AutomationService:
                 results.append({
                     "automation_name": auto_name,
                     "status": "triggered_pipeline",
-                    "steps_count": len(steps)
+                    "steps_count": len(steps),
+                    "output": res.get("output")
                 })
         
+        # Post-Automation: Update Thing Metadata if applicable
+        if results and "thing_id" in payload:
+            from app.models.canvas_models import CanvasThing
+            from sqlalchemy.orm.attributes import flag_modified
+
+            thing_id = payload["thing_id"]
+            thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+            if thing:
+                content = thing.content or {}
+                system_meta = content.get("system_metadata", {})
+                
+                insights = []
+                for res in results:
+                    a_name = res.get("automation_name")
+                    output = res.get("output") or {}
+                    
+                    # Extraction logic for reasoning/rationale
+                    reasoning = None
+                    if isinstance(output, dict):
+                        reasoning = output.get("reasoning") or output.get("rationale") or output.get("explanation")
+                        if not reasoning:
+                             # Deep search for reasoning-like keys
+                             for k, v in output.items():
+                                 if any(x in k.lower() for x in ["reasoning", "rationale", "explanation"]):
+                                     reasoning = v
+                                     break
+                    
+                    insight_str = f"**{a_name}**"
+                    if reasoning:
+                        insight_str += f": {reasoning}"
+                    else:
+                        insight_str += ": Automation completed successfully."
+                    
+                    insights.append(insight_str)
+                
+                if insights:
+                    system_meta["ai_insight"] = "\n\n".join(insights)
+                    content["system_metadata"] = system_meta
+                    thing.content = content
+                    flag_modified(thing, "content")
+                    db.commit()
+                    self._log(f"Context: Updated 'ai_insight' for thing {thing_id}", "INFO")
+
         return results
 
     def _get_match_error(self, db: Session, trigger: Dict[str, Any], payload: Dict[str, Any]) -> Optional[str]:

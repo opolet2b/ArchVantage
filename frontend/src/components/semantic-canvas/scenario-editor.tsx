@@ -14,13 +14,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, Box, Share2, Wrench, FileJson, Lock, Zap } from "lucide-react";
-import { Scenario, DomainDefinition, DomainGroup } from "./canvas-store";
+import { AlertCircle, Box, Share2, Wrench, FileJson, Lock, Zap, List } from "lucide-react";
+
+import { Scenario, DomainDefinition, DomainGroup, MetadataField } from "./canvas-store";
 import { useToast } from "@/components/ui/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { DomainPalette } from "./editors/domain-palette";
 import { LinkTypeEditor } from "./editors/link-type-editor";
 import { AutomationEditor } from "./editors/automation-editor";
+import { MetadataSchemaEditor } from "./editors/metadata-schema-editor";
 
 interface ScenarioEditorProps {
     initialData?: Partial<Scenario>; // if provided, we are editing
@@ -48,6 +50,9 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
     const [linkTypes, setLinkTypes] = React.useState<any[]>(
         initialData?.configuration?.link_types || []
     );
+    const [thingMetadata, setThingMetadata] = React.useState<MetadataField[]>(
+        initialData?.configuration?.thing_metadata_schema || []
+    );
     const [keepStandardLinks, setKeepStandardLinks] = React.useState(
         initialData?.configuration?.keep_standard_links ?? false
     );
@@ -60,7 +65,7 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
 
     React.useEffect(() => {
         if (initialData?.configuration) {
-            const { domain_definitions, domain_groups, link_types, keep_standard_links, automations, ...rest } = initialData.configuration;
+            const { domain_definitions, domain_groups, link_types, thing_metadata_schema, keep_standard_links, automations, ...rest } = initialData.configuration;
             setAdvancedConfig(JSON.stringify(rest, null, 2));
         } else {
             setAdvancedConfig("{}");
@@ -100,6 +105,7 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     domain_definitions: domains,
                     domain_groups: groups,
                     link_types: linkTypes,
+                    thing_metadata_schema: thingMetadata,
                     keep_standard_links: keepStandardLinks,
                     automations: automations
                 }
@@ -161,6 +167,9 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                 <TabsList className="w-full justify-start border-b rounded-none p-0 h-10 bg-transparent">
                     <TabsTrigger value="general" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         General
+                    </TabsTrigger>
+                    <TabsTrigger value="metadata" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        <List className="w-4 h-4 mr-2" /> Thing Metadata
                     </TabsTrigger>
                     <TabsTrigger value="domains" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         <Box className="w-4 h-4 mr-2" /> Domains
@@ -243,6 +252,24 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                                     </p>
                                 </div>
                             </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {/* THINGS METADATA TAB */}
+                <TabsContent value="metadata" className="flex-1 py-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Global Thing Metadata</CardTitle>
+                            <CardDescription>
+                                Define metadata fields that apply to ALL things in this scenario, regardless of their domain.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <MetadataSchemaEditor
+                                schema={thingMetadata}
+                                onChange={setThingMetadata}
+                            />
                         </CardContent>
                     </Card>
                 </TabsContent>

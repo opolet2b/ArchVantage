@@ -72,6 +72,10 @@ export interface CanvasThing {
     canvas_id: string;
     type: ThingType;
     content: Record<string, unknown>;
+    // TCMS Metadata Fields
+    technical_metadata?: Record<string, any>; // Category 1: Immutable
+    custom_metadata?: Record<string, any>;    // Category 2: User/Scenario
+
     position_x: number;
     position_y: number;
     width: number | null;
@@ -174,6 +178,8 @@ export interface MetadataField {
     true_label?: string; // for boolean
     false_label?: string; // for boolean
     required?: boolean;
+    description?: string; // Tooltip/Helper text for the user
+    placeholder?: string; // Placeholder text for inputs
 }
 
 export interface DropZone {
@@ -265,6 +271,7 @@ export interface Scenario {
         domain_definitions: DomainDefinition[];
         domain_groups: DomainGroup[];
         link_types: CustomLinkType[];
+        thing_metadata_schema?: MetadataField[]; // Global metadata for all things
 
         automations?: any[];
 
@@ -307,6 +314,15 @@ interface CanvasState {
     links: CanvasLink[];
     domains: Domain[];
     canvasSettings: Record<string, any> | null;
+
+    // Inspector Panel State
+    // Inspector Panel State
+    inspectorOpen: boolean;
+    inspectedItemId: string | null;
+    inspectedItemType: 'thing' | 'domain';
+    setInspectorOpen: (open: boolean) => void;
+    setInspectedItem: (id: string | null, type: 'thing' | 'domain') => void;
+    toggleInspector: (id: string, type: 'thing' | 'domain') => void;
 
     // Viewport
     viewport: Viewport;
@@ -457,7 +473,7 @@ interface CanvasState {
 
     // Sync Features
     checkSyncStatus: (thingId: string) => Promise<{ status: "synced" | "changed" | "missing_source" | "no_path" | "error"; current_hash?: string; reason?: string }>;
-    performSyncUpdate: (thingId: string, file?: File | null, useSourcePath?: boolean) => Promise<boolean | string>;
+    performSyncUpdate: (thingId: string, file?: File | null, useSourcePath?: boolean, newSourcePath?: string) => Promise<boolean | string>;
     syncAllThings: () => Promise<any[]>;
 
     // Automatic Assignment Helpers
@@ -683,6 +699,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Scenario State
     activeScenario: null,
     setActiveScenario: (scenario) => set({ activeScenario: scenario }),
+
+    // Inspector Actions
+    inspectorOpen: false,
+    inspectedItemId: null,
+    inspectedItemType: 'thing',
+    setInspectorOpen: (open) => set({ inspectorOpen: open }),
+    setInspectedItem: (id, type) => set({ inspectedItemId: id, inspectedItemType: type }),
+    toggleInspector: (id, type) => set((state) => {
+        // If clicking same item, toggle open/close
+        if (state.inspectedItemId === id && state.inspectedItemType === type) {
+            return { inspectorOpen: !state.inspectorOpen };
+        }
+        // If clicking different item, open and switch
+        return { inspectorOpen: true, inspectedItemId: id, inspectedItemType: type };
+    }),
 
     setViewport: (viewport) => set({ viewport }),
 
@@ -1053,7 +1084,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                         collapsed: updates.collapsed,
                         iconified: updates.iconified,
                         pre_iconify_size: updates.pre_iconify_size,
-                        domain_id: newDomainId // Include auto-calculated domain
+                        domain_id: newDomainId, // Include auto-calculated domain
+                        technical_metadata: updates.technical_metadata,
+                        custom_metadata: updates.custom_metadata
                     }),
                 }
             );
@@ -2195,7 +2228,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
     },
 
-    performSyncUpdate: async (thingId: string, file?: File | null, useSourcePath?: boolean) => {
+    performSyncUpdate: async (thingId: string, file?: File | null, useSourcePath?: boolean, newSourcePath?: string) => {
         const { canvasId } = get();
         const token = getAuthToken();
         if (!token || !canvasId) return false;
@@ -2207,6 +2240,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             formData.append("file", file);
         } else {
             return false;
+        }
+
+        if (newSourcePath) {
+            formData.append("new_source_path", newSourcePath);
         }
 
         try {
@@ -2226,11 +2263,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             const data = await res.json();
 
-            // Optimistic update of status
+            // Optimistic update of status and metadata
             if (data.status === "sync_same_content") {
-                get().updateThing(thingId, { rag_status: "completed" });
+                get().updateThing(thingId, {
+                    rag_status: "completed",
+                    technical_metadata: data.technical_metadata
+                });
             } else {
-                get().updateThing(thingId, { rag_status: "processing" });
+                get().updateThing(thingId, {
+                    rag_status: "processing",
+                    technical_metadata: data.technical_metadata
+                });
             }
 
             return data.status || true;

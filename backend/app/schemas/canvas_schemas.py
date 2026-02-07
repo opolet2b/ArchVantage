@@ -136,6 +136,8 @@ class ThingCreate(BaseModel):
     """Request to create a thing on the canvas."""
     type: ThingType
     content: Dict[str, Any] = Field(default_factory=dict)
+    technical_metadata: Dict[str, Any] = Field(default_factory=dict)
+    custom_metadata: Dict[str, Any] = Field(default_factory=dict)
     position: Position = Field(default_factory=Position)
     size: Optional[Size] = None
     domain_id: Optional[str] = None
@@ -148,10 +150,11 @@ class ThingCreate(BaseModel):
 class ThingUpdate(BaseModel):
     """Request to update a thing."""
     content: Optional[Dict[str, Any]] = None
+    technical_metadata: Optional[Dict[str, Any]] = None
+    custom_metadata: Optional[Dict[str, Any]] = None
     position: Optional[Position] = None
     size: Optional[Size] = None
     domain_id: Optional[str] = None
-    title: Optional[str] = None
     title: Optional[str] = None
     color: Optional[str] = None
     z_index: Optional[float] = None
@@ -167,6 +170,8 @@ class ThingResponse(BaseModel):
     canvas_id: str
     type: ThingType
     content: Dict[str, Any] = {}
+    technical_metadata: Dict[str, Any] = {}
+    custom_metadata: Dict[str, Any] = {}
     position_x: float
     position_y: float
     width: Optional[float]

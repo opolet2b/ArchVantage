@@ -42,7 +42,7 @@ class AssetUploadResponse(BaseModel):
 # Endpoints
 # =============================================================================
 
-@router.post("/upload")
+@router.post("/upload", response_model=AssetUploadResponse)
 async def upload_asset(
     file: UploadFile,
     background_tasks: BackgroundTasks,
@@ -111,8 +111,8 @@ async def upload_asset(
             "id": asset.id,
             "filename": asset.original_name,
             "size": asset.size_bytes,
-            "hash": file_hash,  # Return hash to prevent duplicate uploads if frontend checks,
-            "status": "processing" # Indicate that AI processing is happening
+            "file_hash": file_hash,  # Changed from "hash" to match frontend and schema
+            "status": "processing"
         }
     except Exception as e:
         print(f"[Upload] Error: {e}")

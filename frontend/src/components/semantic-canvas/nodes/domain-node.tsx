@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import {
     MoreHorizontal, GripHorizontal, FolderOpen, Maximize2, LayoutGrid, Layers,
     Settings, List, Plus, X, Calendar as CalendarIcon, Clock, Hash,
-    Pencil, Palette
+    Pencil, Palette, Info
 } from 'lucide-react';
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
@@ -110,6 +110,7 @@ const PRESET_COLORS = [
 const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<DomainNodeData>) {
     const { domain, zoomLevel, onUpdate, onContextMenu, depth = 0, parentName, minWidth, minHeight } = data;
     const updateDomain = useCanvasStore(s => s.updateDomain);
+    const toggleInspector = useCanvasStore(s => s.toggleInspector);
     const setZoneLayoutMode = useCanvasStore(s => s.setZoneLayoutMode); // Layout Engine
     const activeScenario = useCanvasStore(s => s.activeScenario);
     const activeDropZoneId = useCanvasStore(s => s.activeDropZoneId);
@@ -389,6 +390,18 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                             title="Edit Domain"
                         >
                             <Pencil className="h-3.5 w-3.5" strokeWidth={2.5} />
+                        </div>
+
+                        {/* Inspector Button */}
+                        <div
+                            className="cursor-pointer p-1 rounded-full hover:bg-black/10"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                toggleInspector(domain.id, 'domain');
+                            }}
+                            title="Open Domain Inspector"
+                        >
+                            <Info className="h-3.5 w-3.5" strokeWidth={2.5} />
                         </div>
 
                         {/* Color Picker */}

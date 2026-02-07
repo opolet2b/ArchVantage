@@ -11,6 +11,7 @@ import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, B
 import { useCanvasStore } from "./canvas-store";
 import { cn, API_URL } from "@/lib/utils";
 import { ScenarioSelector } from "./scenario-selector";
+import { CanvasSettingsDialog } from "./canvas-settings-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -407,6 +408,10 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
+            </div>
+
+            <div className="flex items-center gap-2 border-l pl-4 ml-4">
+                <CanvasSettingsDialog />
             </div>
         </div >
     );

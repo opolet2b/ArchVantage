@@ -57,6 +57,7 @@ import { CanvasContextMenu } from "./canvas-context-menu";
 import { SelectionProvider } from "./viewers/selection-context";
 import { useToast } from "@/components/ui/use-toast";
 import { CanvasPalette } from "./canvas-palette";
+import { InspectorPanel } from "./inspector-panel";
 import {
     Dialog,
     DialogContent,
@@ -3127,6 +3128,13 @@ function CanvasViewInner() {
                     setShowDomainDialog(true);
                 }}
             />
+
+            {/* Inspector Panel - Right Side */}
+            <div className="absolute top-0 right-0 h-full pointer-events-none flex justify-end">
+                <div className="pointer-events-auto h-full">
+                    <InspectorPanel />
+                </div>
+            </div>
         </div >
     );
 }

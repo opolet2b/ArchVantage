@@ -239,6 +239,15 @@ class CanvasThing(Base):
     #   image: {"file_path": "...", "alt_text": "..."}
     content = Column(JSON, nullable=False, default={})
     
+    # TCMS Metadata Fields
+    # Category 1: Technical Metadata (Immutable, System-generated)
+    technical_metadata = Column(JSON, nullable=False, default={})
+    
+    # Category 2: Custom Metadata (User/Scenario-defined)
+    custom_metadata = Column(JSON, nullable=False, default={})
+    
+    # Note: Category 3 (System/AI Metadata) is stored within 'content' as 'system_metadata'
+
     # Position on canvas
     position_x = Column(Float, nullable=False, default=0.0)
     position_y = Column(Float, nullable=False, default=0.0)

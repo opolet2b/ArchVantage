@@ -46,7 +46,8 @@ import {
     RefreshCw,
     ChevronLeft,
     ChevronRight,
-    Layout
+    Layout,
+    Info
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -302,6 +303,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const dockedThingId = useCanvasStore((state) => state.dockedThingId);
     const dockPosition = useCanvasStore((state) => state.dockPosition);
     const canvasSettings = useCanvasStore((state) => state.canvasSettings);
+    const toggleInspector = useCanvasStore((state) => state.toggleInspector);
     // Processing State for Visual Feedback
     const processingThings = useCanvasStore((state) => state.processingThings);
     const processingMessage = processingThings?.[thing.id];
@@ -465,7 +467,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const handlePerformSync = async (file?: File) => {
         setSyncStatus('syncing');
         try {
-            const result = await performSyncUpdate(thing.id, file);
+            // New: Pass syncSourcePath if set
+            const result = await performSyncUpdate(thing.id, file, !file, syncSourcePath);
 
             if (result === "sync_same_content") {
                 toast({
@@ -1208,7 +1211,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         // Create new text thing with title derived from source fragment ID
         const newThingTitle = sourceFragment.id || "Analysis Result";
         // CRITICAL FIX: Pass cId explicitly to addThing
-        const newThing = await addThing("text", { text }, position, newThingTitle, undefined, undefined, undefined, undefined, undefined, cId);
+        const newThing = await addThing("text", { text }, position, undefined, undefined, newThingTitle, undefined, undefined);
 
         if (newThing) {
             // Create link
@@ -2115,6 +2118,47 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         <div className="font-bold text-base flex-none">
                             {thing.title || getDefaultTitle()}
                         </div>
+
+                        {/* Pinned Metadata Display */}
+                        {(() => {
+                            const pinned = thing.custom_metadata?._pinned_fields || [];
+                            if (!pinned.length) return null;
+
+                            return (
+                                <div className="flex flex-wrap gap-1 mb-1">
+                                    {pinned.map((fieldId: string) => {
+                                        const [section, key] = fieldId.split(':');
+                                        let value: any = null;
+                                        let label = key;
+
+                                        if (section === 'technical') {
+                                            value = (thing.technical_metadata as any)?.[key];
+                                        } else if (section === 'custom') {
+                                            value = (thing.custom_metadata as any)?.[key];
+                                            // Try to find label from schema if possible, but schema is on domain...
+                                            // For now just use key or prettify it
+                                        } else if (section === 'system') {
+                                            value = (thing.content as any)?.system_metadata?.[key];
+                                        }
+
+                                        if (value === undefined || value === null) return null;
+
+                                        // Format value for display
+                                        let displayValue = String(value);
+                                        if (typeof value === 'object') displayValue = '{...}';
+                                        if (displayValue.length > 20) displayValue = displayValue.substring(0, 17) + '...';
+
+                                        return (
+                                            <div key={fieldId} className="flex items-center text-[10px] bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800 rounded px-1.5 py-0.5 text-blue-700 dark:text-blue-300" title={`${section}.${key}: ${String(value)}`}>
+                                                <span className="opacity-70 mr-1">{key}:</span>
+                                                <span className="font-medium">{displayValue}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })()}
+
                         <div className="text-base flex-1 min-h-0">
                             {renderFullContent()}
                         </div>
@@ -2535,10 +2579,17 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         e.stopPropagation();
                                         handleInitSync();
                                     }}
-                                    className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
+                                    className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 relative group"
                                     title="Sync with source file"
                                 >
                                     <RefreshCcw className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                                    {/* Warning Indicator if source path missing */}
+                                    {(!thing.technical_metadata?.source_path && !thing.content?.source_path) && (
+                                        <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                        </span>
+                                    )}
                                 </button>
                             )}
 
@@ -2559,6 +2610,17 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 )}
 
                             {/* Toggle Link Visibility */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleInspector(thing.id, 'thing');
+                                }}
+                                className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 text-slate-400 hover:text-blue-500"
+                                title="Open Inspector (Metadata & Properties)"
+                            >
+                                <Info className="h-4 w-4" />
+                            </button>
+
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -2968,6 +3030,32 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         </p>
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {/* Manual Source Path Input - Always available when interacting or if missing */}
+                        {(syncStatus === 'ready' || !thing.technical_metadata?.source_path) && (
+                            <div className="space-y-2 pt-2 border-t">
+                                <Label>Or set absolute source path</Label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        placeholder="C:\Path\To\File.pdf"
+                                        value={syncSourcePath}
+                                        onChange={(e) => setSyncSourcePath(e.target.value)}
+                                        className="font-mono text-xs"
+                                    />
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={() => handlePerformSync()}
+                                        disabled={!syncSourcePath}
+                                    >
+                                        Set & Sync
+                                    </Button>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">
+                                    Enter the full path on the server/host machine to link directly.
+                                </p>
                             </div>
                         )}
 
