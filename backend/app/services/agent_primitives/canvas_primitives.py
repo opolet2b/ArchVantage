@@ -439,11 +439,17 @@ class CanvasMoveToZonePrimitive(BasePrimitive):
             thing.domain_id = domain.id
             
             db.commit()
-            return PrimitiveResult(success=True, output={
-                "id": thing.id, 
-                "status": "moved_to_zone",
-                "position": {"x": center_x, "y": center_y}
-            })
+            return PrimitiveResult(
+                success=True, 
+                output={
+                    "id": thing.id, 
+                    "thing_id": thing.id,
+                    "status": "moved_to_zone",
+                    "position": {"x": center_x, "y": center_y},
+                    "realization_required": True,
+                    "action": "move"
+                }
+            )
             
         except Exception as e:
             db.rollback()
@@ -533,4 +539,151 @@ class CanvasMoveToCanvasPrimitive(BasePrimitive):
         except Exception as e:
             db.rollback()
             return PrimitiveResult(success=False, error=str(e))
+
+
+class CanvasBatchLinkPrimitive(BasePrimitive):
+    """
+    Primitive for creating links from one source to many targets.
+    Useful for linking a newly created/handled thing to all members of a domain.
+    """
+    
+    @property
+    def name(self) -> str:
+        return "CANVAS_BATCH_LINK"
+    
+    @property
+    def description(self) -> str:
+        return "Creates semantic links from a source node to multiple target nodes."
+    
+    @property
+    def param_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "source_id": {
+                    "type": "string",
+                    "description": "ID of the source node"
+                },
+                "target_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of target node IDs"
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Type of the link (e.g., 'related', 'references')",
+                    "default": "related"
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Optional label for the links"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional description for the links"
+                }
+            },
+            "required": ["source_id", "target_ids"]
+        }
+    
+    async def execute(
+        self, 
+        params: Dict[str, Any], 
+        state: Dict[str, Any]
+    ) -> PrimitiveResult:
+        db: Session = state.get("db")
+        if not db:
+            return PrimitiveResult(success=False, error="Database session not found in state.")
+        
+        source_id = params.get("source_id")
+        target_ids = params.get("target_ids", [])
+        
+        if not target_ids:
+            return PrimitiveResult(success=True, output={"links_created": 0, "status": "no_targets"})
+
+        # Resolve IDs if they are templates
+        if source_id and isinstance(source_id, str) and source_id.startswith("{{"):
+            source_id = self.resolve_variables(source_id, state)
+            
+        # Resolve target_ids if it's a template string
+        if isinstance(target_ids, str) and target_ids.strip().startswith("{{"):
+             target_ids = self.resolve_variables(target_ids, state)
+
+        # Robust Parsing: If target_ids is a string (e.g. "['id1', 'id2']"), parse it
+        if isinstance(target_ids, str):
+            target_ids = target_ids.strip()
+            if target_ids.startswith("[") and target_ids.endswith("]"):
+                try:
+                    import json
+                    target_ids = json.loads(target_ids.replace("'", '"'))
+                except Exception:
+                    # Fallback for more complex stringified lists
+                    try:
+                        import ast
+                        target_ids = ast.literal_eval(target_ids)
+                    except Exception as e:
+                        print(f"[CanvasBatchLink] Failed to parse target_ids string: {e}")
+            else:
+                # Treat as single ID if it's just one string
+                target_ids = [target_ids]
+
+        if not isinstance(target_ids, list):
+            print(f"[CanvasBatchLink] WARNING: target_ids is not a list after resolution/parsing: {type(target_ids)}")
+            target_ids = [target_ids] if target_ids else []
+
+        try:
+            # Verify source exists
+            source = db.query(CanvasThing).filter(CanvasThing.id == source_id).first()
+            if not source:
+                return PrimitiveResult(success=False, error=f"Source node '{source_id}' not found.")
+            
+            created_count = 0
+            link_ids = []
+            
+            for t_id in target_ids:
+                if not t_id or t_id == source_id:
+                    continue
+                
+                # Verify target exists on the SAME canvas
+                target = db.query(CanvasThing).filter(
+                    CanvasThing.id == t_id,
+                    CanvasThing.canvas_id == source.canvas_id
+                ).first()
+                
+                if not target:
+                    print(f"[CanvasBatchLink] WARNING: Target '{t_id}' not found or on different canvas. Skipping.")
+                    continue
+                
+                # Check for existing link to avoid duplicates
+                existing = db.query(CanvasLink).filter(
+                    CanvasLink.source_id == source_id,
+                    CanvasLink.target_id == t_id,
+                    CanvasLink.type == params.get("type", "related")
+                ).first()
+                
+                if existing:
+                    continue
+                
+                # Create link
+                new_link = CanvasLink(
+                    canvas_id=source.canvas_id,
+                    source_id=source_id,
+                    target_id=t_id,
+                    type=params.get("type", "related"),
+                    label=params.get("label"),
+                    description=params.get("description")
+                )
+                db.add(new_link)
+                created_count += 1
+            
+            db.commit()
+            
+            return PrimitiveResult(success=True, output={
+                "links_created": created_count, 
+                "status": "success"
+            })
+            
+        except Exception as e:
+            db.rollback()
+            return PrimitiveResult(success=False, error=f"Failed to create batch links: {str(e)}")
 

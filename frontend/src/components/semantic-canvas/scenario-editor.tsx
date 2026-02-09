@@ -335,6 +335,7 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                         <CardContent className="pt-6">
                             <AutomationEditor
                                 domains={domains}
+                                linkTypes={linkTypes}
                                 automations={automations}
                                 onChange={setAutomations}
                                 disabled={isSystem}

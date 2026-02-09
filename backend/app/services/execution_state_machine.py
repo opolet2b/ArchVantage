@@ -35,6 +35,7 @@ class ExecutionState(Enum):
     EXECUTING = "executing"
     PAUSED = "paused"  # Dry-run only: paused between steps
     WAITING_FOR_INPUT = "waiting_for_input"  # GUI form required
+    WAITING_FOR_REALIZATION = "waiting_for_realization" # Visual animation check
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -63,6 +64,8 @@ class ExecutionContext:
     initial_values: Dict[str, Any] = field(default_factory=dict)  # Captured tool arguments
     tool_name: Optional[str] = None
     description: Optional[str] = None
+    # Realization Coordination
+    realization_data: Optional[Dict] = None
     error: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -152,11 +155,11 @@ class ExecutionStateMachine:
         """
         print(f"[STATE_MACHINE] next() called, current state: {self.context.state.value}")
         
-        if self.context.state not in [ExecutionState.PAUSED, ExecutionState.WAITING_FOR_INPUT]:
+        if self.context.state not in [ExecutionState.PAUSED, ExecutionState.WAITING_FOR_INPUT, ExecutionState.WAITING_FOR_REALIZATION]:
             print(f"[STATE_MACHINE] Invalid state for next(): {self.context.state.value}")
             raise InvalidStateTransition(
                 f"Cannot call next() from {self.context.state.value}. "
-                f"Expected 'paused' or 'waiting_for_input'."
+                f"Expected 'paused', 'waiting_for_input' or 'waiting_for_realization'."
             )
         
         self.context.state = ExecutionState.EXECUTING
@@ -205,6 +208,7 @@ class ExecutionStateMachine:
         
         Pause conditions:
         - GUI input required (both modes)
+        - Visual realization required (both modes)
         - Step complete (dry-run only)
         - Workflow complete/failed (both modes)
         
@@ -247,6 +251,14 @@ class ExecutionStateMachine:
             status = result.get("status", "failed")
             print(f"[STATE_MACHINE] Runtime returned status: {status}, mode: {self.context.mode}")
             
+            # Check for Realization Lock in Primitive Output
+            last_step_output = self.context.steps[-1].get("output_data", {}) if self.context.steps else {}
+            if last_step_output.get("realization_required"):
+                print(f"[STATE_MACHINE] Detected Realization Lock for node: {self.context.current_node_id}")
+                self.context.state = ExecutionState.WAITING_FOR_REALIZATION
+                self.context.realization_data = last_step_output
+                break
+
             if status == "waiting_for_input":
                 # GUI form is required
                 self.context.state = ExecutionState.WAITING_FOR_INPUT
@@ -326,6 +338,10 @@ class ExecutionStateMachine:
             response["initial_values"] = self.context.initial_values
             response["tool_name"] = self.context.tool_name
             response["description"] = self.context.description
+        
+        # Add Realization fields
+        if self.context.state == ExecutionState.WAITING_FOR_REALIZATION:
+            response["realization_data"] = self.context.realization_data
         
         return response
 

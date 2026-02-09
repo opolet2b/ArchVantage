@@ -514,6 +514,7 @@ interface CanvasState {
 
     // Automation Hooks
     emitCanvasEvent: (hook: string, payload: Record<string, any>) => Promise<void>;
+    waitForNodeArrival: (thingId: string) => Promise<void>;
 
     // Processing State (Visual Feedback)
     processingThings: Record<string, string>;
@@ -651,9 +652,59 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }, 1000);
     },
 
+    // Help coordinate visual synchronization between backend steps
+    waitForNodeArrival: async (thingId: string): Promise<void> => {
+        return new Promise((resolve) => {
+            // Find the element by its data-id or ID attribute which React Flow usually sets
+            const selector = `.react-flow__node[data-id="${thingId}"]`;
+            const element = document.querySelector(selector);
+
+            if (!element) {
+                console.warn(`[Store] waitForNodeArrival: Node ${thingId} not found in DOM.`);
+                resolve();
+                return;
+            }
+
+            // Check if there is actually a transition happening
+            const style = window.getComputedStyle(element);
+            const transitionDuration = parseFloat(style.transitionDuration);
+
+            if (transitionDuration === 0) {
+                console.log(`[Store] waitForNodeArrival: No transition active on node ${thingId}.`);
+                resolve();
+                return;
+            }
+
+            let resolved = false;
+            const handleTransitionEnd = (e: TransitionEvent) => {
+                // We mainly care about transform/top/left
+                if (e.propertyName.includes('transform') || e.propertyName === 'top' || e.propertyName === 'left') {
+                    if (!resolved) {
+                        resolved = true;
+                        element.removeEventListener('transitionend', handleTransitionEnd as any);
+                        console.log(`[Store] Visual arrival confirmed for ${thingId}`);
+                        resolve();
+                    }
+                }
+            };
+
+            element.addEventListener('transitionend', handleTransitionEnd as any);
+
+            // Safety Timeout
+            setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    element.removeEventListener('transitionend', handleTransitionEnd as any);
+                    console.warn(`[Store] waitForNodeArrival: Timeout waiting for transition on ${thingId}.`);
+                    resolve();
+                }
+            }, 3000); // 3s safety margin
+        });
+    },
+
     // Automation Hooks
     emitCanvasEvent: async (hook, payload) => {
-        const { canvasId } = get();
+        const { canvasId, waitForNodeArrival, refreshThings } = get();
         const token = getAuthToken();
         if (!token || !canvasId) return;
 
@@ -675,13 +726,37 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             if (res.ok) {
                 const results = await res.json();
-
-                // The backend returns { status, triggered_count, details: [] }
-                // We need to check if 'details' (the list of triggered automations) has entries.
                 const triggered = results.details || [];
 
                 if (Array.isArray(triggered) && triggered.length > 0) {
-                    await get().refreshThings();
+                    // Update state so the node starts moving
+                    await refreshThings();
+
+                    // Check for Realization Wait
+                    for (const auto of triggered) {
+                        if (auto.final_status === 'waiting_for_realization' && auto.execution_id) {
+                            console.log(`[Store] Automation ${auto.automation_name} is waiting for realization...`);
+
+                            // 1. Wait for animation to finish
+                            const targetThingId = auto.output?.thing_id || thingId;
+                            if (targetThingId) {
+                                await waitForNodeArrival(targetThingId);
+                            }
+
+                            // 2. Resume execution
+                            console.log(`[Store] Resuming execution ${auto.execution_id}`);
+                            await fetch(`${API_URL}/executions/${auto.execution_id}/next`, {
+                                method: "POST",
+                                headers: {
+                                    Authorization: `Bearer ${token}`,
+                                    "Content-Type": "application/json",
+                                }
+                            });
+
+                            // Final refresh to see the effects of the resumed steps
+                            await refreshThings();
+                        }
+                    }
                 }
             }
         } catch (err) {

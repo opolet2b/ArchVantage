@@ -144,7 +144,15 @@ class LogicIfElsePrimitive(BasePrimitive):
         steps_to_run = then_steps if is_true else else_steps
         
         if not steps_to_run:
-            return PrimitiveResult(success=True, output={"branch": "true" if is_true else "false", "executed_steps": 0})
+            return PrimitiveResult(
+                success=True, 
+                output={
+                    "branch": "true" if is_true else "false", 
+                    "reasoning": reasoning,
+                    "condition": condition,
+                    "executed_steps": 0
+                }
+            )
             
         # Execute Steps
         # We need to leverage GenericPipelinePrimitive to avoid code duplication
@@ -164,6 +172,8 @@ class LogicIfElsePrimitive(BasePrimitive):
             success=True, 
             output={
                 "branch": "true" if is_true else "false", 
+                "reasoning": reasoning,
+                "condition": condition,
                 "pipeline_output": result.output
             }
         )
@@ -210,15 +220,22 @@ class CanvasQueryPrimitive(BasePrimitive):
         ).limit(limit).all()
         
         results_json = []
+        combined_content = ""
         for t in things:
             results_json.append({
                 "id": t.id,
                 "title": t.title,
                 "type": t.type,
-                "content_preview": str(t.content)[:100]
+                "content": t.content
             })
+            combined_content += f"--- ITEM: {t.title} ({t.type}) ---\n{t.content}\n\n"
             
-        return PrimitiveResult(success=True, output={"query_results": results_json})
+        return PrimitiveResult(success=True, output={
+            "query_results": {
+                "things": results_json,
+                "combined_content": combined_content.strip()
+            }
+        })
 
 class CanvasCreateLinkPrimitive(BasePrimitive):
     """
@@ -241,7 +258,8 @@ class CanvasCreateLinkPrimitive(BasePrimitive):
                 "source_id": {"type": "string"},
                 "target_id": {"type": "string"},
                 "label": {"type": "string"},
-                "type": {"type": "string"}
+                "type": {"type": "string"},
+                "description": {"type": "string"}
             },
             "required": ["source_id", "target_id"]
         }
@@ -273,3 +291,160 @@ class CanvasCreateLinkPrimitive(BasePrimitive):
         db.refresh(new_link)
         
         return PrimitiveResult(success=True, output={"created_link_id": new_link.id})
+
+class CanvasQueryThingsPrimitive(BasePrimitive):
+    """
+    Search for things on the canvas with advanced filtering.
+    Supports filtering by domain, type, query string, and custom criteria.
+    """
+    
+    @property
+    def name(self) -> str:
+        return "CANVAS_QUERY_THINGS"
+    
+    @property
+    def description(self) -> str:
+        return "Finds things on the canvas with optional domain, type, and criteria filters."
+    
+    @property
+    def param_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "domain_id": {
+                    "type": "string",
+                    "description": "Optional ID or Type of the domain to search within"
+                },
+                "thing_type": {
+                    "type": "string",
+                    "description": "Optional thing type filter (e.g., 'text', 'document')"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Optional search text for title and content"
+                },
+                "criteria": {
+                    "type": "object",
+                    "description": "Advanced criteria mapping for content/metadata fields"
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 10
+                }
+            },
+            "required": []
+        }
+    
+    async def execute(
+        self, 
+        params: Dict[str, Any], 
+        state: Dict[str, Any]
+    ) -> PrimitiveResult:
+        db: Session = state.get("db")
+        if not db:
+            return PrimitiveResult(success=False, error="DB session missing from state")
+            
+        canvas_id = state.get("canvas_id") or state.get("variables", {}).get("canvas_id")
+        if not canvas_id:
+            return PrimitiveResult(success=False, error="Canvas ID not found in state")
+
+        from app.models.canvas_models import Domain # Local import to avoid circularity if any
+        
+        # 1. Resolve domain if provided
+        domain_filter_id = params.get("domain_id")
+        actual_domain_id = None
+        
+        if domain_filter_id:
+            if domain_filter_id.startswith("{{"):
+                domain_filter_id = self.resolve_variables(domain_filter_id, state)
+            
+            # Check if it's an ID
+            d = db.query(Domain).filter(Domain.id == domain_filter_id).first()
+            if d:
+                actual_domain_id = d.id
+            else:
+                # Check if it's a Type on this canvas
+                d = db.query(Domain).filter(
+                    Domain.canvas_id == canvas_id,
+                    Domain.type == domain_filter_id
+                ).first()
+                if d:
+                    actual_domain_id = d.id
+        
+        # 2. Build Query
+        from sqlalchemy import or_, cast, String
+        query_obj = db.query(CanvasThing).filter(CanvasThing.canvas_id == canvas_id)
+        
+        if actual_domain_id:
+            query_obj = query_obj.filter(CanvasThing.domain_id == actual_domain_id)
+            
+        if params.get("thing_type") and params.get("thing_type") != "all":
+            query_obj = query_obj.filter(CanvasThing.type == params.get("thing_type"))
+            
+        if params.get("query"):
+            search_text = params.get("query")
+            query_obj = query_obj.filter(
+                or_(
+                    CanvasThing.title.ilike(f"%{search_text}%"),
+                    cast(CanvasThing.content, String).ilike(f"%{search_text}%")
+                )
+            )
+            
+        # 3. Limit and Execute
+        limit = params.get("limit", 10)
+        things = query_obj.limit(limit).all()
+        
+        # 4. Criteria Filtering in memory (complex JSON paths are better handled here or via LLM)
+        # However, for performance and simplicity, we do a basic check if criteria provided.
+        # Format: {"metadata.key": "value"}
+        criteria = params.get("criteria", {})
+        if isinstance(criteria, str):
+            import json
+            try:
+                criteria = json.loads(criteria)
+            except Exception:
+                criteria = {}
+
+        if criteria:
+            matched_things = []
+            for t in things:
+                match = True
+                content = t.content or {}
+                for key, val in criteria.items():
+                    # Support simple nesting like 'system_metadata.status'
+                    parts = key.split('.')
+                    target = content
+                    for p in parts:
+                        if isinstance(target, dict) and p in target:
+                            target = target[p]
+                        else:
+                            match = False
+                            break
+                    if match and str(target) != str(val):
+                        match = False
+                    if not match:
+                        break
+                if match:
+                    matched_things.append(t)
+            things = matched_things
+
+        results = []
+        combined_content = ""
+        for t in things:
+            results.append({
+                "id": t.id,
+                "title": t.title,
+                "type": t.type,
+                "domain_id": t.domain_id,
+                "content": t.content
+            })
+            combined_content += f"--- ITEM: {t.title} ({t.type}) ---\n{t.content}\n\n"
+            
+        return PrimitiveResult(success=True, output={
+            "query_results": {
+                "things": results,
+                "count": len(results),
+                "thing_ids": [t["id"] for t in results],
+                "combined_content": combined_content.strip()
+            }
+        })

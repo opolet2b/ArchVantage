@@ -52,8 +52,6 @@ export function InspectorPanel() {
     const [isResizing, setIsResizing] = React.useState(false);
 
     // Edits buffer: Stores ONLY the changes. structure mirrors the target object.
-    // For Thing: { custom_metadata: { key: value } }
-    // For Domain: { name: "...", color: "...", metadata_values: { key: value } }
     const [edits, setEdits] = React.useState<Record<string, any>>({});
 
     // Resolve the inspected item
@@ -80,10 +78,7 @@ export function InspectorPanel() {
     React.useEffect(() => {
         const handleMouseMove = (e: MouseEvent) => {
             if (!isResizing) return;
-            // Calculate new width: Window Width - Mouse X
-            // (Assuming panel is anchored right)
             const newWidth = window.innerWidth - e.clientX;
-            // Clamp
             const clamped = Math.min(Math.max(newWidth, 300), 800);
             setWidth(clamped);
         };
@@ -112,13 +107,12 @@ export function InspectorPanel() {
         return null;
     }, [item, inspectedItemType, domains]);
 
-    // For Domains, we need the effective schema (scenario definition vs local override)
+    // For Domains, we need the effective schema
     const domainSchema = React.useMemo(() => {
         if (inspectedItemType === 'domain' && item) {
             const domain = item as Domain;
             if (!activeScenario?.configuration?.domain_definitions) return domain.metadata_schema;
 
-            // Try to match by type or name to find definition
             const def = activeScenario.configuration.domain_definitions.find(d =>
                 (domain.type && d.id === domain.type) || d.name === domain.name
             );
@@ -132,19 +126,12 @@ export function InspectorPanel() {
 
     const handleClose = () => setInspectorOpen(false);
 
-    // --- Type Guards ---
     const isThing = inspectedItemType === 'thing';
     const isDomain = inspectedItemType === 'domain';
 
-    // --- Buffered Value Getters ---
-
-    // Check if we have unsaved changes
     const hasChanges = Object.keys(edits).length > 0;
 
-    // Helper to get effective value (Edit > Current > Default)
-    // path: ['custom_metadata', 'field_key'] or ['name']
     const getEffectiveValue = (path: string[]) => {
-        // Check edits first
         let currentEdit = edits;
         for (const p of path) {
             if (currentEdit === undefined || currentEdit === null) break;
@@ -152,7 +139,6 @@ export function InspectorPanel() {
         }
         if (currentEdit !== undefined) return currentEdit;
 
-        // Fallback to item
         let currentItem = item as any;
         for (const p of path) {
             if (currentItem === undefined || currentItem === null) break;
@@ -161,18 +147,12 @@ export function InspectorPanel() {
         return currentItem;
     };
 
-    // --- Update Handler (Buffers changes) ---
-
     const setEditValue = (path: string[], value: any) => {
         setEdits(prev => {
             const next = { ...prev };
             let ptr = next;
             for (let i = 0; i < path.length - 1; i++) {
                 if (!ptr[path[i]]) ptr[path[i]] = {};
-                // If we are branching off from a primitive in edits (shouldn't happen with correct usage), handle it?
-                // For now assume path structure is consistent.
-
-                // Deep copy if we are modifying an existing object in edits to avoid mutation issues (though new obj 'next' handles root)
                 ptr[path[i]] = { ...ptr[path[i]] };
                 ptr = ptr[path[i]];
             }
@@ -181,28 +161,22 @@ export function InspectorPanel() {
         });
     };
 
-    // --- Commit / Cancel ---
-
     const handleSave = () => {
         if (!hasChanges) return;
 
         if (isThing) {
-            // For thing, we are likely updating custom_metadata.
-            // We need to merge edits.custom_metadata with existing custom_metadata (shallow merge of keys is fine usually, but let's be safe)
             const thing = item as any;
             const mergedCustomMetadata = {
                 ...thing.custom_metadata,
                 ...(edits.custom_metadata || {})
             };
 
-            // If we have other top-level edits for things in future, handle them.
             updateThing(thing.id, {
                 ...edits,
                 custom_metadata: mergedCustomMetadata
             });
         } else if (isDomain) {
             const domain = item as any;
-            // Domain properties might be mixed (name, description, metadata_values)
             const updates = { ...edits };
             if (updates.metadata_values) {
                 updates.metadata_values = {
@@ -221,11 +195,9 @@ export function InspectorPanel() {
     };
 
 
-    // --- Toggle Pin (Buffered) ---
     const togglePin = (key: string, section: 'technical' | 'custom' | 'system') => {
         if (!isThing) return;
 
-        // Get current pinned list (considering pending edits)
         const currentPinned = getEffectiveValue(['custom_metadata', '_pinned_fields']) || [];
         const fieldId = `${section}:${key}`;
 
@@ -243,7 +215,6 @@ export function InspectorPanel() {
     };
 
 
-    // --- Generic Field Renderer ---
     const renderMetadataField = (
         field: MetadataField,
         basePath: string[],
@@ -280,7 +251,6 @@ export function InspectorPanel() {
                     )}
                 </div>
 
-                {/* Inputs based on type */}
                 {field.type === 'text' && (
                     field.ui_component === 'textarea' ?
                         <Textarea
@@ -400,7 +370,6 @@ export function InspectorPanel() {
                     </div>
                 )}
 
-                {/* Fallback for unsupported types */}
                 {!['text', 'number', 'boolean', 'select', 'multi-select', 'date', 'time', 'range'].includes(field.type) && (
                     <div className="text-xs text-yellow-600 bg-yellow-50 p-2 rounded border border-yellow-200">
                         Field type '{field.type}' not fully supported.
@@ -416,18 +385,16 @@ export function InspectorPanel() {
             className="border-l bg-background h-full flex flex-col shadow-xl z-50 relative transition-[width] duration-0"
             style={{ width: width }}
         >
-            {/* Resize Handle */}
             <div
                 className={cn(
                     "absolute top-0 bottom-0 -left-1 w-2 cursor-ew-resize hover:bg-blue-500/50 transition-colors z-[60]",
-                    isResizing && "bg-blue-500/50 w-full left-0 opacity-0 cursor-ew-resize" // Cover to capture mouse events if needed, but window listener is better
+                    isResizing && "bg-blue-500/50 w-full left-0 opacity-0 cursor-ew-resize"
                 )}
                 onMouseDown={startResizing}
             >
                 <div className="absolute top-1/2 -mt-4 left-0.5 w-[3px] h-8 bg-slate-300 rounded-full dark:bg-slate-600" />
             </div>
 
-            {/* Header */}
             <div className="shrink-0 h-14 flex items-center justify-between px-4 border-b bg-slate-50/50 dark:bg-slate-900/50">
                 <div className="flex items-center gap-2 overflow-hidden">
                     {isThing ? <Info className="w-4 h-4 text-muted-foreground flex-shrink-0" /> : <Settings className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
@@ -440,7 +407,6 @@ export function InspectorPanel() {
                 </div>
 
                 <div className="flex items-center gap-1">
-                    {/* Save Controls */}
                     {hasChanges ? (
                         <div className="flex items-center gap-1 mr-2 animate-in fade-in slide-in-from-right-2 duration-200">
                             <Button size="sm" onClick={handleSave} className="h-7 px-2 text-xs gap-1 bg-green-600 hover:bg-green-700 text-white">
@@ -465,7 +431,6 @@ export function InspectorPanel() {
                 </div>
             </div>
 
-            {/* Content Switch */}
             {isThing && (
                 <Tabs defaultValue="properties" className="flex-1 flex flex-col overflow-hidden">
                     <div className="px-4 pt-2">
@@ -476,12 +441,9 @@ export function InspectorPanel() {
                         </TabsList>
                     </div>
 
-                    {/* Technical Metadata (Read-Only) */}
                     <TabsContent value="technical" className="flex-1 overflow-hidden p-0">
                         <ScrollArea className="h-full">
-                            {/* Standard Tech Fields */}
-                            <div className="space-y-4">
-                                {/* Source Type */}
+                            <div className="p-4 space-y-4">
                                 <div className="space-y-1">
                                     <Label className="text-xs text-muted-foreground">Source Type</Label>
                                     <div className="text-sm font-medium capitalize">
@@ -489,7 +451,6 @@ export function InspectorPanel() {
                                     </div>
                                 </div>
 
-                                {/* File Details (if applicable) */}
                                 {((item as any).technical_metadata?.file_name || (item as any).content?.file_name) && (
                                     <div className="space-y-1 bg-muted/30 p-2 rounded">
                                         <Label className="text-xs text-muted-foreground mb-1 block">File Details</Label>
@@ -514,7 +475,6 @@ export function InspectorPanel() {
                                     </div>
                                 )}
 
-                                {/* Chronology */}
                                 <div className="space-y-1">
                                     <Label className="text-xs text-muted-foreground">Chronology</Label>
                                     <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs px-2 border-l-2">
@@ -530,7 +490,6 @@ export function InspectorPanel() {
                                     </div>
                                 </div>
 
-                                {/* Origin */}
                                 <div className="space-y-1">
                                     <Label className="text-xs text-muted-foreground">Origin</Label>
                                     <div className="text-xs font-mono bg-muted p-2 rounded select-all break-all text-muted-foreground">
@@ -538,7 +497,6 @@ export function InspectorPanel() {
                                     </div>
                                 </div>
 
-                                {/* Owner ID */}
                                 <div className="space-y-1">
                                     <Label className="text-xs text-muted-foreground">Owner ID</Label>
                                     <div className="text-xs font-mono text-muted-foreground">
@@ -548,11 +506,9 @@ export function InspectorPanel() {
 
                                 <Separator className="my-2" />
 
-                                {/* Other Technical Metadata (Folded) */}
                                 <div className="space-y-2">
                                     <Label className="text-xs text-muted-foreground mb-2 block">Raw Metadata</Label>
                                     {(item as any).technical_metadata && Object.entries((item as any).technical_metadata).map(([key, value]) => {
-                                        // Skip fields we already displayed
                                         if (['source_type', 'file_name', 'file_size', 'mime_type', 'source_path', 'owner_id'].includes(key)) return null;
 
                                         return (
@@ -579,11 +535,9 @@ export function InspectorPanel() {
                         </ScrollArea>
                     </TabsContent>
 
-                    {/* Properties (Custom Metadata - Editable) */}
                     <TabsContent value="properties" className="flex-1 overflow-hidden p-0">
                         <ScrollArea className="h-full">
                             <div className="p-4 space-y-6">
-                                {/* Global Metadata Section */}
                                 {activeScenario?.configuration?.thing_metadata_schema && activeScenario.configuration.thing_metadata_schema.length > 0 && (
                                     <div className="space-y-4">
                                         <div className="bg-slate-100 dark:bg-slate-800/50 p-2 rounded-lg border flex items-center gap-2">
@@ -596,7 +550,7 @@ export function InspectorPanel() {
                                             {activeScenario.configuration.thing_metadata_schema.map((field) =>
                                                 renderMetadataField(
                                                     field,
-                                                    ['custom_metadata'], // Path to this metadata block in edits/item
+                                                    ['custom_metadata'],
                                                     true,
                                                     'custom'
                                                 )
@@ -605,7 +559,6 @@ export function InspectorPanel() {
                                     </div>
                                 )}
 
-                                {/* Context Fields Section (Renamed from Domain Metadata) */}
                                 {associatedDomain && (
                                     <div className="space-y-4 pt-2 border-t">
                                         <div className="bg-blue-50 dark:bg-blue-900/20 p-2 rounded-lg border border-blue-100 dark:border-blue-800 flex items-center gap-2">
@@ -636,47 +589,105 @@ export function InspectorPanel() {
                         </ScrollArea>
                     </TabsContent>
 
-                    {/* Insights (System/AI Metadata - Read/Write) */}
                     <TabsContent value="insights" className="flex-1 overflow-hidden p-0">
                         <ScrollArea className="h-full">
                             <div className="p-4 space-y-4">
-                                <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg border border-purple-100 dark:border-purple-800 flex items-start gap-3">
-                                    <Sparkles className="w-4 h-4 text-purple-600 mt-0.5" />
-                                    <div>
-                                        <div className="text-xs text-purple-600 dark:text-purple-300 font-medium mb-1">AI Insights</div>
-                                        <p className="text-[10px] text-muted-foreground">
-                                            System-generated analysis and metadata.
-                                        </p>
-                                    </div>
-                                </div>
+                                {(() => {
+                                    const systemMeta = (item as any).content?.system_metadata || {};
+                                    const aiInsight = systemMeta.ai_insight;
+                                    const otherMeta = Object.entries(systemMeta).filter(([k]) => k !== 'ai_insight');
 
-                                {/* Render system_metadata from content */}
-                                {(item as any).content?.system_metadata && Object.entries((item as any).content.system_metadata as Record<string, any>).map(([key, value]) => (
-                                    <div key={key} className="space-y-1 group">
-                                        <div className="flex justify-between items-center">
-                                            <Label className="text-xs font-mono text-muted-foreground">{key}</Label>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className={cn("h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity", isPinned(key, 'system') && "opacity-100 text-blue-500")}
-                                                onClick={() => togglePin(key, 'system')}
-                                            >
-                                                <Pin className="w-3 h-3" />
-                                            </Button>
-                                        </div>
-                                        <div className="text-xs bg-slate-950 text-slate-50 p-2 rounded overflow-x-auto">
-                                            <pre className="whitespace-pre-wrap">
-                                                {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
-                                            </pre>
-                                        </div>
-                                    </div>
-                                ))}
+                                    const renderMarkdown = (text: string) => {
+                                        if (typeof text !== 'string') return String(text);
+                                        const lines = text.split('\n');
+                                        return lines.map((line, i) => {
+                                            const isBullet = line.trim().startsWith('-');
+                                            const cleanLine = isBullet ? line.trim().substring(1).trim() : line;
+                                            const parts = cleanLine.split(/(\*\*.*?\*\*)/g);
+                                            const formattedLine = parts.map((part, pi) => {
+                                                if (part.startsWith('**') && part.endsWith('**')) {
+                                                    return <strong key={pi} className="text-purple-700 dark:text-purple-300 font-semibold">{part.slice(2, -2)}</strong>;
+                                                }
+                                                return part;
+                                            });
+                                            return (
+                                                <div key={i} className={cn("mb-1 text-[11px] leading-relaxed", isBullet && "pl-4 relative before:content-['•'] before:absolute before:left-0 before:text-purple-400")}>
+                                                    {formattedLine}
+                                                </div>
+                                            );
+                                        });
+                                    };
 
-                                {!(item as any).content?.system_metadata && (
-                                    <div className="text-center py-8 text-xs text-muted-foreground">
-                                        No system metadata available.
-                                    </div>
-                                )}
+                                    return (
+                                        <div className="space-y-6">
+                                            {aiInsight ? (
+                                                <div className="relative group overflow-hidden rounded-xl border border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50/50 to-white dark:from-purple-950/20 dark:to-slate-950 shadow-sm">
+                                                    <div className="p-3">
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="p-1 bg-purple-100 dark:bg-purple-900 rounded-md">
+                                                                    <Sparkles className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                                                                </div>
+                                                                <span className="text-[10px] font-bold text-purple-900 dark:text-purple-100 uppercase tracking-tighter">AI Reasoning Trace</span>
+                                                            </div>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                onClick={() => navigator.clipboard.writeText(aiInsight)}
+                                                            >
+                                                                <Box className="w-3 h-3 text-muted-foreground" />
+                                                            </Button>
+                                                        </div>
+                                                        <div className="text-slate-800 dark:text-slate-200">
+                                                            {renderMarkdown(aiInsight)}
+                                                        </div>
+                                                    </div>
+                                                    <div className="h-1 bg-gradient-to-r from-purple-400 via-indigo-400 to-blue-400 opacity-30" />
+                                                </div>
+                                            ) : (
+                                                <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg border border-purple-100 dark:border-purple-800 flex items-start gap-3">
+                                                    <Sparkles className="w-4 h-4 text-purple-600 mt-0.5" />
+                                                    <div>
+                                                        <div className="text-xs text-purple-600 dark:text-purple-300 font-medium mb-1">AI Insights</div>
+                                                        <p className="text-[10px] text-muted-foreground">
+                                                            System-generated analysis and metadata.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {otherMeta.length > 0 && (
+                                                <div className="space-y-3 pt-2">
+                                                    {otherMeta.map(([key, value]) => (
+                                                        <div key={key} className="space-y-1 group">
+                                                            <div className="flex justify-between items-center px-1">
+                                                                <Label className="text-[10px] font-mono text-muted-foreground/70">{key}</Label>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className={cn("h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity", isPinned(key, 'system') && "opacity-100 text-blue-500")}
+                                                                    onClick={() => togglePin(key, 'system')}
+                                                                >
+                                                                    <Pin className="w-3 h-3" />
+                                                                </Button>
+                                                            </div>
+                                                            <div className="text-[10px] bg-slate-950 text-slate-50 p-2 rounded font-mono break-all border border-transparent hover:border-slate-800 transition-colors">
+                                                                {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {!aiInsight && otherMeta.length === 0 && (
+                                                <div className="text-center py-8 text-xs text-muted-foreground">
+                                                    No insights available.
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </ScrollArea>
                     </TabsContent>
@@ -731,7 +742,6 @@ export function InspectorPanel() {
                                                     className="font-mono"
                                                 />
                                             </div>
-                                            {/* Simple Color Picker Popover */}
                                             <Popover>
                                                 <PopoverTrigger asChild>
                                                     <Button variant="outline" size="sm" className="w-full">

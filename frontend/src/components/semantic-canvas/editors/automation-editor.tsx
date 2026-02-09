@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import {
     MoreHorizontal, GripHorizontal, FolderOpen, Maximize2, LayoutGrid, Layers,
     Settings, List, Plus, X, Calendar as CalendarIcon, Clock, Hash,
-    Pencil, Palette, Sparkles, Target, Zap, Trash2, CheckCircle, AlertTriangle
+    Pencil, Palette, Sparkles, Target, Zap, Trash2, CheckCircle, AlertTriangle, Repeat
 } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -28,9 +28,111 @@ import {
 import { API_URL } from "@/lib/utils";
 import { DomainDefinition } from "../canvas-store";
 
+/**
+ * Visual Rule Builder for criteria filtering.
+ */
+function CriteriaBuilder({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+    const [localRules, setLocalRules] = React.useState<{ field: string; value: string }[]>([]);
+
+    // Sync from props only when external value actually changes
+    React.useEffect(() => {
+        try {
+            const parsed = JSON.parse(value || "{}");
+            const fromProp = Object.entries(parsed).map(([field, val]) => ({
+                field,
+                value: String(val)
+            }));
+
+            // Only sync if the prop value is different from our current valid representation
+            const currentValid = JSON.stringify(Object.fromEntries(
+                localRules.filter(r => r.field.trim()).map(r => [r.field.trim(), r.value])
+            ));
+
+            if (value !== currentValid || (localRules.length === 0 && fromProp.length > 0)) {
+                setLocalRules(fromProp);
+            }
+        } catch (e) {
+            if (value !== "{}") setLocalRules([]);
+        }
+    }, [value]);
+
+    const syncToParent = (rulesToSync: { field: string; value: string }[]) => {
+        const obj: Record<string, string> = {};
+        rulesToSync.forEach(r => {
+            if (r.field.trim()) obj[r.field.trim()] = r.value;
+        });
+        onChange(JSON.stringify(obj));
+    };
+
+    const addRule = () => {
+        const next = [...localRules, { field: "", value: "" }];
+        setLocalRules(next);
+        // Don't sync yet, as the new rule is empty and won't change the parent value
+    };
+
+    const removeRule = (idx: number) => {
+        const next = localRules.filter((_, i) => i !== idx);
+        setLocalRules(next);
+        syncToParent(next);
+    };
+
+    const updateRule = (idx: number, patch: { field?: string; value?: string }) => {
+        const next = [...localRules];
+        next[idx] = { ...next[idx], ...patch };
+        setLocalRules(next);
+        syncToParent(next);
+    };
+
+    const rules = localRules;
+
+    return (
+        <div className="space-y-2 pt-1 border-t mt-2">
+            <div className="flex items-center justify-between">
+                <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-tight">Filtering Rules</Label>
+                <Button type="button" variant="ghost" size="sm" className="h-6 text-[10px] hover:bg-primary/10 hover:text-primary" onClick={addRule}>
+                    <Plus className="w-3 h-3 mr-1" /> Add Filter
+                </Button>
+            </div>
+            {rules.length === 0 && <p className="text-[10px] text-muted-foreground italic px-1 pb-1">No filters applied. Matches all items in domain.</p>}
+            <div className="space-y-1.5">
+                {rules.map((r, i) => (
+                    <div key={i} className="flex items-center gap-1.5 p-1.5 rounded-md border bg-muted/20 group animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="flex-1">
+                            <Input
+                                className="h-7 text-[10px] font-mono bg-background"
+                                value={r.field}
+                                placeholder="Attribute Key (e.g. status)"
+                                onChange={e => updateRule(i, { field: e.target.value })}
+                            />
+                        </div>
+                        <div className="text-[10px] text-muted-foreground font-medium px-1 uppercase opacity-50">contains</div>
+                        <div className="flex-[1.5]">
+                            <Input
+                                className="h-7 text-[10px] bg-background"
+                                value={r.value}
+                                placeholder="Value (supports {{vars}})"
+                                onChange={e => updateRule(i, { value: e.target.value })}
+                            />
+                        </div>
+                        <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive shrink-0" onClick={() => removeRule(i)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                    </div>
+                ))}
+            </div>
+            {rules.length > 0 && (
+                <p className="text-[9px] text-muted-foreground italic leading-tight px-1 pt-1 border-t border-dashed mt-2">
+                    Multiple rules are applied as "AND" logic. Items must match all filters.
+                </p>
+            )}
+        </div>
+    );
+}
+
 interface AutomationEditorProps {
     automations: any[];
     domains: DomainDefinition[];
+    linkTypes: any[];
     onChange: (automations: any[]) => void;
     disabled?: boolean;
 }
@@ -43,7 +145,7 @@ const HOOKS = [
     { value: "onMetadataChange", label: "When metadata updates" },
 ];
 
-export function AutomationEditor({ automations, domains, onChange, disabled }: AutomationEditorProps) {
+export function AutomationEditor({ automations, domains, linkTypes, onChange, disabled }: AutomationEditorProps) {
     const [blueprints, setBlueprints] = React.useState<any[]>([]);
     const [presets, setPresets] = React.useState<any[]>([]);
     const [canvases, setCanvases] = React.useState<any[]>([]);
@@ -308,6 +410,7 @@ export function AutomationEditor({ automations, domains, onChange, disabled }: A
                                                     action: { ...auto.action, steps }
                                                 })}
                                                 domains={domains}
+                                                linkTypes={linkTypes}
                                                 selectedModel={selectedPreset}
                                                 canvases={canvases}
                                             />
@@ -328,21 +431,24 @@ export function AutomationEditor({ automations, domains, onChange, disabled }: A
 const PRIMITIVES = [
     { value: "LLM_GENERATION", label: "AI Prompt", icon: "✨" },
     { value: "LOGIC_IF_ELSE", label: "Branch (If/Else)", icon: "🔀" },
+    { value: "FOREACH", label: "Loop (For Each)", icon: "🔁" },
     { value: "CANVAS_QUERY", label: "Search Canvas", icon: "🔍" },
+    { value: "CANVAS_QUERY_THINGS", label: "Query Domain Things", icon: "🔎" },
     { value: "CANVAS_MOVE_TO_ZONE", label: "Move to Zone", icon: "📍" },
     { value: "CANVAS_SET_PROPERTY", label: "Set Color/Title", icon: "🎨" },
     { value: "CANVAS_CREATE_LINK", label: "Create Link", icon: "🔗" },
+    { value: "CANVAS_BATCH_LINK", label: "Batch Link", icon: "⛓️" },
 ];
 
 const CONTEXT_VARIABLES = [
-    { value: "{{thing_id}}", label: "Thing ID", description: "The UUID of the dropped item" },
-    { value: "{{thing_content}}", label: "Thing Content", description: "The full text or JSON data" },
-    { value: "{{thing_name}}", label: "Thing Name", description: "The title or name of the item" },
-    { value: "{{thing_type}}", label: "Thing Type", description: "e.g. text, image, document" },
-    { value: "{{drop_zone_id}}", label: "Drop Zone ID", description: "ID of the zone where item was dropped" },
-    { value: "{{source_domain_id}}", label: "Source Domain ID", description: "ID of the domain where event occurred" },
-    { value: "{{domain_content}}", label: "Domain Content (Context)", description: "Text summary of all things in the source domain" },
-    { value: "{{domain_items}}", label: "Domain Items (JSON)", description: "Full JSON list of all things in the source domain" },
+    { value: "{{ thing_id }}", label: "Thing ID", description: "The UUID of the dropped item" },
+    { value: "{{ thing_content }}", label: "Thing Content", description: "The full text or JSON data" },
+    { value: "{{ thing_name }}", label: "Thing Name", description: "The title or name of the item" },
+    { value: "{{ thing_type }}", label: "Thing Type", description: "e.g. text, image, document" },
+    { value: "{{ drop_zone_id }}", label: "Drop Zone ID", description: "ID of the zone where item was dropped" },
+    { value: "{{ source_domain_id }}", label: "Source Domain ID", description: "ID of the domain where event occurred" },
+    { value: "{{ domain_content }}", label: "Domain Content (Context)", description: "Text summary of all things in the source domain" },
+    { value: "{{ domain_items }}", label: "Domain Items (JSON)", description: "Full JSON list of all things in the source domain" },
 ];
 
 // --- Helper for inserting text at cursor or appending ---
@@ -428,6 +534,7 @@ function WorkflowBuilder({
     steps,
     onChange,
     domains,
+    linkTypes,
     selectedModel,
     canvases = [],
     isRoot = false
@@ -435,6 +542,7 @@ function WorkflowBuilder({
     steps: any[],
     onChange: (s: any[]) => void,
     domains: DomainDefinition[],
+    linkTypes: any[],
     selectedModel: string,
     canvases?: any[],
     isRoot?: boolean
@@ -463,7 +571,13 @@ function WorkflowBuilder({
         } else if (primitive === "CANVAS_QUERY") {
             newStep.inputs = { target_canvas_id: canvases[0]?.id || "", query: "{{thing_name}}", limit: 5 };
         } else if (primitive === "CANVAS_CREATE_LINK") {
-            newStep.inputs = { source_id: "{{thing_id}}", target_id: "", label: "related", type: "related" };
+            newStep.inputs = { source_id: "{{thing_id}}", target_id: "", label: "related", type: "related", description: "" };
+        } else if (primitive === "CANVAS_QUERY_THINGS") {
+            newStep.inputs = { domain_id: "*", thing_type: "all", query: "", criteria: "{}", limit: 10 };
+        } else if (primitive === "CANVAS_BATCH_LINK") {
+            newStep.inputs = { source_id: "{{thing_id}}", target_ids: "{{query_results.thing_ids}}", label: "", type: "related", description: "" };
+        } else if (primitive === "FOREACH") {
+            newStep.inputs = { items: "{{query_results.thing_ids}}", iterator_var: "item_id", steps: [] };
         }
         onChange([...steps, newStep]);
     };
@@ -491,6 +605,7 @@ function WorkflowBuilder({
                             steps={steps}
                             onChange={onChange}
                             domains={domains}
+                            linkTypes={linkTypes}
                             selectedModel={selectedModel}
                             canvases={canvases}
                         />
@@ -645,6 +760,7 @@ function WorkflowBuilder({
                                                     steps={step.inputs.then_steps || []}
                                                     onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, then_steps: s } })}
                                                     domains={domains}
+                                                    linkTypes={linkTypes}
                                                     selectedModel={selectedModel}
                                                     canvases={canvases}
                                                 />
@@ -659,6 +775,7 @@ function WorkflowBuilder({
                                                     steps={step.inputs.else_steps || []}
                                                     onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, else_steps: s } })}
                                                     domains={domains}
+                                                    linkTypes={linkTypes}
                                                     selectedModel={selectedModel}
                                                     canvases={canvases}
                                                 />
@@ -702,8 +819,17 @@ function WorkflowBuilder({
                             {step.primitive === "CANVAS_CREATE_LINK" && (
                                 <div className="space-y-2">
                                     <div className="grid grid-cols-2 gap-2">
+                                        <div className="col-span-2">
+                                            <Label className="text-[10px]">Source Item (Link Origin)</Label>
+                                            <Input
+                                                className="h-7 text-xs"
+                                                value={step.inputs.source_id}
+                                                placeholder="e.g. {{thing_id}}"
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, source_id: e.target.value } })}
+                                            />
+                                        </div>
                                         <div>
-                                            <Label className="text-[10px]">Target ID</Label>
+                                            <Label className="text-[10px]">Target Item (Link Destination)</Label>
                                             <Input
                                                 className="h-7 text-xs"
                                                 value={step.inputs.target_id}
@@ -717,6 +843,197 @@ function WorkflowBuilder({
                                                 className="h-7 text-xs"
                                                 value={step.inputs.label}
                                                 onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, label: e.target.value } })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <Label className="text-[10px]">Relationship Type</Label>
+                                            <Select
+                                                value={step.inputs.type}
+                                                onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, type: val } })}
+                                            >
+                                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select Type" /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="related">Related (Generic)</SelectItem>
+                                                    {linkTypes?.map(lt => (
+                                                        <SelectItem key={lt.id} value={lt.id}>{lt.label}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="col-span-1">
+                                            <Label className="text-[10px]">Description (Mandatory)</Label>
+                                            <Input
+                                                className="h-7 text-xs"
+                                                value={step.inputs.description}
+                                                placeholder="Link reason..."
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, description: e.target.value } })}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {step.primitive === "CANVAS_QUERY_THINGS" && (
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <Label className="text-[10px]">Search in Domain</Label>
+                                            <Select
+                                                value={step.inputs.domain_id}
+                                                onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, domain_id: val } })}
+                                            >
+                                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="All Domains" /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="*">All Domains</SelectItem>
+                                                    {domains.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div>
+                                            <Label className="text-[10px]">Item Type Filter</Label>
+                                            <Select
+                                                value={step.inputs.thing_type}
+                                                onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, thing_type: val } })}
+                                            >
+                                                <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="all">Any Type</SelectItem>
+                                                    <SelectItem value="text">Text Notes</SelectItem>
+                                                    <SelectItem value="document">Documents</SelectItem>
+                                                    <SelectItem value="image">Images</SelectItem>
+                                                    <SelectItem value="group">Groups</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex-1">
+                                            <Label className="text-[10px]">Search Keywords (Optional)</Label>
+                                            <Input className="h-7 text-xs" value={step.inputs.query} placeholder="Search names or content..." onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, query: e.target.value } })} />
+                                        </div>
+                                        <div className="w-20">
+                                            <Label className="text-[10px]">Max Results</Label>
+                                            <Input type="number" className="h-7 text-xs" value={step.inputs.limit} onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, limit: parseInt(e.target.value) } })} />
+                                        </div>
+                                    </div>
+
+                                    <CriteriaBuilder
+                                        value={step.inputs.criteria}
+                                        onChange={(val) => updateStep(idx, { inputs: { ...step.inputs, criteria: val } })}
+                                    />
+
+                                    <div className="p-2 border border-dashed rounded bg-primary/5 text-[10px] text-primary space-y-1">
+                                        <p className="font-semibold uppercase tracking-tight">Automation Context:</p>
+                                        <p className="italic leading-tight opacity-90">
+                                            Results are saved to <code className="bg-primary/10 px-1 rounded">{"{{query_results}}"}</code>.
+                                            Access IDs via <code className="bg-primary/10 px-1 rounded">{"{{query_results.thing_ids}}"}</code>.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {step.primitive === "CANVAS_BATCH_LINK" && (
+                                <div className="space-y-3">
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px]">Source Item (Link Origin)</Label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                className="h-7 text-xs flex-1"
+                                                value={step.inputs.source_id}
+                                                placeholder="e.g. {{thing_id}}"
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, source_id: e.target.value } })}
+                                            />
+                                            <ContextVariableSelector
+                                                onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, source_id: (step.inputs.source_id || "") + val } })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px]">Target Items (to link)</Label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                className="h-7 text-xs flex-1"
+                                                value={step.inputs.target_ids}
+                                                placeholder="e.g. {{query_results.thing_ids}}"
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, target_ids: e.target.value } })}
+                                            />
+                                            <ContextVariableSelector
+                                                onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, target_ids: (step.inputs.target_ids || "") + val } })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <Label className="text-[10px]">Relationship Type</Label>
+                                            <Select
+                                                value={step.inputs.type}
+                                                onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, type: val } })}
+                                            >
+                                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select Type" /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="related">Related (Generic)</SelectItem>
+                                                    {linkTypes?.map(lt => (
+                                                        <SelectItem key={lt.id} value={lt.id}>{lt.label}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div>
+                                            <Label className="text-[10px]">Label On Link</Label>
+                                            <Input className="h-7 text-xs" value={step.inputs.label} placeholder="Description" onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, label: e.target.value } })} />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <Label className="text-[10px]">Relationship Description (Mandatory)</Label>
+                                            <Input
+                                                className="h-7 text-xs"
+                                                value={step.inputs.description}
+                                                placeholder="Explain link reasoning..."
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, description: e.target.value } })}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {step.primitive === "FOREACH" && (
+                                <div className="space-y-4">
+                                    <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[10px] font-semibold text-muted-foreground uppercase">List to Iterate</Label>
+                                                <Input
+                                                    className="h-8 text-xs font-mono"
+                                                    value={step.inputs.items}
+                                                    onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, items: e.target.value } })}
+                                                    placeholder="e.g. {{query_results.thing_ids}}"
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Item Alias</Label>
+                                                <Input
+                                                    className="h-8 text-xs font-mono"
+                                                    value={step.inputs.iterator_var}
+                                                    onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, iterator_var: e.target.value } })}
+                                                    placeholder="item_id"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-primary uppercase">
+                                            <Repeat className="w-3 h-3" /> Loop Body
+                                        </div>
+                                        <div className="border-l-2 border-primary/20 pl-3 py-1">
+                                            <WorkflowBuilder
+                                                steps={step.inputs.steps || []}
+                                                onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, steps: s } })}
+                                                domains={domains}
+                                                linkTypes={linkTypes}
+                                                selectedModel={selectedModel}
+                                                canvases={canvases}
                                             />
                                         </div>
                                     </div>
@@ -771,7 +1088,7 @@ function AIPromptStep({ prompt, onChange, selectedModel }: { prompt: string, onC
                 },
                 body: JSON.stringify({
                     messages: [
-                        { role: "user", content: `Create a prompt template for an AI agent based on these instructions: "${instructions}". Return ONLY the prompt text, no intro/outro. Use placeholders like {{thing_id}} if needing reference.` }
+                        { role: "user", content: `Create a prompt template for an AI agent based on these instructions: "${instructions}". Return ONLY the prompt text, no intro/outro. Use placeholders like {{ thing_id }} if needing reference.` }
                     ],
                     model: selectedModel
                 })

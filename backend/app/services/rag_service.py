@@ -15,7 +15,8 @@ if TYPE_CHECKING:
 
 class RAGService:
     def __init__(self):
-        self.persist_directory = "./chroma_db"
+        from app.core.config import settings
+        self.persist_directory = settings.CHROMA_DB_DIR
         self._initialized = False
         self.chroma_client = None
         self.chroma_collection = None
@@ -216,8 +217,18 @@ class RAGService:
             
             # Initialize Chroma Client
             # Use PersistentClient for data retention
-            print(f"[RAGService] Initializing PersistentClient at {self.persist_directory}")
-            self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
+            try:
+                print(f"DEBUG: Initializing ChromaDB PersistentClient at {self.persist_directory}")
+                self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
+                print("DEBUG: ChromaDB Client successfully initialized.")
+            except Exception as e:
+                print(f"CRITICAL ERROR: Failed to initialize ChromaDB: {e}")
+                import traceback
+                traceback.print_exc()
+                self.chroma_client = None
+                self.init_error = f"ChromaDB Initialization Exception: {str(e)}"
+                self.index = None
+                return
             
             # Collection name depends on embedding model to avoid dimension mismatches?
             # Or just use v2 and let user handle "reset" if they change models.

@@ -7,7 +7,7 @@ sys.path.append(os.getcwd())
 from app.core.database import SessionLocal
 from app.models.canvas_models import CanvasThing, ThingType
 from app.models.asset_models import Asset
-from app.models.user import User # Fix relationship lookup
+from app.models.user import User, Role # Fix relationship lookup
 from app.services.asset_service import asset_service
 import pypdf
 

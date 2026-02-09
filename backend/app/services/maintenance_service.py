@@ -76,10 +76,8 @@ class MaintenanceService:
             # Reliable Path Discovery relative to this file
             # This file is in backend/app/services/
             # DB is in backend/chroma_db/
-            current_dir = os.path.dirname(os.path.abspath(__file__)) # .../backend/app/services
-            app_dir = os.path.dirname(current_dir)                     # .../backend/app
-            backend_dir = os.path.dirname(app_dir)                     # .../backend
-            chroma_db_path = os.path.join(backend_dir, "chroma_db", "chroma.sqlite3")
+            from app.core.config import settings
+            chroma_db_path = os.path.join(settings.CHROMA_DB_DIR, "chroma.sqlite3")
             
             if not os.path.exists(chroma_db_path):
                  # Fallback: maybe we are just in "app/services"?
@@ -178,10 +176,8 @@ class MaintenanceService:
                 import sqlite3
                 
                 # Reliable Path Discovery relative to this file
-                current_dir = os.path.dirname(os.path.abspath(__file__)) # .../backend/app/services
-                app_dir = os.path.dirname(current_dir)                     # .../backend/app
-                backend_dir = os.path.dirname(app_dir)                     # .../backend
-                chroma_db_path = os.path.join(backend_dir, "chroma_db", "chroma.sqlite3")
+                from app.core.config import settings
+                chroma_db_path = os.path.join(settings.CHROMA_DB_DIR, "chroma.sqlite3")
 
                 print(f"[Maintenance] Starting Deep Clean of unlabelled embeddings (Offline Mode)... Path target: {chroma_db_path}")
 

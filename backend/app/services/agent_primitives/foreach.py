@@ -45,6 +45,11 @@ class ForEachPrimitive(BasePrimitive):
                     "type": "object",
                     "description": "Sub-graph to execute for each item"
                 },
+                "steps": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "List of steps to execute for each item (alternative to subprocess_graph)"
+                },
                 "output_variable": {
                     "type": "string",
                     "description": "Variable name to store all results",
@@ -65,7 +70,12 @@ class ForEachPrimitive(BasePrimitive):
             iterator_var = params.get("iterator_var", "item")
             index_var = params.get("index_var", "index")
             subprocess_graph = params.get("subprocess_graph")
+            steps = params.get("steps")
             output_var = params.get("output_variable", "foreach_results")
+            
+            # If steps provided instead of graph, wrap it
+            if not subprocess_graph and steps:
+                subprocess_graph = {"steps": steps}
             
             # Get the list from state variables
             # Get the list from state variables

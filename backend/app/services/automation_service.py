@@ -8,7 +8,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.models.canvas_models import Canvas
 from app.services.agent_runtime import AgentRuntime
-from app.models.agent_blueprint import AgentBlueprint
+from app.models.agent_blueprint import AgentBlueprint, AgentExecution
+from app.services.execution_state_machine import ExecutionStateMachine, store_state_machine
 
 
 class AutomationService:
@@ -160,7 +161,9 @@ class AutomationService:
                     "automation_name": auto_name,
                     "status": "triggered_blueprint",
                     "blueprint_id": blueprint_id,
-                    "output": res.get("output")
+                    "execution_id": res.get("execution_id"),
+                    "output": res.get("output"),
+                    "final_status": res.get("status")
                 })
             elif action_type == "pipeline" or "steps" in action:
                 steps = action.get("steps", [])
@@ -181,7 +184,9 @@ class AutomationService:
                     "automation_name": auto_name,
                     "status": "triggered_pipeline",
                     "steps_count": len(steps),
-                    "output": res.get("output")
+                    "execution_id": res.get("execution_id"),
+                    "output": res.get("output"),
+                    "final_status": res.get("status")
                 })
         
         # Post-Automation: Update Thing Metadata if applicable
@@ -198,22 +203,45 @@ class AutomationService:
                 insights = []
                 for res in results:
                     a_name = res.get("automation_name")
-                    output = res.get("output") or {}
+                    steps = res.get("steps") or []
                     
-                    # Extraction logic for reasoning/rationale
-                    reasoning = None
-                    if isinstance(output, dict):
-                        reasoning = output.get("reasoning") or output.get("rationale") or output.get("explanation")
-                        if not reasoning:
-                             # Deep search for reasoning-like keys
-                             for k, v in output.items():
+                    # Collect reasoning from ALL steps
+                    automation_reasoning = []
+                    
+                    # Also check the final output just in case
+                    final_output = res.get("output") or {}
+                    if isinstance(final_output, dict):
+                        r = final_output.get("reasoning") or final_output.get("rationale") or final_output.get("explanation")
+                        if r: automation_reasoning.append(r)
+                    
+                    for step in steps:
+                        step_out = step.get("output_data") or {}
+                        # Extraction logic for reasoning/rationale in steps
+                        r = step_out.get("reasoning") or step_out.get("rationale") or step_out.get("explanation")
+                        
+                        if not r:
+                             # Deep search for reasoning-like keys in step output
+                             for k, v in step_out.items():
                                  if any(x in k.lower() for x in ["reasoning", "rationale", "explanation"]):
-                                     reasoning = v
+                                     r = v
                                      break
+                        
+                        if r and r not in automation_reasoning:
+                            # Add condition context if available (LogicIfElse)
+                            cond = step_out.get("condition")
+                            if cond:
+                                automation_reasoning.append(f"Condition '{cond}': {r}")
+                            else:
+                                automation_reasoning.append(r)
                     
                     insight_str = f"**{a_name}**"
-                    if reasoning:
-                        insight_str += f": {reasoning}"
+                    if automation_reasoning:
+                        # Join multiple reasonings with bullet points if more than one
+                        if len(automation_reasoning) > 1:
+                            r_text = "\n" + "\n".join([f"- {r}" for r in automation_reasoning])
+                        else:
+                            r_text = f": {automation_reasoning[0]}"
+                        insight_str += r_text
                     else:
                         insight_str += ": Automation completed successfully."
                     
@@ -341,32 +369,46 @@ class AutomationService:
             except Exception as e:
                 print(f"[AutomationService] Failed to inject canvas config: {e}")
             
-            print(f"[AutomationService] Executing dynamic pipeline...")
-            result_state = runtime.execute_stream(inputs)
+            # Create execution record
+            execution = AgentExecution(
+                blueprint_id="dynamic_pipeline", # placeholder
+                user_id=user_id,
+                inputs=inputs,
+                status="running"
+            )
+            db.add(execution)
+            db.commit()
             
-            final_output = {}
-            async for event in result_state:
-                evt_type = event.get("type")
-                
-                if evt_type == "log":
-                    self._log(f"  [PIPELINE] {event.get('message')}", "INFO")
-                    
-                elif evt_type == "error":
-                     self._log(f"  [PIPELINE ERROR] {event.get('content')}", "ERROR")
-                     return {"success": False, "error": event.get("content")}
-                     
-                elif evt_type == "step_start":
-                     step_meta = event.get("step", {})
-                     self._log(f"  [STEP] Starting {step_meta.get('node_type')} ({step_meta.get('node_result', '')})", "DEBUG")
-
-            # Capture final output from the last executed step or state
-            if runtime.steps:
-                last_step = runtime.steps[-1]
-                final_output = last_step.output_data
-                if last_step.status == "failed":
-                     return {"success": False, "error": last_step.error}
+            # Initialize State Machine
+            sm = ExecutionStateMachine(blueprint=blueprint_mock, db=db, mode="production")
+            store_state_machine(execution.id, sm)
             
-            return {"success": True, "output": final_output}
+            print(f"[AutomationService] Executing dynamic pipeline with SM...")
+            context = await sm.start(inputs)
+            
+            # Log results
+            for step in context.steps:
+                self._log(f"  [PIPELINE] Step complete: {step.get('node_type')}", "INFO")
+            
+            # Update record
+            execution.status = context.state.value
+            execution.outputs = context.outputs
+            execution.error_message = context.error
+            execution.state = context.runtime_state
+            
+            from datetime import datetime
+            if context.state.value in ["completed", "failed"]:
+                execution.completed_at = datetime.utcnow()
+            db.commit()
+            
+            return {
+                "success": context.state.value != "failed",
+                "status": context.state.value,
+                "execution_id": execution.id,
+                "output": context.outputs,
+                "steps": context.steps,
+                "error": context.error
+            }
             
         except Exception as e:
             print(f"[AutomationService] Pipeline execution failed: {e}")
@@ -396,30 +438,46 @@ class AutomationService:
                 "trigger_event": event_payload
             }
             
-            result_state = runtime.execute_stream(inputs, initial_state={
-                "variables": inputs,
-                "canvas_id": canvas_id
-            })
+            # Create execution record
+            execution = AgentExecution(
+                blueprint_id=blueprint_id,
+                user_id=user_id,
+                inputs=inputs,
+                status="running"
+            )
+            db.add(execution)
+            db.commit()
             
-            final_output = {}
-            async for event in result_state:
-                evt_type = event.get("type")
-                
-                if evt_type == "log":
-                    self._log(f"  [BLUEPRINT] {event.get('message')}", "INFO")
-                    
-                elif evt_type == "error":
-                     self._log(f"  [BLUEPRINT ERROR] {event.get('content')}", "ERROR")
-                     return {"success": False, "error": event.get("content")}
-
-            # Capture final output
-            if runtime.steps:
-                last_step = runtime.steps[-1]
-                final_output = last_step.output_data
-                if last_step.status == "failed":
-                     return {"success": False, "error": last_step.error}
+            # Initialize State Machine
+            sm = ExecutionStateMachine(blueprint=blueprint, db=db, mode="production")
+            store_state_machine(execution.id, sm)
             
-            return {"success": True, "output": final_output}
+            print(f"[AutomationService] Executing Blueprint with SM...")
+            context = await sm.start(inputs)
+            
+            # Log results
+            for step in context.steps:
+                self._log(f"  [BLUEPRINT] Step complete: {step.get('node_type')}", "INFO")
+            
+            # Update record
+            execution.status = context.state.value
+            execution.outputs = context.outputs
+            execution.error_message = context.error
+            execution.state = context.runtime_state
+            
+            from datetime import datetime
+            if context.state.value in ["completed", "failed"]:
+                execution.completed_at = datetime.utcnow()
+            db.commit()
+            
+            return {
+                "success": context.state.value != "failed",
+                "status": context.state.value,
+                "execution_id": execution.id,
+                "output": context.outputs,
+                "steps": context.steps,
+                "error": context.error
+            }
             
         except Exception as e:
             print(f"[AutomationService] Blueprint execution failed: {e}")

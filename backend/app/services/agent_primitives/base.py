@@ -70,7 +70,7 @@ class BasePrimitive(ABC):
         self, 
         template: str, 
         state: Dict[str, Any]
-    ) -> str:
+    ) -> Any:
         """
         Resolve variable references in a template string.
         
@@ -82,162 +82,109 @@ class BasePrimitive(ABC):
             state: Current state containing variable values
             
         Returns:
-            String with variables replaced by their values
+            String with variables replaced by their values, OR the raw
+            object if the template is exactly one variable reference.
         """
         import re
         
-        # Get the variables dict from state - this is where actual values are stored
-        variables = state.get("variables", {})
-        
-        print(f"[DEBUG resolve_variables] Template: {template[:100]}...")
-        print(f"[DEBUG resolve_variables] Variables keys: {list(variables.keys())[:10]}...")  # First 10 keys
-        
-        
-        # Determine root for resolution
-        # If the path explicitly accesses "variables", we should resolve from state options
-        # But for backward compatibility we also want direct access to variables
-        
-        # Robust Context Construction
-        # We can't really merge state and variables blindly if there are conflicts.
-        # But our resolve logic uses a specific "root" object.
-        
+        # Check for full match (exact variable reference) to return raw objects
+        full_match = re.match(r'^\s*\{\{([^}]+)\}\}\s*$', template)
+        if full_match:
+            var_path = full_match.group(1).strip()
+            val = self._resolve_single_variable(var_path, state)
+            if val is not None:
+                return val
+
         def replace_var(match):
             var_path = match.group(1).strip()
-            # print(f"[DEBUG resolve_variables] Resolving variable: {var_path}")
+            val = self._resolve_single_variable(var_path, state)
+            return str(val) if val is not None else ""
             
-            # ------------------------------------------------------------------
-            # Lazy Loading: Domain Context
-            # ------------------------------------------------------------------
-            if var_path in ["domain_content", "domain_items", "domain_text"]:
-                db = state.get("db")
-                # Try to find a relevant domain ID in the context
-                # 1. source_domain_id (Event payload)
-                # 2. domain_id (Explicit context)
-                variables = state.get("variables", {})
-                domain_id = variables.get("source_domain_id") or variables.get("domain_id")
-                
-                if db and domain_id:
-                    try:
-                        from app.models.canvas_models import CanvasThing, ThingType
-                        # Fetch all things in the domain
-                        things = db.query(CanvasThing).filter(CanvasThing.domain_id == domain_id).all()
-                        
-                        if var_path == "domain_items":
-                            # Return full JSON list
-                            import json
-                            # Simplified serialization for LLM context
-                            res = []
-                            for t in things:
-                                item_content = t.content
-                                # Truncate massive text content to avoid blowing token limits? 
-                                # Let's assume user wants full context for now, but be careful.
-                                res.append({
-                                    "id": t.id, 
-                                    "type": t.type.value if hasattr(t.type, 'value') else str(t.type),
-                                    "content": item_content
-                                })
-                            return json.dumps(res)
-                            
-                        else: # domain_content or domain_text
-                            # Return human-readable summary
-                            lines = [f"Context from Domain ({domain_id}):"]
-                            for t in things:
-                                t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
-                                content_preview = ""
-                                
-                                # Extract meaningful text based on type
-                                if t_type == "text":
-                                    content_preview = t.content.get("text", "")
-                                elif t_type == "document":
-                                    content_preview = f"Document: {t.content.get('filename')} - {t.content.get('content', '')[:500]}..."
-                                elif t_type == "image":
-                                    content_preview = f"Image: {t.content.get('alt_text') or t.content.get('file_path')}"
-                                else:
-                                    content_preview = str(t.content)[:200]
-                                
-                                lines.append(f"- [{t_type}] {content_preview}")
-                            
-                            return "\n".join(lines)
-                            
-                    except Exception as e:
-                        print(f"[resolve_variables] Failed to fetch domain context: {e}")
-                        return f"<Error fetching domain context: {e}>"
-
-            # ------------------------------------------------------------------
-            # Specific Reference: {{domain:UUID}} or {{thing:UUID}}
-            # ------------------------------------------------------------------
-            if var_path.startswith("domain:") or var_path.startswith("thing:"):
-                ref_type, ref_id = var_path.split(":", 1)
-                ref_id = ref_id.strip()
-                
-                db = state.get("db")
-                if db:
-                    try:
-                        from app.models.canvas_models import CanvasThing, Domain
-                        
-                        if ref_type == "domain":
-                            # Fetch content of ALL things in that domain
-                            things = db.query(CanvasThing).filter(CanvasThing.domain_id == ref_id).all()
-                            if not things: 
-                                return f"<Domain {ref_id} is empty or not found>"
-                                
-                            lines = [f"Context from Domain ({ref_id}):"]
-                            for t in things:
-                                t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
-                                content_preview = ""
-                                if t_type == "text":
-                                    content_preview = t.content.get("text", "")
-                                elif t_type == "document":
-                                    content_preview = f"Document: {t.content.get('filename')} - {t.content.get('content', '')[:500]}..."
-                                else:
-                                    content_preview = str(t.content)[:200]
-                                lines.append(f"- [{t_type}] {content_preview}")
-                            return "\n".join(lines)
-                            
-                        elif ref_type == "thing":
-                            # Fetch content of specific Thing
-                            t = db.query(CanvasThing).filter(CanvasThing.id == ref_id).first()
-                            if not t:
-                                return f"<Thing {ref_id} not found>"
-                                
-                            t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
-                            if t_type == "text":
-                                return t.content.get("text", "")
-                            elif t_type == "document":
-                                return t.content.get("content", "")
-                            else:
-                                return str(t.content)
-                                
-                    except Exception as e:
-                        print(f"[resolve_variables] Failed to fetch specific ref: {e}")
-                        return f"<Error fetching {var_path}: {e}>"
-
-            # ------------------------------------------------------------------
-            # Standard Resolution
-            # ------------------------------------------------------------------
-            
-            # Determine Context
-            if var_path.startswith("variables") or var_path.startswith("inputs") or var_path.startswith("secrets"):
-                 root = state
-            else:
-                 root = state.get("variables", {})
-            
-            # Support nested access like "data.items[0].name"
-            try:
-                # Search in appropriate root
-                value = self._get_nested_value(root, var_path)
-                print(f"[DEBUG resolve_variables] Resolved '{var_path}' -> '{str(value)[:50]}...'")
-                return str(value) if value is not None else ""
-            except (KeyError, IndexError, TypeError) as e:
-                print(f"[DEBUG resolve_variables] Failed to resolve '{var_path}': {e}")
-                # print(f"[DEBUG resolve_variables] Available keys: {list(root.keys())}") 
-                # (Commented out to avoid log spam if root is huge)
-                return match.group(0)  # Keep original if not found
-        
         pattern = r'\{\{([^}]+)\}\}'
         result = re.sub(pattern, replace_var, template)
-        print(f"[DEBUG resolve_variables] Result: {result[:100]}...")
         return result
+
+    def _resolve_single_variable(self, var_path: str, state: Dict[str, Any]) -> Any:
+        """Helper to resolve a single variable path to its value."""
+        # ------------------------------------------------------------------
+        # Lazy Loading: Domain Context
+        # ------------------------------------------------------------------
+        if var_path in ["domain_content", "domain_items", "domain_text"]:
+            db = state.get("db")
+            variables = state.get("variables", {})
+            domain_id = variables.get("source_domain_id") or variables.get("domain_id")
+            
+            if db and domain_id:
+                try:
+                    from app.models.canvas_models import CanvasThing
+                    things = db.query(CanvasThing).filter(CanvasThing.domain_id == domain_id).all()
+                    
+                    if var_path == "domain_items":
+                        res = []
+                        for t in things:
+                            res.append({
+                                "id": t.id, 
+                                "type": t.type.value if hasattr(t.type, 'value') else str(t.type),
+                                "content": t.content
+                            })
+                        return res
+                        
+                    else: # domain_content or domain_text
+                        lines = [f"Context from Domain ({domain_id}):"]
+                        for t in things:
+                            t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
+                            content_preview = ""
+                            if t_type == "text":
+                                content_preview = t.content.get("text", "")
+                            elif t_type == "document":
+                                content_preview = f"Document: {t.content.get('filename')} - {t.content.get('content', '')[:500]}..."
+                            else:
+                                content_preview = str(t.content)[:200]
+                            lines.append(f"- [{t_type}] {content_preview}")
+                        return "\n".join(lines)
+                except Exception as e:
+                    print(f"[_resolve_single_variable] Failed to fetch domain context: {e}")
+                    return None
+
+        # ------------------------------------------------------------------
+        # Specific Reference: {{domain:UUID}} or {{thing:UUID}}
+        # ------------------------------------------------------------------
+        if var_path.startswith("domain:") or var_path.startswith("thing:"):
+            try:
+                ref_type, ref_id = var_path.split(":", 1)
+                ref_id = ref_id.strip()
+                db = state.get("db")
+                if db:
+                    from app.models.canvas_models import CanvasThing
+                    if ref_type == "domain":
+                        things = db.query(CanvasThing).filter(CanvasThing.domain_id == ref_id).all()
+                        if not things: return None
+                        lines = [f"Context from Domain ({ref_id}):"]
+                        for t in things:
+                            t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
+                            content_preview = t.content.get("text", "") if t_type == "text" else str(t.content)[:200]
+                            lines.append(f"- [{t_type}] {content_preview}")
+                        return "\n".join(lines)
+                    elif ref_type == "thing":
+                        t = db.query(CanvasThing).filter(CanvasThing.id == ref_id).first()
+                        if not t: return None
+                        t_type = t.type.value if hasattr(t.type, 'value') else str(t.type)
+                        return t.content.get("text", "") if t_type == "text" else t.content
+            except Exception:
+                return None
+
+        # ------------------------------------------------------------------
+        # Standard Resolution
+        # ------------------------------------------------------------------
+        if var_path.startswith("variables") or var_path.startswith("inputs") or var_path.startswith("secrets"):
+             root = state
+        else:
+             root = state.get("variables", {})
+        
+        try:
+            return self._get_nested_value(root, var_path)
+        except (KeyError, IndexError, TypeError):
+            return None
     
     def _get_nested_value(self, data: Dict, path: str) -> Any:
         """

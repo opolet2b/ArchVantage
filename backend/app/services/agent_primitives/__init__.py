@@ -27,12 +27,14 @@ from app.services.agent_primitives.canvas_primitives import (
     CanvasMovePrimitive,
     CanvasLinkPrimitive,
     CanvasMoveToZonePrimitive,
-    CanvasMoveToCanvasPrimitive
+    CanvasMoveToCanvasPrimitive,
+    CanvasBatchLinkPrimitive
 )
 from app.services.agent_primitives.logic_primitives import (
     LogicIfElsePrimitive,
     CanvasQueryPrimitive,
-    CanvasCreateLinkPrimitive
+    CanvasCreateLinkPrimitive,
+    CanvasQueryThingsPrimitive
 )
 from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
 
@@ -66,6 +68,8 @@ PRIMITIVE_REGISTRY = {
     "LOGIC_IF_ELSE": LogicIfElsePrimitive,
     "CANVAS_QUERY": CanvasQueryPrimitive,
     "CANVAS_CREATE_LINK": CanvasCreateLinkPrimitive,
+    "CANVAS_QUERY_THINGS": CanvasQueryThingsPrimitive,
+    "CANVAS_BATCH_LINK": CanvasBatchLinkPrimitive,
     # Legacy aliases
     "AGENT": LLMGenerationPrimitive,
     "ANALYZER": LLMGenerationPrimitive,

@@ -4,6 +4,21 @@ from fastapi.middleware.cors import CORSMiddleware
 # Ensure NLTK resources are loaded before any other imports
 import app.core.nltk_utils
 
+# Import models and register with Base BEFORE any other imports that might use them
+from app.models.user import User, Role, UserRole, KnownADGroup, GroupMapping
+from app.models.canvas_models import Canvas, CanvasThing, CanvasLink, Domain, AnalysisSpace
+from app.models.asset_models import Asset
+from app.models.prompt_models import PromptRegistry, PromptOverride
+from app.models.scenario_models import Scenario
+from app.models.smart_template import (
+    SmartAnalysisTemplate, SmartGlobalCategory, SmartTemplateTaxonomy,
+    SmartTemplateDocumentSection, SmartTemplatePersona, SmartTemplateFramework,
+    SmartTemplateThesaurus, SmartRenderingType, SmartOutputFormat
+)
+from app.models.agent_blueprint import AgentBlueprint, AgentNode, AgentEdge, AgentSecret, AgentExecution
+from app.models.template import Template, TemplateFolder, TemplatePermission
+from app.models.tools import Tool, Category as ToolCategory, ToolPermission, MCPServer, MCPServerPermission
+
 from app.routers import (
     chat, workflow, rag, search, research, config, conversation,
     agents, auth, users, roles, oauth, tools, mcp_servers,
@@ -13,9 +28,6 @@ from app.routers import (
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
 from dotenv import load_dotenv
-
-# Import models to register them with Base before create_all
-from app.models import canvas_models, asset_models, prompt_models, smart_template as smart_template_models, scenario_models  # noqa: F401
 
 load_dotenv()
 

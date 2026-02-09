@@ -136,6 +136,7 @@ class LLMDecisionPrimitive(BasePrimitive):
                 success=True,
                 output={
                     output_var: response,
+                    "reasoning": response,
                     "_raw": response
                 },
                 next_node=next_node

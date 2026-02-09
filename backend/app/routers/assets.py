@@ -33,10 +33,11 @@ router = APIRouter()
 class AssetUploadResponse(BaseModel):
     id: str
     filename: str
-    url: str
-    mime_type: str
+    url: str | None = None
+    mime_type: str | None = None
     size: int
     file_hash: str | None = None
+    status: str | None = "completed"
 
 # =============================================================================
 # Endpoints
@@ -110,8 +111,10 @@ async def upload_asset(
         return {
             "id": asset.id,
             "filename": asset.original_name,
+            "url": f"/api/v1/assets/{asset.id}",
+            "mime_type": asset.mime_type,
             "size": asset.size_bytes,
-            "file_hash": file_hash,  # Changed from "hash" to match frontend and schema
+            "file_hash": file_hash,
             "status": "processing"
         }
     except Exception as e:

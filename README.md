@@ -16,4 +16,4 @@ Chatbot Investigations
     - Backend API: http://localhost:8000/api/v1
     - API Docs: http://localhost:8000/docs
 
-For detailed information on **Ollama integration and performance optimization**, see [DOCKER_GUIDE.md](./DOCKER_GUIDE.md).
+For detailed information on **Ollama integration and performance optimization**, see [DOCKER_GUIDE.md](./docs/DOCKER_GUIDE.md).

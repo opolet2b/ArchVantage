@@ -1,0 +1,8 @@
+﻿
+[Analyze] Request ThingID: 0fc86419-8d5a-41bb-96aa-1ab678f9cf15, Action: AnalyzeAction.ASK
+[Analyze] Fragment Keys: dict_keys(['type', 'id', 'content', 'start_offset', 'end_offset', 'page_number', 'sheet', 'range', 'x', 'y', 'width', 'height', 'message_id'])
+[Analyze] Fragment Content Length: 0
+
+[Analyze] Request ThingID: 0fc86419-8d5a-41bb-96aa-1ab678f9cf15, Action: AnalyzeAction.ASK
+[Analyze] Fragment Keys: dict_keys(['type', 'id', 'content', 'start_offset', 'end_offset', 'page_number', 'sheet', 'range', 'x', 'y', 'width', 'height', 'message_id'])
+[Analyze] Fragment Content Length: 8211
