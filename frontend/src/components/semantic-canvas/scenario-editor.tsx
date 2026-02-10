@@ -23,6 +23,7 @@ import { DomainPalette } from "./editors/domain-palette";
 import { LinkTypeEditor } from "./editors/link-type-editor";
 import { AutomationEditor } from "./editors/automation-editor";
 import { MetadataSchemaEditor } from "./editors/metadata-schema-editor";
+import { ToolbarConfigEditor, ToolbarConfig } from "./editors/toolbar-config-editor";
 
 interface ScenarioEditorProps {
     initialData?: Partial<Scenario>; // if provided, we are editing
@@ -60,12 +61,20 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
         initialData?.configuration?.automations || []
     );
 
+    // Toolbar Config
+    const [toolbarConfig, setToolbarConfig] = React.useState<ToolbarConfig>(
+        initialData?.configuration?.ui_overrides?.toolbar_config || {
+            keep_standard_tools: true,
+            tools: []
+        }
+    );
+
     // Advanced Config (JSON) - Excludes UI managed fields
     const [advancedConfig, setAdvancedConfig] = React.useState("");
 
     React.useEffect(() => {
         if (initialData?.configuration) {
-            const { domain_definitions, domain_groups, link_types, thing_metadata_schema, keep_standard_links, automations, ...rest } = initialData.configuration;
+            const { domain_definitions, domain_groups, link_types, thing_metadata_schema, keep_standard_links, automations, ui_overrides, ...rest } = initialData.configuration;
             setAdvancedConfig(JSON.stringify(rest, null, 2));
         } else {
             setAdvancedConfig("{}");
@@ -107,7 +116,11 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     link_types: linkTypes,
                     thing_metadata_schema: thingMetadata,
                     keep_standard_links: keepStandardLinks,
-                    automations: automations
+                    automations: automations,
+                    ui_overrides: {
+                        ...(initialData?.configuration?.ui_overrides || {}),
+                        toolbar_config: toolbarConfig
+                    }
                 }
             };
 
@@ -324,9 +337,39 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
 
                 {/* TOOLS TAB */}
                 <TabsContent value="tools" className="flex-1 py-4">
-                    <div className="flex items-center justify-center h-full text-muted-foreground border border-dashed rounded-lg">
-                        Toolbox Configuration Coming Soon
-                    </div>
+                    <Tabs defaultValue="toolbar" className="h-full flex flex-col">
+                        <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
+                            <TabsTrigger value="toolbar" className="relative h-9 rounded-none border-b-2 border-transparent px-4 pb-2 pt-2 font-semibold text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none">
+                                Toolbox
+                            </TabsTrigger>
+                            <TabsTrigger value="analysis" className="relative h-9 rounded-none border-b-2 border-transparent px-4 pb-2 pt-2 font-semibold text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none">
+                                Smart Analysis
+                            </TabsTrigger>
+                            <TabsTrigger value="agents" className="relative h-9 rounded-none border-b-2 border-transparent px-4 pb-2 pt-2 font-semibold text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none">
+                                Agents
+                            </TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="toolbar" className="flex-1 py-4 overflow-y-auto">
+                            <ToolbarConfigEditor
+                                config={toolbarConfig}
+                                onChange={setToolbarConfig}
+                                disabled={isSystem}
+                            />
+                        </TabsContent>
+
+                        <TabsContent value="analysis" className="flex-1 py-4">
+                            <div className="flex items-center justify-center h-full text-muted-foreground border border-dashed rounded-lg bg-muted/10">
+                                Smart Analysis Templates (Coming Soon)
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="agents" className="flex-1 py-4">
+                            <div className="flex items-center justify-center h-full text-muted-foreground border border-dashed rounded-lg bg-muted/10">
+                                Agent Configuration (Coming Soon)
+                            </div>
+                        </TabsContent>
+                    </Tabs>
                 </TabsContent>
 
                 {/* AUTOMATIONS TAB */}

@@ -1,0 +1,43 @@
+Here are the code files related to your request:
+
+1. Toolbar & "Green Toolbar"
+I suspect the "Green Toolbar" refers to the main Canvas Toolbar, specifically the "Sync All" button which turns green on hover, or it might be related to a specific theme state.
+
+Frontend:
+
+Main Toolbar: 
+frontend/src/components/semantic-canvas/canvas-toolbar.tsx
+This contains the model selectors, tool toggles (Hand/Pointer), Scenario Selector, and the Sync All button (which has hover:text-green-600).
+Context Toolbars:
+frontend/src/components/semantic-canvas/viewers/selection-toolbar.tsx (Appears when items are selected)
+frontend/src/components/semantic-canvas/viewers/markdown-toolbar.tsx (For markdown editing)
+Backend:
+
+There is no specific "Toolbar" backend service. The toolbar interacts with:
+Config/Presets: backend/app/routers/config.py (implied, for models)
+Scenarios: backend/app/routers/scenarios.py
+2. Scenario Builder
+The "Scenario Builder" is implemented across several files that manage the creation and configuration of vertical modes.
+
+Frontend:
+
+Scenario Manager (List View): 
+frontend/src/components/semantic-canvas/scenario-manager.tsx
+The main entry point that lists available scenarios.
+Scenario Editor (The "Builder"): 
+frontend/src/components/semantic-canvas/scenario-editor.tsx
+The actual form interface with tabs for "General", "Domains", "Automations", etc. This is where the building happens.
+Management Panel: 
+frontend/src/components/semantic-canvas/scenario-management-panel.tsx
+A wrapper for the manager used in dialogs.
+Backend:
+
+API Endpoints: 
+backend/app/routers/scenarios.py
+Handles CRUD operations (GET /, POST /, PATCH /{id}) and instantiation (POST /{id}/instantiate).
+Database Model: 
+backend/app/models/scenario_models.py
+Defines the Scenario table and its configuration JSON field.
+Schemas: 
+backend/app/schemas/scenario_schemas.py
+Pydantic models for request/response validation.

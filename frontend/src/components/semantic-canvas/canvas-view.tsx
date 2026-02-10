@@ -189,7 +189,7 @@ function CanvasViewInner() {
         } else if (dockPosition === 'bottom') {
             setDockHeight(Math.max(150, window.innerHeight - e.clientY));
         }
-    }, [isResizing, dockPosition]);
+    }, [isResizing, dockPosition, sidebarCollapsed]);
 
     const stopResizing = React.useCallback(() => {
         setIsResizing(false);
@@ -821,6 +821,15 @@ function CanvasViewInner() {
                 const deltaX = node.position.x - startPos.x;
                 const deltaY = node.position.y - startPos.y;
 
+                // 0. Ignore Micro-Moves (Fix for Click vs Drag)
+                // If the move is tiny (likely a shaky click), abort the drag logic.
+                // This prevents clicks on toolbar buttons from triggering domain assignments/layout.
+                if (Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) {
+                    dragStartPosRef.current = null;
+                    setIsDraggingNode(false);
+                    return;
+                }
+
                 let nodesToProcess: { id: string; x: number; y: number }[] = [];
 
                 // 1. Identify Items & Calculate New Positions
@@ -872,7 +881,7 @@ function CanvasViewInner() {
                         console.log("[CanvasView] Debug Drop: Available Zones", availableZones);
 
                         if (domain && availableZones.length > 0) {
-                            shouldIconify = true; // Legacy behavior: iconify if domain has zones? Or only if configured.
+                            // shouldIconify = true; // REMOVED: Aggressive default
 
                             // Calculate Hit (Center of Item relative to Domain)
                             const thing = things.find(t => t.id === n.id);
@@ -929,6 +938,7 @@ function CanvasViewInner() {
 
                             if (hitZone) {
                                 dropZoneId = hitZone.id;
+                                shouldIconify = true; // Only iconify if we actually HIT a zone
                                 console.log(`[CanvasView] Hit Drop Zone: ${dropZoneId}`);
                                 // Trigger visual feedback immediately
                                 useCanvasStore.getState().flashDropZone(dropZoneId);
@@ -955,9 +965,19 @@ function CanvasViewInner() {
                 await updateThings(updates);
 
                 // 4. Trigger Layout Engine for affected domains
-                const affectedDomainIds = new Set(updates.map(u => u.updates.domain_id).filter(Boolean));
-                affectedDomainIds.forEach(domainId => {
-                    if (domainId) triggerZoneLayout(domainId);
+                // OPTIMIZED: Only trigger layout if we dropped INTO a zone or changed domains.
+                // Avoids "snap" when moving normally within a domain.
+                const domainsToLayout = new Set<string>();
+
+                updates.forEach(u => {
+                    // If we have a drop zone hit, definitely layout
+                    if (u.transientExtras?.drop_zone_id) {
+                        if (u.updates.domain_id) domainsToLayout.add(u.updates.domain_id);
+                    }
+                });
+
+                domainsToLayout.forEach(domainId => {
+                    triggerZoneLayout(domainId);
                 });
 
                 // =============================================================================

@@ -517,13 +517,132 @@ function WorkflowPopup({ children, title, description }: { children: React.React
             </DialogTrigger>
             <DialogContent className="w-[94vw] sm:max-w-[94vw] h-[90vh] sm:max-h-[90vh] flex flex-col p-8 m-0 rounded-xl">
                 <DialogHeader className="pb-4 border-b">
-                    <DialogTitle className="text-xl flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-primary" /> {title}
-                    </DialogTitle>
-                    {description && <DialogDescription>{description}</DialogDescription>}
+                    <div className="flex items-center justify-between">
+                        <DialogTitle className="text-xl flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-primary" /> {title}
+                        </DialogTitle>
+                        <VariablesHelpDialog />
+                    </div>
+                    {description && <DialogDescription className="mt-1">{description}</DialogDescription>}
                 </DialogHeader>
                 <div className="flex-1 overflow-y-auto py-4 pr-2">
                     {children}
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+
+function VariablesHelpDialog() {
+    return (
+        <Dialog>
+            <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary" title="Variable Reference">
+                    <span className="text-xs font-bold rounded-full border w-4 h-4 flex items-center justify-center">?</span>
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Hash className="w-5 h-5 text-primary" /> Variable Reference
+                    </DialogTitle>
+                    <DialogDescription>
+                        Use these variables in input fields to dynamically reference content from the automation context.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-6 pt-2">
+                    {/* Trigger Context */}
+                    <section className="space-y-2">
+                        <h4 className="text-sm font-bold flex items-center gap-2 border-b pb-1">
+                            <Target className="w-4 h-4" /> Trigger Context
+                            <span className="text-xs font-normal text-muted-foreground ml-auto">Available on all steps</span>
+                        </h4>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ thing_id }}"}</code>
+                                <span className="text-muted-foreground">ID of the item that triggered the automation</span>
+                            </div>
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ thing_name }}"}</code>
+                                <span className="text-muted-foreground">Title/Name of the item</span>
+                            </div>
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ thing_content }}"}</code>
+                                <span className="text-muted-foreground">Full content (text/JSON) of the item</span>
+                            </div>
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ thing_type }}"}</code>
+                                <span className="text-muted-foreground">Type (e.g. text, image, document)</span>
+                            </div>
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ drop_zone_id }}"}</code>
+                                <span className="text-muted-foreground">ID of the drop zone (if dropped)</span>
+                            </div>
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ source_domain_id }}"}</code>
+                                <span className="text-muted-foreground">Domain where the event started</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* Query Results */}
+                    <section className="space-y-2">
+                        <h4 className="text-sm font-bold flex items-center gap-2 border-b pb-1">
+                            <List className="w-4 h-4" /> Query Results
+                            <span className="text-xs font-normal text-muted-foreground ml-auto">After 'Query Domain Things'</span>
+                        </h4>
+                        <div className="grid grid-cols-1 gap-2 text-xs">
+                            <div className="grid grid-cols-[180px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ query_results.things }}"}</code>
+                                <span className="text-muted-foreground">List of found item objects</span>
+                            </div>
+                            <div className="grid grid-cols-[180px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ query_results.thing_ids }}"}</code>
+                                <span className="text-muted-foreground">List of IDs of all found items (useful for Batch Link)</span>
+                            </div>
+                            <div className="grid grid-cols-[180px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ query_results.combined_content }}"}</code>
+                                <span className="text-muted-foreground">Concatenated content of all found items (great for LLM context)</span>
+                            </div>
+                            <div className="grid grid-cols-[180px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ query_results.count }}"}</code>
+                                <span className="text-muted-foreground">Number of items found</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* Loop Variables */}
+                    <section className="space-y-2">
+                        <h4 className="text-sm font-bold flex items-center gap-2 border-b pb-1">
+                            <Repeat className="w-4 h-4" /> Loop Variables
+                            <span className="text-xs font-normal text-muted-foreground ml-auto">Inside 'For Each' Loop</span>
+                        </h4>
+                        <div className="grid grid-cols-1 gap-2 text-xs">
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ item }}"}</code>
+                                <span className="text-muted-foreground">The current item ID (or object) in the loop</span>
+                            </div>
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{"{{ index }}"}</code>
+                                <span className="text-muted-foreground">Current iteration index (0-based)</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    {/* Special */}
+                    <section className="space-y-2">
+                        <h4 className="text-sm font-bold flex items-center gap-2 border-b pb-1">
+                            <Sparkles className="w-4 h-4" /> Special References
+                        </h4>
+                        <div className="grid grid-cols-1 gap-2 text-xs">
+                            <div className="grid grid-cols-[140px_1fr] items-baseline gap-2">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-primary">{`{{ domain:ID }}`}</code>
+                                <span className="text-muted-foreground">Directly reference a Domain by its ID</span>
+                            </div>
+                        </div>
+                    </section>
                 </div>
             </DialogContent>
         </Dialog>
@@ -600,16 +719,19 @@ function WorkflowBuilder({
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                         <Zap className="w-3 h-3 text-primary" /> Step Sequence
                     </span>
-                    <WorkflowPopup title="Automation Workflow Editor" description="A larger space to build complex multi-step and conditional automations.">
-                        <WorkflowBuilder
-                            steps={steps}
-                            onChange={onChange}
-                            domains={domains}
-                            linkTypes={linkTypes}
-                            selectedModel={selectedModel}
-                            canvases={canvases}
-                        />
-                    </WorkflowPopup>
+                    <div className="flex items-center gap-1">
+                        <VariablesHelpDialog />
+                        <WorkflowPopup title="Automation Workflow Editor" description="A larger space to build complex multi-step and conditional automations.">
+                            <WorkflowBuilder
+                                steps={steps}
+                                onChange={onChange}
+                                domains={domains}
+                                linkTypes={linkTypes}
+                                selectedModel={selectedModel}
+                                canvases={canvases}
+                            />
+                        </WorkflowPopup>
+                    </div>
                 </div>
             )}
 

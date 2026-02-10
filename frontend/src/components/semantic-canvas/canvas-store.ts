@@ -249,6 +249,21 @@ export interface CustomLinkType {
 /**
  * Scenario Configuration (matches Backend Model)
  */
+
+export interface ToolbarTool {
+    id: string;
+    label: string;
+    icon: string;
+    prompt: string;
+    location: "main" | "selection";
+}
+
+export interface ToolbarConfig {
+    keep_standard_tools: boolean;
+    llm_model?: string;
+    tools: ToolbarTool[];
+}
+
 export interface Scenario {
     id: string;
     name: string;
@@ -265,6 +280,7 @@ export interface Scenario {
             toolbox_macros?: any[];
             sidebar_right?: any;
             labels?: Record<string, string>; // e.g., "Things" -> "Candidates"
+            toolbar_config?: ToolbarConfig;
         };
 
         // Structured Definitions

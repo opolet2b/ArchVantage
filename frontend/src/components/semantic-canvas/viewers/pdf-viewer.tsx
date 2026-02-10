@@ -272,8 +272,13 @@ export function PDFViewer({
         let base64Content = "";
         try {
             // Target the PDF page canvas specifically. react-pdf adds this class.
-            const canvas = (pageContainerRef.current.querySelector("canvas.react-pdf__Page__canvas") ||
-                pageContainerRef.current.querySelector("canvas")) as HTMLCanvasElement | null;
+            // Target the PDF page canvas specifically.
+            // Try specific class first, then generic tag.
+            let canvas = pageContainerRef.current.querySelector("canvas.react-pdf__Page__canvas") as HTMLCanvasElement | null;
+            if (!canvas) {
+                const canvases = pageContainerRef.current.getElementsByTagName("canvas");
+                if (canvases.length > 0) canvas = canvases[0];
+            }
 
             if (canvas) {
                 // Create a temporary canvas to draw the crop
@@ -300,7 +305,7 @@ export function PDFViewer({
                     base64Content = tempCanvas.toDataURL("image/jpeg");
                 }
             } else {
-                console.warn("[PDFViewer] No canvas found for capture via querySelector");
+                console.warn("[PDFViewer] No canvas found for capture. DOM content:", pageContainerRef.current.innerHTML.slice(0, 200));
             }
         } catch (err) {
             console.error("Failed to crop PDF region:", err);

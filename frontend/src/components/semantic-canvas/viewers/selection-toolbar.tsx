@@ -17,7 +17,12 @@ import {
     ListChecks,
     X,
     Loader2,
+    Scan, // Add Scan icon for Transclusion
+    Copy,
+    Link,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
+import { useCanvasStore } from "../canvas-store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,6 +56,8 @@ interface SelectionToolbarProps {
     isLoading?: boolean;
     /** Disable visual highlighting (green frame) regardless of type */
     disableHighlight?: boolean;
+    /** Whether this toolbar is for the whole Thing (Toolbox) vs text selection (Green Toolbox) */
+    isThingContext?: boolean;
 }
 
 // =============================================================================
@@ -66,8 +73,25 @@ export function SelectionToolbar({
     onClose,
     isLoading = false,
     disableHighlight = false,
+    isThingContext = false,
 }: SelectionToolbarProps) {
     const toolbarRef = React.useRef<HTMLDivElement>(null);
+    const activeScenario = useCanvasStore((s) => s.activeScenario);
+    const toolbarConfig = activeScenario?.configuration?.ui_overrides?.toolbar_config;
+
+    const handleCustomTool = (tool: any) => {
+        // Pass to onAction or handle directly
+        // We'll use a special action type "custom" and pass the tool config as payload if needed
+        // But since onAction takes (action, fragment), we might need to extend types.
+        // For now, let's treat it as a "custom" action and maybe handle it upstream,
+        // OR just assume the onAction handler can handle arbitrary strings?
+        // The signature is LLMAction which is a specific union. 
+        // Let's cast it for now or assume onAction will be updated to handle it.
+        // Actually, let's just trigger it directly if possible? No, we need the "fragment" context.
+        // Let's force it.
+        // @ts-ignore
+        onAction("custom_tool", { ...fragment, tool_prompt: tool.prompt, tool_label: tool.label });
+    };
 
     // Adjust position to stay on screen
     const adjustedPosition = React.useMemo(() => {
@@ -78,6 +102,8 @@ export function SelectionToolbar({
 
         const padding = 10;
         let x = position.x;
+        // Adjusted adjustment: If it's Thing Context, usually we want it centered or above.
+        // Existing logic puts it above by 50px.
         let y = position.y - 50; // Above the selection
 
         // Ensure toolbar stays within viewport
@@ -134,6 +160,14 @@ export function SelectionToolbar({
                         : "border-border",
                     "animate-in fade-in-0 zoom-in-95 duration-150"
                 )}
+                onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }}
+                onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }}
                 style={{
                     left: adjustedPosition.x,
                     top: adjustedPosition.y,
@@ -146,65 +180,178 @@ export function SelectionToolbar({
                     </div>
                 ) : (
                     <>
-                        {/* Summarize */}
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => onAction("summarize", fragment)}
-                                >
-                                    <FileText className="h-4 w-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Summarize</TooltipContent>
-                        </Tooltip>
+                        {/* Standard Tools (Summarize, Explain, etc.) */}
+                        {/* Show if:
+                            1. It's Text Context (!isThingContext) - Default behavior
+                            2. It's Thing Context (Toolbox) AND "Keep Standard Tools" is enabled/default
+                        */}
+                        {(!isThingContext || (isThingContext && toolbarConfig?.keep_standard_tools !== false)) && (
+                            <>
+                                {/* Summarize */}
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0"
+                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onClick={() => onAction("summarize", fragment)}
+                                        >
+                                            <FileText className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Summarize</TooltipContent>
+                                </Tooltip>
 
-                        {/* Explain */}
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => onAction("explain", fragment)}
-                                >
-                                    <Lightbulb className="h-4 w-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Explain</TooltipContent>
-                        </Tooltip>
+                                {/* Explain */}
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0"
+                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onClick={() => onAction("explain", fragment)}
+                                        >
+                                            <Lightbulb className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Explain</TooltipContent>
+                                </Tooltip>
 
-                        {/* Extract Key Points */}
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => onAction("extract_points", fragment)}
-                                >
-                                    <ListChecks className="h-4 w-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Extract Key Points</TooltipContent>
-                        </Tooltip>
+                                {/* Extract Key Points */}
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0"
+                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onClick={() => onAction("extract_points", fragment)}
+                                        >
+                                            <ListChecks className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Extract Key Points</TooltipContent>
+                                </Tooltip>
 
-                        {/* Ask (custom prompt) */}
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0"
-                                    onClick={() => onAction("ask", fragment)}
-                                >
-                                    <MessageSquare className="h-4 w-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Ask about this...</TooltipContent>
-                        </Tooltip>
+                                {/* Ask (custom prompt) */}
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0"
+                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onClick={() => onAction("ask", fragment)}
+                                        >
+                                            <MessageSquare className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Ask about this...</TooltipContent>
+                                </Tooltip>
+                            </>
+                        )}
+
+                        {/* Custom Tools */}
+                        {(() => {
+                            // Determine which tool set to show based on context
+                            const targetLocation = isThingContext ? "main" : "selection";
+
+                            return toolbarConfig?.tools?.filter((t: any) => t.location === targetLocation).map((tool: any) => {
+                                // @ts-ignore
+                                const IconComp = LucideIcons[tool.icon] || LucideIcons.Sparkles;
+                                return (
+                                    <Tooltip key={tool.id}>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className={cn(
+                                                    "h-8 w-8 p-0 hover:bg-blue-50",
+                                                    isThingContext ? "text-indigo-600 hover:text-indigo-700" : "text-blue-600 hover:text-blue-700"
+                                                )}
+                                                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                onClick={() => handleCustomTool(tool)}
+                                            >
+                                                <IconComp className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>{tool.label}</TooltipContent>
+                                    </Tooltip>
+                                );
+                            });
+                        })()}
+
+
+                        {/* Transclude (Copy Reference) */}
+                        {/* Supported for Regions (have ID) AND Text/Cells (need persistence) */}
+                        {(fragment.type === "region" || fragment.type === "text" || fragment.type === "cell") && (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onClick={async () => {
+                                            let finalFragmentId = fragment.id;
+                                            const store = useCanvasStore.getState();
+
+                                            // If fragment has no ID (transient selection), persist it first
+                                            if (!finalFragmentId) {
+                                                const newId = crypto.randomUUID();
+                                                finalFragmentId = newId;
+                                                const newFragment = { ...fragment, id: newId };
+
+                                                // Persist to Thing's content
+                                                // We use a specific field 'saved_fragments' to avoid polluting main content
+                                                // Note: We need to fetch current thing to append.
+                                                // We can use the store action to update safely.
+                                                const thing = store.things.find(t => t.id === thingId);
+                                                if (thing) {
+                                                    const currentFragments = (thing.content as any).saved_fragments || [];
+                                                    await store.updateThing(thingId, {
+                                                        content: {
+                                                            ...thing.content,
+                                                            saved_fragments: [...currentFragments, newFragment]
+                                                        }
+                                                    });
+                                                }
+                                            }
+
+                                            if (finalFragmentId) {
+                                                // Use the standard format
+                                                const code = `{{node:${thingId}#${finalFragmentId}}}`;
+                                                navigator.clipboard.writeText(code);
+
+                                                // OPTIONAL: Also set the ghost ID?
+                                                // The user said "Check the transclude function of Things".
+                                                // ThingNode sets setTransclusionGhostId.
+                                                // However, ghost mode is for the WHOLE thing.
+                                                // For fragments, we usually just copy the reference.
+                                                // But maybe we should also set a "Fragment Ghost"?
+                                                // The current system might not support fragment ghosts.
+                                                // Let's stick to copying the reference but with the correct Icon.
+                                            }
+
+                                            // Close toolbar
+                                            onClose();
+                                        }}
+                                        title="Pick up to Transclude"
+                                    >
+                                        <Link className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Copy Transclusion</TooltipContent>
+                            </Tooltip>
+                        )}
 
                         {/* Divider */}
                         <div className="w-px h-5 bg-border mx-1" />
@@ -217,6 +364,8 @@ export function SelectionToolbar({
                                         variant="ghost"
                                         size="sm"
                                         className="h-8 w-8 p-0"
+                                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                         onClick={() => onLink(fragment)}
                                     >
                                         <Link2 className="h-4 w-4" />
@@ -233,6 +382,8 @@ export function SelectionToolbar({
                                     variant="ghost"
                                     size="sm"
                                     className="h-8 w-8 p-0 text-muted-foreground"
+                                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                     onClick={onClose}
                                 >
                                     <X className="h-4 w-4" />
@@ -243,6 +394,7 @@ export function SelectionToolbar({
                     </>
                 )}
             </div>
+
         </TooltipProvider>
     );
 }

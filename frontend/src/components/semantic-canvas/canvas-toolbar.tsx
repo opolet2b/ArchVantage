@@ -7,7 +7,8 @@
 "use client";
 
 import * as React from "react";
-import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, Bot, Sparkles, User, Layers } from "lucide-react";
+import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, Bot, Sparkles, User, Layers, Wand2 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import { useCanvasStore } from "./canvas-store";
 import { cn, API_URL } from "@/lib/utils";
 import { ScenarioSelector } from "./scenario-selector";
@@ -55,6 +56,8 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const selectedThingIds = useCanvasStore((s) => s.selectedThingIds);
     const selectedDomainIds = useCanvasStore((s) => s.selectedDomainIds);
     const canvasId = useCanvasStore((s) => s.canvasId);
+    const activeScenario = useCanvasStore((s) => s.activeScenario);
+    const toolbarConfig = activeScenario?.configuration?.ui_overrides?.toolbar_config;
     // Viewport moved to ZoomIndicator for performance
 
     // Actions
@@ -66,6 +69,14 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const deleteSelectedNodes = useCanvasStore((s) => s.deleteSelectedNodes);
     const refreshThings = useCanvasStore((s) => s.refreshThings);
     const updateCanvasSettings = useCanvasStore((s) => s.updateCanvasSettings);
+    // @ts-ignore
+    const showStandardTools = !toolbarConfig || toolbarConfig.keep_standard_tools !== false;
+
+    const handleCustomTool = (tool: any) => {
+        // useCanvasStore.getState().executeCustomTool(tool); // Pending Implementation 
+        // For now, just toast
+        toast({ title: "Custom Tool Clicked", description: `You clicked ${tool.label}` });
+    };
 
     const [models, setModels] = React.useState<ModelPreset[]>([]);
     const [isLoadingModels, setIsLoadingModels] = React.useState(true);
@@ -259,24 +270,30 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
             </div>
 
             <div className="flex items-center gap-1 border-l pl-4 ml-4 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-md">
-                <Button
-                    variant={selectionMode === "hand" ? "secondary" : "ghost"}
-                    size="sm"
-                    className={cn("h-8 w-8 p-0", selectionMode === "hand" && "bg-white dark:bg-slate-700 shadow-sm")}
-                    onClick={() => setSelectionMode("hand")}
-                    title="Hand Tool (Pan) - Hold Shift to Select"
-                >
-                    <Hand className="h-4 w-4" />
-                </Button>
-                <Button
-                    variant={selectionMode === "selection" ? "secondary" : "ghost"}
-                    size="sm"
-                    className={cn("h-8 w-8 p-0", selectionMode === "selection" && "bg-white dark:bg-slate-700 shadow-sm")}
-                    onClick={() => setSelectionMode("selection")}
-                    title="Pointer Tool (Select) - Drag to Select"
-                >
-                    <MousePointer2 className="h-4 w-4" />
-                </Button>
+                {showStandardTools && (
+                    <>
+                        <Button
+                            variant={selectionMode === "hand" ? "secondary" : "ghost"}
+                            size="sm"
+                            className={cn("h-8 w-8 p-0", selectionMode === "hand" && "bg-white dark:bg-slate-700 shadow-sm")}
+                            onClick={() => setSelectionMode("hand")}
+                            title="Hand Tool (Pan) - Hold Shift to Select"
+                        >
+                            <Hand className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant={selectionMode === "selection" ? "secondary" : "ghost"}
+                            size="sm"
+                            className={cn("h-8 w-8 p-0", selectionMode === "selection" && "bg-white dark:bg-slate-700 shadow-sm")}
+                            onClick={() => setSelectionMode("selection")}
+                            title="Pointer Tool (Select) - Drag to Select"
+                        >
+                            <MousePointer2 className="h-4 w-4" />
+                        </Button>
+                    </>
+                )}
+
+                {/* Custom Main Tools moved to Node Selection Toolbar */}
             </div>
 
             <div className="flex items-center gap-1 border-l pl-4 ml-4">

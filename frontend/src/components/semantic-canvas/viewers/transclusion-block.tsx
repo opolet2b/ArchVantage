@@ -37,6 +37,7 @@ import {
 
 interface TransclusionBlockProps {
     nodeId: string;
+    fragmentId?: string; // Support for fragment transclusion
     /** @deprecated Use ancestorIds for better cycle detection */
     hostNodeId?: string;
     /** List of ancestor node IDs for recursive cycle detection */
@@ -51,6 +52,7 @@ interface TransclusionBlockProps {
 
 export function TransclusionBlock({
     nodeId,
+    fragmentId,
     hostNodeId,
     ancestorIds = [],
     onUnlink,
@@ -152,6 +154,25 @@ export function TransclusionBlock({
         );
     }
 
+    // Resolve specific fragment if requested (currently supporting Image Regions and Text/Table Fragments)
+    const targetFragment = React.useMemo(() => {
+        if (!fragmentId || !effectiveContent) return undefined;
+
+        // 1. Check Regions (Images)
+        if (effectiveContent.regions && Array.isArray(effectiveContent.regions)) {
+            const region = effectiveContent.regions.find((r: any) => r.id === fragmentId);
+            if (region) return region;
+        }
+
+        // 2. Check Saved Fragments (Text/Table)
+        if (effectiveContent.saved_fragments && Array.isArray(effectiveContent.saved_fragments)) {
+            const saved = effectiveContent.saved_fragments.find((f: any) => f.id === fragmentId);
+            if (saved) return saved;
+        }
+
+        return undefined;
+    }, [fragmentId, effectiveContent]);
+
     return (
         <span className={cn(
             "group my-4 border rounded-md overflow-hidden transition-all hover:shadow-sm block w-full transclusion-container",
@@ -175,6 +196,7 @@ export function TransclusionBlock({
                 <Icon className={cn("w-4 h-4", isLocked ? "text-amber-600" : "text-slate-500")} />
                 <span className={cn("text-xs font-semibold flex-1 truncate", isLocked ? "text-amber-800 dark:text-amber-200" : "text-slate-700 dark:text-slate-300")}>
                     {thingTitle}
+                    {fragmentId && <span className="ml-2 px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300 text-[10px]">Fragment</span>}
                     {isLocked && <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-600 font-bold">(Locked)</span>}
                 </span>
 
@@ -209,50 +231,154 @@ export function TransclusionBlock({
                 "p-3 text-sm text-slate-600 dark:text-slate-400 w-full block",
                 exportMode ? "h-auto overflow-visible" : "max-h-[400px] overflow-y-auto"
             )}>
-                {/* Image Detection: Type check OR Content check (url/path extension) */}
-                {(thingType === "image" ||
-                    (typeof effectiveContent?.file_path === 'string' && effectiveContent.file_path.match(/\.(jpeg|jpg|png|gif|webp|svg)$/i)) ||
-                    (typeof effectiveContent?.url === 'string' && effectiveContent.url.match(/\.(jpeg|jpg|png|gif|webp|svg)$/i))
-                ) ? (
-                    <span className="h-[200px] w-full relative block">
-                        <ImageViewer
-                            src={effectiveContent.url || effectiveContent.file_path || (effectiveContent.image_asset_id ? `/api/v1/assets/${effectiveContent.image_asset_id}` : "")}
-                            alt={thingTitle}
-                            selectionEnabled={false}
-                            className="w-full h-full object-contain"
-                        />
-                    </span>
-                ) : (
-                    /* Check for Visualizer Output (Charts) */
-                    (effectiveContent?.visualizer_output?.visual_payload &&
+                {/* Content Rendering Logic */}
+                {(() => {
+                    // 1. Fragment Specific Rendering
+                    if (targetFragment) {
+                        // Region Fragment (Image/PDF Crop)
+                        if (targetFragment.type === "region") {
+                            // If we have base64 content (e.g. from PDF selection), display that directly
+                            if (targetFragment.content && targetFragment.content.startsWith("data:image")) {
+                                return (
+                                    <span className="h-[200px] w-full relative block">
+                                        <ImageViewer
+                                            src={targetFragment.content}
+                                            alt={`Fragment of ${thingTitle}`}
+                                            selectionEnabled={false}
+                                            className="w-full h-full object-contain"
+                                        />
+                                    </span>
+                                );
+                            }
+                            // Otherwise, it's likely a coordinate-based crop on the original image
+                            // We need to know the original source. 
+                            // Try to infer from thingType or Content.
+                            const imgSource = (effectiveContent.asset_id ? `/api/v1/assets/${effectiveContent.asset_id}` : "") || effectiveContent.url || effectiveContent.file_path || "";
+                            if (imgSource) {
+                                return (
+                                    <span className="h-[200px] w-full relative block">
+                                        <ImageViewer
+                                            src={imgSource}
+                                            alt={`Fragment of ${thingTitle}`}
+                                            selectionEnabled={false}
+                                            className="w-full h-full object-contain"
+                                            viewFragment={targetFragment}
+                                        />
+                                    </span>
+                                );
+                            }
+                        }
+
+                        // Cell Fragment (Spreadsheet/Table)
+                        if (targetFragment.type === "cell") {
+                            // Prioritize showing only the selected values
+                            const cellFrag = targetFragment as any;
+
+                            // If we have explicit values captured in the fragment, use them!
+                            // This ensures "What you select is what you see"
+                            if (cellFrag.values && Array.isArray(cellFrag.values) && cellFrag.values.length > 0) {
+                                return (
+                                    <span className={cn(
+                                        "w-full relative block transclusion-table-wrapper",
+                                        exportMode ? "h-auto border-none" : "h-auto border rounded overflow-hidden max-h-[300px]"
+                                    )}>
+                                        <SpreadsheetViewer
+                                            content="" // No content needed if initialData is provided
+                                            initialData={cellFrag.values}
+                                            selectionEnabled={false}
+                                            className="w-full h-full bg-white dark:bg-slate-900"
+                                            exportMode={exportMode}
+                                        />
+                                    </span>
+                                );
+                            }
+
+                            // Fallback: If no values captured, try to slice from main content (if available)
+                            // But usually values should be there if captured correctly.
+                            // If fallback to full sheet, stick to previous logic.
+                            const sheetContent = typeof effectiveContent === "string" ? effectiveContent :
+                                (effectiveContent.csv || effectiveContent.markdown || effectiveContent.url || effectiveContent.file_path || effectiveContent.content || "");
+
+                            if (sheetContent) {
+                                return (
+                                    <span className={cn(
+                                        "w-full relative block transclusion-table-wrapper",
+                                        exportMode ? "h-auto border-none" : "h-[300px] border rounded overflow-hidden"
+                                    )}>
+                                        <SpreadsheetViewer
+                                            content={sheetContent}
+                                            initialData={effectiveContent.data as any[][]}
+                                            selectionEnabled={false}
+                                            className="w-full h-full bg-white dark:bg-slate-900"
+                                            exportMode={exportMode}
+                                            highlight={{ range: cellFrag.range }} // Fallback to highlight if we can't slice
+                                        />
+                                    </span>
+                                );
+                            }
+                        }
+
+                        // Fallback for Text/Other Fragments
+                        return (
+                            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 dark:border-yellow-600">
+                                <div className="italic text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-serif">
+                                    "{targetFragment.content || (targetFragment as any).text}"
+                                </div>
+                                <div className="text-xs text-slate-400 mt-2 text-right">— Selection from {thingTitle}</div>
+                            </div>
+                        );
+                    }
+
+                    // 2. Full Node Rendering (No Fragment)
+
+                    // Image Check
+                    if (thingType === "image" ||
+                        (typeof effectiveContent?.file_path === 'string' && effectiveContent.file_path.match(/\.(jpeg|jpg|png|gif|webp|svg)$/i)) ||
+                        (typeof effectiveContent?.url === 'string' && effectiveContent.url.match(/\.(jpeg|jpg|png|gif|webp|svg)$/i))
+                    ) {
+                        return (
+                            <span className="h-[200px] w-full relative block">
+                                <ImageViewer
+                                    src={(effectiveContent.asset_id ? `/api/v1/assets/${effectiveContent.asset_id}` : "") || effectiveContent.url || effectiveContent.file_path || ""}
+                                    alt={thingTitle}
+                                    selectionEnabled={false}
+                                    className="w-full h-full object-contain"
+                                />
+                            </span>
+                        );
+                    }
+
+                    // Visualizer/Chart Check
+                    if (effectiveContent?.visualizer_output?.visual_payload &&
                         (effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'chart' ||
                             effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase().includes('chart') ||
                             effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'react_component')
-                    ) ? (
-                        <span className={cn(
-                            "w-full relative block p-2",
-                            // Fix: Ensure charts have height during export (don't collapse with h-auto)
-                            // We use h-auto ONLY for text-like content flow, but Visuals need a frame.
-                            // exportMode ? "h-auto border-none" : "h-[300px] border rounded overflow-hidden bg-white dark:bg-slate-900"
-                            exportMode ? "h-[300px] border-none" : "h-[300px] border rounded overflow-hidden bg-white dark:bg-slate-900"
-                        )}>
-                            <ChartViewer
-                                type={(effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'chart' ||
-                                    effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'react_component')
-                                    ? 'linechart'
-                                    : effectiveContent.visualizer_output.visual_payload.structure_type
-                                }
-                                data={effectiveContent.visualizer_output.visual_payload.content}
-                                exportMode={exportMode}
-                                isAnimationActive={false}
-                            />
-                        </span>
-                    ) : (
-                        /* Table Detection: Type check OR Title check OR Content check (csv/data existence) */
-                        (thingType === "table" ||
-                            thingTitle.toLowerCase().match(/\.(xlsx?|csv)$/) ||
-                            (effectiveContent && (effectiveContent.csv || effectiveContent.data || Array.isArray(effectiveContent)))
-                        ) ? (
+                    ) {
+                        return (
+                            <span className={cn(
+                                "w-full relative block p-2",
+                                exportMode ? "h-[300px] border-none" : "h-[300px] border rounded overflow-hidden bg-white dark:bg-slate-900"
+                            )}>
+                                <ChartViewer
+                                    type={(effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'chart' ||
+                                        effectiveContent.visualizer_output.visual_payload.structure_type?.toLowerCase() === 'react_component')
+                                        ? 'linechart'
+                                        : effectiveContent.visualizer_output.visual_payload.structure_type
+                                    }
+                                    data={effectiveContent.visualizer_output.visual_payload.content}
+                                    exportMode={exportMode}
+                                    isAnimationActive={false}
+                                />
+                            </span>
+                        );
+                    }
+
+                    // Table Check
+                    if (thingType === "table" ||
+                        thingTitle.toLowerCase().match(/\.(xlsx?|csv)$/) ||
+                        (effectiveContent && (effectiveContent.csv || effectiveContent.data || Array.isArray(effectiveContent)))
+                    ) {
+                        return (
                             <span className={cn(
                                 "w-full relative block transclusion-table-wrapper",
                                 exportMode ? "h-auto border-none" : "h-[300px] border rounded overflow-hidden"
@@ -268,33 +394,40 @@ export function TransclusionBlock({
                                     exportMode={exportMode}
                                 />
                             </span>
-                        ) : (
-                            /* PDF Detection */
-                            (thingTitle.toLowerCase().endsWith(".pdf") || (effectiveContent?.file_path || effectiveContent?.url || "").toLowerCase().endsWith(".pdf")) ? (
-                                <span className={cn(
-                                    "w-full relative block",
-                                    exportMode ? "h-auto border-none" : "h-[400px] border rounded overflow-hidden"
-                                )}>
-                                    <PDFViewer
-                                        src={effectiveContent.file_path || effectiveContent.url || ""}
-                                        className="w-full h-full"
-                                        selectionEnabled={false}
-                                        exportMode={exportMode}
-                                    />
-                                </span>
-                            ) : (
-                                <MarkdownViewer
-                                    content={getContentPreview}
+                        );
+                    }
+
+                    // PDF Check
+                    if (thingTitle.toLowerCase().endsWith(".pdf") || (effectiveContent?.file_path || effectiveContent?.url || "").toLowerCase().endsWith(".pdf")) {
+                        return (
+                            <span className={cn(
+                                "w-full relative block",
+                                exportMode ? "h-auto border-none" : "h-[400px] border rounded overflow-hidden"
+                            )}>
+                                <PDFViewer
+                                    src={effectiveContent.file_path || effectiveContent.url || ""}
+                                    className="w-full h-full"
                                     selectionEnabled={false}
-                                    className="prose-xs"
-                                    ancestorIds={[...ancestorIds, nodeId]}
-                                    components={{
-                                        p: ({ children }) => <span className="block mb-2">{children}</span>
-                                    }}
+                                    exportMode={exportMode}
                                 />
-                            )
-                        )))
-                }
+                            </span>
+                        );
+                    }
+
+                    // Default Markdown/Text
+                    return (
+                        <MarkdownViewer
+                            content={getContentPreview}
+                            selectionEnabled={false}
+                            className="prose-xs"
+                            ancestorIds={[...ancestorIds, nodeId]}
+                            components={{
+                                p: ({ children }) => <span className="block mb-2">{children}</span>
+                            }}
+                        />
+                    );
+
+                })()}
             </span>
 
             {/* Footer / Metadata */}

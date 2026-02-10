@@ -133,8 +133,12 @@ export function MarkdownViewer({
         processed = processed.replace(/\(Evidence:\s*([a-f0-9-]+)\)/gi, "[Evidence: $1](#evidence-$1)");
 
         // 2. Transclusions: Replace {{node:<uuid>}} with [Transclusion:<uuid>](transclude:<uuid>)
-        const transclusionRegex = /\{\{node:\s*([a-f0-9-]+)\s*\}\}/gi;
-        processed = processed.replace(transclusionRegex, "[Transclusion: $1](transclude:$1)");
+        // Updated to support optional fragment ID: {{node:<uuid>#<fragmentId>}}
+        const transclusionRegex = /\{\{node:\s*([a-f0-9-]+)(?:#([a-zA-Z0-9_-]+))?\s*\}\}/gi;
+        processed = processed.replace(transclusionRegex, (match, uuid, fragmentId) => {
+            const suffix = fragmentId ? `#${fragmentId}` : "";
+            return `[Transclusion: ${uuid}${suffix}](transclude:${uuid}${suffix})`;
+        });
 
         // 3. Page Breaks: Replace ---page-break--- with a hidden marker element
         processed = processed.replace(/^---page-break---$/gm, "[[PDF_PAGE_BREAK]]");
@@ -245,7 +249,10 @@ export function MarkdownViewer({
 
                         // 3. Transclusions
                         if (href?.startsWith("transclude:")) {
-                            const nodeId = href.replace("transclude:", "");
+                            const raw = href.replace("transclude:", "");
+                            // Split on first '#', but handles cases where there's no fragment
+                            // Note: raw might be "uuid" or "uuid#frag"
+                            const [nodeId, fragmentId] = raw.includes("#") ? raw.split("#") : [raw, undefined];
 
                             // Retrieve locking state
                             const state = transclusionStates?.[nodeId];
@@ -264,6 +271,7 @@ export function MarkdownViewer({
                             return (
                                 <TransclusionBlock
                                     nodeId={nodeId}
+                                    fragmentId={fragmentId}
                                     ancestorIds={ancestorIds}
                                     isLocked={isLocked}
                                     snapshotContent={snapshot}

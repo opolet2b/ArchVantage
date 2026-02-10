@@ -307,6 +307,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // Processing State for Visual Feedback
     const processingThings = useCanvasStore((state) => state.processingThings);
     const processingMessage = processingThings?.[thing.id];
+    const activeScenario = useCanvasStore((state) => state.activeScenario);
 
     const [selected, setSelected] = React.useState(isSelected);
 
@@ -443,7 +444,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     };
 
     const handleInitSync = async () => {
-        if (!thing.content?.asset_id) return;
+        if (!thing.content?.asset_id && !thing.technical_metadata?.source_path && thing.content?.source_type !== 'image_folder') return;
         setSyncDialogOpen(true);
         setSyncStatus('checking');
         setSyncCheckResult(null);
@@ -2287,7 +2288,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             <div
                 data-thing-id={thing.id}
                 className={cn(
-                    "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md relative group",
+                    "rounded-lg border-2 bg-white dark:bg-slate-900 shadow-md relative group z-[1]",
                     // Ghost Node Styling
                     isGhost ? "opacity-70 border-dashed border-slate-400 bg-slate-50/50" : (isSelected || selected)
                         ? `${colorTheme.borderSelected} ring-2 ring-offset-1 shadow-lg`
@@ -2327,6 +2328,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             onLink={handleLink}
                             onClose={() => setToolbarPosition(null)} // Or custom clear
                             isLoading={isLoading}
+                            isThingContext={true}
                             disableHighlight={true}
                         />,
                         document.body
@@ -2388,7 +2390,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     {/* Action Bar - Dedicated Interaction Area */}
                     {/* Only show in full view (not summary/domain) */}
                     {zoomLevel !== "summary" && (
-                        <div className="flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 overflow-x-auto no-scrollbar">
+                        <div className="flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 overflow-x-auto no-scrollbar z-[20] pointer-events-auto">
 
                             {/* Link/Ghost Mode Button */}
                             <button
@@ -2402,6 +2404,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         duration: 3000
                                     });
                                 }}
+                                onPointerDown={(e) => e.stopPropagation()}
                                 className={cn(
                                     "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
                                     useCanvasStore.getState().transclusionGhostId === thing.id ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30" : "text-slate-400 hover:text-purple-400"
@@ -2418,6 +2421,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         e.stopPropagation();
                                         setIsThinkingVisible(!isThinkingVisible);
                                     }}
+                                    onPointerDown={undefined}
                                     className={cn(
                                         "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
                                         isThinkingVisible ? "text-amber-500 bg-amber-50 dark:bg-amber-900/20" : "text-slate-400 hover:text-amber-500"
@@ -2435,6 +2439,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         e.stopPropagation();
                                         if (onOpenConversation) onOpenConversation(thing.id);
                                     }}
+                                    onPointerDown={undefined}
                                     className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded mr-1"
                                     title="Open in full chat"
                                 >
@@ -2451,6 +2456,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         e.stopPropagation();
                                         handleOpenExecutionPlan();
                                     }}
+                                    onPointerDown={undefined}
                                 >
                                     <Bot className="h-4 w-4 text-orange-500" />
                                 </div>
@@ -2488,6 +2494,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                             handleOpenPreview();
                                         }
                                     }}
+                                    onPointerDown={undefined}
                                 >
                                     {localStatus === "pending" || localStatus === "processing" ? (
                                         <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
@@ -2509,6 +2516,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                                     e.stopPropagation();
                                                     startEditing();
                                                 }}
+                                                onPointerDown={undefined}
                                                 className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors flex-shrink-0"
                                                 title="Open Editor"
                                             >
@@ -2519,6 +2527,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                                     e.stopPropagation();
                                                     setEditingThingId(null);
                                                 }}
+                                                onPointerDown={undefined}
                                                 className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors flex-shrink-0"
                                                 title="Cancel Editing"
                                             >
@@ -2531,6 +2540,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                                 e.stopPropagation();
                                                 startEditing();
                                             }}
+                                            onPointerDown={undefined}
                                             className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
                                             title="Edit Content"
                                         >
@@ -2552,6 +2562,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                                     navigator.clipboard.writeText(textToCopy);
                                 }}
+                                onPointerDown={(e) => e.stopPropagation()}
                                 className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
                                 title="Copy content to clipboard"
                             >
@@ -2562,6 +2573,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             {thing.type === "text" && (
                                 <button
                                     onClick={handleRefreshNodes}
+                                    onPointerDown={undefined}
                                     className={cn(
                                         "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
                                         isRefreshingNodes && "animate-spin text-blue-500"
@@ -2572,13 +2584,14 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 </button>
                             )}
 
-                            {/* Sync Button (if asset exists) */}
-                            {thing.content?.asset_id && (
+                            {/* Sync Button (if asset exists, has source path, or is an image folder slideshow) */}
+                            {(thing.content?.asset_id || thing.technical_metadata?.source_path || thing.content?.source_type === 'image_folder') && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         handleInitSync();
                                     }}
+                                    onPointerDown={undefined}
                                     className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 relative group"
                                     title="Sync with source file"
                                 >
@@ -2602,6 +2615,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                             e.stopPropagation();
                                             handleVectorize();
                                         }}
+                                        onPointerDown={undefined}
                                         className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0"
                                         title="Vectorize (Enable RAG)"
                                     >
@@ -2615,6 +2629,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                     e.stopPropagation();
                                     toggleInspector(thing.id, 'thing');
                                 }}
+                                onPointerDown={(e) => e.stopPropagation()}
                                 className="p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 text-slate-400 hover:text-blue-500"
                                 title="Open Inspector (Metadata & Properties)"
                             >
@@ -2626,6 +2641,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                     e.stopPropagation();
                                     toggleNodeLinks(thing.id);
                                 }}
+                                onPointerDown={(e) => e.stopPropagation()}
                                 className={cn(
                                     "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
                                     linksHidden ? "text-slate-400" : "text-slate-400 hover:text-blue-500"
