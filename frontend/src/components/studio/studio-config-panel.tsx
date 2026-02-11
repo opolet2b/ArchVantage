@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Settings2, Sparkles } from "lucide-react";
 import { PipelineStep } from "./studio-canvas";
@@ -465,6 +466,22 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                                 className="min-h-[100px] border-l-2 border-l-primary"
                             />
                             <p className="text-[10px] text-muted-foreground">The primary prompt for the agent. Other fields will provide context for the suggestion.</p>
+                        </div>
+
+                        {/* Enable Citations Switch */}
+                        <div className="flex items-center justify-between pt-3 border-t">
+                            <div className="flex flex-col gap-0.5">
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-xs font-bold text-muted-foreground uppercase">Enable Citations</Label>
+                                    <HelpTooltip contentPath="smart-analysis/enable_citations" />
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">Attach source references to analysis results.</p>
+                            </div>
+                            <Switch
+                                checked={selectedStep.config?.enableCitations ?? false}
+                                onCheckedChange={(checked) => handleUpdateConfig("enableCitations", checked)}
+                                className="data-[state=checked]:bg-purple-600"
+                            />
                         </div>
                     </div>
                 )}

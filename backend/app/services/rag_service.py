@@ -223,6 +223,46 @@ class RAGService:
                 print("DEBUG: ChromaDB Client successfully initialized.")
             except Exception as e:
                 print(f"CRITICAL ERROR: Failed to initialize ChromaDB: {e}")
+                
+                # Attempt to recover from corruption
+                if "tenant" in str(e).lower() or "sqlite" in str(e).lower() or "database" in str(e).lower():
+                    print("[RAGService] Detected potential DB corruption. Attempting to recover...")
+                    try:
+                        import shutil
+                        import time
+                        
+                        timestamp = int(time.time())
+                        backup_path = f"{self.persist_directory}_corrupt_{timestamp}"
+                        
+                        if os.path.exists(self.persist_directory):
+                            print(f"[RAGService] Renaming corrupt DB to {backup_path}")
+                            try:
+                                os.rename(self.persist_directory, backup_path)
+                            except OSError:
+                                print("[RAGService] Rename failed (likely locked). Attempting detailed cleanup...")
+                                # Last ditch: try to ignore it and init client with new path? No, path is fixed.
+                                # Just try to proceed, maybe it was a transient lock?
+                                pass
+                                
+                        # Retry initialization completely
+                        print("[RAGService] Retrying initialization with fresh DB...")
+                        self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
+                        self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
+                        print("[RAGService] Recovery successful. Fresh DB initialized.")
+                        
+                        # Set up Vector Store and Storage Context immediately to ensure consistent state
+                        self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
+                        self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+                        
+                        # Re-create index immediately
+                        self.index = VectorStoreIndex.from_documents([], storage_context=self.storage_context)
+                        self._initialized = True
+                        return
+
+                    except Exception as recovery_err:
+                        print(f"CRITICAL: Auto-recovery failed: {recovery_err}")
+                        self.init_error = f"ChromaDB Recovery Failed: {recovery_err}"
+                
                 import traceback
                 traceback.print_exc()
                 self.chroma_client = None

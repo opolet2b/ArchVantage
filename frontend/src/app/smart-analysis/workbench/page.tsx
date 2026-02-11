@@ -22,7 +22,7 @@ const FIXED_STEPS: PipelineStep[] = [
     { id: "step_extractor", moduleId: "mod_extractor", type: "extractor", name: "Data Extractor", config: {}, description: "Extract specific sections or data points." },
     { id: "step_agent", moduleId: "mod_agent", type: "agent", name: "Analyzer", config: {}, description: "Analyze content using a Persona and Framework." },
     { id: "step_visualizer", moduleId: "mod_visualizer", type: "visualizer", name: "Visualizer", config: {}, description: "Generate structural visualizations (Graphs, Tables)." },
-    { id: "step_formatter", moduleId: "mod_formatter", type: "formatter", name: "Formater", config: {}, description: "Format the analysis results (JSON, Markdown)." },
+    { id: "step_formatter", moduleId: "mod_formatter", type: "formatter", name: "Formatter", config: {}, description: "Format the analysis results (JSON, Markdown)." },
 ];
 
 export default function StudioPage() {
@@ -136,6 +136,7 @@ export default function StudioPage() {
                                 const fixedMatch = FIXED_STEPS.find(fs => fs.type === s.type);
                                 return {
                                     ...s,
+                                    name: fixedMatch?.name || s.name,
                                     description: s.description || fixedMatch?.description || ""
                                 };
                             });

@@ -108,7 +108,7 @@ export function MaintenanceTab() {
 
                     {(result.files.length > 0 || result.stats.embeddings > 0) ? (
                         <div className="flex flex-wrap items-center justify-end gap-2">
-                            {result.stats.embeddings > 1000 && (
+                            {result.stats.embeddings > 0 && (
                                 <Button
                                     variant="outline"
                                     size="sm"

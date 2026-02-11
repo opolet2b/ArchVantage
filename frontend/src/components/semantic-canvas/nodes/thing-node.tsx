@@ -10,7 +10,7 @@
 "use client";
 
 import * as React from "react";
-import { Handle, Position, NodeProps, NodeResizer } from "reactflow";
+import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from "reactflow";
 import {
     MessageSquare,
     FileText,
@@ -264,6 +264,45 @@ interface ThingNodeData {
  * Prevents unnecessary re-renders when canvas state changes but this
  * specific node's props remain the same.
  */
+
+// Helper component for citations
+const CitationList = ({ citations, onSelectThing, onHighlight }: {
+    citations?: any[];
+    onSelectThing: (id: string) => void;
+    onHighlight: (matches: any) => void;
+}) => {
+    if (!citations || citations.length === 0) return null;
+    const { fitView } = useReactFlow();
+
+    return (
+        <div className="flex-none pt-2 border-t border-slate-200 dark:border-slate-700 px-2 pb-2 bg-slate-50 dark:bg-slate-900 z-10">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                <BrainCircuit className="w-3 h-3 opacity-70" />
+                Sources
+            </p>
+            <div className="flex flex-wrap gap-2">
+                {citations.map((cit, i) => (
+                    <div
+                        key={i}
+                        className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-200 dark:hover:border-blue-800 transition-colors shadow-sm pointer-events-auto"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault(); // Prevent text selection
+                            onHighlight(cit.matches || null);
+                            onSelectThing(cit.id);
+                            fitView({ nodes: [{ id: cit.id }], duration: 800, padding: 0.2 });
+                        }}
+                        title={cit.title}
+                    >
+                        <ExternalLink className="h-3 w-3 text-blue-500" />
+                        <span className="truncate max-w-[150px]">{cit.title}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNodeData>) {
     const { id, data, selected: isSelected } = props;
     const { toast } = useToast();
@@ -295,6 +334,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const updateThing = useCanvasStore((state) => state.updateThing);
     const deleteThing = useCanvasStore((state) => state.deleteThing);
     const selectThing = useCanvasStore((state) => state.selectThing);
+    const setHighlightTarget = useCanvasStore((state) => state.setHighlightTarget);
     const setContentSelection = useCanvasStore((state) => state.setContentSelection);
     const onToggleIconify = useCanvasStore((state) => state.toggleIconify);
     const onDelete = useCanvasStore((state) => state.deleteThing);
@@ -1660,6 +1700,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 )}
                             </SelectableContent>
                         </div>
+                        <CitationList
+                            citations={(thing.content as any).citations}
+                            onSelectThing={selectThing}
+                            onHighlight={setHighlightTarget}
+                        />
                     </div>
                 );
 
@@ -1752,17 +1797,26 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     }
                 }
 
-                // Markdown files
-                if (filename?.toLowerCase().endsWith(".md")) {
+                // Markdown files or Explicit Markdown Content (Smart Analysis)
+                if (filename?.toLowerCase().endsWith(".md") || content.format === 'markdown' || (textContent && !filename)) {
                     return (
-                        <SelectableContent thingId={thing.id}>
-                            <MarkdownViewer
-                                content={textContent || ""}
-                                className="max-h-[200px] overflow-y-auto"
-                                ancestorIds={[thing.id]}
-                                onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                        <div className="flex flex-col h-full">
+                            <div className="flex-1 min-h-0 overflow-y-auto">
+                                <SelectableContent thingId={thing.id}>
+                                    <MarkdownViewer
+                                        content={textContent || ""}
+                                        className="h-full flex-1"
+                                        ancestorIds={[thing.id]}
+                                        onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                    />
+                                </SelectableContent>
+                            </div>
+                            <CitationList
+                                citations={(thing.content as any).citations}
+                                onSelectThing={selectThing}
+                                onHighlight={setHighlightTarget}
                             />
-                        </SelectableContent>
+                        </div>
                     );
                 }
 
@@ -1793,15 +1847,23 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 // Word Documents (or others with extracted text)
                 if (content.text_content) {
                     return (
-                        <SelectableContent thingId={thing.id}>
-                            <MarkdownViewer
-                                content={content.text_content as string}
-                                className="h-full overflow-y-auto px-4"
-                                ancestorIds={[thing.id]}
-                                onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
-                                selectionEnabled={true}
+                        <div className="flex flex-col h-full">
+                            <div className="flex-1 min-h-0 overflow-y-auto">
+                                <SelectableContent thingId={thing.id}>
+                                    <MarkdownViewer
+                                        content={content.text_content as string}
+                                        className="h-full px-4 flex-1"
+                                        ancestorIds={[thing.id]}
+                                        onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                    />
+                                </SelectableContent>
+                            </div>
+                            <CitationList
+                                citations={(thing.content as any).citations}
+                                onSelectThing={selectThing}
+                                onHighlight={setHighlightTarget}
                             />
-                        </SelectableContent>
+                        </div>
                     );
                 }
 

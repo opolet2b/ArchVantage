@@ -1691,6 +1691,23 @@ class SmartTemplateService:
                             print(f"[SmartTemplate] Default Canvas Fallback failed: {e}")
 
                     break
+
+        # Extract enableCitations flag from agent step config
+        enable_citations = False
+        if template.pipeline_config:
+            for s in template.pipeline_config.get("steps", []):
+                if "agent" in s.get("type", "").lower():
+                    agent_config = s.get("config", {})
+                    enable_citations = agent_config.get(
+                        "enableCitations", False
+                    )
+                    print(
+                        f"[SmartTemplate-CIT] Enable Citations: "
+                        f"{enable_citations} (Step: {s.get('name')})"
+                    )
+                    break
+            if not enable_citations:
+                print("[SmartTemplate-CIT] Citations NOT enabled in config.")
              
         extractor_input = ExtractorInput(
             assets=assets,
@@ -2039,6 +2056,124 @@ class SmartTemplateService:
                         except Exception as e:
                             print(f"[SmartTemplate] Persist Error: {e}")
                     
+                    # --- BUILD CITATIONS (if enabled) ---
+                    # --- BUILD CITATIONS (Section-Based) ---
+                    citations = []
+                    if enable_citations and things:
+                        print(
+                            "[SmartTemplate] Building SECTION-BASED citations "
+                            f"for {len(things)} source things..."
+                        )
+                        try:
+                            from app.services.rag_service import rag_service
+                            import re
+
+                            # 1. Split document by headers (h1, h2, h3)
+                            # Regex captures the delimiter (header) so we can keep it
+                            parts = re.split(r'(^#{1,3} .*$)', final_document, flags=re.MULTILINE)
+                            print(f"[SmartTemplate-CIT] Document split into {len(parts)} parts.")
+                            
+                            refined_doc_parts = []
+                            unique_citation_ids = set() # To avoid duplicates in global list
+                            
+                            ready_things = [t for t in things if t.rag_status == "completed"]
+                            
+                            for i, part in enumerate(parts):
+                                if not part.strip():
+                                    if part: refined_doc_parts.append(part)
+                                    continue
+                                
+                                print(f"[SmartTemplate-CIT] Processing part {i}: '{part[:30]}...'")
+                                    
+                                # Check if it's a header - just append
+                                if re.match(r'^#{1,3} .*$', part.strip()):
+                                    refined_doc_parts.append(part)
+                                    continue
+                                    
+                                # Text block - Run RAG
+                                clean_text = part.strip()
+                                if len(clean_text) < 50: 
+                                    refined_doc_parts.append(part)
+                                    continue 
+                                    
+                                query_text = clean_text[:250].replace("\n", " ")
+                                chunk_citations_added = []
+                                
+                                for t in ready_things:
+                                    try:
+                                        # Strict filter for relevance per section
+                                        rag_results = rag_service.search(
+                                            query=query_text,
+                                            filters={"thing_id": t.id},
+                                            k=1, # Top match only
+                                            response_mode="simple"
+                                        )
+                                        
+                                        if rag_results:
+                                            r = rag_results[0]
+                                            score = r.get("score", 0)
+                                            print(f"[SmartTemplate-CIT] Section RAG Result: Score={score}, Text='{r.get('text', '')[:30]}...'")
+                                            
+                                            if score < 0.25: 
+                                                print(f"[SmartTemplate-CIT] Skipping result - Low Score ({score} < 0.25)")
+                                                continue # Skip low confidence
+                                            
+                                            # Inline Link: [Title](#evidence-UUID)
+                                            link_md = f" ([{t.title or 'Source'}](#evidence-{t.id}))"
+                                            chunk_citations_added.append(link_md)
+                                            
+                                            # Global List (Deduplicated)
+                                            # Use simple ID-based dedup for the footer list if we just want one entry per source
+                                            # BUT we want 'matches' to include this specific snippet? 
+                                            # Actually, for the footer, we usually just want the source listed once or with all matches.
+                                            # Let's aggregate matches.
+                                            
+                                            match_entry = {
+                                                "text": r.get("text", ""),
+                                                "score": score,
+                                                "page": r.get("metadata", {}).get("page_label"),
+                                                "bbox": r.get("metadata", {}).get("bbox"),
+                                            }
+                                            
+                                            # Check if we already have this Thing in global citations
+                                            existing_cit = next((c for c in citations if c["id"] == t.id), None)
+                                            if existing_cit:
+                                                # Avoid duplicate text matches in the same citation
+                                                if not any(m["text"] == match_entry["text"] for m in existing_cit["matches"]):
+                                                    existing_cit["matches"].append(match_entry)
+                                            else:
+                                                citations.append({
+                                                    "id": t.id,
+                                                    "title": t.title or "Source",
+                                                    "type": t.type.value,
+                                                    "matches": [match_entry],
+                                                })
+                                    except Exception:
+                                        pass
+                                
+                                # Append citations
+                                if chunk_citations_added:
+                                     part_stripped = part.rstrip() 
+                                     trailing_ws = part[len(part_stripped):]
+                                     links_str = "".join(chunk_citations_added)
+                                     refined_doc_parts.append(part_stripped + links_str + trailing_ws)
+                                else:
+                                     refined_doc_parts.append(part)
+
+                            # Reassemble document
+                            final_document = "".join(refined_doc_parts)
+                            print(f"[SmartTemplate] Reassembled document with citations. Length: {len(final_document)}")
+
+                        except Exception as cit_init_err:
+                            print(f"[SmartTemplate] Citation generation error: {cit_init_err}")
+                        
+                        yield {
+                            "type": "log",
+                            "content": (
+                                f"Generated {len(citations)} source citations with content links"
+                            ),
+                        }
+
                     # --- CREATE OUTPUT THING ---
                     new_thing = None
                     try:
@@ -2068,6 +2203,9 @@ class SmartTemplateService:
                                 "format": "markdown",
                                 "generated_from": template.name,
                                 "source_thing_id": source_thing.id if source_thing else None,
+                                "source_thing_id": source_thing.id if source_thing else None,
+                                "citations": citations,
+                                "citation_debug": f"Gen {len(citations)} citations", # Debug field
                                 "execution_plan": {
                                     "templateName": f"{template.name} - Deep Agent Plan",
                                     "nodes": execution_plan
@@ -3136,6 +3274,125 @@ class SmartTemplateService:
                                 thing_content["text"] = final_doc_content
                                 thing_content["markdown"] = final_doc_content
                                 thing_type = ThingType.TEXT # Ensure it's a text node for the document
+
+                            # --- BUILD CITATIONS (Standard Pipeline - Section-Based) ---
+                            std_citations = []
+                            if enable_citations and things:
+                                try:
+                                    from app.services.rag_service import rag_service
+                                    import re
+
+                                    # 1. Determine Content Source
+                                    # Use final_doc_content if available, else fallback to standard outputs
+                                    doc_source = (
+                                        final_doc_content or 
+                                        thing_content.get("text") or 
+                                        thing_content.get("markdown") or 
+                                        thing_content.get("agent_analysis") or
+                                        ""
+                                    )
+                                    
+                                    if not doc_source:
+                                        print("[SmartTemplate-CIT] WARNING: No content found for citation generation.")
+                                        doc_source = ""
+                                    
+                                    # 2. Split document by headers
+                                    parts = re.split(r'(^#{1,3} .*$)', doc_source, flags=re.MULTILINE)
+                                    print(f"[SmartTemplate-CIT] Document split into {len(parts)} parts.")
+                                    
+                                    refined_doc_parts = []
+                                    ready_things = [t for t in things if t.rag_status == "completed"]
+                                    
+                                    for i, part in enumerate(parts):
+                                        if not part.strip():
+                                            if part: refined_doc_parts.append(part)
+                                            continue
+                                            
+                                        # Keep headers as is
+                                        if re.match(r'^#{1,3} .*$', part.strip()):
+                                            refined_doc_parts.append(part)
+                                            continue
+                                            
+                                        # Process Text Block
+                                        clean_text = part.strip()
+                                        if len(clean_text) < 50:
+                                            refined_doc_parts.append(part)
+                                            continue
+                                            
+                                        # Run RAG on this section
+                                        query_text = clean_text[:250].replace("\n", " ")
+                                        chunk_citations_added = []
+                                        
+                                        for t in ready_things:
+                                            try:
+                                                rag_results = rag_service.search(
+                                                    query=query_text,
+                                                    filters={"thing_id": t.id},
+                                                    k=1,
+                                                    response_mode="simple"
+                                                )
+                                                
+                                                if rag_results:
+                                                    r = rag_results[0]
+                                                    score = r.get("score", 0)
+                                                    print(f"[SmartTemplate-CIT] Section RAG Result: Score={score}, Text='{r.get('text', '')[:30]}...'")
+                                                    
+                                                    if score < 0.25: continue # Skip low confidence
+                                                    
+                                                    # Inline Link
+                                                    link_md = f" ([{t.title or 'Source'}](#evidence-{t.id}))"
+                                                    chunk_citations_added.append(link_md)
+                                                    
+                                                    # Global List Aggregation
+                                                    match_entry = {
+                                                        "text": r.get("text", ""),
+                                                        "score": score,
+                                                        "page": r.get("metadata", {}).get("page_label"),
+                                                        "bbox": r.get("metadata", {}).get("bbox"),
+                                                    }
+                                                    
+                                                    existing_cit = next((c for c in std_citations if c["id"] == t.id), None)
+                                                    if existing_cit:
+                                                        if not any(m["text"] == match_entry["text"] for m in existing_cit["matches"]):
+                                                            existing_cit["matches"].append(match_entry)
+                                                    else:
+                                                        std_citations.append({
+                                                            "id": t.id,
+                                                            "title": t.title or "Source",
+                                                            "type": t.type.value,
+                                                            "matches": [match_entry],
+                                                        })
+                                            except Exception: pass
+                                        
+                                        # Append modified text
+                                        if chunk_citations_added:
+                                             part_stripped = part.rstrip() 
+                                             trailing_ws = part[len(part_stripped):]
+                                             links_str = "".join(chunk_citations_added)
+                                             refined_doc_parts.append(part_stripped + links_str + trailing_ws)
+                                        else:
+                                             refined_doc_parts.append(part)
+                                    
+                                    # 3. Update Content with Inline Links
+                                    final_doc_with_links = "".join(refined_doc_parts)
+                                    
+                                    # Update specific keys based on what was used
+                                    if thing_content.get("text"): thing_content["text"] = final_doc_with_links
+                                    if thing_content.get("markdown"): thing_content["markdown"] = final_doc_with_links
+                                    if thing_content.get("agent_analysis"): thing_content["agent_analysis"] = final_doc_with_links
+                                    
+                                    print(f"[SmartTemplate-CIT] Attached {len(std_citations)} citations. Refined Doc Length: {len(final_doc_with_links)}")
+
+                                except Exception as cit_err:
+                                    print(
+                                        f"[SmartTemplate-CIT] Citation "
+                                        f"error: {cit_err}"
+                                    )
+                                    import traceback
+                                    traceback.print_exc()
+
+
+                            thing_content["citations"] = std_citations
 
                             new_node = CanvasThing(
                                 canvas_id=target_canvas_id, # Use corrected ID
