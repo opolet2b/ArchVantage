@@ -682,39 +682,53 @@ export function PDFViewer({
                                                     top: `-${pxY}px`,
                                                 }}
                                             >
-                                                <Page
-                                                    pageNumber={pageNumber}
-                                                    className="shadow-lg"
-                                                    onRenderError={(error) => {
-                                                        if (error.name === 'AbortException' || error.message.includes('cancelled')) {
-                                                            return;
-                                                        }
-                                                        console.error('Page render error:', error);
-                                                    }}
-                                                    renderTextLayer={false}
-                                                    renderAnnotationLayer={false}
-                                                />
+                                                {pageNumber >= 1 && pageNumber <= numPages ? (
+                                                    <Page
+                                                        pageNumber={pageNumber}
+                                                        className="shadow-lg"
+                                                        onRenderError={(error) => {
+                                                            if (error.name === 'AbortException' || error.message.includes('cancelled')) {
+                                                                return;
+                                                            }
+                                                            console.error('Page render error:', error);
+                                                        }}
+                                                        renderTextLayer={false}
+                                                        renderAnnotationLayer={false}
+                                                    />
+                                                ) : (
+                                                    <span className="flex items-center justify-center p-4">
+                                                        <span className="text-sm text-red-500">Invalid page {pageNumber}</span>
+                                                    </span>
+                                                )}
                                             </span>
                                         </span>
                                     );
                                 })() : (
                                     /* Normal full page view */
-                                    <Page
-                                        pageNumber={pageNumber}
-                                        scale={typeof scale === "number" ? scale : undefined}
-                                        width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
-                                        className={cn(
-                                            "shadow-lg mx-auto",
-                                        )}
-                                        onRenderError={(error) => {
-                                            if (error.name === 'AbortException' || error.message.includes('cancelled')) {
-                                                return;
-                                            }
-                                            console.error('Page render error:', error);
-                                        }}
-                                        renderTextLayer={selectionEnabled && mode === "text"}
-                                        renderAnnotationLayer={false}
-                                    />
+                                    numPages > 0 && pageNumber >= 1 && pageNumber <= numPages ? (
+                                        <Page
+                                            pageNumber={pageNumber}
+                                            scale={typeof scale === "number" ? scale : undefined}
+                                            width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
+                                            className={cn(
+                                                "shadow-lg mx-auto",
+                                            )}
+                                            onRenderError={(error) => {
+                                                if (error.name === 'AbortException' || error.message.includes('cancelled')) {
+                                                    return;
+                                                }
+                                                console.error('Page render error:', error);
+                                            }}
+                                            renderTextLayer={selectionEnabled && mode === "text"}
+                                            renderAnnotationLayer={false}
+                                        />
+                                    ) : (
+                                        <span className="flex items-center justify-center p-8">
+                                            <span className="text-sm text-muted-foreground">
+                                                {numPages === 0 ? "Loading document..." : `Invalid page ${pageNumber}`}
+                                            </span>
+                                        </span>
+                                    )
                                 )}
                             </InteractiveOverlayLayer>
                         )}

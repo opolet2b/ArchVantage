@@ -804,6 +804,7 @@ class RAGService:
             from llama_index.core.vector_stores import MetadataFilters, ExactMatchFilter
             
              # Build filters
+            # Build filters
             metadata_filters = None
             filter_list = []
             
@@ -811,10 +812,16 @@ class RAGService:
             if conversation_id:
                 filter_list.append(ExactMatchFilter(key="conversation_id", value=conversation_id))
                 
-            # Generic filters
+            # Generic filters (Enhanced with List Support)
             if filters:
+                from llama_index.core.vector_stores import MetadataFilter, FilterOperator
                 for key, value in filters.items():
-                    filter_list.append(ExactMatchFilter(key=key, value=value))
+                    if isinstance(value, list) and value:
+                         # Use IN operator for lists
+                         filter_list.append(MetadataFilter(key=key, value=value, operator=FilterOperator.IN))
+                    else:
+                         # Default to Exact Match
+                         filter_list.append(ExactMatchFilter(key=key, value=value))
                     
             if filter_list:
                 metadata_filters = MetadataFilters(filters=filter_list)

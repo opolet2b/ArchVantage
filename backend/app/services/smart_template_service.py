@@ -2090,7 +2090,7 @@ class SmartTemplateService:
                                     refined_doc_parts.append(part)
                                     continue
                                     
-                                # Text block - Run RAG
+                                # Text block - Run RAG (Global Search)
                                 clean_text = part.strip()
                                 if len(clean_text) < 50: 
                                     refined_doc_parts.append(part)
@@ -2099,35 +2099,49 @@ class SmartTemplateService:
                                 query_text = clean_text[:250].replace("\n", " ")
                                 chunk_citations_added = []
                                 
+                                # Collect Asset IDs
+                                target_asset_ids = []
+                                asset_map = {}
                                 for t in ready_things:
-                                    try:
-                                        # Strict filter for relevance per section
-                                        rag_results = rag_service.search(
-                                            query=query_text,
-                                            filters={"thing_id": t.id},
-                                            k=1, # Top match only
-                                            response_mode="simple"
-                                        )
+                                    a_id = t.content.get("asset_id")
+                                    if a_id:
+                                        target_asset_ids.append(a_id)
+                                        asset_map[a_id] = t
+                                
+                                if not target_asset_ids:
+                                    refined_doc_parts.append(part)
+                                    continue
+                                
+                                try:
+                                    # Single Global Search
+                                    rag_results = rag_service.search(
+                                        query=query_text,
+                                        filters={"asset_id": target_asset_ids},
+                                        k=3,
+                                        response_mode="simple"
+                                    )
+                                    
+                                    if rag_results:
+                                        seen_things = set()
                                         
-                                        if rag_results:
-                                            r = rag_results[0]
+                                        for r in rag_results:
                                             score = r.get("score", 0)
-                                            print(f"[SmartTemplate-CIT] Section RAG Result: Score={score}, Text='{r.get('text', '')[:30]}...'")
+                                            if score < 0.35: continue
                                             
-                                            if score < 0.25: 
-                                                print(f"[SmartTemplate-CIT] Skipping result - Low Score ({score} < 0.25)")
-                                                continue # Skip low confidence
+                                            # Resolve Source
+                                            res_asset_id = r.get("metadata", {}).get("asset_id")
+                                            source_thing = asset_map.get(res_asset_id)
                                             
-                                            # Inline Link: [Title](#evidence-UUID)
-                                            link_md = f" ([{t.title or 'Source'}](#evidence-{t.id}))"
+                                            if not source_thing: continue
+                                            
+                                            if source_thing.id in seen_things: continue
+                                            seen_things.add(source_thing.id)
+                                            
+                                            # Inline Link
+                                            link_md = f" ([{source_thing.title or 'Source'}](#evidence-{source_thing.id}))"
                                             chunk_citations_added.append(link_md)
                                             
-                                            # Global List (Deduplicated)
-                                            # Use simple ID-based dedup for the footer list if we just want one entry per source
-                                            # BUT we want 'matches' to include this specific snippet? 
-                                            # Actually, for the footer, we usually just want the source listed once or with all matches.
-                                            # Let's aggregate matches.
-                                            
+                                            # Global List
                                             match_entry = {
                                                 "text": r.get("text", ""),
                                                 "score": score,
@@ -2135,21 +2149,19 @@ class SmartTemplateService:
                                                 "bbox": r.get("metadata", {}).get("bbox"),
                                             }
                                             
-                                            # Check if we already have this Thing in global citations
-                                            existing_cit = next((c for c in citations if c["id"] == t.id), None)
+                                            existing_cit = next((c for c in citations if c["id"] == source_thing.id), None)
                                             if existing_cit:
-                                                # Avoid duplicate text matches in the same citation
-                                                if not any(m["text"] == match_entry["text"] for m in existing_cit["matches"]):
-                                                    existing_cit["matches"].append(match_entry)
+                                                 if not any(m["text"] == match_entry["text"] for m in existing_cit["matches"]):
+                                                     existing_cit["matches"].append(match_entry)
                                             else:
-                                                citations.append({
-                                                    "id": t.id,
-                                                    "title": t.title or "Source",
-                                                    "type": t.type.value,
-                                                    "matches": [match_entry],
-                                                })
-                                    except Exception:
-                                        pass
+                                                 citations.append({
+                                                     "id": source_thing.id,
+                                                     "title": source_thing.title or "Source",
+                                                     "type": source_thing.type.value,
+                                                     "matches": [match_entry],
+                                                 })
+                                except Exception as e:
+                                    print(f"[SmartTemplate-CIT] Agent Search Error: {e}")
                                 
                                 # Append citations
                                 if chunk_citations_added:
@@ -3319,28 +3331,57 @@ class SmartTemplateService:
                                             refined_doc_parts.append(part)
                                             continue
                                             
-                                        # Run RAG on this section
+                                        # Run RAG on this section (Global Search)
                                         query_text = clean_text[:250].replace("\n", " ")
                                         chunk_citations_added = []
                                         
+                                        # Collect Asset IDs for filtering
+                                        target_asset_ids = []
+                                        asset_map = {} # Map asset_id -> thing
                                         for t in ready_things:
-                                            try:
-                                                rag_results = rag_service.search(
-                                                    query=query_text,
-                                                    filters={"thing_id": t.id},
-                                                    k=1,
-                                                    response_mode="simple"
-                                                )
+                                            # Resolve Asset ID (Primary Key for RAG)
+                                            a_id = t.content.get("asset_id")
+                                            if a_id:
+                                                target_asset_ids.append(a_id)
+                                                asset_map[a_id] = t
+                                            # Fallback: Check if thing itself is indexed (unlikely for files but possible for text)
+                                            # else: asset_map[t.id] = t (If we supported thing_id indexing)
+
+                                        if not target_asset_ids:
+                                            continue # No searchable assets
+                                            
+                                        try:
+                                            # Single Global Search with Filter
+                                            # We use k=3 to get the top 3 matches across ALL documents
+                                            rag_results = rag_service.search(
+                                                query=query_text,
+                                                filters={"asset_id": target_asset_ids}, # List -> IN Filter
+                                                k=3,
+                                                response_mode="simple"
+                                            )
+                                            
+                                            if rag_results:
+                                                # Deduplicate by Thing ID
+                                                seen_things = set()
                                                 
-                                                if rag_results:
-                                                    r = rag_results[0]
+                                                for r in rag_results:
                                                     score = r.get("score", 0)
-                                                    print(f"[SmartTemplate-CIT] Section RAG Result: Score={score}, Text='{r.get('text', '')[:30]}...'")
+                                                    # Verify Score Threshold
+                                                    if score < 0.35: continue 
                                                     
-                                                    if score < 0.25: continue # Skip low confidence
+                                                    # Resolve Source Thing
+                                                    # Results should have 'asset_id' in metadata
+                                                    res_asset_id = r.get("metadata", {}).get("asset_id")
+                                                    source_thing = asset_map.get(res_asset_id)
+                                                    
+                                                    if not source_thing: continue
+                                                    
+                                                    # Only link once per chunk per source
+                                                    if source_thing.id in seen_things: continue
+                                                    seen_things.add(source_thing.id)
                                                     
                                                     # Inline Link
-                                                    link_md = f" ([{t.title or 'Source'}](#evidence-{t.id}))"
+                                                    link_md = f" ([{source_thing.title or 'Source'}](#evidence-{source_thing.id}))"
                                                     chunk_citations_added.append(link_md)
                                                     
                                                     # Global List Aggregation
@@ -3351,18 +3392,22 @@ class SmartTemplateService:
                                                         "bbox": r.get("metadata", {}).get("bbox"),
                                                     }
                                                     
-                                                    existing_cit = next((c for c in std_citations if c["id"] == t.id), None)
+                                                    existing_cit = next((c for c in std_citations if c["id"] == source_thing.id), None)
                                                     if existing_cit:
                                                         if not any(m["text"] == match_entry["text"] for m in existing_cit["matches"]):
                                                             existing_cit["matches"].append(match_entry)
                                                     else:
+                                                        print(f"[SmartTemplate-CIT] Adding citation for {source_thing.title} (Score: {score})")
                                                         std_citations.append({
-                                                            "id": t.id,
-                                                            "title": t.title or "Source",
-                                                            "type": t.type.value,
+                                                            "id": source_thing.id,
+                                                            "title": source_thing.title or "Source",
+                                                            "type": source_thing.type.value,
                                                             "matches": [match_entry],
                                                         })
-                                            except Exception: pass
+                                        except Exception as search_err:
+                                             print(f"[SmartTemplate-CIT] Search Error: {search_err}")
+                                        
+                                        # Append modified text
                                         
                                         # Append modified text
                                         if chunk_citations_added:
