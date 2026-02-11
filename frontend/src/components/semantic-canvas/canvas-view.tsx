@@ -54,7 +54,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Brain, Loader2, Eye, FolderOpen, Layout, RefreshCcw, Camera, Hand, MousePointer2, Link as LinkIcon, Unlink, Maximize2, Minimize2, X } from "lucide-react";
 import { CanvasContextMenu } from "./canvas-context-menu";
-import { SelectionProvider } from "./viewers/selection-context";
+
 import { useToast } from "@/components/ui/use-toast";
 import { CanvasPalette } from "./canvas-palette";
 import { InspectorPanel } from "./inspector-panel";
@@ -3337,11 +3337,8 @@ export function CanvasView({ canvasId: propCanvasId }: CanvasViewProps) {
         );
     }
     return (
-        <SelectionProvider>
-            <ReactFlowProvider>
-                <CanvasViewInner />
-            </ReactFlowProvider>
-        </SelectionProvider>
+        <ReactFlowProvider>
+            <CanvasViewInner />
+        </ReactFlowProvider>
     );
 }
-

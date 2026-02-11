@@ -56,6 +56,8 @@ interface PDFViewerProps {
     onOverlayDelete?: (id: string) => void;
     /** Whether to render in export mode */
     exportMode?: boolean;
+    /** Optional fragment to display (crops the view to this region) */
+    viewFragment?: RegionFragment;
 }
 
 // =============================================================================
@@ -74,6 +76,7 @@ export function PDFViewer({
     onOverlayResize,
     onOverlayDelete,
     exportMode = false,
+    viewFragment,
     ...props
 }: PDFViewerProps) {
     const [numPages, setNumPages] = React.useState<number>(0);
@@ -98,6 +101,9 @@ export function PDFViewer({
     // State for secure file source
     const [fileSrc, setFileSrc] = React.useState<string | null>(null);
     const objectUrlRef = React.useRef<string | null>(null);
+
+    // State for page dimensions (needed for viewFragment percentage-to-pixel conversion)
+    const [pageDimensions, setPageDimensions] = React.useState<{ width: number; height: number } | null>(null);
 
     // Effect: Load PDF with Auth if it's a backend asset
     React.useEffect(() => {
@@ -192,12 +198,40 @@ export function PDFViewer({
         }
     }, [highlightTarget, currentMatchIndex]);
 
+    // Navigate to the page specified in viewFragment
+    React.useEffect(() => {
+        if (!viewFragment) return;
+
+        const fragmentPageNumber = (viewFragment as any).pageNumber;
+        if (fragmentPageNumber && fragmentPageNumber !== pageNumber) {
+            console.log("[PDFViewer] Navigating to fragment page", { fragmentPageNumber });
+            setPageNumber(fragmentPageNumber);
+        }
+    }, [viewFragment, pageNumber]);
+
 
     // Handle document load success
-    const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-        setNumPages(numPages);
+    const onDocumentLoadSuccess = (pdf: any) => {
+        setNumPages(pdf.numPages);
         setIsLoading(false);
         setIsLoaded(true);
+
+        // If we have a viewFragment, get the intrinsic page dimensions
+        // for accurate percentage-to-pixel conversion
+        if (viewFragment) {
+            const targetPage = (viewFragment as any).pageNumber || 1;
+            pdf.getPage(targetPage).then((page: any) => {
+                const vp = page.getViewport({ scale: 1 });
+                console.log("[PDFViewer] Got intrinsic page dimensions", {
+                    page: targetPage,
+                    intrinsicWidth: vp.width,
+                    intrinsicHeight: vp.height,
+                });
+                setPageDimensions({ width: vp.width, height: vp.height });
+            }).catch((err: any) => {
+                console.error("[PDFViewer] Failed to get page dimensions:", err);
+            });
+        }
     };
 
     // Handle document load error
@@ -267,6 +301,7 @@ export function PDFViewer({
 
     const handleSelectionComplete = async (rect: { x: number; y: number; width: number; height: number; pctX: number; pctY: number; pctW: number; pctH: number }) => {
         if (!pageContainerRef.current) return;
+        console.log("[PDFViewer] handleSelectionComplete START", { rect });
 
         // 1. Capture Image Data
         let base64Content = "";
@@ -277,7 +312,14 @@ export function PDFViewer({
             let canvas = pageContainerRef.current.querySelector("canvas.react-pdf__Page__canvas") as HTMLCanvasElement | null;
             if (!canvas) {
                 const canvases = pageContainerRef.current.getElementsByTagName("canvas");
-                if (canvases.length > 0) canvas = canvases[0];
+                if (canvases.length > 0) {
+                    canvas = canvases[0];
+                    console.log("[PDFViewer] Found generic canvas", canvas);
+                }
+            }
+
+            if (!canvas) {
+                console.error("[PDFViewer] No canvas found for capture via selector or tag name", pageContainerRef.current);
             }
 
             if (canvas) {
@@ -485,7 +527,7 @@ export function PDFViewer({
     return (
         <span className={cn("flex flex-col h-full", className)}>
             {/* Controls - Hide in Export Mode */}
-            {!exportMode && (
+            {!exportMode && !viewFragment && (
                 <span className="flex items-center justify-between p-2 border-b bg-slate-50 dark:bg-slate-800">
                     {/* Page navigation */}
                     <span className="flex items-center gap-2">
@@ -594,22 +636,86 @@ export function PDFViewer({
                                 onOverlayAction={handleOverlayAction}
                                 activeOverlayId={activeOverlayId}
                             >
-                                <Page
-                                    pageNumber={pageNumber}
-                                    scale={typeof scale === "number" ? scale : undefined}
-                                    width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
-                                    className={cn(
-                                        "shadow-lg mx-auto",
-                                    )}
-                                    onRenderError={(error) => {
-                                        if (error.name === 'AbortException' || error.message.includes('cancelled')) {
-                                            return;
-                                        }
-                                        console.error('Page render error:', error);
-                                    }}
-                                    renderTextLayer={selectionEnabled && mode === "text"}
-                                    renderAnnotationLayer={false}
-                                />
+                                {viewFragment ? (() => {
+                                    // viewFragment coords are percentages (0-100) relative to the rendered page.
+                                    // pageDimensions holds INTRINSIC page dims from document load.
+                                    // Since containerWidth is null, Page renders at intrinsic scale (scale=1),
+                                    // so intrinsic dimensions ARE the rendered dimensions.
+
+                                    if (!pageDimensions) {
+                                        return (
+                                            <span className="flex items-center justify-center p-4">
+                                                <span className="text-sm text-muted-foreground">Loading region...</span>
+                                            </span>
+                                        );
+                                    }
+
+                                    // The rendered page dimensions equal the intrinsic dimensions
+                                    // (since no explicit width prop is passed to Page)
+                                    const renderedWidth = pageDimensions.width;
+                                    const renderedHeight = pageDimensions.height;
+
+                                    // Convert percentages to pixels
+                                    const pxX = (viewFragment.x / 100) * renderedWidth;
+                                    const pxY = (viewFragment.y / 100) * renderedHeight;
+                                    const pxW = (viewFragment.width / 100) * renderedWidth;
+                                    const pxH = (viewFragment.height / 100) * renderedHeight;
+
+                                    console.log("[PDFViewer] Cropping region (analytical)", {
+                                        fragment: { x: viewFragment.x, y: viewFragment.y, w: viewFragment.width, h: viewFragment.height },
+                                        intrinsicDims: pageDimensions,
+                                        pixels: { x: pxX, y: pxY, w: pxW, h: pxH },
+                                    });
+
+                                    return (
+                                        <span
+                                            className="block relative overflow-hidden mx-auto"
+                                            style={{
+                                                width: `${pxW}px`,
+                                                height: `${pxH}px`,
+                                            }}
+                                        >
+                                            <span
+                                                className="block absolute"
+                                                style={{
+                                                    left: `-${pxX}px`,
+                                                    top: `-${pxY}px`,
+                                                }}
+                                            >
+                                                <Page
+                                                    pageNumber={pageNumber}
+                                                    className="shadow-lg"
+                                                    onRenderError={(error) => {
+                                                        if (error.name === 'AbortException' || error.message.includes('cancelled')) {
+                                                            return;
+                                                        }
+                                                        console.error('Page render error:', error);
+                                                    }}
+                                                    renderTextLayer={false}
+                                                    renderAnnotationLayer={false}
+                                                />
+                                            </span>
+                                        </span>
+                                    );
+                                })() : (
+                                    /* Normal full page view */
+                                    <Page
+                                        pageNumber={pageNumber}
+                                        scale={typeof scale === "number" ? scale : undefined}
+                                        width={(scale === "page-width" && containerWidth) ? Math.max(containerWidth - 32, 200) : undefined}
+                                        className={cn(
+                                            "shadow-lg mx-auto",
+                                        )}
+                                        onRenderError={(error) => {
+                                            if (error.name === 'AbortException' || error.message.includes('cancelled')) {
+                                                return;
+                                            }
+                                            console.error('Page render error:', error);
+                                        }}
+                                        renderTextLayer={selectionEnabled && mode === "text"}
+                                        renderAnnotationLayer={false}
+                                    />
+                                )}
                             </InteractiveOverlayLayer>
                         )}
                     </span>

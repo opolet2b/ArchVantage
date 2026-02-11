@@ -54,19 +54,20 @@ import { cn, API_URL } from "@/lib/utils";
 import { CanvasThing, ZoomLevel, useCanvasStore, LinkType, CanvasLink } from "../canvas-store";
 import {
     MarkdownViewer,
+    MemoizedMarkdownViewer,
     SpreadsheetViewer,
     ImageViewer,
     MCPToolViewer,
     PDFViewer,
     ConversationViewer,
     TextViewer,
+    MemoizedTextViewer,
     SelectableContent,
     SelectionToolbar,
     useAnalyze,
     LLMAction,
     Fragment,
     RegionFragment,
-    useSelection,
     VectorizationPreviewDialog,
     ChartViewer,
     MarkdownToolbar,
@@ -293,6 +294,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const zoomLevel = useCanvasStore((state) => state.zoomLevel);
     const updateThing = useCanvasStore((state) => state.updateThing);
     const deleteThing = useCanvasStore((state) => state.deleteThing);
+    const selectThing = useCanvasStore((state) => state.selectThing);
+    const setContentSelection = useCanvasStore((state) => state.setContentSelection);
     const onToggleIconify = useCanvasStore((state) => state.toggleIconify);
     const onDelete = useCanvasStore((state) => state.deleteThing);
     const checkSyncStatus = useCanvasStore((state) => state.checkSyncStatus);
@@ -715,7 +718,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const visionModel = useCanvasStore((state) => state.visionModel);
     const links = useCanvasStore((state) => state.links);
     const { analyze, isLoading } = useAnalyze();
-    const { setSelection } = useSelection();
 
     // removeExternalLink is no longer needed as we use deleteLink
     // const removeExternalLink = useCanvasStore(state => state.removeExternalLink);
@@ -1049,7 +1051,17 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
         // 2. Overlays from Content Regions (Persistent Frames)
         const currentRegions = (thing.content.regions as any[]) || [];
-        const regionOverlays = currentRegions.map((r: any, idx: number) => ({
+        const savedFragments = (thing.content.saved_fragments as any[]) || [];
+
+        // Combine regions and saved_fragments (deduplicated by ID)
+        const allRegions = [...currentRegions];
+        savedFragments.forEach(sf => {
+            if (sf.type === 'region' && !allRegions.some(r => r.id === sf.id)) {
+                allRegions.push(sf);
+            }
+        });
+
+        const regionOverlays = allRegions.map((r: any, idx: number) => ({
             id: r.id || `region-${idx}`, // Ensure ID
             label: r.label,
             x: r.x,
@@ -1058,14 +1070,22 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             height: r.height,
             type: "region" as const,
             content: r.content, // Keep content for reference
-            slideIndex: r.slideIndex // Preserve slideIndex for slideshows
+            slideIndex: r.slideIndex, // Preserve slideIndex for slideshows
+            pageNumber: r.pageNumber // Preserve pageNumber for PDFs
         }));
 
         return [...linkOverlays, ...regionOverlays];
     }, [links, thing.id, thing.type, thing.content]);
 
+    // Stable handler for text selection to avoid re-rendering TextViewer
+    const handleTextSelection = React.useCallback((fragment: Fragment, position: { x: number; y: number }) => {
+        console.log("[ThingNode] handleTextSelection", { thingId: thing.id, fragment });
+        setContentSelection(thing.id, fragment, position);
+    }, [thing.id, setContentSelection]);
+
     // Handle create new region (persist to content)
     const handleRegionCreate = React.useCallback(async (fragment: Fragment, _position?: { x: number; y: number }) => {
+        console.log("[ThingNode] handleRegionCreate START", { thingId: thing.id, fragment });
         // Allow for both image and document (PDF) types
         if (thing.type !== "image" && thing.type !== "document" && thing.type !== "slideshow") return;
         // If generic fragment, check type.
@@ -1622,20 +1642,20 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         <div className="flex-1 min-h-0 overflow-y-auto px-1 custom-scrollbar">
                             <SelectableContent thingId={thing.id}>
                                 {showAsMarkdown ? (
-                                    <MarkdownViewer
+                                    <MemoizedMarkdownViewer
                                         content={textVal}
                                         className="h-full prose-sm dark:prose-invert"
                                         ancestorIds={[thing.id]}
-                                        onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                        onSelect={handleTextSelection}
                                         transclusionStates={(thing.content as any).transclusions}
                                         onTransclusionStateChange={handleTransclusionStateChange}
                                     />
                                 ) : (
-                                    <TextViewer
+                                    <MemoizedTextViewer
                                         content={textVal}
                                         className="h-full"
                                         highlight={highlight}
-                                        onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                        onSelect={handleTextSelection}
                                     />
                                 )}
                             </SelectableContent>
@@ -1719,10 +1739,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         if (fragment.type === "region") {
                                             handleRegionCreate(fragment, position);
                                             // Force toolbar show for re-selection
-                                            setSelection(thing.id, fragment, position);
+                                            setContentSelection(thing.id, fragment, position);
                                         } else {
                                             // Text selection - show toolbar immediately
-                                            setSelection(thing.id, fragment, position);
+                                            setContentSelection(thing.id, fragment, position);
                                         }
                                     }}
                                     onOverlayDelete={handleOverlayDelete}
@@ -1740,7 +1760,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 content={textContent || ""}
                                 className="max-h-[200px] overflow-y-auto"
                                 ancestorIds={[thing.id]}
-                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                             />
                         </SelectableContent>
                     );
@@ -1764,7 +1784,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 filename={filename}
                                 className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                                 highlight={highlight}
-                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                             />
                         </SelectableContent>
                     );
@@ -1778,7 +1798,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 content={content.text_content as string}
                                 className="h-full overflow-y-auto px-4"
                                 ancestorIds={[thing.id]}
-                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                                 selectionEnabled={true}
                             />
                         </SelectableContent>
@@ -1793,7 +1813,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 content={textContent}
                                 className="h-full overflow-y-auto px-4 prose prose-sm dark:prose-invert max-w-none"
                                 ancestorIds={[thing.id]}
-                                onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                                onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                                 selectionEnabled={true}
                             />
                         </SelectableContent>
@@ -1807,7 +1827,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             content={textContent || `File: ${filename || "Unknown"}`}
                             className="h-full overflow-y-auto"
                             highlight={highlight}
-                            onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                            onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                         />
                     </SelectableContent>
                 );
@@ -1825,7 +1845,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             onOverlayResize={handleOverlayResize}
                             onSelect={(fragment, position) => {
                                 handleRegionCreate(fragment, position);
-                                setSelection(thing.id, fragment, position);
+                                setContentSelection(thing.id, fragment, position);
                             }}
                             onOverlayDelete={handleOverlayDelete}
                         />
@@ -1845,7 +1865,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             filename={filename || thing.title || "Table"}
                             className={cn(thing.height ? "h-full" : "max-h-[200px]")}
                             highlight={highlight}
-                            onSelect={(fragment, position) => setSelection(thing.id, fragment, position)}
+                            onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                         />
                     </SelectableContent>
                 );
@@ -1858,12 +1878,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             overlays={imageOverlays}
                             onSelect={(fragment, position) => {
                                 handleRegionCreate(fragment, position);
-                                setSelection(thing.id, fragment, position);
+                                setContentSelection(thing.id, fragment, position);
                             }}
                             onOverlayResize={handleOverlayResize}
                             onOverlayDelete={handleOverlayDelete}
                             onOverlayClick={(fragment, position) => {
-                                setSelection(thing.id, fragment, position);
+                                setContentSelection(thing.id, fragment, position);
                             }}
                         />
                     </SelectableContent>
@@ -1921,7 +1941,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 const currentUrl = normalizeUrl(rawUrl);
                 const pageContent = pages[currentUrl];
 
-                const renderBrowserContent = () => {
+                const renderBrowserContent = React.useMemo(() => {
                     // Always log for debugging
                     console.log("DEBUG: Current URL (Normalized):", currentUrl);
                     console.log("DEBUG: Raw URL:", rawUrl);
@@ -1961,12 +1981,16 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     }
 
                     return (
-                        <MarkdownViewer
+                        <MemoizedMarkdownViewer
                             content={pageContent}
-                            onLinkClick={handleNavigate}
+                            className="prose prose-sm dark:prose-invert max-w-none h-full overflow-y-auto p-4"
+                            onSelect={handleTextSelection}
+                            transclusionStates={(thing.content as any).transclusions}
+                            onTransclusionStateChange={handleTransclusionStateChange}
+                            ancestorIds={[thing.id]}
                         />
                     );
-                };
+                }, [currentUrl, pageContent, thing.id, thing.content, handleTransclusionStateChange, handleTextSelection]);
 
                 return (
                     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden">
@@ -2010,7 +2034,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         {/* Browser Body */}
                         <div className="flex-1 overflow-y-auto p-0 custom-scrollbar relative">
                             <SelectableContent thingId={thing.id}>
-                                {renderBrowserContent()}
+                                {renderBrowserContent}
                             </SelectableContent>
                         </div>
                     </div>

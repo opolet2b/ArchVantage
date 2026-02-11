@@ -191,6 +191,7 @@ export function SelectableContent({
     // Handle selection from child viewer
     const handleSelection = React.useCallback(
         (fragment: Fragment, position: { x: number; y: number }) => {
+            console.log("[SelectableContent] handleSelection called", { fragment, position });
             setSelection({ fragment, position });
             onSelectionChange?.(true);
         },

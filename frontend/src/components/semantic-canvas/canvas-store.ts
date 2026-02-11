@@ -379,6 +379,15 @@ interface CanvasState {
     activeScenario: Scenario | null;
     setActiveScenario: (scenario: Scenario | null) => void;
 
+    // Text/Content Selection State (for toolbar)
+    contentSelection: {
+        thingId: string | null;
+        fragment: any | null;
+        position: { x: number; y: number } | null;
+    };
+    setContentSelection: (thingId: string, fragment: any, position?: { x: number; y: number }) => void;
+    clearContentSelection: () => void;
+
     // Selection Highlight State
     highlightedFragment: { thingId: string; fragment: any } | null;
     setHighlightedFragment: (highlight: { thingId: string; fragment: any } | null) => void;
@@ -589,6 +598,27 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Semantic Zoom Toggle
     semanticZoomEnabled: false,
     setSemanticZoomEnabled: (enabled) => set({ semanticZoomEnabled: enabled }),
+
+    // Text/Content Selection State
+    contentSelection: {
+        thingId: null,
+        fragment: null,
+        position: null,
+    },
+    setContentSelection: (thingId, fragment, position) => set({
+        contentSelection: {
+            thingId,
+            fragment,
+            position: position || null,
+        },
+    }),
+    clearContentSelection: () => set({
+        contentSelection: {
+            thingId: null,
+            fragment: null,
+            position: null,
+        },
+    }),
 
     // Docking / Split View
     dockedThingId: null,

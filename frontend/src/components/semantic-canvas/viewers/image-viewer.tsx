@@ -69,7 +69,7 @@ export function ImageViewer({
         if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
 
         // Blob URLs - use directly
-        if (src.startsWith("blob:")) {
+        if (src.startsWith("blob:") || src.startsWith("data:")) {
             setImageSrc(src);
             return;
         }

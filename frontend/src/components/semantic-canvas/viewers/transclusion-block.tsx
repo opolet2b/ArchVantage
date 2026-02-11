@@ -28,6 +28,7 @@ import { ImageViewer } from "./image-viewer"; // Import ImageViewer
 import { SpreadsheetViewer } from "./spreadsheet-viewer"; // Import SpreadsheetViewer
 import { ChartViewer } from "./chart-viewer"; // Import ChartViewer for visual outputs
 import { PDFViewer } from "./pdf-viewer"; // Import PDFViewer
+import type { RegionFragment } from "./types"; // Import RegionFragment type
 import {
     Tooltip,
     TooltipContent,
@@ -156,22 +157,40 @@ export function TransclusionBlock({
 
     // Resolve specific fragment if requested (currently supporting Image Regions and Text/Table Fragments)
     const targetFragment = React.useMemo(() => {
-        if (!fragmentId || !effectiveContent) return undefined;
+        console.log("[TransclusionBlock] Resolving fragment", { nodeId, fragmentId, hasContent: !!effectiveContent });
+
+        if (!fragmentId || !effectiveContent) {
+            console.log("[TransclusionBlock] No fragmentId or content", { fragmentId, effectiveContent });
+            return undefined;
+        }
 
         // 1. Check Regions (Images)
         if (effectiveContent.regions && Array.isArray(effectiveContent.regions)) {
+            console.log("[TransclusionBlock] Checking regions", { count: effectiveContent.regions.length, fragmentId });
             const region = effectiveContent.regions.find((r: any) => r.id === fragmentId);
-            if (region) return region;
+            if (region) {
+                console.log("[TransclusionBlock] Found region fragment", { region });
+                return region;
+            }
         }
 
         // 2. Check Saved Fragments (Text/Table)
         if (effectiveContent.saved_fragments && Array.isArray(effectiveContent.saved_fragments)) {
+            console.log("[TransclusionBlock] Checking saved_fragments", {
+                count: effectiveContent.saved_fragments.length,
+                fragmentId,
+                fragmentIds: effectiveContent.saved_fragments.map((f: any) => f.id)
+            });
             const saved = effectiveContent.saved_fragments.find((f: any) => f.id === fragmentId);
-            if (saved) return saved;
+            if (saved) {
+                console.log("[TransclusionBlock] Found saved fragment", { saved });
+                return saved;
+            }
         }
 
+        console.log("[TransclusionBlock] Fragment not found", { fragmentId });
         return undefined;
-    }, [fragmentId, effectiveContent]);
+    }, [fragmentId, effectiveContent, nodeId]);
 
     return (
         <span className={cn(
@@ -250,9 +269,25 @@ export function TransclusionBlock({
                                     </span>
                                 );
                             }
-                            // Otherwise, it's likely a coordinate-based crop on the original image
-                            // We need to know the original source. 
-                            // Try to infer from thingType or Content.
+
+                            // For PDF documents, use PDFViewer with viewFragment
+                            if (thingType === "document" && effectiveContent.asset_id) {
+                                console.log("[TransclusionBlock] Rendering PDF region", {
+                                    assetId: effectiveContent.asset_id,
+                                    fragment: targetFragment
+                                });
+                                return (
+                                    <span className="w-full relative block">
+                                        <PDFViewer
+                                            src={`/api/v1/assets/${effectiveContent.asset_id}`}
+                                            selectionEnabled={false}
+                                            viewFragment={targetFragment as RegionFragment}
+                                        />
+                                    </span>
+                                );
+                            }
+
+                            // For images, use ImageViewer with viewFragment (coordinate-based crop)
                             const imgSource = (effectiveContent.asset_id ? `/api/v1/assets/${effectiveContent.asset_id}` : "") || effectiveContent.url || effectiveContent.file_path || "";
                             if (imgSource) {
                                 return (

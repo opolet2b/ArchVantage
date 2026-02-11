@@ -34,7 +34,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { API_URL } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
-import { useSelection } from "./viewers/selection-context";
 import { Fragment } from "./viewers/types";
 
 // =============================================================================
@@ -79,7 +78,9 @@ export function CanvasContextMenu({
     const selectedModel = useCanvasStore((state) => state.selectedModel);
     const selectedThingIds = useCanvasStore((state) => state.selectedThingIds);
     const selectedDomainIds = useCanvasStore((state) => state.selectedDomainIds);
-    const { selection, hasSelection } = useSelection(); // Use the selection context
+    const contentSelection = useCanvasStore((state) => state.contentSelection);
+    const selection = contentSelection.thingId ? contentSelection : null;
+    const hasSelection = !!contentSelection.thingId;
 
     // Fetch available templates
     const [templates, setTemplates] = React.useState<any[]>([]);

@@ -67,6 +67,7 @@ export function MarkdownViewer({
     ancestorIds = [],
     onLinkClick,
 }: MarkdownViewerProps) {
+    console.log("[MarkdownViewer] RENDER", { contentLength: content?.length, hasOnSelect: !!onSelect });
     const containerRef = React.useRef<HTMLDivElement>(null);
     const lastMousePos = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -316,3 +317,7 @@ export function MarkdownViewer({
         </div >
     );
 }
+
+// Wrap in React.memo to prevent re-renders when props haven't changed
+// This is critical to preserve text selection state in URL nodes and other markdown content
+export const MemoizedMarkdownViewer = React.memo(MarkdownViewer);

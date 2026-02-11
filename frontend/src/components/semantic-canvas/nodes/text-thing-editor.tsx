@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Pencil, Save, Minimize2, Maximize2, X, Loader2, Layout } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useSelection } from "../viewers/selection-context";
+
 import {
     Dialog,
     DialogContent,
@@ -65,7 +65,8 @@ export function TextThingEditor({
     }, [isOpen, thing.content]);
 
     // Selection Context
-    const { setSelection, clearSelection } = useSelection();
+    const setContentSelection = useCanvasStore((state) => state.setContentSelection);
+    const clearContentSelection = useCanvasStore((state) => state.clearContentSelection);
 
     // Handle text selection
     const handleSelection = () => {
@@ -81,7 +82,7 @@ export function TextThingEditor({
             // For now, we rely on the context menu triggering at mouse position, 
             // but we need to set the selection state.
 
-            setSelection(thing.id, {
+            setContentSelection(thing.id, {
                 type: 'text',
                 content: selectedText,
                 startOffset: start,

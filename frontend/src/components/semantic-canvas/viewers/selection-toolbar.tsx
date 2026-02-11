@@ -196,7 +196,11 @@ export function SelectionToolbar({
                                             className="h-8 w-8 p-0"
                                             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                             onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onClick={() => onAction("summarize", fragment)}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                onAction("summarize", fragment);
+                                            }}
                                         >
                                             <FileText className="h-4 w-4" />
                                         </Button>
@@ -213,7 +217,11 @@ export function SelectionToolbar({
                                             className="h-8 w-8 p-0"
                                             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                             onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onClick={() => onAction("explain", fragment)}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                onAction("explain", fragment);
+                                            }}
                                         >
                                             <Lightbulb className="h-4 w-4" />
                                         </Button>
@@ -230,7 +238,11 @@ export function SelectionToolbar({
                                             className="h-8 w-8 p-0"
                                             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                             onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onClick={() => onAction("extract_points", fragment)}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                onAction("extract_points", fragment);
+                                            }}
                                         >
                                             <ListChecks className="h-4 w-4" />
                                         </Button>
@@ -247,7 +259,11 @@ export function SelectionToolbar({
                                             className="h-8 w-8 p-0"
                                             onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                             onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onClick={() => onAction("ask", fragment)}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                onAction("ask", fragment);
+                                            }}
                                         >
                                             <MessageSquare className="h-4 w-4" />
                                         </Button>
@@ -277,7 +293,11 @@ export function SelectionToolbar({
                                                 )}
                                                 onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                 onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                                onClick={() => handleCustomTool(tool)}
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    handleCustomTool(tool);
+                                                }}
                                             >
                                                 <IconComp className="h-4 w-4" />
                                             </Button>
@@ -300,20 +320,56 @@ export function SelectionToolbar({
                                         className="h-8 w-8 p-0"
                                         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                         onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                        onClick={async () => {
+                                        onClick={async (e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            console.log("[SelectionToolbar] Transclude Clicked", { fragment });
                                             let finalFragmentId = fragment.id;
                                             const store = useCanvasStore.getState();
 
-                                            // If fragment has no ID (transient selection), persist it first
-                                            if (!finalFragmentId) {
+                                            // For region fragments, ALWAYS persist to saved_fragments
+                                            // (not just when ID is missing)
+                                            if (fragment.type === 'region') {
+                                                // Generate ID if missing
+                                                if (!finalFragmentId) {
+                                                    finalFragmentId = crypto.randomUUID();
+                                                }
+
+                                                const fragmentToSave = { ...fragment, id: finalFragmentId };
+
+                                                // Persist to Thing's content.saved_fragments
+                                                const thing = store.things.find(t => t.id === thingId);
+                                                if (thing) {
+                                                    const currentFragments = (thing.content as any).saved_fragments || [];
+
+                                                    // Check if fragment already exists (by ID)
+                                                    const existingIndex = currentFragments.findIndex((f: any) => f.id === finalFragmentId);
+
+                                                    let updatedFragments;
+                                                    if (existingIndex >= 0) {
+                                                        // Update existing fragment
+                                                        updatedFragments = [...currentFragments];
+                                                        updatedFragments[existingIndex] = fragmentToSave;
+                                                        console.log("[SelectionToolbar] Updating existing fragment", { id: finalFragmentId });
+                                                    } else {
+                                                        // Add new fragment
+                                                        updatedFragments = [...currentFragments, fragmentToSave];
+                                                        console.log("[SelectionToolbar] Adding new fragment", { id: finalFragmentId });
+                                                    }
+
+                                                    await store.updateThing(thingId, {
+                                                        content: {
+                                                            ...thing.content,
+                                                            saved_fragments: updatedFragments
+                                                        }
+                                                    });
+                                                }
+                                            } else if (!finalFragmentId) {
+                                                // For non-region fragments without ID, generate and save
                                                 const newId = crypto.randomUUID();
                                                 finalFragmentId = newId;
                                                 const newFragment = { ...fragment, id: newId };
 
-                                                // Persist to Thing's content
-                                                // We use a specific field 'saved_fragments' to avoid polluting main content
-                                                // Note: We need to fetch current thing to append.
-                                                // We can use the store action to update safely.
                                                 const thing = store.things.find(t => t.id === thingId);
                                                 if (thing) {
                                                     const currentFragments = (thing.content as any).saved_fragments || [];
@@ -329,6 +385,7 @@ export function SelectionToolbar({
                                             if (finalFragmentId) {
                                                 // Use the standard format
                                                 const code = `{{node:${thingId}#${finalFragmentId}}}`;
+                                                console.log("[SelectionToolbar] Writing to clipboard", { code });
                                                 navigator.clipboard.writeText(code);
 
                                                 // OPTIONAL: Also set the ghost ID?
@@ -366,7 +423,11 @@ export function SelectionToolbar({
                                         className="h-8 w-8 p-0"
                                         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                         onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                        onClick={() => onLink(fragment)}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (onLink) onLink(fragment);
+                                        }}
                                     >
                                         <Link2 className="h-4 w-4" />
                                     </Button>
@@ -384,7 +445,11 @@ export function SelectionToolbar({
                                     className="h-8 w-8 p-0 text-muted-foreground"
                                     onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                     onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                    onClick={onClose}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        onClose();
+                                    }}
                                 >
                                     <X className="h-4 w-4" />
                                 </Button>

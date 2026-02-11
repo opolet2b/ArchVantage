@@ -6,12 +6,12 @@
  * PEP 8 style comments
  */
 
-export { MarkdownViewer } from "./markdown-viewer";
+export { MarkdownViewer, MemoizedMarkdownViewer } from "./markdown-viewer";
 export { SpreadsheetViewer } from "./spreadsheet-viewer";
 export { ImageViewer } from "./image-viewer";
 export { PDFViewer } from "./pdf-viewer";
 export { ConversationViewer } from "./conversation-viewer";
-export { TextViewer } from "./text-viewer";
+export { TextViewer, MemoizedTextViewer } from "./text-viewer";
 export { MCPToolViewer } from "./mcp-tool-viewer";
 export { ChartViewer } from "./chart-viewer";
 export { SelectionProvider, useSelection } from "./selection-context";

@@ -40,6 +40,7 @@ export function TextViewer({
     selectionEnabled = true,
     highlight,
 }: TextViewerProps) {
+    console.log("[TextViewer] RENDER", { contentLength: content?.length, hasOnSelect: !!onSelect });
     const containerRef = React.useRef<HTMLDivElement>(null);
 
     // Handle text selection with global listener to catch selections ending outside the container
@@ -130,3 +131,7 @@ export function TextViewer({
         </div>
     );
 }
+
+// Wrap in React.memo to prevent re-renders when props haven't changed
+// This is critical to preserve text selection state
+export const MemoizedTextViewer = React.memo(TextViewer);
