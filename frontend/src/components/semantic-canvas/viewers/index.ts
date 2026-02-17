@@ -24,3 +24,4 @@ export type { LLMAction } from "./selection-toolbar";
 export { ArchiMateToolViewer } from "./archimate-tool-viewer";
 export { ArchiMateElementViewer } from "./archimate-element-viewer";
 export { MarkdownToolbar } from "./markdown-toolbar";
+export { TagCloudViewer } from "./tag-cloud-viewer";

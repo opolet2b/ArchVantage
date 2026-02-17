@@ -144,9 +144,9 @@ export function CanvasContextMenu({
 
         // Only use fragment if we are in selection mode AND the fragment source is actually selected
         // This prevents fragment mode from taking over Canvas/Domain level actions
-        const isFragmentRelevant = hasSelection && selection.thingId && context === "selection" && selectedThingIds.includes(selection.thingId);
+        const isFragmentRelevant = selection && selection.thingId && context === "selection" && selectedThingIds.includes(selection.thingId);
 
-        if (isFragmentRelevant && selection.thingId) {
+        if (isFragmentRelevant && selection && selection.thingId) {
             // Fragment selection takes priority
             return [selection.thingId];
         } else if (context === "selection") {
@@ -166,12 +166,12 @@ export function CanvasContextMenu({
     const handleAction = (action: AnalysisAction) => {
         onClose();
         if (onAction) {
-            const isFragmentRelevant = hasSelection && selection.thingId && context === "selection" && selectedThingIds.includes(selection.thingId);
+            const isFragmentRelevant = selection && selection.thingId && context === "selection" && selectedThingIds.includes(selection.thingId);
             onAction(
                 action,
                 isFragmentRelevant ? "selection" : context,
                 domainId,
-                isFragmentRelevant && selection.fragment ? selection.fragment : undefined
+                isFragmentRelevant && selection && selection.fragment ? selection.fragment : undefined
             );
         }
     };

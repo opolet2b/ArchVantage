@@ -614,13 +614,22 @@ class TextTemplatePrimitive(BasePrimitive):
                          example_desc = ""
                          
                          if config_schema:
-                             if isinstance(config_schema, str) and ("const" in config_schema or "=" in config_schema or "[" in config_schema):
+                             # Check if it's a raw string (e.g. JS code) or actual JSON object/dict
+                             if isinstance(config_schema, str) and ("const" in config_schema or "=" in config_schema or "[" in config_schema) and not config_schema.strip().startswith("{"):
                                  # User provided JS Code/Example Data
                                  schema_desc = "Schema: See Example Data below."
                                  example_desc = f"REFERENCE DATA STRUCTURE (Javascript):\n{config_schema}\n\nINSTRUCTION: Output JSON that matches the structure and keys of the reference data above."
                              else:
-                                 # Standard JSON Schema
-                                 schema_desc = json.dumps(config_schema, indent=2)
+                                 # Standard JSON Schema (Dict or JSON String)
+                                 schema_json = config_schema
+                                 if isinstance(config_schema, str):
+                                     try:
+                                         schema_json = json.loads(config_schema)
+                                     except:
+                                         schema_json = {"error": "Invalid JSON Schema string"}
+                                 
+                                 schema_desc = json.dumps(schema_json, indent=2)
+                                 example_desc = "INSTRUCTION: Your output 'content' MUST be a valid JSON object that strictly conforms to the JSON Schema above."
 
                          context_instruction = (
                              f"TARGET VISUALIZATION: '{component_name}'\n"
@@ -640,6 +649,7 @@ class TextTemplatePrimitive(BasePrimitive):
                                  "3. Extract the numeric values for each Entity at that time and add them to the object.\n"
                                  "   Example Goal: [{'name': 'Q1 2025', 'Euro Area': 1.3, 'EU': 1.2}, ...]\n"
                              )
+                         
                          # OVERRIDE: Ignore any generic template instructions that might suggest ASCII art
                          template_for_prompt = (
                              f"Task: Extract data from the analysis results to populate a {component_name}.\n"
@@ -751,20 +761,48 @@ Specific Instructions:
                     
                     # Validate content presence
                     if "visual_payload" not in viz_output_data:
+                         # Heuristic: Unwrap common LLM wrappers
+                         content_to_wrap = viz_output_data
+                         
+                         # 1. extracted_elements array (Common in extraction tasks)
+                         if isinstance(viz_output_data, dict):
+                             if "extracted_elements" in viz_output_data and isinstance(viz_output_data["extracted_elements"], list):
+                                 elements = viz_output_data["extracted_elements"]
+                                 # Flatten if it's a list of objects with 'data' (User's specific case)
+                                 # Case: [{ ..., "data": [...] }]
+                                 flat_data = []
+                                 for el in elements:
+                                     if isinstance(el, dict) and "data" in el and isinstance(el["data"], list):
+                                         flat_data.extend(el["data"])
+                                     else:
+                                         flat_data.append(el)
+                                 
+                                 if flat_data:
+                                     content_to_wrap = flat_data
+                                     print(f"[TextTemplate] Unwrapped 'extracted_elements' ({len(flat_data)} items)")
+
+                             elif "data" in viz_output_data and isinstance(viz_output_data["data"], list):
+                                 content_to_wrap = viz_output_data["data"]
+                                 print(f"[TextTemplate] Unwrapped 'data' key.")
+                                 
+                             elif "results" in viz_output_data and isinstance(viz_output_data["results"], list):
+                                 content_to_wrap = viz_output_data["results"]
+                                 print(f"[TextTemplate] Unwrapped 'results' key.")
+
                          # Heuristic: Did we get a direct component payload (e.g. Chart.js style or Recharts array)?
                          # If so, wrap it.
-                         if "type" in viz_output_data and "data" in viz_output_data:
+                         if isinstance(content_to_wrap, dict) and "type" in content_to_wrap and "data" in content_to_wrap:
                               # Handle Chart.js style fallback -> Wrap it
-                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": viz_output_data}}
-                         elif isinstance(viz_output_data, list):
+                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": content_to_wrap}}
+                         elif isinstance(content_to_wrap, list):
                               # Direct Array -> Wrap it
-                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": viz_output_data}}
-                         elif "content" in viz_output_data:
+                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": content_to_wrap}}
+                         elif isinstance(content_to_wrap, dict) and "content" in content_to_wrap:
                               # Just missing wrapper
-                              viz_output_data = {"visual_payload": {"structure_type": "markdown", "content": viz_output_data["content"]}}
+                              viz_output_data = {"visual_payload": {"structure_type": "markdown", "content": content_to_wrap["content"]}}
                          else:
                               # Blindly wrap whatever we got as content, aiming for best effort
-                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": viz_output_data}}
+                              viz_output_data = {"visual_payload": {"structure_type": "chart", "content": content_to_wrap}}
 
                     # Store strictly
                     if "variables" not in state: state["variables"] = {}

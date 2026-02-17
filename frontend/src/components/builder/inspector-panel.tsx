@@ -24,6 +24,7 @@ import {
     Loader2,
     AlertCircle,
     Trash2,
+    Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -379,6 +380,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
 
     // Get blueprintId from store for schema discovery
     const blueprintId = useBuilderStore((state) => state.blueprintId);
+    const nodes = useBuilderStore((state) => state.nodes);
     const selectedNode = node; // Alias for consistency with MappingEditor
 
     // State for available tools (used by CALL_TOOL)
@@ -390,6 +392,10 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
     // State for available LLMs (used by LLM_DECISION)
     const [llmModels, setLlmModels] = useState<ModelPreset[]>([]);
     const [isLoadingModels, setIsLoadingModels] = useState(false);
+
+    // State for prompt optimization
+    const [isOptimizing, setIsOptimizing] = useState(false);
+    const selectedModel = useBuilderStore((state) => state.selectedModel);
 
     // Fetch tools tree when CALL_TOOL node is selected
     useEffect(() => {
@@ -575,6 +581,34 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
         return allArgs;
     };
 
+    const handleOptimizePrompt = async () => {
+        setIsOptimizing(true);
+        const currentInstruction = (params.instruction as string) || "";
+
+        try {
+            const response = await fetch(`${API_URL}/agent-blueprints/optimize-prompt`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({
+                    prompt: currentInstruction,
+                    model: selectedModel || "default"
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                handleParamChange("instruction", data.optimized_prompt);
+            }
+        } catch (error) {
+            console.error("Failed to optimize prompt", error);
+        } finally {
+            setIsOptimizing(false);
+        }
+    };
+
     return (
         <div className="p-3 space-y-4">
             {/* Node Info */}
@@ -613,7 +647,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                 value={(params.url as string) || ""}
                                 onChange={(e) => handleParamChange("url", e.target.value)}
                             />
-                            <VariablePicker onSelect={(path) => handleParamChange("url", ((params.url as string) || "") + `{{${path}}}`)} />
+                            <VariablePicker nodeId={selectedNode?.id} onSelect={(path) => handleParamChange("url", ((params.url as string) || "") + `{{${path}}}`)} />
                         </div>
                         <p className="text-xs text-muted-foreground">
                             Use {"{{variable}}"} for dynamic values
@@ -811,7 +845,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                                             onChange={(e) => handleArgumentChange(arg.name, e.target.value)}
                                                             className="text-sm"
                                                         />
-                                                        <VariablePicker onSelect={(path) =>
+                                                        <VariablePicker nodeId={selectedNode?.id} onSelect={(path) =>
                                                             handleArgumentChange(arg.name, ((currentArgs[arg.name] as string) || "") + `{{${path}}}`)
                                                         } />
                                                     </div>
@@ -846,7 +880,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                     value={(params.source_text as string) || ""}
                                     onChange={(e) => handleParamChange("source_text", e.target.value)}
                                 />
-                                <VariablePicker onSelect={(path) =>
+                                <VariablePicker nodeId={selectedNode?.id} onSelect={(path) =>
                                     handleParamChange("source_text", `{{${path}}}`)
                                 } />
                             </div>
@@ -995,9 +1029,25 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                             )}
                         </div>
                         <div className="space-y-2">
-                            <Label className="flex items-center gap-2">
-                                Instruction
-                                <HelpTooltip contentPath="agent-builder/llm_decision_instruction" />
+                            <Label className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    Instruction
+                                    <HelpTooltip contentPath="agent-builder/llm_decision_instruction" />
+                                </div>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 px-2 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/40"
+                                    onClick={handleOptimizePrompt}
+                                    disabled={!params.instruction || isOptimizing}
+                                >
+                                    {isOptimizing ? (
+                                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                    ) : (
+                                        <Sparkles className="h-3 w-3 mr-1" />
+                                    )}
+                                    Suggest
+                                </Button>
                             </Label>
                             <div className="flex gap-2">
                                 <Textarea
@@ -1115,6 +1165,125 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                 value={(params.iterator_var as string) || "item"}
                                 onChange={(e) => handleParamChange("iterator_var", e.target.value)}
                             />
+                        </div>
+                    </>
+                )
+            }
+
+            {
+                primitiveType === "FOREACH_START" && (
+                    <>
+                        <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-md border border-dashed mb-4">
+                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-2">Loop Logic Construction</div>
+                            <div className="flex flex-wrap items-center gap-2 font-mono text-sm">
+                                <span className="text-blue-500 font-bold">FOR EACH</span>
+                                <span className="bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-blue-200">
+                                    {(params.iterator_var as string) || "variable"}
+                                </span>
+                                <span className="text-blue-500 font-bold">IN</span>
+                                <span className="bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-blue-200 truncate max-w-[150px]">
+                                    {(params.items as string) || "source_item"}
+                                </span>
+                                <span className="text-blue-500 font-bold">DO</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold flex items-center gap-2">
+                                    Iterate Over (source_item)
+                                    <VariablePicker
+                                        nodeId={selectedNode?.id}
+                                        onSelect={(path) => handleParamChange("items", `{{${path}}}`)}
+                                    />
+                                    <HelpTooltip contentPath="agent-builder/foreach_items" />
+                                </Label>
+                                <Input
+                                    placeholder="{{inputs.list}}"
+                                    value={(params.items as string) || ""}
+                                    onChange={(e) => handleParamChange("items", e.target.value)}
+                                />
+                                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                    The variable containing the list you want to loop through (e.g. <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{inputs.list}}"}</code> or <code className="text-[10px] bg-slate-100 px-1 rounded">{"{{node_id.field}}"}</code>).
+                                </p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold">Assign current item to (variable)</Label>
+                                <Input
+                                    placeholder="item"
+                                    value={(params.iterator_var as string) || "item"}
+                                    onChange={(e) => handleParamChange("iterator_var", e.target.value)}
+                                />
+                                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                    The name you will use to refer to each single item inside the loop (e.g. <code className="text-[10px] bg-slate-100 px-1 rounded">customer</code>).
+                                </p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-muted-foreground">Track index as (optional)</Label>
+                                <Input
+                                    placeholder="index"
+                                    value={(params.index_var as string) || "index"}
+                                    onChange={(e) => handleParamChange("index_var", e.target.value)}
+                                />
+                                <p className="text-[11px] text-muted-foreground">
+                                    Numeric variable tracking the current position (0, 1, 2...).
+                                </p>
+                            </div>
+                        </div>
+                    </>
+                )
+            }
+
+            {
+                primitiveType === "FOREACH_END" && (
+                    <>
+                        <div className="space-y-2">
+                            <Label className="text-sm font-semibold">Loop Start Node</Label>
+                            <select
+                                className="w-full h-9 px-3 rounded-md border bg-background text-sm"
+                                value={(params.start_node_id as string) || ""}
+                                onChange={(e) => handleParamChange("start_node_id", e.target.value)}
+                            >
+                                <option value="" disabled>Select Loop Start node...</option>
+                                {nodes
+                                    .filter((n) => n.data.primitiveType === "FOREACH_START")
+                                    .map((n) => (
+                                        <option key={n.id} value={n.id}>
+                                            {(n.data.label as string) || n.id}
+                                        </option>
+                                    ))
+                                }
+                            </select>
+                        </div>
+
+                        <Separator className="my-2" />
+
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold">Accumulate into Results (Optional)</Label>
+                                <Input
+                                    placeholder="{{llm.output}}"
+                                    value={(params.collect_value as string) || ""}
+                                    onChange={(e) => handleParamChange("collect_value", e.target.value)}
+                                />
+                                <p className="text-[11px] text-muted-foreground">
+                                    Specify which value from inside the loop to add to the final list.
+                                </p>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label className="text-sm font-semibold">Final List Variable name</Label>
+                                <Input
+                                    placeholder="results"
+                                    value={(params.results_var as string) || "results"}
+                                    onChange={(e) => handleParamChange("results_var", e.target.value)}
+                                />
+                                <p className="text-[11px] text-muted-foreground">
+                                    The name of the variable containing the complete list of collected items.
+                                </p>
+                            </div>
                         </div>
                     </>
                 )

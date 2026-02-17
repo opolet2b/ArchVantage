@@ -2,4 +2,5 @@
 trigger: always_on
 ---
 
-* Always use backend/venv as virtual environment
+# Virtual Environmeet Rules
+Always use backend/venv as virtual environment

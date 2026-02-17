@@ -83,9 +83,21 @@ class ExtractorPrimitive(BasePrimitive):
         
         # 2. Resolve parameters
         instruction = self.resolve_variables(params.get("instruction", ""), state)
+        
+        # --- Handle Empty Instructions ---
+        # If the user didn't provide a focus (and one wasn't constructed by runtime), 
+        # provide a default "extract all" directive to avoid LLM ambiguity.
+        if not instruction or not instruction.strip():
+            print("[EXTRACTOR] No specific instructions found. Injecting default focus.")
+            instruction = "Focus: Extract all relevant information, key details, and data points from the source content."
+
         target_variable = params.get("target_variable")
         schema = params.get("schema", {})
-        model = variables.get("model") or params.get("model", "gpt-4o")
+        
+        # Identification: use centralized resolver
+        model = self.get_llm_config(state, params)
+        print(f"[EXTRACTOR] Resolved Model: {model}")
+        
         extraction_mode = "semantic" # Default initialization to prevent UnboundLocalError
 
         # 3. Resolve Source Text

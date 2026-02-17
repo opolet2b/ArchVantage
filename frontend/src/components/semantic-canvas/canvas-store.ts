@@ -1043,7 +1043,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     updateCanvasSettings: async (settings) => {
         const { canvasId, canvasSettings } = get();
         const token = getAuthToken();
-        if (!token || !canvasId) return;
+        console.log("[CanvasStore] updateCanvasSettings called with:", settings, "canvasId:", canvasId, "hasToken:", !!token);
+
+        if (!token || !canvasId) {
+            console.warn("[CanvasStore] Skipping updateCanvasSettings: missing token or canvasId");
+            return;
+        }
 
         // Merge with existing settings for local optimistic update
         const newSettings = { ...(canvasSettings || {}), ...settings };

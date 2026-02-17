@@ -322,6 +322,7 @@ def update_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update canvas properties."""
+    print(f"[CanvasRouter] PATCH /canvases/{canvas_id} reached. Request: {request.model_dump()}")
     # Only owner or explicit write access (treated same as read for now) can update
     # Ideally, we should check for "Write" permission if we had granular permissions.
     # For now, we allow update if user has access.
@@ -337,10 +338,16 @@ def update_canvas(
         canvas.viewport = request.viewport.model_dump()
 
     if request.owner_config is not None:
-        print(f"[CanvasRouter] Updating owner_config for {canvas_id}")
-        print(f"[CanvasRouter] Incoming automations count: {len(request.owner_config.get('automations', []))}")
+        model = request.owner_config.get('llm_model') or request.owner_config.get('model')
+        vision_model = request.owner_config.get('vision_model')
+        
+        if model or vision_model:
+            print(f"[CanvasRouter] MODEL SELECTION CHANGE for {canvas_id}:")
+            if model: print(f"  - LLM Model: {model}")
+            if vision_model: print(f"  - Vision Model: {vision_model}")
+        
         if request.owner_config.get('automations'):
-             print(f"[CanvasRouter] First automation trigger: {request.owner_config['automations'][0].get('trigger')}")
+             print(f"[CanvasRouter] Updating automations for {canvas_id}. Count: {len(request.owner_config['automations'])}")
 
         # Merge with existing config to prevent overwriting
         current_config = dict(canvas.owner_config or {}) # Force copy to ensure mutation detection?

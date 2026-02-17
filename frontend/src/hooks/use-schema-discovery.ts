@@ -1,17 +1,9 @@
-
 import { useState, useEffect } from "react";
 import { Node } from "@xyflow/react";
 import { API_URL } from "@/lib/utils";
 import { useBuilderStore } from "@/lib/builder-store";
 import { PrimitiveType } from "@/lib/builder-types";
-
-// Types reused from mapping-editor (we should probably export these from a shared types file)
-export interface SchemaField {
-    name: string;
-    type: string;
-    label?: string;
-    description?: string;
-}
+import { getNodeOutputSchema, SchemaField } from "@/lib/builder-utils";
 
 export interface NodeSchema {
     node_id: string;
@@ -20,45 +12,6 @@ export interface NodeSchema {
     fields: SchemaField[];
     source: "local" | "server";
 }
-
-// Helper to get output schema
-const getNodeOutputSchema = (type: string, params: any): SchemaField[] => {
-    switch (type) {
-        case "START":
-            if (params.inputs_schema) {
-                // ... parse inputs_schema ...
-                return Object.entries(params.inputs_schema || {}).map(([key, val]: [string, any]) => ({
-                    name: key,
-                    type: val.type || "string",
-                    label: val.description || key
-                }));
-            }
-            return [{ name: "input_data", type: "object", label: "Input Data" }];
-        case "HTTP_REQUEST":
-            return [
-                { name: "status_code", type: "int", label: "Status Code" },
-                { name: "data", type: "dict", label: "Response Data" },
-                { name: "headers", type: "dict", label: "Response Headers" }
-            ];
-        case "CALL_TOOL":
-            // This is dynamic, handled by fetchToolSchema
-            return [{ name: "result", type: "any", label: "Tool Result" }];
-        case "LLM_DECISION":
-            const llmOutputVar = (params.output_variable as string) || "llm_output";
-            return [
-                { name: llmOutputVar, type: "string", label: "LLM Output" },
-                { name: "_raw", type: "string", label: "Raw Response" }
-            ];
-        case "FOREACH":
-            return [{ name: "results", type: "list", label: "Results" }];
-        case "JSON_MAPPING":
-            // Ideally we'd parse the mapping template to guess output fields
-            // For now return a generic result or configured output
-            return [{ name: "mapped_output", type: "object", label: "Mapped Output" }];
-        default:
-            return [];
-    }
-};
 
 const getNodeInputSchema = (type: string, params: any): SchemaField[] => {
     switch (type) {

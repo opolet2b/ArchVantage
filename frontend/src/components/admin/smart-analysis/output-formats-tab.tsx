@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/components/ui/use-toast";
 import { API_URL } from "@/lib/utils";
 
 interface OutputFormatItem {
@@ -22,6 +23,7 @@ interface OutputFormatItem {
 }
 
 export function OutputFormatsTab() {
+    const { toast } = useToast();
     const [items, setItems] = useState<OutputFormatItem[]>([]);
     const [categories, setCategories] = useState<any[]>([]); // For dropdown
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -109,18 +111,25 @@ export function OutputFormatsTab() {
                 const data = await res.json();
                 if (editingId) {
                     setItems(items.map(item => item.id === editingId ? data : item));
+                    toast({ title: "Success", description: "Output format updated successfully." });
                 } else {
                     setItems([...items, data]);
+                    toast({ title: "Success", description: "Output format created successfully." });
                 }
                 setIsDialogOpen(false);
                 resetForm();
             } else {
                 console.error("Save failed:", res.statusText);
-                alert(`Failed to save: ${res.statusText}`);
+                const errorData = await res.json().catch(() => ({}));
+                let errorMessage = errorData.detail || `Failed to save: ${res.statusText}`;
+                if (typeof errorMessage !== 'string') {
+                    errorMessage = JSON.stringify(errorMessage);
+                }
+                toast({ title: "Error", description: errorMessage, variant: "destructive" });
             }
         } catch (error) {
             console.error("Failed to save output format:", error);
-            alert("Error saving output format");
+            toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
         }
     };
 
@@ -146,7 +155,8 @@ export function OutputFormatsTab() {
     };
 
     const resetForm = () => {
-        setNewItem({ type: "", name: "", content_type: "", structure_template: "" }); // Updated reset
+        setNewItem({ type: "", name: "", content_type: "", structure_template: "", extension: "" }); // Updated reset    const resetForm = () => {
+        setNewItem({ type: "", name: "", content_type: "", structure_template: "", extension: "" }); // Updated reset
         setEditingId(null);
     };
 
@@ -210,7 +220,7 @@ export function OutputFormatsTab() {
                                 <Input
                                     id="extension"
                                     placeholder="e.g. pdf (no dot)"
-                                    value={newItem.extension}
+                                    value={newItem.extension || ""}
                                     onChange={(e) => setNewItem({ ...newItem, extension: e.target.value })}
                                 />
                             </div>

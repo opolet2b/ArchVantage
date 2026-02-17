@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/use-toast";
 import { API_URL } from "@/lib/utils";
 
 // Define interface matching the API schema
@@ -33,6 +34,7 @@ interface TaxonomyTabProps {
 }
 
 export function TaxonomyTab({ selectedPreset }: TaxonomyTabProps) {
+    const { toast } = useToast();
     // State for data and loading
     const [items, setItems] = useState<TaxonomyItem[]>([]);
     const [categories, setCategories] = useState<GlobalCategoryItem[]>([]);
@@ -97,14 +99,24 @@ export function TaxonomyTab({ selectedPreset }: TaxonomyTabProps) {
                 const data = await res.json();
                 if (editingId) {
                     setItems(items.map(item => item.id === editingId ? data : item));
+                    toast({ title: "Success", description: "Taxonomy updated successfully." });
                 } else {
                     setItems([...items, data]);
+                    toast({ title: "Success", description: "Taxonomy created successfully." });
                 }
                 setIsDialogOpen(false);
                 resetForm();
+            } else {
+                const errorData = await res.json();
+                let errorMessage = errorData.detail || "Failed to save taxonomy.";
+                if (typeof errorMessage !== 'string') {
+                    errorMessage = JSON.stringify(errorMessage);
+                }
+                toast({ title: "Error", description: errorMessage, variant: "destructive" });
             }
         } catch (error) {
             console.error("Failed to save taxonomy:", error);
+            toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
         }
     };
 

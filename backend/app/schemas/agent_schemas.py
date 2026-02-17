@@ -20,6 +20,8 @@ class PrimitiveType(str, Enum):
     JSON_MAPPING = "JSON_MAPPING"
     TEXT_TEMPLATE = "TEXT_TEMPLATE"
     FOREACH = "FOREACH"
+    FOREACH_START = "FOREACH_START"
+    FOREACH_END = "FOREACH_END"
     LLM_DECISION = "LLM_DECISION"
     DOCUMENT_CONVERTER = "DOCUMENT_CONVERTER"
 
@@ -67,6 +69,8 @@ class GraphEdge(BaseModel):
     id: str
     source: str  # Source node ID
     target: str  # Target node ID
+    sourceHandle: Optional[str] = None
+    targetHandle: Optional[str] = None
     condition: Optional[str] = None  # Optional expression for branching
 
 
@@ -87,6 +91,7 @@ class BlueprintBase(BaseModel):
     graph: AgentGraph = Field(default_factory=AgentGraph)
     inputs_schema: Dict[str, Any] = Field(default_factory=dict)
     secrets_requirements: List[str] = Field(default_factory=list)
+    test_config: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
 class BlueprintCreate(BlueprintBase):
@@ -102,6 +107,7 @@ class BlueprintUpdate(BaseModel):
     inputs_schema: Optional[Dict[str, Any]] = None
     secrets_requirements: Optional[List[str]] = None
     is_published: Optional[bool] = None
+    test_config: Optional[Dict[str, Any]] = None
 
 
 class BlueprintResponse(BlueprintBase):
@@ -171,6 +177,17 @@ class BlueprintGenerateResponse(BaseModel):
     discovered_tools: List[str] = Field(default_factory=list)
 
 
+class PromptOptimizeRequest(BaseModel):
+    """Request to optimize an LLM prompt/instruction."""
+    prompt: str = Field(..., description="The draft instruction/prompt to optimize")
+    model: str = Field(default="default", description="The LLM model to use for optimization")
+
+
+class PromptOptimizeResponse(BaseModel):
+    """Response with the optimized prompt."""
+    optimized_prompt: str
+
+
 # -----------------------------------------------------------------------------
 # Blueprint Execution
 # -----------------------------------------------------------------------------
@@ -178,6 +195,7 @@ class BlueprintGenerateResponse(BaseModel):
 class BlueprintExecuteRequest(BaseModel):
     """Request to execute a blueprint."""
     inputs: Dict[str, Any] = Field(default_factory=dict)
+    model: Optional[str] = Field(default=None, description="Global LLM model override for this execution")
     mode: Optional[str] = Field(
         default="dry_run",
         description="Execution mode: 'dry_run' (pause after step) or 'production' (run to completion)"

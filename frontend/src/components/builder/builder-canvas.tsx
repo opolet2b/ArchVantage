@@ -35,6 +35,8 @@ import { JsonMappingNode } from "./nodes/json-mapping-node";
 import { StartNode } from "./nodes/start-node";
 import { EndNode } from "./nodes/end-node";
 import { DocumentConverterNode } from "./nodes/document-converter-node";
+import { ForEachStartNode } from "./nodes/foreach-start-node";
+import { ForEachEndNode } from "./nodes/foreach-end-node";
 
 // Custom node types mapping
 const nodeTypes: NodeTypes = {
@@ -48,6 +50,8 @@ const nodeTypes: NodeTypes = {
     llm_decision: LlmDecisionNode,
     json_mapping: JsonMappingNode,
     document_converter: DocumentConverterNode,
+    foreach_start: ForEachStartNode,
+    foreach_end: ForEachEndNode,
 };
 
 export function BuilderCanvas() {
@@ -194,6 +198,9 @@ export function BuilderCanvas() {
                                 return "#10b981"; // Green
                             case "DOCUMENT_CONVERTER":
                                 return "#14b8a6"; // Teal
+                            case "FOREACH_START":
+                            case "FOREACH_END":
+                                return "#10b981"; // Green
                             default:
                                 return "#6b7280"; // Gray
                         }

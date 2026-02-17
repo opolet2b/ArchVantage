@@ -5,8 +5,10 @@ Abstract base class for all agent primitives. Each primitive must implement
 the execute method and define its parameter schema.
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List, Union, cast
 from pydantic import BaseModel
+import re
+import json
 
 
 class PrimitiveResult(BaseModel):
@@ -176,35 +178,90 @@ class BasePrimitive(ABC):
         # ------------------------------------------------------------------
         # Standard Resolution
         # ------------------------------------------------------------------
-        if var_path.startswith("variables") or var_path.startswith("inputs") or var_path.startswith("secrets"):
-             root = state
-        else:
-             root = state.get("variables", {})
+        # Determine root: explicit prefix or fallback to variables/inputs
+        is_prefixed = any(var_path.startswith(p) for p in ["variables.", "inputs.", "secrets.", "variables[", "inputs[", "secrets["])
         
+        if is_prefixed:
+            root = state
+        else:
+            # If no prefix, try variables first, then fall back to inputs
+            variables = state.get("variables", {})
+            inputs = state.get("inputs", {})
+            
+            # Extract the first part of the path to check existence
+            first_part = re.split(r'\.|\[', var_path)[0]
+            
+            if first_part in variables:
+                root = variables
+            elif first_part in inputs:
+                root = inputs
+            else:
+                root = variables # Default to variables root
+
         try:
-            return self._get_nested_value(root, var_path)
+            val = self._get_nested_value(root, var_path)
+            
+            # --- AUTO-UNWRAP JSON STRINGS ---
+            # If the resolved value is a string that looks like JSON, parse it.
+            if isinstance(val, str):
+                trimmed = val.strip()
+                if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
+                    try:
+                        val = json.loads(trimmed)
+                    except:
+                        pass # Not valid JSON
+            
+            # --- AUTO-UNWRAP 'result' wrapper ---
+            if isinstance(val, dict) and "result" in val and len(val) == 1:
+                val = val["result"]
+                
+            if val is not None:
+                return val
         except (KeyError, IndexError, TypeError):
-            return None
+            pass
+
+        # ------------------------------------------------------------------
+        # DEEP RECURSIVE SEARCH FALLBACK
+        # ------------------------------------------------------------------
+        # If direct path resolution failed, and this is a simple identifier (no dots/brackets),
+        # perform a deep hunt across the entire state.
+        if "." not in var_path and "[" not in var_path:
+            # Search inputs and variables
+            for source in [state.get("inputs", {}), state.get("variables", {})]:
+                found = self._find_key_recursive(source, var_path)
+                if found is not None:
+                    return found
+        
+        return None
     
     def _get_nested_value(self, data: Dict, path: str) -> Any:
         """
         Get a value from nested data using dot notation.
         
         Supports:
+        - Recursive JSON parsing: if an intermediate value is a string, it parses it to continue traversal.
         - Simple paths: "name"
         - Nested paths: "user.name"
         - Array access: "items[0]"
         - Secret access: "secrets.API_KEY"
         - Fuzzy key matching: handles underscore/dash mismatches in node IDs
         """
-        import re
-        
         parts = re.split(r'\.|(?=\[)', path)
-        # Filter empty strings
         parts = [p for p in parts if p]
         
         current = data
         for part in parts:
+            # --- RECURSIVE JSON PARSING ---
+            # If current is a string (e.g. from an HTTP response), try to parse it 
+            # so we can continue traversing into it.
+            if isinstance(current, str):
+                trimmed = current.strip()
+                if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
+                    try:
+                        current = json.loads(trimmed)
+                    except:
+                        pass # Not valid JSON, keep as string (traversal will fail below)
+
             # Handle bracket notation: ['key'] or [0]
             bracket_match = re.match(r'\[([^\]]+)\]', part)
             if bracket_match:
@@ -225,6 +282,40 @@ class BasePrimitive(ABC):
                     raise KeyError(f"Cannot access '{part}' in {type(current)}")
         
         return current
+
+    def _find_key_recursive(self, obj: Any, target_key: str) -> Any:
+        """
+        Search for a key recursively in a structure, including stringified JSON.
+        """
+        if isinstance(obj, dict):
+            # Check fuzzy match for immediate children
+            res = self._fuzzy_dict_get(obj, target_key)
+            if res is not None:
+                return res
+            
+            # Recurse into values
+            for v in obj.values():
+                res = self._find_key_recursive(v, target_key)
+                if res is not None:
+                    return res
+                    
+        elif isinstance(obj, list):
+            for item in obj:
+                res = self._find_key_recursive(item, target_key)
+                if res is not None:
+                    return res
+                    
+        elif isinstance(obj, str):
+            # Check if it's a JSON string
+            trimmed = obj.strip()
+            if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
+                try:
+                    parsed = json.loads(trimmed)
+                    return self._find_key_recursive(parsed, target_key)
+                except:
+                    pass
+        
+        return None
     
     def _fuzzy_dict_get(self, data: Dict, key: str) -> Any:
         """
@@ -259,41 +350,54 @@ class BasePrimitive(ABC):
         Get the configured LLM model name with fallback logic.
         
         Priority:
-        1. 'model' in params (Node-specific override) / 'model' in variables (Global override injected by Automation)
-        2. Canvas owner_config (Database lookup)
-        3. Default fallback
+        1. 'model' in variables (Global override injected by UI Dropdown)
+        2. 'model' in params (Node-specific override if not "default")
+        3. Canvas owner_config (Database lookup)
+        4. Default fallback (settings.DEFAULT_LLM_MODEL)
+        
+        All candidates are resolved via llm_service.resolve_model_name to identify
+        the specific configuration to be used.
         """
         params = params or {}
         variables = state.get("variables", {})
+        candidate = None
         
-        # 1. Check Global/Param Overrides
-        # We prefer the one explicitly passed in variables (from AutomationService injection)
-        # or the one in params if it's set to something other than "default"
-        param_model = params.get("model")
+        # 1. Overrides
         global_model = variables.get("model")
+        param_model = params.get("model")
         
-        if param_model and param_model != "default":
-             return param_model
-             
+        print(f"[DEBUG_MODELS] Resolving config. Global: {global_model}, Param: {param_model}")
+        
         if global_model:
-             return global_model
-
-        # 2. Check Canvas Config (DB Lookup)
-        # Often 'canvas_id' is in state root or variables
-        canvas_id = state.get("canvas_id") or variables.get("canvas_id")
-        db = state.get("db")
+            candidate = global_model
+            print(f"[DEBUG_MODELS] Using global override: {candidate}")
+        elif param_model and param_model != "default":
+            candidate = param_model
+            print(f"[DEBUG_MODELS] Using param override: {candidate}")
         
-        if db and canvas_id:
-             try:
-                 # Lazy import to avoid circular dep at module level
-                 from app.models.canvas_models import Canvas
-                 canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
-                 if canvas and canvas.owner_config:
-                     model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
-                     if model:
-                         return model
-             except Exception as e:
-                 print(f"[BasePrimitive] Config lookup failed: {e}")
-                 
-        # 3. Fallback
-        return "gpt-4o-mini"
+        # 2. Canvas Config (DB Lookup)
+        if not candidate:
+            canvas_id = state.get("canvas_id") or variables.get("canvas_id")
+            db = state.get("db")
+            if db and canvas_id:
+                try:
+                    from app.models.canvas_models import Canvas
+                    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+                    if canvas and canvas.owner_config:
+                        candidate = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
+                        print(f"[DEBUG_MODELS] Using canvas config: {candidate}")
+                except Exception as e:
+                    print(f"[BasePrimitive] Config lookup failed: {e}")
+        
+        # 3. Final Fallback
+        if not candidate:
+            from app.core.config import settings
+            candidate = settings.DEFAULT_LLM_MODEL or "default"
+            print(f"[DEBUG_MODELS] Using final fallback: {candidate}")
+            
+        # identification: use LLMService to resolve to a specific preset
+        try:
+            from app.services.llm_service import llm_service
+            return llm_service.resolve_model_name(candidate)
+        except Exception:
+            return candidate

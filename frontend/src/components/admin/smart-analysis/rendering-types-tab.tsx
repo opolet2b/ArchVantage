@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { API_URL } from "@/lib/utils";
+import { useToast } from "@/components/ui/use-toast";
 
 // Define interface matching the API schema
 interface RenderingTypeItem {
@@ -35,6 +36,7 @@ interface RenderingTypesTabProps {
 }
 
 export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
+    const { toast } = useToast();
     // State for data
     const [items, setItems] = useState<RenderingTypeItem[]>([]);
     const [categories, setCategories] = useState<GlobalCategoryItem[]>([]);
@@ -96,11 +98,18 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                     payload.config_schema = null;
                 } else {
                     try {
-                        payload.config_schema = JSON.parse(payload.config_schema);
+                        const parsed = JSON.parse(payload.config_schema);
+                        // Backend expects Dict (object) or Str. Array is not a Dict.
+                        // If it's an array, we strictly send it as a string.
+                        // If it's a valid object (and not array/null), we send it as JSON object.
+                        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+                            payload.config_schema = parsed;
+                        } else {
+                            // Keep as string for Arrays, nulls, primitives to satisfy "str" type in backend Union
+                            console.log("Config Schema is not a dictionary. Saving as string.");
+                        }
                     } catch (e) {
                         // ALLOW STRING PAYLOAD (e.g. JS Code Snippets)
-                        // If it fails to parse as JSON, we send it as a string.
-                        // The backend now supports this for "Reference Data" handling.
                         console.warn("Config Schema is not valid JSON. Saving as string.");
                     }
                 }
@@ -116,14 +125,24 @@ export function RenderingTypesTab({ selectedPreset }: RenderingTypesTabProps) {
                 const data = await res.json();
                 if (editingId) {
                     setItems(items.map(item => item.id === editingId ? data : item));
+                    toast({ title: "Success", description: "Rendering Type updated successfully." });
                 } else {
                     setItems([...items, data]);
+                    toast({ title: "Success", description: "Rendering Type created successfully." });
                 }
                 setIsDialogOpen(false);
                 resetForm();
+            } else {
+                const errorData = await res.json();
+                let errorMessage = errorData.detail || "Failed to save rendering type.";
+                if (typeof errorMessage !== 'string') {
+                    errorMessage = JSON.stringify(errorMessage);
+                }
+                toast({ title: "Error", description: errorMessage, variant: "destructive" });
             }
         } catch (error) {
             console.error("Failed to save rendering type:", error);
+            toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
         }
     };
 

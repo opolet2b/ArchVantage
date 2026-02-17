@@ -348,7 +348,15 @@ class AutomationService:
             # Create a mock blueprint object or dict
             blueprint_mock = {"graph": dynamic_graph}
             
-            runtime = AgentRuntime(blueprint=blueprint_mock, db=db, origin="Automation")
+            # Retrieve model from canvas config
+            llm_model = None
+            try:
+                canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+                if canvas and canvas.owner_config:
+                    llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
+                    print(f"[AutomationService] Initial retrieval of model from canvas {canvas_id}: {llm_model}")
+            except Exception as e:
+                print(f"[AutomationService] Failed to retrieve canvas model: {e}")
             
             # Prepare inputs
             inputs = {
@@ -365,7 +373,7 @@ class AutomationService:
                     llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
                     if llm_model:
                         inputs["model"] = llm_model
-                        print(f"[AutomationService] Injected model context: {llm_model}")
+                        print(f"[AutomationService] Injected model context: {llm_model} into inputs")
             except Exception as e:
                 print(f"[AutomationService] Failed to inject canvas config: {e}")
             
@@ -380,7 +388,8 @@ class AutomationService:
             db.commit()
             
             # Initialize State Machine
-            sm = ExecutionStateMachine(blueprint=blueprint_mock, db=db, mode="production")
+            print(f"[AutomationService] Creating ESM with model_override={llm_model}")
+            sm = ExecutionStateMachine(blueprint=blueprint_mock, db=db, mode="production", model_override=llm_model)
             store_state_machine(execution.id, sm)
             
             print(f"[AutomationService] Executing dynamic pipeline with SM...")
@@ -430,7 +439,14 @@ class AutomationService:
             if not blueprint:
                 return {"error": f"Blueprint {blueprint_id} not found"}
                 
-            runtime = AgentRuntime(blueprint, db=db, origin="Automation")
+            # Retrieve model from canvas config
+            llm_model = None
+            try:
+                canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+                if canvas and canvas.owner_config:
+                    llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
+            except Exception as e:
+                self._log(f"Failed to retrieve canvas model for automation: {e}", "WARNING")
             
             inputs = {
                 **event_payload,
@@ -449,7 +465,7 @@ class AutomationService:
             db.commit()
             
             # Initialize State Machine
-            sm = ExecutionStateMachine(blueprint=blueprint, db=db, mode="production")
+            sm = ExecutionStateMachine(blueprint=blueprint, db=db, mode="production", model_override=llm_model)
             store_state_machine(execution.id, sm)
             
             print(f"[AutomationService] Executing Blueprint with SM...")

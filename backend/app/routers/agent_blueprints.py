@@ -12,7 +12,8 @@ import uuid
 from app.core.database import get_db
 from app.schemas.agent_schemas import (
     BlueprintCreate, BlueprintUpdate, BlueprintResponse, BlueprintListItem,
-    BlueprintGenerateRequest, BlueprintGenerateResponse, SecretCreate, SecretResponse
+    BlueprintGenerateRequest, BlueprintGenerateResponse, SecretCreate, SecretResponse,
+    PromptOptimizeRequest, PromptOptimizeResponse
 )
 from app.models.agent_blueprint import AgentBlueprint, AgentNode, AgentEdge
 from app.routers.auth import get_current_active_user, get_current_admin_user
@@ -152,6 +153,7 @@ async def create_blueprint(
         graph=blueprint.graph.model_dump(),
         inputs_schema=blueprint.inputs_schema,
         secrets_requirements=blueprint.secrets_requirements,
+        test_config=blueprint.test_config,
         owner_id=current_user.id
     )
     
@@ -215,6 +217,8 @@ async def update_blueprint(
         blueprint.secrets_requirements = update.secrets_requirements
     if update.is_published is not None:
         blueprint.is_published = update.is_published
+    if update.test_config is not None:
+        blueprint.test_config = update.test_config
     
     db.commit()
     db.refresh(blueprint)
@@ -304,6 +308,26 @@ async def generate_blueprint(
         print(f"Blueprint generation error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/agent-blueprints/optimize-prompt", response_model=PromptOptimizeResponse)
+async def optimize_prompt(
+    request: PromptOptimizeRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Optimize a user's prompt using the selected LLM.
+    """
+    try:
+        optimized = await agent_architect.optimize_prompt(
+            prompt=request.prompt,
+            model=request.model
+        )
+        return PromptOptimizeResponse(optimized_prompt=optimized)
+    except Exception as e:
+        print(f"Prompt optimization error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.post("/agent-blueprints/{blueprint_id}/validate")

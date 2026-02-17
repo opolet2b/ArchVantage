@@ -305,7 +305,7 @@ export default function StudioPage() {
     const selectedStep = steps.find(s => s.id === selectedStepId) || null;
 
     return (
-        <div className="flex flex-col h-screen overflow-hidden">
+        <div className="flex flex-col h-full overflow-hidden">
             {/* Header */}
             <div className="h-14 border-b flex items-center justify-between px-4 bg-background">
                 <div className="flex items-center gap-4">

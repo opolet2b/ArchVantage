@@ -16,11 +16,14 @@ class LLMService:
         if not model_name:
             model_name = "default"
 
+        print(f"[LLM_SERVICE] Resolving preset for: {model_name}")
+
         from app.services.config_service import config_service
         
         preset = None
         if model_name == "default":
             preset = config_service.get_default_llm_preset()
+            print(f"[LLM_SERVICE] Result for 'default': {preset.get('name') if preset else 'None'}")
         else:
             # Check if model_name matches a saved preset
             config = config_service.get_config()
@@ -35,55 +38,71 @@ class LLMService:
         if not preset and model_name != "default":
              preset = config_service.get_default_llm_preset()
              if preset:
-                 print(f"[LLMService] Warning: Requested model '{model_name}' not found. Falling back to default preset '{preset['name']}'.")
+                 print(f"[LLM_SERVICE] Warning: Requested model '{model_name}' not found. Falling back to default preset '{preset['name']}'.")
         
+        if preset:
+            print(f"[LLM_SERVICE] Final Resolved Preset: {preset.get('name')} (Model ID: {preset.get('model_name')})")
+        else:
+            print(f"[LLM_SERVICE] No preset found for '{model_name}'.")
+
         return preset
 
-    def _get_model(self, model_name: str):
+    def resolve_model_name(self, model_name: str) -> str:
+        """Resolves a model name/identifier to its preset display name."""
         preset = self._resolve_preset(model_name)
+        return preset.get("name") if preset else model_name
+
+    def _get_model(self, model_name: str):
+        """
+        Identify the corresponding model and use it based on settings configuration.
+        Returns a tuple of (langchain_model, resolved_display_name).
+        """
+        preset = self._resolve_preset(model_name)
+        resolved_name = preset.get("name") if preset else model_name
 
         if preset:
+            # Identify the actual model name to use for the provider from settings
+            target_model_id = preset.get("model_name") or "gpt-3.5-turbo"
+            
             if preset.get("type") == "local":
-                # Assumes Ollama
-                return ChatOllama(model=preset["model_name"], base_url="http://localhost:11434")
-            elif preset.get("type") == "remote":
-                # Generic OpenAI-compatible client
+                from langchain_ollama import ChatOllama
+                return ChatOllama(model=target_model_id, base_url="http://localhost:11434"), resolved_name
+            else:
+                # Generic OpenAI-compatible client (remote or default)
+                from langchain_openai import ChatOpenAI
                 model_kwargs = {}
                 sort_strategy = preset.get("sort")
                 if sort_strategy:
-                    # OpenRouter specific: pass provider sort strategy in extra_body
-                    model_kwargs["extra_body"] = {
-                        "provider": {
-                            "sort": sort_strategy
-                        }
-                    }
+                    model_kwargs["extra_body"] = {"provider": {"sort": sort_strategy}}
 
                 return ChatOpenAI(
-                    model=preset.get("model_name") or "gpt-3.5-turbo", 
+                    model=target_model_id, 
                     openai_api_key=preset.get("service_api_key"),
                     openai_api_base=preset.get("api_url"),
                     model_kwargs=model_kwargs
-                )
+                ), resolved_name
 
-        # Hardcoded fallbacks if no presets match
+        # Hardcoded pattern fallbacks (only if NO preset found)
+        from langchain_openai import ChatOpenAI
         if model_name.startswith("gpt"):
-            return ChatOpenAI(model=model_name, temperature=0.7)
+            return ChatOpenAI(model=model_name, temperature=0.7), model_name
         elif model_name.startswith("claude"):
-            return ChatAnthropic(model=model_name, temperature=0.7)
+            from langchain_anthropic import ChatAnthropic
+            return ChatAnthropic(model=model_name, temperature=0.7), model_name
         elif model_name.startswith("ollama"):
-            # Assumes Ollama is running locally on default port
+            from langchain_ollama import ChatOllama
             model_id = model_name.replace("ollama/", "")
-            return ChatOllama(model=model_id)
+            return ChatOllama(model=model_id), model_name
         elif model_name.startswith("openrouter"):
              return ChatOpenAI(
                 model=model_name.replace("openrouter/", ""),
                 openai_api_key=os.getenv("OPENROUTER_API_KEY"),
                 openai_api_base="https://openrouter.ai/api/v1",
-            )
+            ), model_name
         else:
-            # Final fallback
+            # Final system default if everything else fails
             print(f"[LLMService] No preset or pattern match for '{model_name}'. Falling back to GPT-3.5-Turbo.")
-            return ChatOpenAI(model="gpt-3.5-turbo")
+            return ChatOpenAI(model="gpt-3.5-turbo"), "gpt-3.5-turbo"
 
     def _get_llama_index_model(self, model_name: str):
         """Returns a LlamaIndex-native LLM object for the given model/preset."""
@@ -159,7 +178,7 @@ class LLMService:
 
     async def chat(self, messages: List[Message], model_name: str = "gpt-3.5-turbo", **kwargs) -> str:
         try:
-            llm = self._get_model(model_name)
+            llm, resolved_name = self._get_model(model_name)
             
             # Handle JSON mode and Temperature for Ollama
             # canvas.py sends response_format={"type": "json_object"}
@@ -203,7 +222,7 @@ class LLMService:
                     await asyncio.sleep(30)
                     if not stop_event.is_set():
                         elapsed = time.time() - start_time
-                        msg = f"Heartbeat: AI still working on '{model_name}'... [elapsed {elapsed:.0f}s]"
+                        msg = f"Heartbeat: AI still working on '{resolved_name}'... [elapsed {elapsed:.0f}s]"
                         print(f"[LLMService] {msg}")
                         await trigger_callbacks(msg)
 
@@ -218,7 +237,7 @@ class LLMService:
                 # Use to_thread if there's any risk of the library blocking the loop synchronously
                 # response = await asyncio.wait_for(asyncio.to_thread(llm.invoke, langchain_messages, **invoke_kwargs), timeout=600.0)
                 # However, ainvoke is generally preferred if supported.
-                print(f"[LLMService] DEBUG: calling llm.ainvoke for '{model_name}'...")
+                print(f"[LLMService] DEBUG: calling llm.ainvoke for '{resolved_name}'...")
                 response = await asyncio.wait_for(
                     llm.ainvoke(langchain_messages, **invoke_kwargs),
                     timeout=600.0
@@ -255,7 +274,7 @@ class LLMService:
     async def generate_title(self, content: str, type: str = "conversation") -> str:
         """Generates a short 3-5 word title for the given content."""
         try:
-            llm = self._get_model("default")
+            llm, resolved_name = self._get_model("default")
             
             prompt = f"""
             Generate a short, concise title (3-5 words) for the following {type}.
@@ -376,7 +395,7 @@ class LLMService:
         Returns a dict with keys: label, one_line, sentence, paragraph.
         """
         try:
-            llm = self._get_model(model_name)
+            llm, resolved_name = self._get_model(model_name)
             
             # Specialized prompt for JSON output
             prompt = f"""

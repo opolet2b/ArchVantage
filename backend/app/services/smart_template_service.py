@@ -2868,6 +2868,7 @@ class SmartTemplateService:
                     # 3. Deterministic Category Resolution (Visualizer -> Formatter)
                     target_format_id = None
                     resolved_category = "text" # Default
+                    resolved_react_component = None # Default
                     
                     # A. Find the Visualizer Step to determine Category
                     visualizer_step = None
@@ -2883,7 +2884,9 @@ class SmartTemplateService:
                         r_type_obj = db.query(models.SmartRenderingType).filter(models.SmartRenderingType.id == r_type_id).first()
                         if r_type_obj:
                             resolved_category = r_type_obj.category.lower()
-                            print(f"[SmartTemplate] Found Visualizer Category: {resolved_category}")
+                            # Capture component name for dynamic rendering
+                            resolved_react_component = r_type_obj.react_component
+                            print(f"[SmartTemplate] Found Visualizer Category: {resolved_category}, Component: {resolved_react_component}")
                     
                     # ROBUST FIX: Explicitly find Formatter Step config
                     # The 'last_executed_node' might be misleading (e.g. pointing to Extractor).
@@ -2940,6 +2943,19 @@ class SmartTemplateService:
                              thing_type = ThingType.AGENT_RESULT
                              # WRAPPER FIX: Frontend expects thing.content.visualizer_output
                              thing_content = {"visualizer_output": current_output["visualizer_output"]}
+                             
+                             # Inject React Component Name if resolved
+                             if resolved_react_component:
+                                 if "visual_payload" not in thing_content["visualizer_output"]:
+                                     thing_content["visualizer_output"]["visual_payload"] = {}
+                                 thing_content["visualizer_output"]["visual_payload"]["react_component"] = resolved_react_component
+                                 
+                             # Inject Category for fallback
+                             if resolved_category:
+                                 if "visual_payload" not in thing_content["visualizer_output"]:
+                                     thing_content["visualizer_output"]["visual_payload"] = {}
+                                 thing_content["visualizer_output"]["visual_payload"]["visual_category"] = resolved_category
+                                 
                              _p_type, fmt_ext = "visualizer", "json"
                              print(f"[SmartTemplate] Handling CHART_OVERRIDE. Assigned Content: {str(thing_content)[:100]}...")
                         else:

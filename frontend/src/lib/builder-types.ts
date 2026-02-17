@@ -17,6 +17,8 @@ export type PrimitiveType =
     | "JSON_MAPPING"
     | "TEXT_TEMPLATE"
     | "FOREACH"
+    | "FOREACH_START"
+    | "FOREACH_END"
     | "LLM_DECISION"
     | "DOCUMENT_CONVERTER";
 
@@ -53,6 +55,8 @@ export interface GraphEdge {
     id: string;
     source: string;
     target: string;
+    sourceHandle?: string | null;
+    targetHandle?: string | null;
     condition?: string;
 }
 
@@ -77,6 +81,7 @@ export interface Blueprint {
     secrets_requirements: string[];
     owner_id: number;
     is_published: boolean;
+    test_config?: Record<string, any>;
     created_at: string;
     updated_at?: string;
 }
@@ -90,6 +95,7 @@ export interface BlueprintCreate {
     graph: AgentGraph;
     inputs_schema: Record<string, unknown>;
     secrets_requirements: string[];
+    test_config?: Record<string, any>;
 }
 
 /**
@@ -102,6 +108,7 @@ export interface BlueprintUpdate {
     inputs_schema?: Record<string, unknown>;
     secrets_requirements?: string[];
     is_published?: boolean;
+    test_config?: Record<string, any>;
 }
 
 /**
@@ -373,6 +380,28 @@ export const PRIMITIVE_CONFIGS: PrimitiveConfig[] = [
             items: "",
             iterator_var: "item",
             subprocess_graph: { nodes: [], edges: [] }
+        }
+    },
+    {
+        type: "FOREACH_START",
+        label: "Loop Start",
+        description: "Begin a loop over items",
+        icon: "Repeat",
+        category: "logic",
+        defaultParams: {
+            items: "",
+            iterator_var: "item",
+            index_var: "index"
+        }
+    },
+    {
+        type: "FOREACH_END",
+        label: "Loop End",
+        description: "End of loop iteration",
+        icon: "Repeat",
+        category: "logic",
+        defaultParams: {
+            start_node_id: "",
         }
     },
     {

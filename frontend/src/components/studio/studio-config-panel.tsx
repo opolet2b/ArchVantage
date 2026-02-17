@@ -620,6 +620,12 @@ export function StudioConfigPanel(props: StudioConfigPanelProps) {
                             intentMode === 'extractor-exclude' ? "Describe what kind of content should be ignored (e.g. headers, footers)." :
                                 "Briefly describe how you want the data to be processed or formatted."
                 }
+                initialValue={
+                    intentMode === 'agent' ? (selectedStep.config?.objective || "") :
+                        intentMode === 'extractor-focus' ? (selectedStep.config?.focus || "") :
+                            intentMode === 'extractor-exclude' ? (selectedStep.config?.exclude || "") :
+                                (selectedStep.config?.instructions || "")
+                }
             />
 
             <div className="p-4 border-t bg-muted/30">

@@ -41,12 +41,9 @@ import {
 import { API_URL, cn } from "@/lib/utils";
 import { useBuilderStore } from "@/lib/builder-store";
 import { PrimitiveType } from "@/lib/builder-types";
+import { getNodeOutputSchema, SchemaField } from "@/lib/builder-utils";
 
-interface SchemaField {
-    name: string;
-    type: string;
-    label?: string;
-}
+
 
 interface NodeSchema {
     node_id: string;
@@ -81,61 +78,7 @@ interface MappingEditorProps {
 /**
  * Get output schema for a node type (client-side version).
  */
-function getNodeOutputSchema(primitiveType: PrimitiveType, params: Record<string, unknown>): SchemaField[] {
-    switch (primitiveType) {
-        case "START":
-            return [
-                { name: "_started", type: "boolean", label: "Started flag" },
-                { name: "_user_id", type: "integer", label: "User ID" },
-            ];
-        case "HTTP_REQUEST":
-            return [
-                { name: "status_code", type: "integer", label: "HTTP Status Code" },
-                { name: "data", type: "object", label: "Response Body" },
-                { name: "headers", type: "object", label: "Response Headers" },
-            ];
-        case "CALL_TOOL":
-            return [
-                { name: "result", type: "object", label: "Tool Result" },
-            ];
-        case "JSON_MAPPING":
-            const outputVar = (params.output_variable as string) || "mapped_data";
-            return [
-                { name: outputVar, type: "any", label: "Mapped Data" },
-                { name: "result", type: "any", label: "Mapping Result" },
-            ];
-        case "TEXT_TEMPLATE":
-            return [
-                { name: "formatted_text", type: "string", label: "Formatted Text" },
-                { name: "text", type: "string", label: "Output Text" },
-            ];
-        case "LLM_DECISION":
-            const llmOutputVar = (params.output_variable as string) || "llm_output";
-            return [
-                { name: llmOutputVar, type: "string", label: "LLM Output" },
-                { name: "decision", type: "string", label: "Decision" },
-                { name: "reasoning", type: "string", label: "Reasoning" },
-            ];
-        case "CONDITION":
-            return [
-                { name: "branch", type: "string", label: "Branch taken (true/false)" },
-            ];
-        case "FOREACH":
-            return [
-                { name: "results", type: "array", label: "Collected Results" },
-                { name: "item", type: "any", label: "Current Item" },
-            ];
-        case "DOCUMENT_CONVERTER":
-            const docOutputVar = (params.output_variable as string) || "converted_document";
-            return [
-                { name: docOutputVar, type: "string", label: "Converted Document" },
-                { name: "output_path", type: "string", label: "Output File Path" },
-                { name: "detected_input_format", type: "string", label: "Detected Input Format" },
-            ];
-        default:
-            return [];
-    }
-}
+
 
 /**
  * Get input schema for a node type (client-side version).

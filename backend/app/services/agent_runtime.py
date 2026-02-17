@@ -81,7 +81,7 @@ class AgentRuntime:
     and manages execution state.
     """
     
-    def __init__(self, blueprint, db=None, origin: str = "Manual"):
+    def __init__(self, blueprint, db=None, origin: str = "Manual", model_override: Optional[str] = None):
         """
         Initialize the runtime with a blueprint.
         
@@ -89,10 +89,12 @@ class AgentRuntime:
             blueprint: BlueprintResponse or dict containing the blueprint
             db: Optional database session
             origin: Tag for log differentiation (e.g. "Automation", "Manual")
+            model_override: Global LLM model override for AI nodes
         """
         self.blueprint = blueprint
         self.db = db
         self.origin = origin
+        self.model_override = model_override
         self.steps: List[ExecutionStep] = []
         self._graph = None
         
@@ -109,6 +111,42 @@ class AgentRuntime:
         self.edges = {}
         self._build_graph_maps()
     
+    def _sanitize_for_json(self, obj, seen=None):
+        """
+        Recursively ensure object is JSON serializable and free of circular references.
+        """
+        if seen is None:
+            seen = set()
+        
+        # Handle basic types
+        if obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+            
+        # Check circularity for containers
+        obj_id = id(obj)
+        if obj_id in seen:
+            return f"<Circular Reference {type(obj).__name__}>"
+        
+        # Add to seen
+        seen.add(obj_id)
+        
+        try:
+            if isinstance(obj, dict):
+                return {str(k): self._sanitize_for_json(v, seen) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [self._sanitize_for_json(v, seen) for v in obj]
+            elif hasattr(obj, "dict"): # Pydantic
+                return self._sanitize_for_json(obj.dict(), seen)
+            elif hasattr(obj, "isoformat"): # Datetime
+                return obj.isoformat()
+            else:
+                return str(obj)
+        except Exception as e:
+            return f"<Serialization Error: {str(e)}>"
+        finally:
+            # Remove from seen to allow DAGs (Diamonds), only blocking Cycles
+            seen.remove(obj_id)
+
     def _build_graph_maps(self):
         """Build maps for quick node/edge lookup."""
         # Handle both Pydantic models and dicts
@@ -206,14 +244,23 @@ class AgentRuntime:
                     elif "extractor" in step_type:
                         # Combine fields into a single instruction
                         instructions_parts = []
+                        
+                        # Only add if value exists and is not empty
                         if "sourceSections" in merged_params:
-                            instructions_parts.append(f"Source Sections: {merged_params.pop('sourceSections')}")
+                            val = merged_params.pop('sourceSections')
+                            if val: instructions_parts.append(f"Source Sections: {val}")
+
                         if "focus" in merged_params:
-                            instructions_parts.append(f"Focus: {merged_params.pop('focus')}")
+                            val = merged_params.pop('focus')
+                            if val: instructions_parts.append(f"Focus: {val}")
+
                         if "exclude" in merged_params:
-                            instructions_parts.append(f"Exclude: {merged_params.pop('exclude')}")
+                            val = merged_params.pop('exclude')
+                            if val: instructions_parts.append(f"Exclude: {val}")
+
                         if "additionalInstructions" in merged_params:
-                            instructions_parts.append(f"Instructions: {merged_params.pop('additionalInstructions')}")
+                            val = merged_params.pop('additionalInstructions')
+                            if val: instructions_parts.append(f"Instructions: {val}")
                         
                         if instructions_parts:
                             merged_params["instruction"] = "\n".join(instructions_parts)
@@ -329,43 +376,58 @@ class AgentRuntime:
         
         return None
     
-    def _get_next_node(self, current_node: str, result: PrimitiveResult) -> Optional[str]:
+    def _get_next_node(self, current_node: str, result: PrimitiveResult, state: AgentState) -> Optional[str]:
         """Determine the next node based on edges and result."""
-        # If primitive returned specific next node (for branching)
+        # 1. Explicit override from Primitive (e.g. Loop End jumping back)
         if result.next_node:
+            print(f"[RUNTIME] Logic Jump: {current_node} -> {result.next_node}")
             return result.next_node
         
-        # Follow edges from current node
+        # 2. Get all outgoing edges
         edges = self.edges.get(current_node, [])
-        
         if not edges:
-            return None  # End of workflow
+            return None
         
-        # Check conditional edges
+        # 3. Handle Logical Branching (e.g. Loop Start -> Body vs Done)
+        logical_branch = None
+        if isinstance(result.output, dict):
+            logical_branch = result.output.get("logical_branch")
+            
+        if logical_branch:
+            print(f"[RUNTIME] Following logical branch: '{logical_branch}'")
+            for edge in edges:
+                # Check if edge matches the branch via sourceHandle
+                edge_handle = edge.get("sourceHandle")
+                if edge_handle == logical_branch:
+                    return edge.get("target")
+                    
+            print(f"[RUNTIME WARNING] No edge found for logical branch '{logical_branch}' from {current_node}")
+        
+        # 4. Standard Conditional / Default Logic
         for edge in edges:
-            condition = edge.condition if hasattr(edge, 'condition') else edge.get('condition')
+            condition = edge.get('condition')
+            
+            # Strict mode: If logical_branch was set, ONLY follow matching handles?
+            if logical_branch and edge.get("sourceHandle") and edge.get("sourceHandle") != logical_branch:
+                continue
+
             if condition:
-                # Evaluate condition
                 try:
                     # Create safe eval context
-                    # Expose 'result' (PrimitiveResult output) and 'variables' (State)
                     eval_ctx = {
                         "result": result.output if result else {}, 
                         "variables": state.get("variables", {}),
                         "datetime": datetime
                     }
-                    # Basic safety: No builtins
                     if eval(condition, {"__builtins__": {}}, eval_ctx):
-                        print(f"[RUNTIME] Condition matched: '{condition}' -> {edge.target}")
-                        return edge.target if hasattr(edge, 'target') else edge.get('target')
+                        print(f"[RUNTIME] Condition matched: '{condition}' -> {edge.get('target')}")
+                        return edge.get("target")
                 except Exception as e:
                     print(f"[RUNTIME] Condition evaluation failed for '{condition}': {e}")
-                
-                # Fallthrough behavior
                 pass
             else:
-                # Unconditional edge
-                return edge.target if hasattr(edge, 'target') else edge.get('target')
+                 # Unconditional edge (Default)
+                 return edge.get("target")
         
         return None
     
@@ -459,6 +521,14 @@ class AgentRuntime:
             }
             current_node = self._get_start_node()
 
+        # Inject Model Override from Runtime
+        if self.model_override:
+            if "variables" not in state: state["variables"] = {}
+            state["variables"]["_execution_model"] = self.model_override
+            # Always set "model" to ensure the dropdown override wins over any default variables
+            state["variables"]["model"] = self.model_override
+            print(f"[RUNTIME] Injected model override: {self.model_override}")
+
         if not current_node:
             yield {
                 "type": "error",
@@ -483,7 +553,7 @@ class AgentRuntime:
             
         yield {
             "type": "start",
-            "state": state_for_event
+            "state": self._sanitize_for_json(state_for_event)
         }
             
         max_iterations = 100
@@ -787,7 +857,7 @@ class AgentRuntime:
                 
                 yield {
                     "type": "waiting_for_input",
-                    "data": {
+                    "data": self._sanitize_for_json({
                         "status": "waiting_for_input",
                         "waiting_node": current_node,
                         "gui_schema": result.output.get("gui_schema", {}),
@@ -801,16 +871,15 @@ class AgentRuntime:
                         "started_at": started_at.isoformat(),
                         "completed_at": completed_at.isoformat(),
                          "duration_ms": int((completed_at - started_at).total_seconds() * 1000)
-                    }
+                    })
                 }
                 return
             
             # Get next node
-            # Get next node
             print(f"[RUNTIME DEBUG] Determining NEXT NODE from {current_node}...")
             # Note: _get_next_node signature might be (node_id, result) or (node_id, result, state) depending on version
             # Inspecting view indicates it is (current_node, result)
-            current_node = self._get_next_node(current_node, result)
+            current_node = self._get_next_node(current_node, result, state)
             print(f"[RUNTIME DEBUG] Next node result: {current_node}")
             
             # Check step limit
@@ -821,7 +890,7 @@ class AgentRuntime:
                 
                 yield {
                     "type": "paused",
-                    "data": {
+                    "data": self._sanitize_for_json({
                         "status": "paused",
                         "execution_state": state_to_save,
                         "outputs": state["variables"],
@@ -829,7 +898,7 @@ class AgentRuntime:
                         "error": None,
                         "started_at": started_at.isoformat(),
                         "completed_at": None,
-                    }
+                    })
                 }
                 return
             
@@ -913,7 +982,7 @@ class AgentRuntime:
         
         yield {
             "type": "complete",
-            "data": final_result
+            "data": self._sanitize_for_json(final_result)
         }
 
     async def execute(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None) -> Dict[str, Any]:
@@ -992,7 +1061,8 @@ async def execute_blueprint(
     db,
     blueprint_id: str,
     inputs: Dict[str, Any],
-    steps_limit: Optional[int] = None
+    steps_limit: Optional[int] = None,
+    model: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Execute an agent blueprint.
@@ -1002,6 +1072,7 @@ async def execute_blueprint(
         blueprint_id: ID of the blueprint to execute
         inputs: Input values for the workflow
         steps_limit: Optional limit on steps to execute
+        model: Global LLM model override
         
     Returns:
         Execution result
@@ -1033,7 +1104,7 @@ async def execute_blueprint(
     
     try:
         # Run the blueprint
-        runtime = AgentRuntime(blueprint, db)
+        runtime = AgentRuntime(blueprint, db, model_override=model)
         result = await runtime.execute(inputs, steps_limit=steps_limit)
         
         # Update execution record

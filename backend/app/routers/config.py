@@ -27,6 +27,7 @@ async def get_models():
 
 @router.get("/config/presets")
 def get_presets():
+    print("[ConfigRouter] Fetching LLM presets...")
     config = config_service.get_config()
     return {"presets": config.get("presets", [])}
 
@@ -63,6 +64,7 @@ class DefaultsRequest(BaseModel):
 
 @router.get("/config/defaults")
 def get_defaults():
+    print("[ConfigRouter] Fetching default configurations...")
     llm_preset = config_service.get_default_llm_preset()
     vision_preset = config_service.get_default_vision_preset()
     embedding_preset = config_service.get_default_embedding_preset()

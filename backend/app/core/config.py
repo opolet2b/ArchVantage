@@ -26,4 +26,7 @@ class Settings:
         if origin.strip()
     ]
 
+    # LLM Configuration
+    DEFAULT_LLM_MODEL: str = os.getenv("DEFAULT_LLM_MODEL", "default")
+
 settings = Settings()

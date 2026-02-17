@@ -104,6 +104,12 @@ CRITICAL:
 
 Generate the blueprint now:"""
 
+OPTIMIZE_PROMPT_SYSTEM_PROMPT = """You are an expert Prompt Engineer.
+Your task is to refine and optimize the user's draft instruction into a clear, effective prompt for an LLM.
+Improve clarity, specificity, and robustness. Ensure the intent is preserved but the execution is more reliable.
+Do not add any preamble or explanation. Output ONLY the optimized prompt text.
+"""
+
 
 class AgentArchitect:
     """
@@ -138,8 +144,12 @@ class AgentArchitect:
         Returns:
             Generated blueprint dict
         """
+        # Identification: Resolve the actual model name for logging
+        resolved_model = llm_service.resolve_model_name(model)
+        
         # ==== DEBUG: Log received canvas context ====
         print("\n" + "=" * 60)
+        print(f"[ARCHITECT] Generating blueprint with resolved model: {resolved_model}")
         print("[ARCHITECT DEBUG] Canvas Context Received:")
         if canvas_context:
             nodes = canvas_context.get("nodes", [])
@@ -241,6 +251,39 @@ class AgentArchitect:
         blueprint = self._infer_inputs_schema(blueprint)
         
         return blueprint
+    
+    async def optimize_prompt(self, prompt: str, model: str = "default") -> str:
+        """
+        Optimize a user's prompt using the LLM.
+        
+        Args:
+            prompt: Draft prompt/instruction
+            model: LLM model to use
+            
+        Returns:
+            Optimized prompt string
+        """
+        # Identification: Resolve the actual model name for logging
+        resolved_model = llm_service.resolve_model_name(model)
+        print(f"[ARCHITECT] Optimizing prompt with resolved model: {resolved_model}")
+        messages = [
+            Message(role="system", content=OPTIMIZE_PROMPT_SYSTEM_PROMPT),
+            Message(role="user", content=prompt)
+        ]
+        
+        try:
+            response = await llm_service.chat(messages, model_name=model)
+            
+            # Clean up response (remove quotes if LLM added them)
+            cleaned = response.strip()
+            if cleaned.startswith('"') and cleaned.endswith('"'):
+                cleaned = cleaned[1:-1]
+                
+            return cleaned
+        except Exception as e:
+            print(f"[ARCHITECT] Prompt optimization failed: {e}")
+            # Fallback to original prompt if optimization fails
+            return prompt
     
     def _get_selected_tools_context(
         self,

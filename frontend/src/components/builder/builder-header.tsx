@@ -47,17 +47,39 @@ export function BuilderHeader() {
     const nodes = useBuilderStore((state) => state.nodes);
     const edges = useBuilderStore((state) => state.edges);
 
-    // Fetch configured model presets from Settings
+    // Fetch configured model presets and defaults from Settings
     useEffect(() => {
         const fetchModels = async () => {
             try {
-                const res = await fetch(`${API_URL}/config/presets`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setModels(data.presets || []);
-                    // If no model selected and we have presets, select the first one
-                    if (!selectedModel && data.presets?.length > 0) {
-                        setSelectedModel(data.presets[0].name);
+                const token = localStorage.getItem("token");
+                const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
+
+                const [presetsRes, defaultsRes] = await Promise.all([
+                    fetch(`${API_URL}/config/presets`, { headers }),
+                    fetch(`${API_URL}/config/defaults`, { headers })
+                ]);
+
+                if (presetsRes.ok) {
+                    const data = await presetsRes.json();
+                    const presetList: ModelPreset[] = data.presets || [];
+                    setModels(presetList);
+
+                    let defaultLlmName: string | null = null;
+                    if (defaultsRes.ok) {
+                        const defaults = await defaultsRes.json();
+                        defaultLlmName = defaults.default_llm;
+                    }
+
+                    // Proactive matching: Only auto-select if nothing is currently in the store
+                    // This prevents overwriting the loaded test_config.selectedModel
+                    const currentStoredModel = useBuilderStore.getState().selectedModel;
+
+                    if ((!currentStoredModel || currentStoredModel === "default") && !selectedModel && presetList.length > 0) {
+                        if (defaultLlmName && presetList.some(p => p.name === defaultLlmName)) {
+                            setSelectedModel(defaultLlmName);
+                        } else if (presetList.length > 0) {
+                            setSelectedModel(presetList[0].name);
+                        }
                     }
                 }
             } catch (error) {
@@ -117,8 +139,9 @@ export function BuilderHeader() {
         return preset.name;
     };
 
-    const selectedModelName = models.find((m) => m.name === selectedModel)?.name
-        || (isLoadingModels ? "Loading..." : "Select Model");
+    const selectedModelName = selectedModel === "default"
+        ? "Default (System)"
+        : (models.find((m) => m.name === selectedModel)?.name || (isLoadingModels ? "Loading..." : selectedModel || "Select Model"));
 
     // Fetch available agents for switching
     const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
@@ -233,10 +256,17 @@ export function BuilderHeader() {
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="center">
+                        <DropdownMenuItem
+                            onClick={() => setSelectedModel("default")}
+                            className={selectedModel === "default" ? "bg-slate-100 dark:bg-slate-800" : ""}
+                        >
+                            Default (System Configured)
+                        </DropdownMenuItem>
+                        {models.length > 0 && <div className="h-px bg-border my-1" />}
                         {isLoadingModels ? (
                             <DropdownMenuItem disabled>Loading models...</DropdownMenuItem>
                         ) : models.length === 0 ? (
-                            <DropdownMenuItem disabled>No models configured</DropdownMenuItem>
+                            <DropdownMenuItem disabled>No presets configured</DropdownMenuItem>
                         ) : (
                             models.map((model) => (
                                 <DropdownMenuItem

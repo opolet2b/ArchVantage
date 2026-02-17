@@ -359,9 +359,9 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                             x: thing.position_x + (col * X_GAP),
                             y: thing.position_y + (row * Y_GAP) + 100
                         },
-                        el.name,
                         180, // Request: 180x180
-                        180
+                        180,
+                        el.name
                     );
 
                     if (newThing) {
@@ -416,6 +416,8 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                         "text",
                         { text: `## ${view.name}\n\n*Imported View*` },
                         { x: thing.position_x, y: thing.position_y + currentYOffset },
+                        undefined,
+                        undefined,
                         view.name
                     );
 
@@ -452,9 +454,9 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                                 x: thing.position_x + (vNode.x * SCALE_FACTOR),
                                 y: thing.position_y + contentStartY + (vNode.y * SCALE_FACTOR)
                             },
-                            elementDef.name,
                             width,
-                            height
+                            height,
+                            elementDef.name
                         );
 
                         if (newThing) {
@@ -523,9 +525,9 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                             viewNodeId: vNode.id
                         },
                         { x: thing.position_x + (vNode.x * SCALE_FACTOR), y: thing.position_y + (vNode.y * SCALE_FACTOR) },
-                        elementDef.name,
                         width,
-                        height
+                        height,
+                        elementDef.name
                     );
 
                     if (newThing) {

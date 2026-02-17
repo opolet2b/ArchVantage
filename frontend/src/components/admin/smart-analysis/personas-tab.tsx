@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/use-toast";
 import { API_URL } from "@/lib/utils";
 
 // Define interface matching the API schema
@@ -25,6 +26,7 @@ interface PersonasTabProps {
 }
 
 export function PersonasTab({ selectedPreset }: PersonasTabProps) {
+    const { toast } = useToast();
     // State for data and loading
     const [items, setItems] = useState<PersonaItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -75,14 +77,24 @@ export function PersonasTab({ selectedPreset }: PersonasTabProps) {
                 const data = await res.json();
                 if (editingId) {
                     setItems(items.map(item => item.id === editingId ? data : item));
+                    toast({ title: "Success", description: "Persona updated successfully." });
                 } else {
                     setItems([...items, data]);
+                    toast({ title: "Success", description: "Persona created successfully." });
                 }
                 setIsDialogOpen(false);
                 resetForm();
+            } else {
+                const errorData = await res.json();
+                let errorMessage = errorData.detail || "Failed to save persona.";
+                if (typeof errorMessage !== 'string') {
+                    errorMessage = JSON.stringify(errorMessage);
+                }
+                toast({ title: "Error", description: errorMessage, variant: "destructive" });
             }
         } catch (error) {
             console.error("Failed to save persona:", error);
+            toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
         }
     };
 

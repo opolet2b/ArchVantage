@@ -51,6 +51,7 @@ export function ChartViewer({ type, data, className, exportMode = false, isAnima
     const series = config.series || keys.filter(k => k !== xAxisKey && typeof chartData[0][k] === 'number').map(k => ({ key: k }));
 
     const renderChart = () => {
+        if (!type) return <div className="p-4 text-red-500">Chart Error: Type missing</div>;
         switch (type.toLowerCase()) {
             case "linechart":
             case "line":

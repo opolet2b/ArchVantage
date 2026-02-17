@@ -315,6 +315,33 @@ def get_node_output_schema(
             "note": "Passes through all input variables"
         }
     
+    elif node_type == "FOREACH_START":
+        iterator_var = params.get("iterator_var", "item")
+        index_var = params.get("index_var", "index")
+        results_var = params.get("results_var", "results")
+        return {
+            "fields": [
+                {"name": iterator_var, "type": "any", "label": f"Current Item ({iterator_var})"},
+                {"name": index_var, "type": "integer", "label": f"Current Index ({index_var})"},
+                {"name": results_var, "type": "array", "label": f"Results Accumulator ({results_var})"},
+            ],
+            "source": "foreach_start"
+        }
+
+    elif node_type == "FOREACH_END":
+        # End node outputs the final collected results if configured, 
+        # but typically it just loops back. 
+        # However, checking the primitive, it might return loop_status.
+        # It's main "output" conceptually is the completed results list, 
+        # which is technically initialized by Start but populated fully after End.
+        results_var = params.get("results_var", "results")
+        return {
+            "fields": [
+                 {"name": results_var, "type": "array", "label": f"Final Results ({results_var})"},
+            ],
+            "source": "foreach_end"
+        }
+
     elif node_type == "FOREACH":
         return {
             "fields": [

@@ -93,7 +93,7 @@ class ExecutionStateMachine:
             context = await sm.submit_input(form_data)
     """
     
-    def __init__(self, blueprint, db, mode: ExecutionMode = "production"):
+    def __init__(self, blueprint, db, mode: ExecutionMode = "production", model_override: Optional[str] = None):
         """
         Initialize the state machine.
         
@@ -101,10 +101,12 @@ class ExecutionStateMachine:
             blueprint: The agent blueprint to execute
             db: Database session
             mode: "production" (run until GUI/END) or "dry_run" (pause each step)
+            model_override: Optional LLM model identifier to use
         """
+        print(f"[STATE_MACHINE] Initializing SM. Mode: {mode}, Model Override: {model_override}")
         self.blueprint = blueprint
         self.db = db
-        self.runtime = AgentRuntime(blueprint, db)
+        self.runtime = AgentRuntime(blueprint, db, model_override=model_override)
         self.context = ExecutionContext(
             mode=mode,
             blueprint_id=str(blueprint.id) if hasattr(blueprint, 'id') else ""

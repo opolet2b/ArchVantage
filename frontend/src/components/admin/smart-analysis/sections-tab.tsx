@@ -122,17 +122,24 @@ export function SectionsTab() {
                 const data = await res.json();
                 if (editingId) {
                     setItems(items.map(i => i.id === editingId ? data : i));
-                    toast({ title: "Section updated" });
+                    toast({ title: "Success", description: "Section updated successfully." });
                 } else {
                     setItems([...items, data]);
-                    toast({ title: "Section created" });
+                    toast({ title: "Success", description: "Section created successfully." });
                 }
                 setIsDialogOpen(false);
                 resetForm();
+            } else {
+                const errorData = await res.json();
+                let errorMessage = errorData.detail || "Failed to save section.";
+                if (typeof errorMessage !== 'string') {
+                    errorMessage = JSON.stringify(errorMessage);
+                }
+                toast({ title: "Error", description: errorMessage, variant: "destructive" });
             }
         } catch (error) {
             console.error("Failed to save section:", error);
-            toast({ title: "Failed to save section", variant: "destructive" });
+            toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
         }
     };
 

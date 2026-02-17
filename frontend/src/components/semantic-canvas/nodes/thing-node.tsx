@@ -47,6 +47,7 @@ import {
     ChevronLeft,
     ChevronRight,
     Layout,
+    Cloud,
     Info
 } from "lucide-react";
 
@@ -62,6 +63,10 @@ import {
     ConversationViewer,
     TextViewer,
     MemoizedTextViewer,
+    ChartViewer,
+    ArchiMateToolViewer,
+    ArchiMateElementViewer,
+    TagCloudViewer,
     SelectableContent,
     SelectionToolbar,
     useAnalyze,
@@ -69,14 +74,21 @@ import {
     Fragment,
     RegionFragment,
     VectorizationPreviewDialog,
-    ChartViewer,
-    MarkdownToolbar,
-    // JSONViewer, // Not exported in index.ts
-    // VideoViewer, // Not exported in index.ts
-    // SlideshowViewer, // Not exported in index.ts (or was imported differently)
-    ArchiMateToolViewer,
-    ArchiMateElementViewer
+    MarkdownToolbar
 } from "../viewers";
+
+// Registry for Dynamic Component Rendering
+const COMPONENT_REGISTRY: Record<string, React.ComponentType<any>> = {
+    "ChartViewer": ChartViewer,
+    "TagCloudViewer": TagCloudViewer,
+    "SpreadsheetViewer": SpreadsheetViewer,
+    "MarkdownViewer": MarkdownViewer,
+    "ImageViewer": ImageViewer,
+    "PDFViewer": PDFViewer,
+    "ConversationViewer": ConversationViewer,
+    "TextViewer": TextViewer,
+    "recharts": ChartViewer,
+};
 // SlideshowNode handles its own viewer logic or imports locally? 
 // No, SlideshowViewer was used in render? 
 // Checking line 60: import { SlideshowNode } from "./slideshow-node";
@@ -305,6 +317,7 @@ const CitationList = ({ citations, onSelectThing, onHighlight }: {
 
 export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNodeData>) {
     const { id, data, selected: isSelected } = props;
+    console.log(`[ThingNode] Rendering ${id}`, { data });
     const { toast } = useToast();
     const hiddenNodeLinks = useCanvasStore(state => state.hiddenNodeLinks);
     const toggleNodeLinks = useCanvasStore(state => state.toggleNodeLinks);
@@ -360,6 +373,18 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // Content Editing State
     const [isEditingContent, setIsEditingContent] = React.useState(false);
     const [isTrulyFullscreen, setIsTrulyFullscreen] = React.useState(false);
+
+    // View Mode State for toggling visualizations (Cloud, etc.)
+    const [viewMode, setViewMode] = React.useState<"content" | "cloud">(
+        ((currentThing.content as any)?.visualizer_output?.visual_payload) ? "cloud" : "content"
+    );
+
+    // Auto-switch to cloud/chart view when visualizer output becomes available
+    React.useEffect(() => {
+        if ((currentThing.content as any)?.visualizer_output?.visual_payload) {
+            setViewMode("cloud");
+        }
+    }, [(currentThing.content as any)?.visualizer_output?.visual_payload]);
 
     const [executionPlanOpen, setExecutionPlanOpen] = React.useState(false);
     const [capturedCanvasId, setCapturedCanvasId] = React.useState<string | null>(null);
@@ -691,7 +716,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                     // Use the specific endpoint for a single thing, NOT the list endpoint
                     // The original code was fetching the LIST and searching, which is inefficient and led to the bug
-                    const res = await fetch(`${API_URL}/canvases/${canvasId}/things/${currentThing.id}`, {
+                    // FIX: Use currentThing.canvas_id instead of global canvasId to ensure we are querying the right context
+                    const res = await fetch(`${API_URL}/canvases/${currentThing.canvas_id}/things/${currentThing.id}`, {
                         headers: {
                             "Authorization": `Bearer ${token}`,
                         },
@@ -708,6 +734,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 content: updatedThing.content
                             });
                         }
+                    } else {
+                        console.warn(`[ThingNode] Failed to poll status for thing ${currentThing.id}: ${res.status} ${res.statusText}`);
                     }
                 } catch (e) {
                     console.error("Failed to poll thing status", e);
@@ -716,7 +744,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
             return () => clearInterval(intervalId);
         }
-    }, [localStatus, canvasId, currentThing.id]);
+    }, [localStatus, canvasId, currentThing.id, currentThing.canvas_id]);
 
     // Ask dialog state
     const [askDialogOpen, setAskDialogOpen] = React.useState(false);
@@ -784,9 +812,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
 
 
-    // Ref for positioning toolbar
+    // Ref for positioning toolbar (Header)
     const nodeRef = React.useRef<HTMLDivElement>(null);
-    const [toolbarPosition, setToolbarPosition] = React.useState<{ x: number, y: number } | null>(null);
+    // const [toolbarPosition, setToolbarPosition] = React.useState<{ x: number, y: number } | null>(null);
 
     // --- Progress Bar Logic (for documents/slideshows) ---
     const [progressThing, setProgressThing] = React.useState<CanvasThing>(currentThing);
@@ -1039,18 +1067,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         }
     };
 
-    // Update toolbar position when selected
+    // Update toolbar position when selected - REMOVED (Handled via CSS in parent)
+    /*
     React.useEffect(() => {
-        if (selected && nodeRef.current) {
-            const rect = nodeRef.current.getBoundingClientRect();
-            setToolbarPosition({
-                x: rect.left + rect.width / 2,
-                y: rect.top - 10,
-            });
-        } else {
-            setToolbarPosition(null);
-        }
+       ...
     }, [selected]);
+    */
 
     // Construct fragment for full content
     const fullThingFragment = React.useMemo<Fragment>(() => {
@@ -1640,31 +1662,98 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                 // Check for Visualizer Output (Charts)
                 const visOutput = (thing.content as any)?.visualizer_output;
-                if (visOutput?.visual_payload) {
+                if (visOutput?.visual_payload && viewMode !== 'content') {
                     const st = visOutput.visual_payload.structure_type?.toLowerCase() || "";
-                    if (st === 'chart' || st.includes('chart') || st === 'react_component') {
-                        const chartType = (st === 'chart' || st === 'react_component') ? 'linechart' : st;
+                    const componentName = visOutput.visual_payload.react_component;
+                    const category = visOutput.visual_payload.visual_category?.toLowerCase() || "";
+
+                    console.log("[ThingNode] Visualizer Output Debug:", {
+                        id: thing.id,
+                        title: thing.title,
+                        structure_type: st,
+                        react_component: componentName,
+                        visual_category: category,
+                        payload_keys: Object.keys(visOutput.visual_payload)
+                    });
+
+                    // 0. Dynamic Registry Lookup (Highest Priority)
+                    if (componentName && COMPONENT_REGISTRY[componentName]) {
+                        const Component = COMPONENT_REGISTRY[componentName];
+
+                        let props: any = {
+                            data: visOutput.visual_payload.content,
+                            className: "w-full h-full"
+                        };
+
+                        // Special handling for ChartViewer
+                        if (componentName === "ChartViewer" || componentName === "recharts") {
+                            const cType = (st === 'chart' || st === 'react_component' || st === '') ? 'linechart' : st;
+                            props.type = cType;
+                            props.isAnimationActive = true;
+                        }
+
                         return (
                             <div className="flex flex-col h-full overflow-hidden p-2">
                                 <div className="font-medium text-sm mb-2 px-1">
                                     {thing.title || "Visual Analysis"}
                                 </div>
                                 <div className="flex-1 min-h-0 border rounded-md bg-slate-50 dark:bg-slate-900/50">
-                                    <ChartViewer
-                                        type={chartType}
-                                        data={visOutput.visual_payload.content}
-                                        isAnimationActive={true}
-                                    />
+                                    <Component {...props} />
+                                </div>
+                            </div>
+                        );
+                    }
+
+                    // 1. Strict Fallback: Logic Removed per User Request
+                    // The system must rely on correct `react_component` configuration.
+                    // If misconfigured, it may fall through to generic handling or display incorrectly,
+                    // which is the intended behavior to signal configuration error.
+
+                    // 2. Check for Charts / Generic Components (Legacy Fallback)
+                    // We keep this for backward compatibility with existing non-component-based charts
+                    // 2. Strict Error Handling (No Fallback)
+                    // If a component name was specified but not found in registry (and wasn't handled above),
+                    // we display an error. We do NOT fallback to ChartViewer unless explicitly requested via registry.
+                    if (componentName && !COMPONENT_REGISTRY[componentName]) {
+                        return (
+                            <div className="flex flex-col h-full overflow-hidden p-2">
+                                <div className="font-medium text-sm mb-2 px-1 text-red-500 flex items-center gap-2">
+                                    <AlertCircle className="w-4 h-4" />
+                                    Component Config Error
+                                </div>
+                                <div className="flex-1 min-h-0 border rounded-md bg-red-50 dark:bg-red-900/10 p-4 flex flex-col items-center justify-center text-center">
+                                    <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">
+                                        Component "{componentName}" not found.
+                                    </p>
+                                    <p className="text-xs text-red-500/80">
+                                        Please check the `react_component` configuration.
+                                    </p>
                                 </div>
                             </div>
                         );
                     }
                 }
 
+                // Check for manual view mode override
+                if (viewMode === 'cloud') {
+                    return (
+                        <div className="flex flex-col h-full overflow-hidden p-2">
+                            <div className="font-medium text-sm mb-2 px-1">
+                                {thing.title || "Word Cloud View"}
+                            </div>
+                            <div className="flex-1 min-h-0 border rounded-md bg-slate-50 dark:bg-slate-900/50">
+                                <TagCloudViewer
+                                    data={textVal}
+                                />
+                            </div>
+                        </div>
+                    );
+                }
+
                 const showAsMarkdown = thing.type === "agent_result" || ((isMarkdown(textVal) || textVal.includes("{{node:")) && !highlight);
 
                 return (
-                    <div className="flex flex-col h-full overflow-hidden">
+                    <div className={cn("flex flex-col overflow-hidden", thing.height ? "h-full" : "max-h-[600px]")}>
                         {/* Thinking Block */}
                         {hasThinking && isThinkingVisible && (
                             <div className="flex-none mb-3 p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-md border border-amber-100 dark:border-amber-900/30 text-sm text-slate-600 dark:text-slate-400 italic overflow-y-auto max-h-[150px]">
@@ -2404,21 +2493,20 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 />
 
                 {/* Selection Toolbar (for whole thing) */}
-                {selected && toolbarPosition && !hasInnerSelection && typeof document !== "undefined" &&
-                    createPortal(
-                        <SelectionToolbar
-                            fragment={fullThingFragment}
-                            thingId={thing.id}
-                            position={toolbarPosition}
-                            onAction={handleAction}
-                            onLink={handleLink}
-                            onClose={() => setToolbarPosition(null)} // Or custom clear
-                            isLoading={isLoading}
-                            isThingContext={true}
-                            disableHighlight={true}
-                        />,
-                        document.body
-                    )
+                {/* Selection Toolbar (for whole thing) */}
+                {selected && !hasInnerSelection &&
+                    <SelectionToolbar
+                        fragment={fullThingFragment}
+                        thingId={thing.id}
+                        positionMode="absolute"
+                        position={{ x: "50%", y: -50 }}
+                        onAction={handleAction}
+                        onLink={handleLink}
+                        onClose={() => { }} // No-op as it's controlled by selection
+                        isLoading={isLoading}
+                        isThingContext={true}
+                        disableHighlight={true}
+                    />
                 }
 
                 {/* Inner Content Wrapper - Clips content but leaves Handles outside */}
@@ -2476,7 +2564,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     {/* Action Bar - Dedicated Interaction Area */}
                     {/* Only show in full view (not summary/domain) */}
                     {zoomLevel !== "summary" && (
-                        <div className="flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 overflow-x-auto no-scrollbar z-[20] pointer-events-auto">
+                        <div className="flex-none w-full flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 z-[20] pointer-events-auto min-h-[32px]">
 
                             {/* Link/Ghost Mode Button */}
                             <button
@@ -2592,8 +2680,25 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 </div>
                             )}
 
+                            {/* Cloud Toggle Button */}
+                            {(thing.type === 'text' || thing.type === 'agent_result') && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setViewMode(prev => prev === 'cloud' ? 'content' : 'cloud');
+                                    }}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
+                                        viewMode === 'cloud' ? "text-blue-500 bg-blue-50 dark:bg-blue-900/20" : "text-slate-400 hover:text-blue-500"
+                                    )}
+                                    title={viewMode === 'cloud' ? "Show Text Content" : "Show Word Cloud"}
+                                >
+                                    <Cloud className="h-4 w-4" />
+                                </button>
+                            )}
+
                             {/* Edit Content Button (Text Only) */}
-                            {thing.type === "text" && (
+                            {(thing.type === "text" || thing.type === "agent_result") && (
                                 <>
                                     {isEditingContent ? (
                                         <>
@@ -2656,7 +2761,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             </button>
 
                             {/* Refresh Transclusions Button (Text Node) */}
-                            {thing.type === "text" && (
+                            {(thing.type === "text" || thing.type === "agent_result") && (
                                 <button
                                     onClick={handleRefreshNodes}
                                     onPointerDown={undefined}
@@ -2694,7 +2799,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                             {/* Manual Vectorize Button (Brain) */}
                             {/* Show if: Text/Document/Slideshow AND status is NOT completed/processing/pending */}
-                            {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow') &&
+                            {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow' || thing.type === 'agent_result') &&
                                 (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending')) && (
                                     <button
                                         onClick={(e) => {

@@ -57,6 +57,9 @@ class AgentBlueprint(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    # Test configuration for the Agent Builder (not used in production)
+    test_config = Column(JSON, default={})
+
     # Relationships
     owner = relationship("app.models.user.User")
     nodes = relationship(
@@ -130,6 +133,10 @@ class AgentEdge(Base):
     # Source and target node IDs
     source_node_id = Column(String, nullable=False)
     target_node_id = Column(String, nullable=False)
+    
+    # Handles for specific ports
+    source_handle = Column(String, nullable=True)
+    target_handle = Column(String, nullable=True)
     
     # Optional condition for branching (evaluated at runtime)
     condition = Column(String, nullable=True)

@@ -13,6 +13,8 @@ from app.services.agent_primitives.condition import ConditionPrimitive
 from app.services.agent_primitives.json_mapping import JSONMappingPrimitive
 from app.services.agent_primitives.text_template import TextTemplatePrimitive
 from app.services.agent_primitives.foreach import ForEachPrimitive
+from app.services.agent_primitives.foreach_start import ForEachStartPrimitive
+from app.services.agent_primitives.foreach_end import ForEachEndPrimitive
 from app.services.agent_primitives.llm_decision import LLMDecisionPrimitive
 from app.services.agent_primitives.extractor import ExtractorPrimitive
 from app.services.agent_primitives.document_converter import DocumentConverterPrimitive
@@ -48,6 +50,8 @@ PRIMITIVE_REGISTRY = {
     "JSON_MAPPING": JSONMappingPrimitive,
     "TEXT_TEMPLATE": TextTemplatePrimitive,
     "FOREACH": ForEachPrimitive,
+    "FOREACH_START": ForEachStartPrimitive,
+    "FOREACH_END": ForEachEndPrimitive,
     "LLM_DECISION": LLMDecisionPrimitive,
     "DOCUMENT_CONVERTER": DocumentConverterPrimitive,
     "EXTRACTOR": ExtractorPrimitive,
@@ -107,6 +111,8 @@ __all__ = [
     "JSONMappingPrimitive",
     "TextTemplatePrimitive",
     "ForEachPrimitive",
+    "ForEachStartPrimitive",
+    "ForEachEndPrimitive",
     "LLMDecisionPrimitive",
     "DocumentConverterPrimitive",
     "ExtractorPrimitive",

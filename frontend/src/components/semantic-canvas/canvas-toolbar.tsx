@@ -208,6 +208,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         <Select
                             value={selectedModel || ""}
                             onValueChange={(value) => {
+                                console.log("[CanvasToolbar] Selected Model Change:", value);
                                 setSelectedModel(value);
                                 updateCanvasSettings({ model: value });
                             }}

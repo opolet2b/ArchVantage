@@ -63,11 +63,20 @@ async def execute_agent_blueprint(
                 detail=f"Missing required input: {field}"
             )
     
-    # Add user ID to inputs for tracking
-    inputs = {**request.inputs, "_user_id": current_user.id}
+    # Add user ID and model to inputs for tracking and persistence
+    inputs = {
+        **request.inputs, 
+        "_user_id": current_user.id,
+        "model": request.model or "default"
+    }
     
     # Execute
-    result = await execute_blueprint(db, blueprint_id, inputs)
+    print("\n" + "="*50)
+    print(f"  [AGENT BUILDER] EXECUTION START")
+    print(f"  Selected Configuration: {request.model}")
+    print("="*50 + "\n")
+    
+    result = await execute_blueprint(db, blueprint_id, inputs, model=request.model)
     
     # Convert to response
     return BlueprintExecuteResponse(
@@ -119,11 +128,21 @@ async def execute_agent_blueprint_step(
                 detail=f"Missing required input: {field}"
             )
     
-    # Add user ID to inputs for tracking
-    inputs = {**request.inputs, "_user_id": current_user.id}
+    # Add user ID and selected model to inputs for tracking and persistence
+    inputs = {
+        **request.inputs, 
+        "_user_id": current_user.id,
+        "model": request.model or "default"
+    }
     
     # Execute with steps_limit=1 (original approach)
-    result = await execute_blueprint(db, blueprint_id, inputs, steps_limit=1)
+    print("\n" + "="*50)
+    print(f"  [AGENT BUILDER] DRY RUN START (Step 1)")
+    print(f"  Selected Configuration: {request.model}")
+    print(f"  Blueprint ID: {blueprint_id}")
+    print("="*50 + "\n")
+    
+    result = await execute_blueprint(db, blueprint_id, inputs, steps_limit=1, model=request.model)
     
     # Convert to response
     return BlueprintExecuteResponse(
@@ -167,8 +186,12 @@ async def execute_agent_blueprint_stream(
     if blueprint.owner_id != current_user.id and not blueprint.is_published:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Add user ID to inputs
-    inputs = {**request.inputs, "_user_id": current_user.id}
+    # Add user ID and model to inputs
+    inputs = {
+        **request.inputs, 
+        "_user_id": current_user.id,
+        "model": request.model or "default"
+    }
     
     async def event_generator():
         """Generate execution events as NDJSON."""
@@ -181,7 +204,12 @@ async def execute_agent_blueprint_stream(
         
         try:
             # Create runtime
-            runtime = AgentRuntime(blueprint, db)
+            print("\n" + "="*50)
+            print(f"  [AGENT BUILDER] STREAMING EXECUTION START")
+            print(f"  Selected Configuration: {request.model}")
+            print(f"  Blueprint ID: {blueprint_id}")
+            print("="*50 + "\n")
+            runtime = AgentRuntime(blueprint, db, model_override=request.model)
             
             # Execute and yield steps
             result = await runtime.execute(inputs)
@@ -345,7 +373,17 @@ async def resume_execution_step(
     
     # Load blueprint for runtime
     blueprint = db.query(AgentBlueprint).filter(AgentBlueprint.id == execution.blueprint_id).first()
-    runtime = AgentRuntime(blueprint, db)
+    
+    # Retrieve model from persisted inputs
+    model = execution.inputs.get("model") or "default"
+    
+    print("\n" + "="*50)
+    print(f"  [AGENT BUILDER] RESUMING EXECUTION")
+    print(f"  Configuration: {model}")
+    print(f"  Execution ID: {execution_id}")
+    print("="*50 + "\n")
+    
+    runtime = AgentRuntime(blueprint, db, model_override=model)
     
     try:
         # Resume
@@ -403,7 +441,17 @@ async def resume_execution_input(
         raise HTTPException(status_code=400, detail=f"Execution is not waiting for input (status: {execution.status})")
         
     blueprint = db.query(AgentBlueprint).filter(AgentBlueprint.id == execution.blueprint_id).first()
-    runtime = AgentRuntime(blueprint, db)
+    
+    # Retrieve model from persisted inputs
+    model = execution.inputs.get("model") or "default"
+    
+    print("\n" + "="*50)
+    print(f"  [AGENT BUILDER] RESUMING WITH INPUT")
+    print(f"  Configuration: {model}")
+    print(f"  Execution ID: {execution_id}")
+    print("="*50 + "\n")
+    
+    runtime = AgentRuntime(blueprint, db, model_override=model)
     
     try:
         # Update state with input

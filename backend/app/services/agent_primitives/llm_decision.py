@@ -87,20 +87,46 @@ class LLMDecisionPrimitive(BasePrimitive):
             
             # Resolve input context from variables
             variables = state.get("variables", {})
-            
+
             # Get input context (could be a variable name or template)
             input_context = ""
+
+            def resolve_deep(val: Any) -> Any:
+                """Recursively resolve variables in strings, lists, or dicts."""
+                if isinstance(val, str):
+                    if "{{" in val:
+                        return self.resolve_variables(val, state)
+                    return val
+                elif isinstance(val, list):
+                    return [resolve_deep(item) for item in val]
+                elif isinstance(val, dict):
+                    return {k: resolve_deep(v) for k, v in val.items()}
+                return val
+
             if input_context_var:
                 if input_context_var.startswith("{{"):
+                    # Single variable reference
                     input_context = self.resolve_variables(input_context_var, state)
+                elif input_context_var.strip().startswith("{") or input_context_var.strip().startswith("["):
+                    # Likely a JSON string containing variables
+                    try:
+                        import json
+                        parsed = json.loads(input_context_var)
+                        input_context = resolve_deep(parsed)
+                    except json.JSONDecodeError:
+                        input_context = input_context_var
                 else:
+                    # Variable name or literal string
                     try:
                         input_context = self._get_nested_value(variables, input_context_var)
-                        if isinstance(input_context, (dict, list)):
-                            import json
-                            input_context = json.dumps(input_context, indent=2)
+                        input_context = resolve_deep(input_context)
                     except (KeyError, TypeError):
                         input_context = input_context_var
+
+            # Serialize complex context to string for the LLM
+            if isinstance(input_context, (dict, list)):
+                import json
+                input_context = json.dumps(input_context, indent=2)
             
             # Resolve any variables in the instruction template
             # This allows using {{variable}} placeholders in the instruction

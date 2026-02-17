@@ -112,6 +112,16 @@ function CanvasViewInner() {
     const nodesInitialized = useNodesInitialized();
     const { toast } = useToast();
 
+    console.log("[CanvasViewInner] Render Debug:", {
+        canvasId: useCanvasStore.getState().canvasId,
+        thingsCount: useCanvasStore.getState().things.length,
+        nodesCount: useCanvasStore.getState().things.length + useCanvasStore.getState().domains.length,
+        zoomLevel: useCanvasStore.getState().zoomLevel,
+        nodeTypesKeys: Object.keys(nodeTypesMemo),
+        storeThings: useCanvasStore.getState().things,
+        storeDomains: useCanvasStore.getState().domains
+    });
+
     // Canvas store state - Using selectors to minimize re-renders
     const canvasId = useCanvasStore(s => s.canvasId);
     const things = useCanvasStore(s => s.things);
@@ -171,7 +181,6 @@ function CanvasViewInner() {
     const visionModel = useCanvasStore.getState().visionModel; // Read-only for some logic maybe?
     const selectedModel = useCanvasStore.getState().selectedModel;
 
-    // Dock sizing state
     const [dockWidth, setDockWidth] = React.useState(400);
     const [dockHeight, setDockHeight] = React.useState(300);
     const [isResizing, setIsResizing] = React.useState(false);
@@ -325,7 +334,7 @@ function CanvasViewInner() {
         draggable: true,
         zIndex: thing.z_index ?? 0, // Use stored z_index
         // Include width/height if thing has been resized or use default for heavy types (skip for iconified)
-        style: (!thing.iconified) ? {
+        style: (!thing.iconified && useCanvasStore.getState().zoomLevel !== "domain") ? {
             width: thing.width ?? 400, // Default width if not set to prevent auto-resize to content
             height: thing.height ?? undefined, // Allow height to be auto if not set, or set default?
         } : undefined,
@@ -635,6 +644,13 @@ function CanvasViewInner() {
     const [nodes, setNodes, onNodesChange] = useNodesState(allNodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(allEdges);
 
+    console.log("[CanvasViewInner] Node Array Debug:", {
+        thingNodesLen: thingNodes.length,
+        domainNodesLen: domainNodes.length,
+        allNodesLen: allNodes.length,
+        nodesStateLen: nodes.length
+    });
+
     // Sync stores with React Flow state
 
     React.useEffect(() => {
@@ -696,9 +712,9 @@ function CanvasViewInner() {
                     
                     // Mark as resizing to prevent sync from overwriting
                     isResizingRef.current = true;
-
+ 
                     const node = nodes.find(n => n.id === change.id);
-
+ 
                     if (node?.type === "domain") {
                            // ... (omitted for fix)
                     }
@@ -2244,6 +2260,7 @@ function CanvasViewInner() {
     const [warnExternal, setWarnExternal] = React.useState(true);
     const [selectedConversationId, setSelectedConversationId] = React.useState<string | null>(null);
 
+
     // MCP Tool Creation Handler
     const handleAddMCPTool = async (config: MCPToolConfig) => {
         await addThing(
@@ -2800,6 +2817,9 @@ function CanvasViewInner() {
                                     "bg-slate-50 dark:bg-slate-950",
                                     !isDraggingNode && "animate-movement"
                                 )}
+                                onInit={(instance) => {
+                                    instance.fitView();
+                                }}
                             >
                                 <Background gap={20} size={1} />
                                 <Controls />

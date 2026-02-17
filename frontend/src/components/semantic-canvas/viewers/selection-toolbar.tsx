@@ -45,7 +45,7 @@ interface SelectionToolbarProps {
     /** Thing ID containing the selection */
     thingId: string;
     /** Position for the toolbar */
-    position: { x: number; y: number };
+    position: { x: number | string; y: number | string };
     /** Callback when an LLM action is triggered */
     onAction: (action: LLMAction, fragment: Fragment) => void;
     /** Callback when link action is triggered */
@@ -74,21 +74,16 @@ export function SelectionToolbar({
     isLoading = false,
     disableHighlight = false,
     isThingContext = false,
-}: SelectionToolbarProps) {
+    positionMode = "fixed" as "fixed" | "absolute",
+}: SelectionToolbarProps & { positionMode?: "fixed" | "absolute" }) {
     const toolbarRef = React.useRef<HTMLDivElement>(null);
     const activeScenario = useCanvasStore((s) => s.activeScenario);
     const toolbarConfig = activeScenario?.configuration?.ui_overrides?.toolbar_config;
 
+    // ... (handleCustomTool omitted for brevity if unchanged, but safely included if strict replace)
+    // Actually, I can just replace the signature and the style block.
+
     const handleCustomTool = (tool: any) => {
-        // Pass to onAction or handle directly
-        // We'll use a special action type "custom" and pass the tool config as payload if needed
-        // But since onAction takes (action, fragment), we might need to extend types.
-        // For now, let's treat it as a "custom" action and maybe handle it upstream,
-        // OR just assume the onAction handler can handle arbitrary strings?
-        // The signature is LLMAction which is a specific union. 
-        // Let's cast it for now or assume onAction will be updated to handle it.
-        // Actually, let's just trigger it directly if possible? No, we need the "fragment" context.
-        // Let's force it.
         // @ts-ignore
         onAction("custom_tool", { ...fragment, tool_prompt: tool.prompt, tool_label: tool.label });
     };
@@ -100,31 +95,37 @@ export function SelectionToolbar({
             return { x: 100, y: 100 };
         }
 
+        // If absolute, use raw position (relative to parent)
+        if (positionMode === "absolute") {
+            return position;
+        }
+
         const padding = 10;
         let x = position.x;
         // Adjusted adjustment: If it's Thing Context, usually we want it centered or above.
         // Existing logic puts it above by 50px.
-        let y = position.y - 50; // Above the selection
+        let y = typeof position.y === 'number' ? position.y - 50 : position.y; // Above the selection
 
         // Ensure toolbar stays within viewport
-        if (typeof window !== "undefined") {
+        if (typeof window !== "undefined" && typeof x === 'number' && typeof y === 'number') {
             const toolbarWidth = 220;
             const toolbarHeight = 40;
 
-            if (x + toolbarWidth > window.innerWidth - padding) {
+            // Safe to cast as we checked type in if condition
+            if ((x as number) + toolbarWidth > window.innerWidth - padding) {
                 x = window.innerWidth - toolbarWidth - padding;
             }
-            if (x < padding) x = padding;
+            if ((x as number) < padding) x = padding;
 
             if (y < padding) {
-                y = position.y + 20; // Below the selection instead
+                y = (position.y as number) + 20; // Below the selection instead
             }
         }
 
         return { x, y };
-    }, [position]);
+    }, [position, positionMode]);
 
-    // Close on click outside
+    // Close on click outside (Only for fixed mode usually, but applicable to absolute too if clicked elsewhere)
     React.useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
@@ -151,7 +152,8 @@ export function SelectionToolbar({
             <div
                 ref={toolbarRef}
                 className={cn(
-                    "fixed z-50 flex items-center gap-1 p-1",
+                    positionMode === "fixed" ? "fixed" : "absolute",
+                    "z-50 flex items-center gap-1 p-1",
                     "bg-white dark:bg-slate-800 rounded-lg shadow-lg border",
                     "bg-popover text-popover-foreground rounded-lg shadow-lg border",
                     // Visual feedback for region selection or text selection (unless disabled)
@@ -171,6 +173,7 @@ export function SelectionToolbar({
                 style={{
                     left: adjustedPosition.x,
                     top: adjustedPosition.y,
+                    transform: positionMode === "absolute" ? "translateX(-50%)" : undefined
                 }}
             >
                 {isLoading ? (

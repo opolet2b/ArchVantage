@@ -14,6 +14,7 @@ interface SuggestionDialogProps {
     description: string;
     placeholder?: string;
     isLoading: boolean;
+    initialValue?: string;
 }
 
 export function SuggestionDialog({
@@ -23,9 +24,17 @@ export function SuggestionDialog({
     title,
     description,
     placeholder = "Describe what you want to achieve...",
-    isLoading
+    isLoading,
+    initialValue = ""
 }: SuggestionDialogProps) {
-    const [intent, setIntent] = useState("");
+    const [intent, setIntent] = useState(initialValue);
+
+    // Update intent when opened with new initialValue
+    React.useEffect(() => {
+        if (isOpen) {
+            setIntent(initialValue);
+        }
+    }, [isOpen, initialValue]);
 
     const handleSubmit = () => {
         onSubmit(intent);
@@ -48,7 +57,7 @@ export function SuggestionDialog({
                         placeholder={placeholder}
                         value={intent}
                         onChange={(e) => setIntent(e.target.value)}
-                        className="min-h-[100px]"
+                        className="min-h-[100px] max-h-[60vh] overflow-y-auto"
                     />
                 </div>
                 <DialogFooter>

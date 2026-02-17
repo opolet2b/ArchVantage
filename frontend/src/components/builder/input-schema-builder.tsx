@@ -37,6 +37,11 @@ export function InputSchemaBuilder({ value, onChange, nodeId }: InputSchemaBuild
     const [keyName, setKeyName] = useState("");
     const [error, setError] = useState<string | null>(null);
 
+    // Track which node is currently synced to avoid leakage or double-syncing
+    const lastSyncedNodeId = useRef<string | null>(null);
+
+    const isSyncing = useRef(false);
+
     // Derived list of fields for the dropdown
     const sourceOptions = incoming.flatMap(schema =>
         schema.fields.map(field => ({
@@ -46,6 +51,85 @@ export function InputSchemaBuilder({ value, onChange, nodeId }: InputSchemaBuild
             nodeLabel: schema.label
         }))
     );
+
+    // Sync state from value on load or node change
+    useEffect(() => {
+        // 1. Handle Node Change (Reset)
+        if (nodeId !== lastSyncedNodeId.current) {
+            console.log(`[InputSchemaBuilder] Node context switched: ${lastSyncedNodeId.current} -> ${nodeId}. Resetting visual form.`);
+            setSelectedSourceNode("");
+            setSelectedSourceField("");
+            setSelectedType("any");
+            setKeyName("");
+            setError(null);
+            lastSyncedNodeId.current = nodeId || null;
+        }
+
+        // 2. Guards
+        if (isLoading || incoming.length === 0) return;
+        if (!value || !value.trim().startsWith("{")) return;
+
+        // If the user is currently interacting (dropdowns have values), don't clobber them 
+        // unless we just switched nodes (which we handled above)
+        if (selectedSourceNode && selectedSourceField && !isSyncing.current) {
+            // We have a manual selection. Only sync if the node ID is different from what's in the selection?
+            // Actually, if we just switched nodeId, selectedSourceNode is "" from step 1.
+            // So we only proceed if we are in a "fresh" or "empty" state for the current node.
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(value);
+            const keys = Object.keys(parsed);
+            if (keys.length === 0) return;
+
+            isSyncing.current = true;
+            // Try to find a valid variable mapping in the values
+            // We search from newest to oldest key
+            for (const key of keys.reverse()) {
+                const val = parsed[key];
+                if (typeof val !== "string") continue;
+
+                // Robust regex for {{variable}} possibly inside cast wrappers str(), int(), etc.
+                const curlyMatch = val.match(/\{\{([^}]+)\}\}/);
+                if (curlyMatch) {
+                    const expression = curlyMatch[1]; // e.g. "my_node.field"
+
+                    // Detect type from wrapper
+                    const typeWrapperMatch = val.match(/^([a-z3]+)\(/);
+                    const detectedType = typeWrapperMatch ? typeWrapperMatch[1] : "any";
+
+                    // Support both dot and bracket notation
+                    const dotMatch = expression.match(/^([^.]+)\.([^.]+)$/);
+                    const bracketMatch = expression.match(/^([^\[]+)\[['"]([^'"]+)['"]\]$/);
+
+                    if (dotMatch || bracketMatch) {
+                        const rawNodeId = dotMatch ? dotMatch[1] : bracketMatch![1];
+                        const field = dotMatch ? dotMatch[2] : bracketMatch![2];
+
+                        // Match against incoming nodes (handles underscore/dash mismatch)
+                        const matchingNode = incoming.find(n =>
+                            n.node_id === rawNodeId || n.node_id.replace(/-/g, "_") === rawNodeId
+                        );
+
+                        if (matchingNode) {
+                            console.log(`[InputSchemaBuilder] Restoring visual state for node ${nodeId}: node=${matchingNode.node_id}, field=${field}, type=${detectedType}`);
+
+                            // Batch updates together
+                            setSelectedSourceNode(matchingNode.node_id);
+                            setSelectedSourceField(field);
+                            setSelectedType(detectedType);
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // Ignore parse errors
+        } finally {
+            isSyncing.current = false;
+        }
+    }, [value, incoming, isLoading, nodeId]);
 
     // Filter options based on selected node if one is selected, but we want a global list grouped by node
     // Actually, distinct groupings are better. Let's group by node ID/Label.

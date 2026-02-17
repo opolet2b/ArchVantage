@@ -189,6 +189,8 @@ function flowToGraph(nodes: Node[], edges: Edge[]): AgentGraph {
         id: edge.id,
         source: edge.source,
         target: edge.target,
+        sourceHandle: edge.sourceHandle,
+        targetHandle: edge.targetHandle,
         condition: edge.data?.condition as string | undefined
     }));
 
@@ -214,7 +216,8 @@ function graphToFlow(graph: AgentGraph): { nodes: Node[]; edges: Edge[] } {
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        sourceHandle: edge.condition || null,
+        sourceHandle: edge.sourceHandle || edge.condition || null,
+        targetHandle: edge.targetHandle || null,
         data: { condition: edge.condition }
     }));
 
@@ -268,7 +271,7 @@ const initialState: BuilderState = {
     waitingNodeInfo: null,
     isDirty: false,
     isSaving: false,
-    selectedModel: "default",
+    selectedModel: "",
     showNodeIds: false,
     consoleOpen: false,
     consoleLogs: []
@@ -299,6 +302,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                     inputsSchema: blueprint.inputs_schema,
                     nodes,
                     edges,
+                    selectedModel: (blueprint as any).test_config?.selectedModel || "default",
                     isDirty: false
                 });
                 console.log("[Load] Converted to React Flow - nodes:", nodes.length, "edges:", edges.length);
@@ -330,7 +334,10 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                         description: state.blueprintDescription,
                         graph,
                         inputs_schema: state.inputsSchema,
-                        secrets_requirements: state.secretsRequirements
+                        secrets_requirements: state.secretsRequirements,
+                        test_config: {
+                            selectedModel: state.selectedModel
+                        }
                     };
 
                     console.log("[Save] Payload:", payload);
@@ -583,7 +590,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                         },
                         body: JSON.stringify({
                             prompt: content,
-                            model: get().selectedModel,
+                            model: get().selectedModel || "default",
                             selected_tool_ids: get().selectedToolIds,
                             selected_apis: [],
                             canvas_context: canvasContext
@@ -708,12 +715,16 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
             // -----------------------------------------------------------------
 
             executeBlueprint: async () => {
-                const { blueprintId, testInputs } = get();
+                const { blueprintId, testInputs, selectedModel } = get();
                 const token = getAuthToken();
                 if (!token || !blueprintId) return;
 
                 set({ isExecuting: true, executionSteps: [] });
                 get().addConsoleLog("info", "Starting execution...");
+
+                if (!selectedModel || selectedModel === "default") {
+                    get().addConsoleLog("info", "[WARNING] No specific LLM configuration selected. Using system default.");
+                }
 
                 try {
                     const res = await fetch(
@@ -724,7 +735,10 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                                 "Content-Type": "application/json",
                                 Authorization: `Bearer ${token}`
                             },
-                            body: JSON.stringify({ inputs: testInputs })
+                            body: JSON.stringify({
+                                inputs: testInputs,
+                                model: selectedModel || "default"
+                            })
                         }
                     );
 
@@ -748,12 +762,16 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
             },
 
             executeWithStream: async (inputsOverride?: Record<string, unknown>) => {
-                const { blueprintId, testInputs } = get();
+                const { blueprintId, testInputs, selectedModel } = get();
                 const token = getAuthToken();
                 if (!token || !blueprintId) return;
 
                 set({ isExecuting: true, executionSteps: [], consoleOpen: true });
                 get().addConsoleLog("info", "Starting streaming execution...");
+
+                if (!selectedModel || selectedModel === "default") {
+                    get().addConsoleLog("info", "[WARNING] No specific LLM configuration selected. Using system default.");
+                }
 
                 // Track if we're waiting for GUI input (don't reset isExecuting in that case)
                 let waitingForInput = false;
@@ -767,7 +785,10 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                                 "Content-Type": "application/json",
                                 Authorization: `Bearer ${token}`
                             },
-                            body: JSON.stringify({ inputs: inputsOverride || testInputs })
+                            body: JSON.stringify({
+                                inputs: inputsOverride || testInputs,
+                                model: selectedModel || "default"
+                            })
                         }
                     );
 
@@ -883,7 +904,10 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                             "Content-Type": "application/json",
                             Authorization: `Bearer ${token}`
                         },
-                        body: JSON.stringify({ inputs: inputsOverride || testInputs })
+                        body: JSON.stringify({
+                            inputs: inputsOverride || get().testInputs,
+                            model: get().selectedModel || "default"
+                        })
                     });
 
                     if (!res.ok) {
