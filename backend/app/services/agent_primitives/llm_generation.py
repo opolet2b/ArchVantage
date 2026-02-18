@@ -217,6 +217,28 @@ class LLMGenerationPrimitive(BasePrimitive):
                 # FIX: Sandwich Prompting (Instruction FIRST and LAST)
                 # This breaks the model's "Summarization Bias" by priming it with the task before it sees the data.
                 
+                # GENERIC WRAPPER: NON-INTERACTIVE AUTOMATED ANALYSIS CONTRACT
+                # This ensures the LLM acts as an engine, not a chatbot, for any analysis task.
+                system_prompt_base = params.get("system_prompt", "You are a helpful assistant.")
+                
+                # Check if this is likely an automated analysis task
+                # (Smart Templates usually have specific instructions like "Perform a PESTEL...", "Summarize...", etc.)
+                is_analysis_task = any(keyword in resolved_instruction for keyword in ["Analysis", "PESTEL", "SWOT", "Summarize", "Report", "Assessment"])
+                
+                if is_analysis_task:
+                    print(f"[LLM_PRIM] Automated Analysis Task Detected. Appending Non-Interactive Contract.")
+                    system_prompt_base += (
+                        "\n\n### OPERATIONAL CONTRACT (NON-INTERACTIVE MODE)\n"
+                        "You are running in an automated analysis pipeline. The user CANNOT see your output until the report is complete.\n"
+                        "**CRITICAL RULES:**\n"
+                        "1. **NO QUESTIONS:** Do not ask for clarification. The user cannot reply.\n"
+                        "2. **DATA SUFFICIENCY:**\n"
+                        "   - If the source text contains sufficient data -> Generate the full report.\n"
+                        "   - If the source text is ambiguous -> **Infer** the context from the text and state your assumptions in a '## Assumptions' section.\n"
+                        "   - If the source text is insufficient or unrelated to the task -> Output a **'DATA GAPS REPORT'** listing exactly what information is missing.\n"
+                        "3. **FORMAT:** Output *only* the analysis or the report. Do not include conversational filler."
+                    )
+                
                 user_content = (
                     f"### PRIMARY TASK:\n{resolved_instruction}\n\n"
                     f"### REFERENCE MATERIAL (Background Data):\n{input_context}\n\n"
@@ -226,7 +248,7 @@ class LLMGenerationPrimitive(BasePrimitive):
                 )
 
                 messages = [
-                    Message(role="system", content=params.get("system_prompt", "You are a helpful assistant.")),
+                    Message(role="system", content=system_prompt_base),
                     Message(role="user", content=user_content)
                 ]
             else:

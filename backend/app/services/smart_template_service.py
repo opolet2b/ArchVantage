@@ -3203,6 +3203,12 @@ class SmartTemplateService:
                                      print(f"[SmartTemplate] CORRECTING CANVAS ID: Request={request.canvas_id}, SourceNode={target_canvas_id}. Forcing co-location.")
                                 
                             # Debug Log for User
+                            print(f"[SmartTemplate] DEBUG: About to create Result Node. Inputs: {len(things)}")
+                            print(f"[SmartTemplate] DEBUG: Target Canvas: {target_canvas_id} (Request: {request.canvas_id})")
+                            print(f"[SmartTemplate] DEBUG: Thing Content Keys: {list(thing_content.keys())}")
+                            if "text" in thing_content:
+                                 print(f"[SmartTemplate] DEBUG: Content Text Len: {len(str(thing_content['text']))}")
+                            
                             yield {"type": "log", "content": f"Finalizing... Creating Result Node on Canvas {target_canvas_id}"}
 
                             
@@ -3317,6 +3323,7 @@ class SmartTemplateService:
                                         thing_content.get("text") or 
                                         thing_content.get("markdown") or 
                                         thing_content.get("agent_analysis") or
+                                        thing_content.get("generated_markdown") or 
                                         ""
                                     )
                                     
@@ -3468,7 +3475,10 @@ class SmartTemplateService:
                             db.add(new_node)
                             db.flush() # Get ID
                             
+                            print(f"[SmartTemplate] Created result node {new_node.id} on Canvas {target_canvas_id}")
+                            
                             # 2. Link Inputs to Result
+                            created_links_count = 0
                             for t in things:
                                 link = CanvasLink(
                                     canvas_id=target_canvas_id, # Use corrected ID (Links must belong to same canvas)
@@ -3478,11 +3488,13 @@ class SmartTemplateService:
                                     label="analyzed_in"
                                 )
                                 db.add(link)
+                                created_links_count += 1
+                                print(f"[SmartTemplate] Creating Link: {t.id} -> {new_node.id}")
                             
                             db.commit()
                             db.refresh(new_node)
                             
-                            print(f"[SmartTemplate] Created result node {new_node.id} on Canvas {target_canvas_id}")
+                            print(f"[SmartTemplate] Committed {created_links_count} links to DB.")
                             
                             # 3. Notify Frontend
                             yield {

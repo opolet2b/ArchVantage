@@ -33,6 +33,7 @@ export function GlobalCategoriesTab() {
         name: "",
         context: "Taxonomy",
         active: true,
+        description: "", // Initialize to empty string to avoid uncontrolled input
     });
 
     useEffect(() => {
@@ -54,7 +55,7 @@ export function GlobalCategoriesTab() {
 
     const handleOpenAdd = () => {
         setEditingId(null);
-        setNewItem({ name: "", context: "Taxonomy", active: true });
+        setNewItem({ name: "", context: "Taxonomy", active: true, description: "" });
         setIsDialogOpen(true);
     };
 
@@ -89,7 +90,7 @@ export function GlobalCategoriesTab() {
                 }
                 setIsDialogOpen(false);
                 // Reset form
-                setNewItem({ name: "", context: "Taxonomy", active: true });
+                setNewItem({ name: "", context: "Taxonomy", active: true, description: "" });
                 setEditingId(null);
             } else {
                 const err = await res.json();

@@ -412,7 +412,10 @@ class TextTemplatePrimitive(BasePrimitive):
                     variables.get("context") or 
                     variables.get("source_text") or 
                     variables.get("input") or 
-                    variables.get("text")
+                    variables.get("text") or
+                    variables.get("combined_context") or
+                    variables.get("extractor_input") or
+                    variables.get("selection")
                 )
                 
                 # If not found, check inside common container variables (JSON_MAPPING output)
@@ -424,7 +427,8 @@ class TextTemplatePrimitive(BasePrimitive):
                                 container.get("context") or
                                 container.get("source_text") or
                                 container.get("input") or
-                                container.get("text")
+                                container.get("text") or
+                                container.get("combined_context")
                             )
                             if auto_input:
                                 break
@@ -456,6 +460,7 @@ class TextTemplatePrimitive(BasePrimitive):
 
                 if auto_input:
                     source_text = auto_input if isinstance(auto_input, str) else str(auto_input)
+                    print(f"[TextTemplate] Auto-detected input source (Len: {len(source_text)})")
                 else:
                     source_text = ""
 
@@ -465,14 +470,19 @@ class TextTemplatePrimitive(BasePrimitive):
 
             # Resolve Rendering Type to Template if provided
             rendering_type_id = params.get("renderingType")
-            if rendering_type_id and not template_content:
+            synthesis_category = params.get("synthesisCategory")
+            
+            if (rendering_type_id or synthesis_category) and not template_content:
                 try:
                     from app.models.smart_template import SmartRenderingType
                     from app.core.database import SessionLocal
                     
                     db = SessionLocal()
                     try:
-                        rt = db.query(SmartRenderingType).filter(SmartRenderingType.id == rendering_type_id).first()
+                        rt = None
+                        if rendering_type_id:
+                             rt = db.query(SmartRenderingType).filter(SmartRenderingType.id == rendering_type_id).first()
+                        
                         if rt:
                             print(f"[TextTemplate] Resolved Rendering Type: {rt.name}")
                             if "Executive Summary" in rt.name:
@@ -500,6 +510,35 @@ class TextTemplatePrimitive(BasePrimitive):
                                     f"## {rt.name}\n\n"
                                     f"<!-- INSTRUCTION: Format the content as a {rt.name}. -->"
                                 )
+                        elif synthesis_category:
+                            print(f"[TextTemplate] Using Synthesis Category: {synthesis_category}")
+                            # Fallback templates based on Category
+                            if synthesis_category == "Summarization":
+                                template_content = (
+                                    "## Summary\n\n"
+                                    "<!-- INSTRUCTION: Provide a clear and concise summary of the content. Capture the main ideas and key details. -->"
+                                )
+                            elif synthesis_category == "Analysis":
+                                template_content = (
+                                    "## Analysis\n\n"
+                                    "<!-- INSTRUCTION: Analyze the provided content. Identify key themes, patterns, and insights. -->"
+                                )
+                            elif synthesis_category == "Extraction":
+                                template_content = (
+                                    "## Key Information\n\n"
+                                    "<!-- INSTRUCTION: Extract the most important information from the text. Format as a structured list. -->"
+                                )
+                            elif synthesis_category == "Creative":
+                                template_content = (
+                                    "## Creative Interpretation\n\n"
+                                    "<!-- INSTRUCTION: Reinterpret the content in a creative and engaging way. -->"
+                                )
+                            else:
+                                template_content = (
+                                    f"## {synthesis_category}\n\n"
+                                    f"<!-- INSTRUCTION: Process the content according to the category '{synthesis_category}'. -->"
+                                )
+                                
                     finally:
                         db.close()
                 except Exception as e:
@@ -507,16 +546,18 @@ class TextTemplatePrimitive(BasePrimitive):
             
             # Validate: Empty input check
             if not source_text.strip():
+                # Provide useful debug info
+                avail_keys = list(state.get("variables", {}).keys())
                 return PrimitiveResult(
                     success=False,
-                    error="EmptyInput: Source text cannot be empty. Either set the 'source_text' parameter or ensure a 'context', 'source_text', 'input', or 'text' variable exists in the workflow state."
+                    error=f"EmptyInput: Source text cannot be empty. Available variables: {avail_keys}. Ensure 'combined_context' or 'source_text' is populated."
                 )
             
             # Validate: Template check
             if not template_content.strip():
                 return PrimitiveResult(
                     success=False,
-                    error="InvalidTemplate: Template content cannot be empty"
+                    error=f"InvalidTemplate: Template content cannot be empty. Params: {list(params.keys())}"
                 )
             
             # STRICT CONTRACT MODE
@@ -959,7 +1000,24 @@ Rules:
             
             # Strip any reasoning/thinking tags from LLM response
             # Some LLMs include <think>...</think> blocks for reasoning
+            raw_response = filled_body
+            print(f"[TextTemplate] Raw LLM Output (Len: {len(raw_response)}): {raw_response[:500]}...")
+            
             filled_body = re.sub(r'<think>.*?</think>', '', filled_body, flags=re.DOTALL | re.IGNORECASE).strip()
+            
+            # FALLBACK: If stripping resulted in empty content but we had content, the regex might have been too aggressive
+            # or the model put the answer inside the think block? OR valid answer was lost.
+            if not filled_body and raw_response:
+                print(f"[TextTemplate] WARNING: Content empty after <think> strip. Raw length was {len(raw_response)}.")
+                # Try to salvage: often models might malform tags like <think> ... (no closing)
+                # For now, let's fallback to raw response if it's short, or a specific message
+                if len(raw_response) < 50:
+                     filled_body = raw_response # Just give back what we have
+                else:
+                     # If it was all thinking, maybe we treat it as the answer? 
+                     # Or maybe the greedy regex swallowed everything?
+                     print("[TextTemplate] Restoring raw response as fallback.")
+                     filled_body = raw_response
             
             # Step 4: Reassemble - prepend frontmatter if it exists
             if frontmatter:
