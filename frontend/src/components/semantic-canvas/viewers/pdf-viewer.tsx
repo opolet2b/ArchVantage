@@ -30,9 +30,16 @@ if (typeof Promise.withResolvers === "undefined") {
 }
 
 // Only set worker if not already set to avoid race conditions/resets
-if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-    // Use local worker copied to public folder to ensure version match and avoid UNPKG issues
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+if (typeof window !== "undefined") {
+    // Log version for debugging
+    console.log("[PDFViewer] React-PDF version:", (pdfjs as any).version || "unknown");
+
+    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+        // Use local worker with fallback
+        // In Next.js, public files are at the root
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        console.log("[PDFViewer] Worker source set to:", pdfjs.GlobalWorkerOptions.workerSrc);
+    }
 }
 
 // =============================================================================
@@ -149,6 +156,28 @@ export function PDFViewer({
                     if (!res.ok) throw new Error(`Failed to load PDF: ${res.status}`);
 
                     const blob = await res.blob();
+                    console.log("[PDFViewer] Fetched blob:", {
+                        size: blob.size,
+                        type: blob.type,
+                        url: urlToFetch
+                    });
+
+                    // Check if it's actually a PDF (first few bytes should be %PDF-)
+                    if (blob.size > 10) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const result = e.target?.result;
+                            if (result instanceof ArrayBuffer) {
+                                const header = new TextDecoder().decode(result.slice(0, 5));
+                                console.log("[PDFViewer] PDF Header check:", header);
+                                if (header !== "%PDF-") {
+                                    console.error("[PDFViewer] CRITICAL: Blob does NOT start with %PDF- header!", header);
+                                }
+                            }
+                        };
+                        reader.readAsArrayBuffer(blob.slice(0, 10));
+                    }
+
                     const objectUrl = URL.createObjectURL(blob);
                     objectUrlRef.current = objectUrl;
                     setFileSrc(objectUrl);

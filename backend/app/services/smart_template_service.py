@@ -20,7 +20,7 @@ from app.services.llm_service import llm_service
 from app.services.document_template_service import document_template_service
 
 class SmartTemplateService:
-    
+    print(">>> SMART TEMPLATE SERVICE LOGIC RELOADED V4 <<<")
     # --- Iterative Engine (Phase 2 & 3) ---
 
     async def _review_document(self, content: str, purpose: str, model: str = "gpt-4o", level_of_detail: str = "medium", cycle_index: int = 1) -> tuple[int, str, dict]:
@@ -1532,6 +1532,49 @@ class SmartTemplateService:
         """
         Execute a template and yield progress events.
         """
+        from datetime import datetime
+        # --- PDF DIAGNOSTIC LOGGING HELPER ---
+        def log_pdf(msg):
+            try:
+                with open("pdf_debug.log", "a", encoding="utf-8") as f:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    f.write(f"[{timestamp}] {msg}\n")
+            except:
+                pass
+
+        # Internal Helper for robust text extraction
+        def _extract_clean_text(val):
+            if not val: return ""
+            
+            # If it's a dict, try to find a text key
+            if isinstance(val, dict):
+                text = (
+                    val.get("converted_document") or 
+                    val.get("text_content") or 
+                    val.get("formatted_output") or 
+                    val.get("generated_markdown") or 
+                    val.get("text") or 
+                    val.get("content") or 
+                    val.get("analysis_results", {}).get("formatted_output")
+                )
+                if text and isinstance(text, str): return text
+                return "" # Or str(val) if we really want fallback, but usually safer to return empty or specific text
+            
+            # If it's a string, check if it's stringified JSON
+            if isinstance(val, str):
+                v_stripped = val.strip()
+                if (v_stripped.startswith("{") and v_stripped.endswith("}")) or (v_stripped.startswith("[") and v_stripped.endswith("]")):
+                    try:
+                        import json
+                        parsed = json.loads(v_stripped)
+                        if isinstance(parsed, dict):
+                            return _extract_clean_text(parsed)
+                    except:
+                        pass
+                return val
+            
+            return str(val)
+
         # 1. Fetch Template
         template = self.get_template_by_id(db, request.template_id)
         if not template:
@@ -2029,7 +2072,6 @@ class SmartTemplateService:
                             yield {"type": "log", "content": f"Refinement process interrupted: {e}"}
                     
                     # --- PERSIST RESULT ---
-                    # Update source thing status
                     if things:
                         try:
                             # Re-fetch target_thing to avoid StaleDataError in long-running streaming session
@@ -2272,7 +2314,7 @@ class SmartTemplateService:
                                     source_id=source_thing.id,
                                     target_id=new_thing.id,
                                     type="derived_from",
-                                    label="Generated from",
+                                    label="analyzed_in",
                                     description=f"Analysis result generated from '{source_summary}' using template '{template.name}'"
                                 )
                                 db.add(link)
@@ -2907,24 +2949,15 @@ class SmartTemplateService:
                     target_params = formatter_params or current_node_params
 
                     # C. Select the appropriate Format ID
-                    # Priority: 1. Unified 'outputFormatId' 2. Legacy Category-based IDs
-                    unified_fmt_id = target_params.get("outputFormatId") or target_params.get("output_format_id")
+                    # Unified 'outputFormatId' is the single source of truth (Legacy fields removed)
+                    target_format_id = target_params.get("outputFormatId") or target_params.get("output_format_id")
                     
                     # LOGGING START
-                    with open("C:/Users/opole/Downloads/ChatBotn/backend/debug_trace.txt", "a") as trace:
-                         trace.write(f"\n[TRACE] Target Params Keys: {list(target_params.keys())}\n")
-                         trace.write(f"[TRACE] Unified ID: {unified_fmt_id}\n")
-                         trace.write(f"[TRACE] Resolved Category (Visualizer): {resolved_category}\n")
+                    # LOGGING START (DEBUG PDF)
+                    print(f"\n[SmartTemplate:DEBUG] Target Params Keys: {list(target_params.keys())}")
+                    print(f"[SmartTemplate:DEBUG] Target Format ID: {target_format_id}")
+                    print(f"[SmartTemplate:DEBUG] Resolved Category (Visualizer): {resolved_category}")
                     # LOGGING END
-
-                    if unified_fmt_id:
-                         target_format_id = unified_fmt_id
-                    elif "text" in resolved_category or "summary" in resolved_category:
-                        target_format_id = target_params.get("text_format") or target_params.get("textFormatId")
-                    elif "picture" in resolved_category or "image" in resolved_category or "diagram" in resolved_category:
-                        target_format_id = target_params.get("graphic_format") or target_params.get("graphicsFormatId")
-                    elif "table" in resolved_category or "data" in resolved_category:
-                        target_format_id = target_params.get("data_format") or target_params.get("dataFormatId")
                     
                     # Override for Chart/Component Output (Rich Visualization)
                     if isinstance(current_output, dict) and "visualizer_output" in current_output:
@@ -2962,9 +2995,9 @@ class SmartTemplateService:
                             _p_type, fmt_ext = resolve_fmt_type(target_format_id)
                         
                         # LOGGING TYPE RESOLUTION
-                        with open("C:/Users/opole/Downloads/ChatBotn/backend/debug_trace.txt", "a") as trace:
-                             trace.write(f"[TRACE] Target ID: {target_format_id}\n")
-                             trace.write(f"[TRACE] Resolved Type: {_p_type}, Ext: {fmt_ext}\n")
+                        log_pdf(f"TYPE RESOLUTION: TargetFormatID={target_format_id}, Type={_p_type}, Ext={fmt_ext}, Category={resolved_category}")
+                        print(f"[SmartTemplate:DEBUG] Target ID: {target_format_id}")
+                        print(f"[SmartTemplate:DEBUG] Resolved Type: {_p_type}, Ext: {fmt_ext}")
                         
                         # Graphic/Image
                         if "image" in str(fmt_ext) or "image" in str(_p_type) or "picture" in resolved_category:
@@ -2984,9 +3017,17 @@ class SmartTemplateService:
                                      "alt_text": "Generated Image"
                                   }
 
+                        # PDF / Document (Priority Detection)
+                        elif ("pdf" in str(fmt_ext) or "document" in str(_p_type) or "doc" in str(fmt_ext)) and thing_type != ThingType.AGENT_RESULT:
+                             thing_type = ThingType.DOCUMENT
+                             f_path = outputs.get("file_path", "")
+                             if f_path:
+                                 thing_content["file_path"] = f_path
+                             print(f"[SmartTemplate:DEBUG] Detected DOCUMENT format (Ext: {fmt_ext}, Type: {_p_type}). Path: {f_path}")
+
                         # Table/Data
-                        # Prevent overwriting AGENT_RESULT (which uses json/visualizer types)
-                        elif ("csv" in str(fmt_ext) or "json" in str(fmt_ext) or "table" in str(_p_type)) and thing_type != ThingType.AGENT_RESULT:
+                        # Prevent overwriting AGENT_RESULT or DOCUMENT
+                        elif ("csv" in str(fmt_ext) or "json" in str(fmt_ext) or "table" in str(_p_type)) and thing_type not in [ThingType.AGENT_RESULT, ThingType.DOCUMENT]:
                              thing_type = ThingType.TABLE
                              
                              # DEBUG LOGGING
@@ -3122,15 +3163,230 @@ class SmartTemplateService:
                                       # Actually, the block below 'if thing_type == ThingType.TEXT' re-reads current_output.
                                       # We just need to make sure it finds the formatted_output there too. (We fixed that in Step 1396)
                                   
-                        # Text/Document (Default)
-                        elif thing_type != ThingType.AGENT_RESULT:
-                             f_path = outputs.get("file_path", "")
-                             if ("pdf" in str(fmt_ext) or "document" in str(_p_type)) and f_path:
-                                 thing_type = ThingType.DOCUMENT
-                                 thing_content["file_path"] = f_path
-                             else:
-                                 # Fallback to TEXT if no file path provided, even for PDF format
-                                 thing_type = ThingType.TEXT
+                        # General Fallback (Default to Text if no specific type set)
+                        elif thing_type not in [ThingType.AGENT_RESULT, ThingType.TABLE, ThingType.DOCUMENT, ThingType.IMAGE]:
+                             thing_type = ThingType.TEXT
+                             print(f"[SmartTemplate:DEBUG] Format Check - Fallback to TEXT. Ext={fmt_ext}")
+                        
+                        # PDF / Document Handling: Force upgrade if Agent says it's a PDF
+                        if isinstance(current_output, dict):
+                            agent_fmt = current_output.get("output_format", "").lower()
+                            out_path = str(current_output.get("output_path", "")).lower()
+                            log_pdf(f"AGENT OUTPUT CHECK: format={agent_fmt}, path={out_path}, target_format_id={target_format_id}")
+                            if agent_fmt == "pdf" or out_path.endswith(".pdf") or "pdf" in str(target_format_id).lower():
+                                thing_type = ThingType.DOCUMENT
+                                log_pdf(f"UPGRADED TO DOCUMENT: agent_fmt={agent_fmt}, out_path={out_path}")
+                                print(f"[SmartTemplate:DEBUG] Auto-Upgraded thing_type to DOCUMENT based on Agent Output (Format: {agent_fmt}, Path: {out_path}, TargetID: {target_format_id})")
+
+                        # If Agent returned a file, use it.
+                        if thing_type == ThingType.DOCUMENT:
+                            log_pdf("ENTERING DOCUMENT BLOCK")
+                            print(f"[SmartTemplate:DEBUG] Entering DOCUMENT Block.")
+                            target_path = thing_content.get("file_path")
+                            
+                            if not target_path or not os.path.exists(target_path):
+                                # Fallback: Generate PDF from text
+                                try:
+                                    from app.utils.pdf_generator import convert_markdown_to_pdf
+                                    import os
+                                    from pathlib import Path
+                                    
+                                    # Determine text content
+                                    # LOGGING START (DEBUG PDF CONTENT)
+                                    print(f"[SmartTemplate:DEBUG] PDF Extract - ThingContent Keys: {list(thing_content.keys())}")
+                                    if isinstance(current_output, dict):
+                                        print(f"[SmartTemplate:DEBUG] PDF Extract - CurrentOutput Keys: {list(current_output.keys())}")
+                                        print(f"[SmartTemplate:DEBUG] PDF Extract - raw.converted_document (len): {len(str(current_output.get('converted_document', '')))}")
+                                        print(f"[SmartTemplate:DEBUG] PDF Extract - raw.formatted_output (len): {len(str(current_output.get('formatted_output', '')))}")
+                                    else:
+                                        print(f"[SmartTemplate:DEBUG] PDF Extract - CurrentOutput is NOT dict: {type(current_output)}")
+                                    
+                                    # Determine text content - ROBUST extraction matching Text Node logic
+                                    raw_text = None
+                                    source_key = "None"
+                                    
+                                    # Helper to validate string content
+                                    def get_valid_text(val):
+                                        if val and isinstance(val, str) and len(val) > 0:
+                                            return val
+                                        return None
+
+                                    # 1. Check thing_content direct text
+                                    if not raw_text:
+                                        raw_text = get_valid_text(thing_content.get("text_content"))
+                                        if raw_text: source_key = "thing_content.text_content"
+
+                                    # 2. Check current_output (Standard Keys)
+                                    if not raw_text and isinstance(current_output, dict):
+                                        raw_text = get_valid_text(current_output.get("converted_document"))
+                                        if raw_text: source_key = "current_output.converted_document"
+                                    
+                                    if not raw_text and isinstance(current_output, dict):
+                                        raw_text = get_valid_text(current_output.get("formatted_output"))
+                                        if raw_text: source_key = "current_output.formatted_output"
+
+                                    if not raw_text and isinstance(current_output, dict):
+                                        raw_text = get_valid_text(current_output.get("generated_markdown"))
+                                        if raw_text: source_key = "current_output.generated_markdown"
+
+                                    if not raw_text and isinstance(current_output, dict):
+                                        raw_text = get_valid_text(current_output.get("text"))
+                                        if raw_text: source_key = "current_output.text"
+                                        
+                                    if not raw_text and isinstance(current_output, dict):
+                                        # Handle nested analysis results
+                                        res = current_output.get("analysis_results")
+                                        if isinstance(res, dict):
+                                            raw_text = get_valid_text(res.get("formatted_output"))
+                                            if raw_text: source_key = "current_output.analysis_results.formatted_output"
+
+                                    # 3. Fallback: If we have a dict but it wasn't one of the above, DO NOT dump the whole dict.
+                                    # Yet.
+
+                                    log_pdf(f"EXTRACTION SOURCE: {source_key}, Length: {len(raw_text) if raw_text else 0}")
+                                    print(f"[SmartTemplate:DEBUG] PDF Extract - Source: {source_key}, Length: {len(raw_text) if raw_text else 0}")
+                                    
+                                    # Fallback: Read from file if text missing but output_path present
+                                    if not raw_text and isinstance(current_output, dict):
+                                        out_path = current_output.get("output_path") or ""
+                                        log_pdf(f"NO TEXT FOUND. Attempting file read from output_path: {out_path}")
+                                        print(f"[SmartTemplate:DEBUG] Fallback Reading. output_path raw: '{out_path}'")
+                                        
+                                        if out_path:
+                                            # Try as absolute or relative to backend
+                                            candidates = [
+                                                 Path(out_path),
+                                                 Path(out_path).resolve(),
+                                                 Path(os.getcwd()) / out_path,
+                                                 Path(__file__).parent.parent.parent / out_path
+                                            ]
+                                            
+                                            found_content = None
+                                            for p in candidates:
+                                                if p.exists() and p.is_file():
+                                                    try:
+                                                        print(f"[SmartTemplate:DEBUG] Reading from candidate: {p}")
+                                                        with open(p, "r", encoding="utf-8") as f:
+                                                            found_content = f.read()
+                                                        if found_content and len(found_content) > 10:
+                                                            raw_text = found_content
+                                                            print(f"[SmartTemplate:DEBUG] Successfully read {len(raw_text)} chars from {p}")
+                                                            break
+                                                    except Exception as e:
+                                                        print(f"[SmartTemplate:DEBUG] Failed to read {p}: {e}")
+                                            
+                                            if not found_content:
+                                                 print(f"[SmartTemplate:DEBUG] Could not find/read file at candidates: {[str(c) for c in candidates]}")
+
+                                    if not raw_text or len(str(raw_text)) < 10:
+                                         debug_out_path = current_output.get("output_path", "None")
+                                         raw_text = f"No content generated.\nKeys: {list(current_output.keys()) if isinstance(current_output, dict) else 'Not a dict'}\nOutput Path: {debug_out_path}"
+                                    else:
+                                         # SAVE to thing_content so it's available for citations later
+                                         thing_content["text"] = raw_text
+                                         thing_content["markdown"] = raw_text
+
+                                    # Generate unique filename
+                                    import uuid
+                                    generated_filename = f"analysis_report_{uuid.uuid4().hex[:8]}.pdf"
+                                    # Ensure data/generated directory exists relative using Path
+                                    base_dir = Path(__file__).resolve().parent.parent.parent
+                                    output_dir = base_dir / "data" / "generated"
+                                    output_dir.mkdir(parents=True, exist_ok=True)
+                                    
+                                    full_output_path = str(output_dir / generated_filename)
+                                    
+                                    # LOGGING START
+                                    print(f"[SmartTemplate] DEBUG PDF: Starting PDF generation for output_id={uuid.uuid4().hex[:8]}")
+                                    
+                                    # OPTIMIZATION: If Agent already generated a PDF file, use it directly!
+                                    # This happens if 'converted_document' is empty but 'output_path' points to a PDF
+                                    agent_output_path = current_output.get("output_path") if isinstance(current_output, dict) else None
+                                    use_existing_pdf = False
+                                    if agent_output_path and str(agent_output_path).lower().endswith(".pdf"):
+                                         # Resolve path
+                                         candidates = [
+                                             Path(agent_output_path),
+                                             Path(agent_output_path).resolve(),
+                                             Path(os.getcwd()) / agent_output_path,
+                                             Path(__file__).parent.parent.parent / agent_output_path
+                                         ]
+                                         for p in candidates:
+                                             if p.exists() and p.is_file():
+                                                 # ROBUSTNESS FIX: Verify it's actually a PDF by checking header
+                                                 try:
+                                                     with open(p, "rb") as f_check:
+                                                         header = f_check.read(5)
+                                                         if header == b"%PDF-":
+                                                             print(f"[SmartTemplate] DEBUG PDF: Verified existing PDF at {p}. Using it directly.")
+                                                             import shutil
+                                                             log_pdf(f"Using verified existing PDF from agent output: {p}")
+                                                             shutil.copy2(p, full_output_path)
+                                                             use_existing_pdf = True
+                                                             break
+                                                         else:
+                                                             print(f"[SmartTemplate] WARNING: File at {p} has .pdf extension but starts with {header}. Skipping optimization.")
+                                                             log_pdf(f"WARNING: Invalid PDF header '{header}' for file {p}. Regenerating.")
+                                                 except Exception as check_e:
+                                                     print(f"[SmartTemplate] WARNING: Failed to verify PDF header for {p}: {check_e}")
+                                                     log_pdf(f"Verification error for {p}: {check_e}")
+                                    
+                                    if not use_existing_pdf:
+                                        # Convert (inside 3135 try)
+                                        log_pdf(f"INVOKING PDF CONVERTER. Path={full_output_path}, ContentLen={len(str(raw_text))}")
+                                        print(f"[SmartTemplate] DEBUG PDF: Invoking convert_markdown_to_pdf with path={full_output_path}")
+                                        convert_markdown_to_pdf(str(raw_text), full_output_path)
+                                    
+                                    file_exists = os.path.exists(full_output_path)
+                                    log_pdf(f"PDF GENERATION RESULT: exists={file_exists}, path={full_output_path}, size={os.path.getsize(full_output_path) if file_exists else 0}")
+                                    print(f"[SmartTemplate] DEBUG PDF: {('Existing PDF used' if use_existing_pdf else 'Conversion complete')}. Checking file exists: {file_exists}")
+                                    
+                                    # Register as Asset
+                                    try:
+                                        from app.services.asset_service import asset_service
+                                        print(f"[SmartTemplate] DEBUG PDF: Reading binary content from {full_output_path}")
+                                        with open(full_output_path, "rb") as f:
+                                            pdf_content = f.read()
+                                        
+                                        print(f"[SmartTemplate] DEBUG PDF: Creating Asset via service. User ID: {request.user_id}")
+                                        new_asset, _ = asset_service.create_asset_from_bytes(
+                                            db=db,
+                                            content=pdf_content,
+                                            filename=generated_filename,
+                                            content_type="application/pdf",
+                                            user_id=request.user_id or 1 # Fallback to admin if None
+                                        )
+                                        
+                                        log_pdf(f"ASSET CREATED: ID={new_asset.id}, path={new_asset.file_path}")
+                                        print(f"[SmartTemplate] DEBUG PDF: Asset Created Successfully. ID={new_asset.id}, Path={new_asset.file_path}")
+                                        
+                                        thing_content["asset_id"] = new_asset.id
+                                        thing_content["file_path"] = new_asset.file_path # Use relative storage path
+                                        thing_content["filename"] = generated_filename
+                                        thing_content["file_type"] = "application/pdf"
+                                        thing_content["content_type"] = "application/pdf"
+                                        
+                                        # Cleanup temp file (AssetService created its own copy)
+                                        print(f"[SmartTemplate] DEBUG PDF: Cleaning up temp file {full_output_path}")
+                                        if os.path.exists(full_output_path):
+                                            os.remove(full_output_path)
+                                        
+                                    except Exception as db_err:
+                                        import traceback
+                                        print(f"[SmartTemplate] ERROR: Failed to register PDF asset: {db_err}")
+                                        traceback.print_exc()
+                                        # Fallback to local path (won't work in browser but saves data)
+                                        thing_content["file_path"] = full_output_path
+                                        thing_content["filename"] = generated_filename
+                                        thing_content["error_detail"] = str(db_err)
+
+                                except Exception as e:
+                                    import traceback
+                                    print(f"[SmartTemplate] ERROR: Failed to generate PDF: {e}")
+                                    traceback.print_exc()
+                                    # Fallback to Text Node if PDF gen fails
+                                    thing_type = ThingType.TEXT
+                                    thing_content["text_content"] = f"Error generating PDF: {str(e)}"
                     else:
                         # Fallback if no format selected: Default to Text
                         thing_type = ThingType.TEXT
@@ -3138,49 +3394,48 @@ class SmartTemplateService:
                     # Extract Text/Markdown Content (Default or if explicit TEXT)
                     # Extract Text/Markdown Content (Default or if explicit TEXT)
                     if thing_type == ThingType.TEXT and not template.document_template_id:
+                         final_text = None
+                         
                          if isinstance(current_output, dict):
-                            raw = current_output
-                            # Check for specific 'formatted_output' (SWOT table etc) from Agent
-                            # Or standard fields
-                            val = (
-                                raw.get("analysis_results", {}).get("formatted_output") or 
-                                raw.get("generated_markdown") or 
-                                raw.get("text") or 
-                                raw.get("content") or
-                                raw.get("filled_body") or
-                                raw.get("_raw") or 
-                                raw.get(current_node_params.get("output_variable") or "converted_document") or
-                                str(raw)
-                            )
-                            # CRITICAL: Ensure we never pass a dict/list as 'text' to frontend logic
-                            final_text = str(val) if isinstance(val, (dict, list)) else val
-                            thing_content = {"text": final_text, "markdown": final_text}
+                             # Robust dict extraction
+                             final_text = (
+                                 current_output.get("analysis_results", {}).get("formatted_output") or 
+                                 current_output.get("generated_markdown") or 
+                                 current_output.get("text") or 
+                                 current_output.get("content") or
+                                 current_output.get("filled_body") or
+                                 current_output.get("_raw") or 
+                                 current_output.get(current_node_params.get("output_variable") or "converted_document")
+                             )
+                             
+                             if not final_text or not isinstance(final_text, str):
+                                 final_text = str(current_output or "")
+                                 print(f"[SmartTemplate:DEBUG] Dict extraction found no string key. Stringified len: {len(final_text)}")
+                         
                          else:
+                             # Handle non-dict output (standard string or list)
                              val = str(current_output or "")
                              
-                             # ROBUSTNESS FIX: If output is effectively empty (AI failed to find data)
-                             # Look back at extractor_output or other findings in the state.
-                             if (not val or val.strip() in ["[]", "{}", "No findings", "None"]) and not template.document_template_id:
-                                 print("[SmartTemplate] Final output is effectively empty. Looking back for findings...")
+                             # Recovery logic if output is effectively empty
+                             if (not val or val.strip() in ["[]", "{}", "No findings", "None"]):
+                                 print("[SmartTemplate] Output empty. Looking for findings in variables...")
                                  variables = full_state.get("variables", {})
                                  lookback_vars = ["agent_output", "extractor_output", "analysis_results", "text_output"]
                                  
                                  for var_name in lookback_vars:
                                      lookback_val = variables.get(var_name)
                                      if lookback_val:
-                                         # If it's the extractor output, format it nicely
                                          if var_name == "extractor_output" and isinstance(lookback_val, dict) and "extracted_elements" in lookback_val:
                                              elements = lookback_val.get("extracted_elements", [])
                                              if elements:
                                                  val = "### Extraction Findings\n" + "\n".join([f"- {e.get('data')}" for e in elements])
-                                                 print(f"[SmartTemplate] Recovered findings from {var_name}")
                                                  break
                                          elif isinstance(lookback_val, str) and len(lookback_val) > 20:
                                              val = lookback_val
-                                             print(f"[SmartTemplate] Recovered findings from {var_name}")
                                              break
-                                             
-                             thing_content = {"text": val, "markdown": val}
+                             final_text = val
+
+                         thing_content = {"text": final_text, "markdown": final_text}
 
                     # If valid content to persist
                     if thing_content:
@@ -3293,8 +3548,17 @@ class SmartTemplateService:
                             if agent_analysis:
                                 # CRITICAL FIX: Ensure agent_analysis is a string to prevent Frontend "Objects are not valid as React child" crash
                                 if isinstance(agent_analysis, (dict, list)):
-                                     import json
-                                     agent_analysis = json.dumps(agent_analysis, indent=2)
+                                     # Use new helper to avoid JSON dump unless it's a list (which might be table data)
+                                     if isinstance(agent_analysis, dict):
+                                         extracted = _extract_clean_text(agent_analysis)
+                                         if extracted:
+                                             agent_analysis = extracted
+                                         else:
+                                             import json
+                                             agent_analysis = json.dumps(agent_analysis, indent=2)
+                                     else:
+                                         import json
+                                         agent_analysis = json.dumps(agent_analysis, indent=2)
                                 else:
                                      agent_analysis = str(agent_analysis)
 
@@ -3304,10 +3568,24 @@ class SmartTemplateService:
                             # Prefer audited_document if available, otherwise final_document
                             final_doc_content = full_state.get("variables", {}).get("audited_document") or \
                                                 full_state.get("variables", {}).get("final_document")
+                            
+                            # Log refinement state
+                            print(f"[SmartTemplate] Refinement Check - final_doc_content exists? {final_doc_content is not None}")
+                            
                             if final_doc_content:
                                 thing_content["text"] = final_doc_content
                                 thing_content["markdown"] = final_doc_content
-                                thing_type = ThingType.TEXT # Ensure it's a text node for the document
+                                # Guard: Only set to TEXT if not already a DOCUMENT/IMAGE etc.
+                                if thing_type not in [ThingType.DOCUMENT, ThingType.IMAGE, ThingType.AGENT_RESULT]:
+                                    thing_type = ThingType.TEXT
+                                    print("[SmartTemplate] Assigned Refinement content to TEXT node.")
+                                else:
+                                    print(f"[SmartTemplate] Assigned Refinement content to {thing_type} node (Preserving Type).")
+                            else:
+                                if thing_type == ThingType.DOCUMENT and not thing_content.get("text"):
+                                     print("[SmartTemplate] WARNING: DOCUMENT type set but no 'text' content found for citations. Looking for fallback...")
+                                     # This ensures citations won't search on an empty string if we missed saving the raw_text
+                                     # (Actually we added saving raw_text at line 3235 above)
 
                             # --- BUILD CITATIONS (Standard Pipeline - Section-Based) ---
                             std_citations = []
@@ -3318,7 +3596,7 @@ class SmartTemplateService:
 
                                     # 1. Determine Content Source
                                     # Use final_doc_content if available, else fallback to standard outputs
-                                    doc_source = (
+                                    raw_doc_source = (
                                         final_doc_content or 
                                         thing_content.get("text") or 
                                         thing_content.get("markdown") or 
@@ -3326,6 +3604,9 @@ class SmartTemplateService:
                                         thing_content.get("generated_markdown") or 
                                         ""
                                     )
+                                    
+                                    # ROBUST EXTRACTION: Use helper to prevent JSON string leaked into citations
+                                    doc_source = _extract_clean_text(raw_doc_source)
                                     
                                     if not doc_source:
                                         print("[SmartTemplate-CIT] WARNING: No content found for citation generation.")
@@ -3355,7 +3636,11 @@ class SmartTemplateService:
                                             continue
                                             
                                         # Run RAG on this section (Global Search)
-                                        query_text = clean_text[:250].replace("\n", " ")
+                                        # Ensure clean_text is a string before slicing/processing
+                                        if isinstance(clean_text, dict):
+                                             clean_text = clean_text.get("text") or str(clean_text)
+                                        
+                                        query_text = str(clean_text)[:250].replace("\n", " ")
                                         chunk_citations_added = []
                                         
                                         # Collect Asset IDs for filtering
@@ -3380,7 +3665,8 @@ class SmartTemplateService:
                                                 query=query_text,
                                                 filters={"asset_id": target_asset_ids}, # List -> IN Filter
                                                 k=3,
-                                                response_mode="simple"
+                                                response_mode="simple",
+                                                model_name=request.model # Pass correctly selected model
                                             )
                                             
                                             if rag_results:
@@ -3462,11 +3748,36 @@ class SmartTemplateService:
 
                             thing_content["citations"] = std_citations
 
+                            log_pdf(f"PRE-DB-ADD: type={thing_type}, asset_id={thing_content.get('asset_id')}, path={thing_content.get('file_path')}")
+                            print(f"[SmartTemplate] FINAL PRE-PERSIST CHECK: Type={thing_type}, Title={thing_title}, ContentKeys={list(thing_content.keys())}")
+
+                            # Category 1: Technical Metadata (Immutable, System-generated)
+                            tech_meta = {
+                                "created_by": "SmartTemplateService",
+                                "template_id": request.template_id,
+                                "source_things_count": len(things)
+                            }
+                            
+                            # If it's a document/file, add file details
+                            if thing_content.get("asset_id"):
+                                # If we created an asset, we should ideally fetch its details
+                                # but we already have some in memory from create_asset_from_bytes
+                                from app.models.asset_models import Asset
+                                asset = db.query(Asset).filter(Asset.id == thing_content["asset_id"]).first()
+                                if asset:
+                                    tech_meta.update({
+                                        "filename": asset.original_name,
+                                        "file_path": asset.file_path,
+                                        "file_size": asset.size_bytes,
+                                        "mime_type": asset.mime_type
+                                    })
+                            
                             new_node = CanvasThing(
                                 canvas_id=target_canvas_id, # Use corrected ID
                                 type=thing_type,
                                 title=thing_title,
                                 content=thing_content,
+                                technical_metadata=tech_meta,
                                 position_x=pos_x,
                                 position_y=pos_y,
                                 width=350.0,
@@ -3474,6 +3785,7 @@ class SmartTemplateService:
                             )
                             db.add(new_node)
                             db.flush() # Get ID
+                            log_pdf(f"NODE SAVED: id={new_node.id}, session_type={new_node.type}")
                             
                             print(f"[SmartTemplate] Created result node {new_node.id} on Canvas {target_canvas_id}")
                             
@@ -3497,23 +3809,24 @@ class SmartTemplateService:
                             print(f"[SmartTemplate] Committed {created_links_count} links to DB.")
                             
                             # 3. Notify Frontend
+                            log_pdf(f"EVENT YIELDED: type={new_node.type.value}, asset_id={new_node.content.get('asset_id')}")
                             yield {
                                 "type": "node_created",
-                                "node": {
-                                    "id": new_node.id,
-                                    "title": new_node.title,
-                                    "type": new_node.type.value,
-                                    "content": new_node.content,
-                                    "position_x": new_node.position_x,
-                                    "position_y": new_node.position_y,
-                                    # Frontend store might expect specific shape, but let's send model shape.
-                                    # Actually, let's also send x/y for compatibility if frontend needs it,
-                                    # but based on store it uses position_x/y
-                                    "x": new_node.position_x,
-                                    "y": new_node.position_y,
-                                    "canvas_id": target_canvas_id # Send valid canvas ID back so frontend knows where it is
-                                }
-                            }
+                                 "node": {
+                                     "id": new_node.id,
+                                     "title": new_node.title,
+                                     "type": new_node.type.value,
+                                     "content": new_node.content,
+                                     "position_x": new_node.position_x,
+                                     "position_y": new_node.position_y,
+                                     # Frontend store might expect specific shape, but let's send model shape.
+                                     # Actually, let's also send x/y for compatibility if frontend needs it,
+                                     # but based on store it uses position_x/y
+                                     "x": new_node.position_x,
+                                     "y": new_node.position_y,
+                                     "canvas_id": target_canvas_id # Send valid canvas ID back so frontend knows where it is
+                                 }
+                             }
                         except Exception as persistence_error:
                             print(f"[SmartTemplate] Failed to persist result: {persistence_error}")
                             db.rollback()

@@ -430,6 +430,7 @@ class ExecuteTemplateRequest(BaseModel):
     model: Optional[str] = None
     level_of_detail: Optional[str] = "medium" # low, medium, high
     source_fragment: Optional[FragmentData] = None
+    user_id: Optional[int] = None # Added for tracking execution owner
 
 class ExecuteTemplateResponse(BaseModel):
     """Response for template execution start."""

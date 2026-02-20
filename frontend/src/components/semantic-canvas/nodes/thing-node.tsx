@@ -1861,11 +1861,15 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     !filename?.toLowerCase().endsWith(".docx") &&
                     !filename?.toLowerCase().endsWith(".doc")
                 ) {
-                    if (filePath) {
+                    // Check for asset_id first (Generated PDFs etc)
+                    const assetId = content.asset_id;
+                    const pdfSrc = assetId ? `/api/v1/assets/${assetId}` : filePath;
+
+                    if (pdfSrc) {
                         return (
                             <SelectableContent thingId={thing.id}>
                                 <PDFViewer
-                                    src={filePath}
+                                    src={pdfSrc}
                                     className="h-full"
                                     overlays={imageOverlays}
                                     onOverlayResize={handleOverlayResize}

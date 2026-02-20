@@ -34,16 +34,11 @@ class LLMService:
             if not preset:
                 preset = next((p for p in presets if p.get("model_name") == model_name), None)
 
-        # Fallback to default if no preset found for given name
-        if not preset and model_name != "default":
-             preset = config_service.get_default_llm_preset()
-             if preset:
-                 print(f"[LLM_SERVICE] Warning: Requested model '{model_name}' not found. Falling back to default preset '{preset['name']}'.")
-        
+        # Determine final resolve
         if preset:
             print(f"[LLM_SERVICE] Final Resolved Preset: {preset.get('name')} (Model ID: {preset.get('model_name')})")
         else:
-            print(f"[LLM_SERVICE] No preset found for '{model_name}'.")
+            print(f"[LLM_SERVICE] No preset found for '{model_name}'. Proceeding with raw identifier.")
 
         return preset
 

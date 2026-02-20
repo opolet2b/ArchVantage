@@ -144,6 +144,45 @@ class DocumentConverterPrimitive(BasePrimitive):
                             input_content = variables[wrapper]["input_content"]
                         if input_file_path or input_content:
                             break
+
+            # ROBUSTNESS FIX: If input_content is a dict/list (or string of one), extract the actual text content.
+            # This prevents converting the raw state JSON into a PDF.
+            if input_content:
+                import json
+                import ast
+                extracted_content = None
+                
+                # Check if it's already a dict object
+                if isinstance(input_content, (dict, list)):
+                    obj = input_content
+                # Check if it's a string that looks like JSON or Python Dict
+                elif isinstance(input_content, str) and input_content.strip().startswith(("{", "[")):
+                    try:
+                         # Try JSON first
+                         obj = json.loads(input_content)
+                    except:
+                         # Try Python literal eval (for single quoted strings)
+                         try:
+                             obj = ast.literal_eval(input_content)
+                         except:
+                             obj = None
+                else:
+                    obj = None
+                
+                if isinstance(obj, dict):
+                    # Try common content keys in priority order
+                    extracted_content = (
+                        obj.get("formatted_output") or 
+                        obj.get("generated_markdown") or 
+                        obj.get("text") or 
+                        obj.get("content") or 
+                        obj.get("markdown") or
+                        obj.get("result")
+                    )
+                    # If we found content inside, update input_content
+                    if extracted_content and isinstance(extracted_content, str):
+                        print(f"[DocumentConverter] Extracted content from input dict (Keys: {list(obj.keys())})")
+                        input_content = extracted_content
             
             # Resolve {{variable}} syntax if present (advanced usage)
             if input_file_path and "{{" in str(input_file_path):
@@ -397,14 +436,37 @@ class DocumentConverterPrimitive(BasePrimitive):
         
         Returns converted content (str for text formats, bytes for binary).
         """
+        def repair_encoding(text: str) -> str:
+            """Repair common encoding artifacts like â€™ -> ’."""
+            if not isinstance(text, str): return text
+            try:
+                # Fix double-encoded UTF-8
+                return text.encode('cp1252').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # Common manual replacements for known artifacts
+                replacements = {
+                    'â€™': "’",
+                    'â€œ': "“",
+                    'â€?': "”",
+                    'â€”': "—",
+                    'â€“': "–",
+                    'â€¯': " ", # Narrow no-break space
+                    'â€\x8b': "", # Zero width space
+                    '\â€\xaf': " ",
+                }
+                for old, new in replacements.items():
+                    text = text.replace(old, new)
+                return text
+
         # No conversion needed
         if from_fmt == to_fmt:
-            return content
-        
+            return repair_encoding(content) if isinstance(content, str) else content
+
         # Import libraries here to avoid loading if not needed
         import markdown2
         import html2text
         from xhtml2pdf import pisa  # Pure Python PDF library
+        from app.utils.pdf_generator import convert_markdown_to_pdf # Use unified generator
         import pdfplumber
         from striprtf.striprtf import rtf_to_text
         from io import BytesIO
@@ -601,8 +663,17 @@ class DocumentConverterPrimitive(BasePrimitive):
             return text_to_html(content)
         
         # Multi-step conversions
-        elif from_fmt == 'markdown':
             # MD → HTML → target
+            # ROBUST FIX: Use ReportLab-based PDFGenerator directly for Markdown if targeting PDF
+            if to_fmt == 'pdf':
+                # Create a temp file for ReportLab to work with
+                temp_pdf = self._generate_temp_path('pdf')
+                # Repair encoding before conversion
+                safe_content = repair_encoding(content)
+                convert_markdown_to_pdf(safe_content, str(temp_pdf))
+                with open(temp_pdf, 'rb') as f:
+                    return f.read()
+            
             html = md_to_html(content)
             if to_fmt == 'pdf':
                 return html_to_pdf(html)
@@ -653,6 +724,16 @@ class DocumentConverterPrimitive(BasePrimitive):
                 return md_to_csv(html_to_md(content))
 
         
+        # Final Fallback
+        if to_fmt == 'pdf' and isinstance(content, str):
+             # Final effort: use unified PDF generator
+             temp_pdf = self._generate_temp_path('pdf')
+             safe_content = repair_encoding(content)
+             print(f"[DocumentConverter] Final fallback conversion to PDF for content len={len(safe_content)}")
+             convert_markdown_to_pdf(safe_content, str(temp_pdf))
+             with open(temp_pdf, 'rb') as f:
+                 return f.read()
+
         # Fallback
         return content
     

@@ -28,12 +28,14 @@ class RAGService:
         # We do NOT initialize RAG here anymore. 
         # It must be called explicitly via initialize()
 
-    def initialize(self):
+    def initialize(self, model_name: Optional[str] = None):
         """
         Lazy Initialization of RAG Service.
         Should be called automatically by public methods before use.
         """
-        if self._initialized:
+        # If model_name is provided, we might need to re-sync Settings.llm
+        # even if already initialized.
+        if self._initialized and not model_name:
             return
 
         print("[RAGService] Initializing RAG Service (loading libraries)...")
@@ -87,8 +89,17 @@ class RAGService:
                 
                 # Sync Global LLM for synthesis
                 from app.services.llm_service import llm_service
-                Settings.llm = llm_service._get_llama_index_model(llm_preset["name"])
-                print(f"[RAGService] Syncing Settings.llm to preset '{llm_preset['name']}'")
+                
+                # Logic: Use provided model_name if available, else use default.
+                active_model = model_name or llm_preset["name"]
+                
+                # Check if Settings.llm is already set to this model to avoid redundant init
+                current_llm = getattr(Settings, "llm", None)
+                if current_llm and hasattr(current_llm, "model_name") and current_llm.model_name == active_model:
+                     print(f"[RAGService] Settings.llm already set to '{active_model}'. Skipping re-sync.")
+                else:
+                     Settings.llm = llm_service._get_llama_index_model(active_model)
+                     print(f"[RAGService] Syncing Settings.llm to model '{active_model}'")
             else:
                 print(f"[RAGService] No LLM Preset found. Using default context_window/llm.")
 
@@ -508,7 +519,7 @@ class RAGService:
             return Settings.llm
 
     def ingest_file(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None, model_name: Optional[str] = None, vision_model_name: Optional[str] = None, enable_vision: bool = False):
-        self.initialize()
+        self.initialize(model_name=model_name)
         print(f"[RAGService] Starting ingestion for: {file_path} (Model: {model_name}, VisionModel: {vision_model_name}, Vision: {enable_vision})")
         
         # Ensure Initialized
@@ -739,9 +750,9 @@ class RAGService:
             print(f"Error ingesting folder {folder_path}: {e}")
             return {"status": "error", "detail": str(e)}
 
-    def query(self, query_text: str, k: int = 4, conversation_id: Optional[str] = None, filters: Optional[dict] = None):
+    def query(self, query_text: str, k: int = 4, conversation_id: Optional[str] = None, filters: Optional[dict] = None, model_name: Optional[str] = None):
         try:
-            self.initialize()
+            self.initialize(model_name=model_name)
             if not self._initialized or not self.querying_config:
                 return "RAG Service is not initialized or configured."
         except Exception as e:
@@ -782,7 +793,8 @@ class RAGService:
         conversation_id: Optional[str] = None,
         filters: Optional[dict] = None,
         k: int = 10,
-        response_mode: Optional[str] = None
+        response_mode: Optional[str] = None,
+        model_name: Optional[str] = None
     ) -> List[dict]:
         """
         Search for relevant documents with metadata and scores.
@@ -791,10 +803,9 @@ class RAGService:
         returns structured results including metadata and relevance scores.
         """
         try:
-            print(f"[RAGService] Search requested. Query: '{query}' Filters: {filters}")
+            print(f"[RAGService] Search requested. Query: '{query}' Filters: {filters} (Model: {model_name})")
             
-            if not self._initialized:
-                self.initialize()
+            self.initialize(model_name=model_name)
             
             if self.index is None:
                 print(f"[RAGService] Index not initialized. Returning empty.")
