@@ -319,14 +319,16 @@ class LLMService:
         import ast
         
         # 1. Primary Extraction: Try backticks first
-        mj = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+        mj = re.search(r"```[^\n]*\n([\s\S]*?)```", text)
+        if not mj:
+            mj = re.search(r"```([\s\S]*?)```", text)
         content = mj.group(1).strip() if mj else text.strip()
         
         # 2. Secondary Extraction: Finding the outermost { } or [ ]
-        if not (content.startswith('{') or content.startswith('[')):
-            m = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", content)
-            if m:
-                content = m.group(1).strip()
+        # Always try to find the outermost brackets to strip any remaining prepended/appended conversational text
+        m = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", content)
+        if m:
+            content = m.group(1).strip()
         
         def repair_json(s: str) -> str:
             # Remove trailing commas in objects/arrays

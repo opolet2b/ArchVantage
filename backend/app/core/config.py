@@ -15,6 +15,12 @@ class Settings:
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./db/sql_app.db")
     CHROMA_DB_DIR: str = os.path.join(BASE_DIR, "chroma_db")
 
+    # ArcadeDB Configuration
+    ARCADEDB_HOST: str = os.getenv("ARCADEDB_HOST", "http://localhost:2480")
+    ARCADEDB_USER: str = os.getenv("ARCADEDB_USER", "root")
+    ARCADEDB_PASSWORD: str = os.getenv("ARCADEDB_PASSWORD", "playwithdata")
+    ARCADEDB_DATABASE: str = os.getenv("ARCADEDB_DATABASE", "knowledge_graph")
+
     # CORS Configuration
     # Parse comma-separated string from env, or use default list
     BACKEND_CORS_ORIGINS: List[str] = [

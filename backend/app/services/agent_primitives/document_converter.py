@@ -275,6 +275,7 @@ class DocumentConverterPrimitive(BasePrimitive):
                 output={
                     output_var: output_data.get("content"),
                     "output_path": output_data.get("path"),
+                    "input_content": content if isinstance(content, str) else None, # Pass through the refined text
                     "detected_input_format": detected_format,
                     "input_format_used": input_format,
                     "output_format": output_format,

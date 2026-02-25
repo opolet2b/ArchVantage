@@ -12,10 +12,17 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/a
 
 export function DatabaseSettingsTab() {
     const [dbUrl, setDbUrl] = useState("")
-    const [loading, setLoading] = useState(false)
-    const [testing, setTesting] = useState(false)
-    const [status, setStatus] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null)
+    const [arcadeHost, setArcadeHost] = useState("http://localhost:2480")
+    const [arcadeUser, setArcadeUser] = useState("root")
+    const [arcadePassword, setArcadePassword] = useState("playwithdata")
+    const [arcadeDb, setArcadeDb] = useState("knowledge_graph")
+    const [sqlLoading, setSqlLoading] = useState(false)
+    const [sqlTesting, setSqlTesting] = useState(false)
+    const [sqlStatus, setSqlStatus] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null)
 
+    const [arcadeLoading, setArcadeLoading] = useState(false)
+    const [arcadeTesting, setArcadeTesting] = useState(false)
+    const [arcadeStatus, setArcadeStatus] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null)
     useEffect(() => {
         fetchConfig()
     }, [])
@@ -26,56 +33,120 @@ export function DatabaseSettingsTab() {
             if (res.ok) {
                 const data = await res.json()
                 setDbUrl(data.url || "")
+                setArcadeHost(data.arcadedb_host || "http://localhost:2480")
+                setArcadeUser(data.arcadedb_user || "root")
+                setArcadePassword(data.arcadedb_password || "playwithdata")
+                setArcadeDb(data.arcadedb_database || "knowledge_graph")
             }
         } catch (error) {
             console.error("Failed to fetch database config:", error)
         }
     }
 
-    const handleTestConnection = async () => {
-        setTesting(true)
-        setStatus(null)
+    const handleTestSqlConnection = async () => {
+        setSqlTesting(true)
+        setSqlStatus(null)
         try {
             const res = await fetch(`${API_BASE_URL}/config/database/test`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: dbUrl }),
+                body: JSON.stringify({ url: dbUrl, target: "sql" }),
             })
             const data = await res.json()
-            if (data.status === "success") {
-                setStatus({ type: "success", message: "Connection successful!" })
+            if (data.status === "success" || data.status === "partial") {
+                setSqlStatus({ type: "success", message: "SQL Connection successful!" })
             } else {
-                setStatus({ type: "error", message: `Connection failed: ${data.message}` })
+                setSqlStatus({ type: "error", message: `Connection failed: ${data.message}` })
             }
         } catch (error) {
-            setStatus({ type: "error", message: `Network error: ${error}` })
+            setSqlStatus({ type: "error", message: `Network error: ${error}` })
         } finally {
-            setTesting(false)
+            setSqlTesting(false)
         }
     }
 
-    const handleSave = async () => {
-        setLoading(true)
-        setStatus(null)
+    const handleSaveSql = async () => {
+        setSqlLoading(true)
+        setSqlStatus(null)
         try {
             const res = await fetch(`${API_BASE_URL}/config/database`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url: dbUrl }),
+                body: JSON.stringify({
+                    url: dbUrl
+                }),
             })
             const data = await res.json()
             if (data.status === "success") {
-                setStatus({
+                setSqlStatus({
                     type: "success",
                     message: data.message || "Saved successfully. Please restart the backend."
                 })
             } else {
-                setStatus({ type: "error", message: "Failed to save configuration." })
+                setSqlStatus({ type: "error", message: "Failed to save configuration." })
             }
         } catch (error) {
-            setStatus({ type: "error", message: `Save failed: ${error}` })
+            setSqlStatus({ type: "error", message: `Save failed: ${error}` })
         } finally {
-            setLoading(false)
+            setSqlLoading(false)
+        }
+    }
+
+    const handleTestArcadeConnection = async () => {
+        setArcadeTesting(true)
+        setArcadeStatus(null)
+        try {
+            const res = await fetch(`${API_BASE_URL}/config/database/test`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    arcadedb_host: arcadeHost,
+                    arcadedb_user: arcadeUser,
+                    arcadedb_password: arcadePassword,
+                    arcadedb_database: arcadeDb,
+                    target: "arcadedb"
+                }),
+            })
+            const data = await res.json()
+            if (data.status === "success" || data.status === "partial") {
+                setArcadeStatus({ type: "success", message: "ArcadeDB Connection successful!" })
+            } else {
+                setArcadeStatus({ type: "error", message: `Connection failed: ${data.message}` })
+            }
+        } catch (error) {
+            setArcadeStatus({ type: "error", message: `Network error: ${error}` })
+        } finally {
+            setArcadeTesting(false)
+        }
+    }
+
+    const handleSaveArcade = async () => {
+        setArcadeLoading(true)
+        setArcadeStatus(null)
+        try {
+            const res = await fetch(`${API_BASE_URL}/config/database`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    arcadedb_host: arcadeHost,
+                    arcadedb_user: arcadeUser,
+                    arcadedb_password: arcadePassword,
+                    arcadedb_database: arcadeDb
+                }),
+            })
+            const data = await res.json()
+            if (data.status === "success") {
+                setArcadeStatus({
+                    type: "success",
+                    message: data.message || "Saved successfully. Please restart the backend."
+                })
+            } else {
+                setArcadeStatus({ type: "error", message: "Failed to save configuration." })
+            }
+        } catch (error) {
+            setArcadeStatus({ type: "error", message: `Save failed: ${error}` })
+        } finally {
+            setArcadeLoading(false)
         }
     }
 
@@ -109,30 +180,111 @@ export function DatabaseSettingsTab() {
                         </p>
                     </div>
 
-                    {status && (
-                        <Alert variant={status.type === "error" ? "destructive" : "default"} className={status.type === "success" ? "border-green-500 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20" : ""}>
-                            {status.type === "error" ? <AlertCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                            <AlertTitle>{status.type === "success" ? "Success" : status.type === "error" ? "Error" : "Info"}</AlertTitle>
+                    {sqlStatus && (
+                        <Alert variant={sqlStatus.type === "error" ? "destructive" : "default"} className={sqlStatus.type === "success" ? "border-green-500 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20" : ""}>
+                            {sqlStatus.type === "error" ? <AlertCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                            <AlertTitle>{sqlStatus.type === "success" ? "Success" : sqlStatus.type === "error" ? "Error" : "Info"}</AlertTitle>
                             <AlertDescription>
-                                {status.message}
+                                {sqlStatus.message}
                             </AlertDescription>
                         </Alert>
                     )}
                 </CardContent>
                 <CardFooter className="flex justify-between">
-                    <Button variant="outline" onClick={handleTestConnection} disabled={testing || !dbUrl}>
-                        {testing ? "Testing..." : (
+                    <Button variant="outline" onClick={handleTestSqlConnection} disabled={sqlTesting || !dbUrl}>
+                        {sqlTesting ? "Testing..." : (
                             <>
                                 <FlaskConical className="mr-2 h-4 w-4" />
-                                Test Connection
+                                Test SQL Connection
                             </>
                         )}
                     </Button>
-                    <Button onClick={handleSave} disabled={loading || !dbUrl}>
-                        {loading ? "Saving..." : (
+                    <Button onClick={handleSaveSql} disabled={sqlLoading || !dbUrl}>
+                        {sqlLoading ? "Saving..." : (
                             <>
                                 <Save className="mr-2 h-4 w-4" />
-                                Save & Apply
+                                Save SQL Config
+                            </>
+                        )}
+                    </Button>
+                </CardFooter>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Database className="h-5 w-5" />
+                        Knowledge Graph (ArcadeDB) Configuration
+                    </CardTitle>
+                    <CardDescription>
+                        Configure the ArcadeDB connection. You must run a local Docker instance of ArcadeDB to use the Knowledge Graph feature.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                            <Label htmlFor="arcade-host">Host URL</Label>
+                            <Input
+                                id="arcade-host"
+                                value={arcadeHost}
+                                onChange={(e) => setArcadeHost(e.target.value)}
+                                placeholder="http://localhost:2480"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="arcade-db">Database Name</Label>
+                            <Input
+                                id="arcade-db"
+                                value={arcadeDb}
+                                onChange={(e) => setArcadeDb(e.target.value)}
+                                placeholder="knowledge_graph"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="arcade-user">Username</Label>
+                            <Input
+                                id="arcade-user"
+                                value={arcadeUser}
+                                onChange={(e) => setArcadeUser(e.target.value)}
+                                placeholder="root"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="arcade-password">Password</Label>
+                            <Input
+                                id="arcade-password"
+                                type="password"
+                                value={arcadePassword}
+                                onChange={(e) => setArcadePassword(e.target.value)}
+                                placeholder="playwithdata"
+                            />
+                        </div>
+                    </div>
+
+                    {arcadeStatus && (
+                        <Alert variant={arcadeStatus.type === "error" ? "destructive" : "default"} className={arcadeStatus.type === "success" ? "border-green-500 text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/20" : ""}>
+                            {arcadeStatus.type === "error" ? <AlertCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                            <AlertTitle>{arcadeStatus.type === "success" ? "Success" : arcadeStatus.type === "error" ? "Error" : "Info"}</AlertTitle>
+                            <AlertDescription>
+                                {arcadeStatus.message}
+                            </AlertDescription>
+                        </Alert>
+                    )}
+                </CardContent>
+                <CardFooter className="flex justify-between">
+                    <Button variant="outline" onClick={handleTestArcadeConnection} disabled={arcadeTesting || !arcadeHost}>
+                        {arcadeTesting ? "Testing..." : (
+                            <>
+                                <FlaskConical className="mr-2 h-4 w-4" />
+                                Test ArcadeDB Connection
+                            </>
+                        )}
+                    </Button>
+                    <Button onClick={handleSaveArcade} disabled={arcadeLoading || !arcadeHost}>
+                        {arcadeLoading ? "Saving..." : (
+                            <>
+                                <Save className="mr-2 h-4 w-4" />
+                                Save ArcadeDB Config
                             </>
                         )}
                     </Button>

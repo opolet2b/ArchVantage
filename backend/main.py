@@ -18,12 +18,13 @@ from app.models.smart_template import (
 from app.models.agent_blueprint import AgentBlueprint, AgentNode, AgentEdge, AgentExecution
 from app.models.template import Template, TemplateFolder, TemplatePermission
 from app.models.tools import Tool, Category as ToolCategory, ToolPermission, MCPServer, MCPServerPermission
+from app.models.knowledge_graph import KnowledgeBaseConfig
 
 from app.routers import (
-    chat, workflow, rag, search, research, config, conversation,
+    chat, workflow, rag, knowledge, research, config, conversation,
     agents, auth, users, roles, oauth, tools, mcp_servers,
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
-    smart_template, maintenance, spaces, layout_router, scenarios, ai
+    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology
 )
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
@@ -62,6 +63,10 @@ async def startup_event():
         prompt_service.register_prompts(ALL_PROMPTS)
         print(f"DEBUG: Registered {len(ALL_PROMPTS)} prompts")
         
+        # Initialize Knowledge Graph Schema (ArcadeDB)
+        from app.models.knowledge_graph import init_knowledge_graph_schema
+        init_knowledge_graph_schema()
+        
         # Initialize RAG Service (Lazy loading, so no explicit init here)
         from app.services.rag_service import rag_service
         print("DEBUG: RAG Service registered (Lazy Loading)")
@@ -85,7 +90,7 @@ app.include_router(roles.router, prefix="/api/v1", tags=["roles"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(workflow.router, prefix="/api/v1", tags=["workflow"])
 app.include_router(rag.router, prefix="/api/v1", tags=["rag"])
-app.include_router(search.router, prefix="/api/v1", tags=["search"])
+app.include_router(knowledge.router, prefix="/api/v1", tags=["knowledge"])
 app.include_router(research.router, prefix="/api/v1", tags=["research"])
 app.include_router(config.router, prefix="/api/v1", tags=["config"])
 app.include_router(conversation.router, prefix="/api/v1", tags=["conversation"])
@@ -106,6 +111,7 @@ app.include_router(spaces.router, prefix="/api/v1", tags=["spaces"])
 app.include_router(layout_router.router, prefix="/api/v1", tags=["layout"])
 app.include_router(scenarios.router, prefix="/api/v1", tags=["scenarios"])
 app.include_router(ai.router, prefix="/api/v1", tags=["ai"])
+app.include_router(ontology.router, prefix="/api/v1", tags=["ontology"])
 
 @app.get("/")
 def read_root():

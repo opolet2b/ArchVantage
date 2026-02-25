@@ -385,6 +385,41 @@ def run_migrations(db: Session) -> None:
     except Exception as e:
         print(f"Scenarios migration check failed: {e}")
 
+    # Migration for knowledge_base_configs columns
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_base_configs'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            cols_to_add = [
+                ("ontology_classes", "JSON"),
+                ("ontology_edges", "JSON"),
+                ("selected_source_ids", "JSON"),
+                ("node_count", "INTEGER DEFAULT 0"),
+                ("edge_count", "INTEGER DEFAULT 0"),
+                ("ingestion_status", "VARCHAR(20) DEFAULT 'idle'"),
+                ("file_hashes", "JSON")
+            ]
+            
+            for col_name, col_type in cols_to_add:
+                try:
+                    db.execute(text(f"SELECT {col_name} FROM knowledge_base_configs LIMIT 1"))
+                    print(f"Migration check: {col_name} already exists in knowledge_base_configs.")
+                except Exception:
+                    print(f"Adding '{col_name}' column to knowledge_base_configs table...")
+                    try:
+                        db.execute(text(f"ALTER TABLE knowledge_base_configs ADD COLUMN {col_name} {col_type}"))
+                        db.commit()
+                        print(f"Added '{col_name}' column successfully.")
+                    except Exception as e:
+                        print(f"Warning: Could not add {col_name}: {e}")
+                        db.rollback()
+    except Exception as e:
+        print(f"knowledge_base_configs migration check failed: {e}")
+
     except Exception as e:
         print(f"domains migration check failed: {e}")
 

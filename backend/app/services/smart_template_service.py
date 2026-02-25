@@ -2246,25 +2246,79 @@ class SmartTemplateService:
                             print(f"[SmartTemplate] WARNING: Canvas mismatch! request.canvas_id={request.canvas_id} != source_thing.canvas_id={source_thing.canvas_id}")
                         print(f"[SmartTemplate] Creating output on canvas {target_canvas_id} (source thing canvas)")
                         
+                        # --- PDF GENERATION FOR DETERMINISTIC BRANCH ---
+                        # We use the same PDF generation logic as the standard branch for consistency
+                        import os
+                        from pathlib import Path
+                        from app.utils.pdf_generator import convert_markdown_to_pdf
+                        
+                        generated_filename = f"analysis_report_{uuid.uuid4().hex[:8]}.pdf"
+                        base_dir = Path(__file__).resolve().parent.parent.parent
+                        output_dir = base_dir / "data" / "generated"
+                        output_dir.mkdir(parents=True, exist_ok=True)
+                        full_output_path = str(output_dir / generated_filename)
+                        
+                        asset_id = None
+                        file_path = None
+                        
+                        try:
+                            print(f"[SmartTemplate] Generating PDF for Deterministic Branch. Path: {full_output_path}")
+                            convert_markdown_to_pdf(final_document, full_output_path)
+                            
+                            if os.path.exists(full_output_path):
+                                from app.services.asset_service import asset_service
+                                with open(full_output_path, "rb") as f:
+                                    pdf_content = f.read()
+                                
+                                new_asset, _ = asset_service.create_asset_from_bytes(
+                                    db=db,
+                                    content=pdf_content,
+                                    filename=generated_filename,
+                                    content_type="application/pdf",
+                                    user_id=request.user_id or 1
+                                )
+                                asset_id = new_asset.id
+                                file_path = new_asset.file_path
+                                
+                                # Cleanup temp file
+                                os.remove(full_output_path)
+                                print(f"[SmartTemplate] PDF Asset created: {asset_id}")
+                        except Exception as pdf_err:
+                            print(f"[SmartTemplate] PDF generation failed for deterministic branch: {pdf_err}")
+
                         # Create new document thing with the markdown result
+                        content_payload = {
+                            "content": final_document,
+                            "format": "markdown",
+                            "generated_from": template.name,
+                            "source_thing_id": source_thing.id if source_thing else None,
+                            "citations": citations,
+                            "execution_plan": {
+                                "templateName": f"{template.name} - Deep Agent Plan",
+                                "nodes": execution_plan
+                            }
+                        }
+                        
+                        # Add PDF metadata if generated
+                        if asset_id:
+                            content_payload.update({
+                                "asset_id": asset_id,
+                                "file_path": file_path,
+                                "filename": generated_filename,
+                                "file_type": "application/pdf",
+                                "content_type": "application/pdf"
+                            })
+                            # Trigger document type if PDF was successful
+                            target_type = "document"
+                        else:
+                            target_type = "document" # Keep as document for markdown
+
                         new_thing = CanvasThing(
                             id=str(uuid.uuid4()),
                             canvas_id=target_canvas_id,
-                            type="document",  # Document type for markdown rendering
+                            type=target_type,
                             title=f"{template.name} - Result",
-                            content={
-                                "content": final_document,  # 'content' key for documents
-                                "format": "markdown",
-                                "generated_from": template.name,
-                                "source_thing_id": source_thing.id if source_thing else None,
-                                "source_thing_id": source_thing.id if source_thing else None,
-                                "citations": citations,
-                                "citation_debug": f"Gen {len(citations)} citations", # Debug field
-                                "execution_plan": {
-                                    "templateName": f"{template.name} - Deep Agent Plan",
-                                    "nodes": execution_plan
-                                }
-                            },
+                            content=content_payload,
                             position_x=new_x,
                             position_y=new_y,
                             width=400,
@@ -3207,16 +3261,43 @@ class SmartTemplateService:
                                     
                                     # Helper to validate string content
                                     def get_valid_text(val):
-                                        if val and isinstance(val, str) and len(val) > 0:
+                                        if val and isinstance(val, str) and len(val) > 0 and not val.strip().startswith("%PDF"):
                                             return val
                                         return None
 
-                                    # 1. Check thing_content direct text
-                                    if not raw_text:
-                                        raw_text = get_valid_text(thing_content.get("text_content"))
-                                        if raw_text: source_key = "thing_content.text_content"
+                                    # 1. NEW: Scan execution history BACKWARDS for the last refined text (DETERMINISTIC)
+                                    # This ensures we pick the Visualizer/Analyzer output even if the current node is a binary Formatter.
+                                    history = full_state.get("history", [])
+                                    if not raw_text and history:
+                                        print(f"[SmartTemplate:DEBUG] Scanning history ({len(history)} steps) for text content...")
+                                        for step in reversed(history):
+                                            node_out = step.get("output", {})
+                                            if not isinstance(node_out, dict): continue
+                                            
+                                            # Priority keys within a node
+                                            candidate = (
+                                                get_valid_text(node_out.get("generated_markdown")) or 
+                                                get_valid_text(node_out.get("text")) or
+                                                get_valid_text(node_out.get("input_content")) or # THE NEW PASSTHROUGH KEY
+                                                get_valid_text(node_out.get("formatted_output")) or
+                                                get_valid_text(node_out.get("converted_document"))
+                                            )
+                                            if candidate:
+                                                raw_text = candidate
+                                                source_key = f"history_step.{step.get('node')} ({step.get('label')})"
+                                                log_pdf(f"History Scan MATCH: {source_key}")
+                                                break
 
-                                    # 2. Check current_output (Standard Keys)
+                                    # 2. Check for REFINED content in current_output (if still missing)
+                                    if not raw_text and isinstance(current_output, dict):
+                                        raw_text = (
+                                            get_valid_text(current_output.get("generated_markdown")) or
+                                            get_valid_text(current_output.get("text")) or
+                                            get_valid_text(current_output.get("input_content")) # Passthrough from Formatter
+                                        )
+                                        if raw_text: source_key = "current_output (REFINED)"
+
+                                    # 3. Check current_output (Standard Phase 1 Keys)
                                     if not raw_text and isinstance(current_output, dict):
                                         raw_text = get_valid_text(current_output.get("converted_document"))
                                         if raw_text: source_key = "current_output.converted_document"
@@ -3226,22 +3307,17 @@ class SmartTemplateService:
                                         if raw_text: source_key = "current_output.formatted_output"
 
                                     if not raw_text and isinstance(current_output, dict):
-                                        raw_text = get_valid_text(current_output.get("generated_markdown"))
-                                        if raw_text: source_key = "current_output.generated_markdown"
-
-                                    if not raw_text and isinstance(current_output, dict):
-                                        raw_text = get_valid_text(current_output.get("text"))
-                                        if raw_text: source_key = "current_output.text"
-                                        
-                                    if not raw_text and isinstance(current_output, dict):
                                         # Handle nested analysis results
                                         res = current_output.get("analysis_results")
                                         if isinstance(res, dict):
                                             raw_text = get_valid_text(res.get("formatted_output"))
                                             if raw_text: source_key = "current_output.analysis_results.formatted_output"
 
-                                    # 3. Fallback: If we have a dict but it wasn't one of the above, DO NOT dump the whole dict.
-                                    # Yet.
+                                    # 4. FINAL FALLBACK: Check thing_content direct text (Source Data)
+                                    # Only do this if we haven't found ANY refined text in history.
+                                    if not raw_text:
+                                        raw_text = get_valid_text(thing_content.get("text_content"))
+                                        if raw_text: source_key = "thing_content.text_content (SOURCE FALLBACK)"
 
                                     log_pdf(f"EXTRACTION SOURCE: {source_key}, Length: {len(raw_text) if raw_text else 0}")
                                     print(f"[SmartTemplate:DEBUG] PDF Extract - Source: {source_key}, Length: {len(raw_text) if raw_text else 0}")

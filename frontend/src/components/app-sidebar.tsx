@@ -19,7 +19,7 @@ const navItems = [
 
     { href: "/templates", icon: FileText, label: "Templates" },
 
-    { href: "/search", icon: Search, label: "Research" },
+    { href: "/knowledge", icon: Search, label: "Knowledge" },
     { href: "/settings", icon: Settings, label: "Settings" },
     { href: "/help", icon: HelpCircle, label: "Help" },
 ]

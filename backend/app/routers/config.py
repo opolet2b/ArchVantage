@@ -105,18 +105,42 @@ def get_active_preset():
     return {"active_preset": preset}
 
 class DatabaseConfigRequest(BaseModel):
-    url: str
+    url: Optional[str] = None
+    arcadedb_host: Optional[str] = None
+    arcadedb_user: Optional[str] = None
+    arcadedb_password: Optional[str] = None
+    arcadedb_database: Optional[str] = None
+    target: Optional[str] = "all"
 
 @router.get("/config/database")
 def get_database_config():
     """Get current database configuration."""
     url = env_manager.get_env_value("DATABASE_URL", "sqlite:///./db/sql_app.db")
-    return {"url": url}
+    arcadedb_host = env_manager.get_env_value("ARCADEDB_HOST", "http://localhost:2480")
+    arcadedb_user = env_manager.get_env_value("ARCADEDB_USER", "root")
+    arcadedb_password = env_manager.get_env_value("ARCADEDB_PASSWORD", "playwithdata")
+    arcadedb_database = env_manager.get_env_value("ARCADEDB_DATABASE", "knowledge_graph")
+    return {
+        "url": url,
+        "arcadedb_host": arcadedb_host,
+        "arcadedb_user": arcadedb_user,
+        "arcadedb_password": arcadedb_password,
+        "arcadedb_database": arcadedb_database
+    }
 
 @router.post("/config/database")
 def set_database_config(request: DatabaseConfigRequest):
     """Update database configuration in .env file."""
-    env_manager.set_env_value("DATABASE_URL", request.url)
+    if request.url is not None:
+        env_manager.set_env_value("DATABASE_URL", request.url)
+    if request.arcadedb_host is not None:
+        env_manager.set_env_value("ARCADEDB_HOST", request.arcadedb_host)
+    if request.arcadedb_user is not None:
+        env_manager.set_env_value("ARCADEDB_USER", request.arcadedb_user)
+    if request.arcadedb_password is not None:
+        env_manager.set_env_value("ARCADEDB_PASSWORD", request.arcadedb_password)
+    if request.arcadedb_database is not None:
+        env_manager.set_env_value("ARCADEDB_DATABASE", request.arcadedb_database)
     return {
         "status": "success", 
         "message": "Configuration saved. Please restart the backend for changes to take effect.",
@@ -125,22 +149,65 @@ def set_database_config(request: DatabaseConfigRequest):
 
 @router.post("/config/database/test")
 def test_database_connection(request: DatabaseConfigRequest):
-    """Test connection to the provided database URL."""
-    try:
-        # Create a temporary engine
-        connect_args = {}
-        if request.url.startswith("sqlite"):
-            connect_args = {"check_same_thread": False}
+    """Test connection to the provided database URLs (SQL and ArcadeDB)."""
+    results = {}
+    
+    # 1. Test SQL Database
+    if request.target in ["all", "sql"] and request.url:
+        try:
+            connect_args = {}
+            if request.url.startswith("sqlite"):
+                connect_args = {"check_same_thread": False}
+                
+            engine = create_engine(request.url, connect_args=connect_args)
+            with engine.connect() as connection:
+                pass
+            results["sql"] = "success"
+        except Exception as e:
+            results["sql"] = str(e)
+
+    # 2. Test ArcadeDB
+    if request.target in ["all", "arcadedb"] and request.arcadedb_host:
+        try:
+            import httpx
+            host = request.arcadedb_host or "http://localhost:2480"
+            user = request.arcadedb_user or "root"
+            password = request.arcadedb_password or "playwithdata"
             
-        engine = create_engine(request.url, connect_args=connect_args)
-        
-        # Try to connect
-        with engine.connect() as connection:
-            pass
+            # Test endpoint: fetching the server info
+            # This ensures we have connectivity without requiring the specific DB to exist yet.
+            url = f"{host.rstrip('/')}/api/v1/server"
             
-        return {"status": "success", "message": "Connection successful!"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+            with httpx.Client(auth=(user, password)) as client:
+                response = client.get(url, timeout=5.0)
+                response.raise_for_status()
+                
+            results["arcadedb"] = "success"
+        except Exception as e:
+            results["arcadedb"] = str(e)
+
+    # Compile final status
+    if request.target == "sql":
+        if results.get("sql") == "success":
+            return {"status": "success", "message": "SQL Connection successful!"}
+        else:
+            return {"status": "error", "message": f"SQL Connection failed: {results.get('sql', 'No URL provided')}"}
+
+    elif request.target == "arcadedb":
+        if results.get("arcadedb") == "success":
+            return {"status": "success", "message": "ArcadeDB Connection successful!"}
+        else:
+            return {"status": "error", "message": f"ArcadeDB Connection failed: {results.get('arcadedb', 'Missing parameters')}"}
+
+    else:
+        if results.get("sql") == "success" and results.get("arcadedb") == "success":
+            return {"status": "success", "message": "Both SQL and ArcadeDB connections successful!"}
+        elif results.get("sql") == "success":
+            return {"status": "partial", "message": f"SQL connected, but ArcadeDB failed: {results.get('arcadedb')}"}
+        elif results.get("arcadedb") == "success":
+            return {"status": "partial", "message": f"ArcadeDB connected, but SQL failed: {results.get('sql')}"}
+        else:
+            return {"status": "error", "message": f"SQL failed: {results.get('sql')} | ArcadeDB failed: {results.get('arcadedb')}"}
 
 from app.services.rag_service import rag_service
 
