@@ -5,31 +5,22 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from app.core.arcadedb import arcadedb
 
 try:
-    print("Connecting to ArcadeDB...")
-    
-    # Check what classes exist
-    print("--- Database Schema ---")
-    types = arcadedb.query("SELECT name FROM db_classes()").get("result", [])
-    print(f"Total base types: {len(types)}")
-    for t in types:
-        if "@" not in t.get("name", "") and not t.get("name", "").startswith("O"):
-            print(f"- {t.get('name')}")
-            
-    # Count V globally
-    print("--- Global V Count ---")
-    try:
-        count_res = arcadedb.query("SELECT count(*) FROM V").get("result", [])
-        print(count_res)
-    except Exception as e:
-        print(f"Error querying V: {e}")
-        
-    # Count specific entities known to be used
-    print("--- known user types ---")
-    try:
-        count_res = arcadedb.query("SELECT count(*) FROM Entity").get("result", [])
-        print(f"Entity count: {count_res}")
-    except Exception:
-        pass
+    print("--- Checking Edges (KNOWLEDGE_LINK) ---")
+    res = arcadedb.query("SELECT FROM KNOWLEDGE_LINK LIMIT 5").get("result", [])
+    for i, edge in enumerate(res):
+        print(f"Edge {i}: {edge}")
+        print(f"  Fields: {list(edge.keys())}")
+        print(f"  @in: {edge.get('@in')}, @out: {edge.get('@out')}")
+        print(f"  in: {edge.get('in')}, out: {edge.get('out')}")
+
+    print("\n--- Checking for Duplicate Entities ---")
+    res = arcadedb.query("SELECT name, graph_id, count(*) as count FROM Entity GROUP BY name, graph_id HAVING count > 1").get("result", [])
+    if res:
+        print(f"Found {len(res)} sets of duplicate entities.")
+        for r in res[:5]:
+            print(f"  {r['name']} (graph: {r['graph_id']}): {r['count']} copies")
+    else:
+        print("No duplicate entities found.")
 
 except Exception as e:
-    print(f"Script Error: {e}")
+    print(f"Error during inspection: {e}")

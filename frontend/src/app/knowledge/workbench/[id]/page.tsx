@@ -277,7 +277,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
 
                     {/* Step 4: Reconciliation (Only if established!) */}
                     <TabsContent value="reconciliation" className="flex-1 mt-0 outline-none">
-                        <ReconciliationCenter />
+                        <ReconciliationCenter kbId={unwrappedParams.id} approvedClasses={selectedClasses} />
                     </TabsContent>
 
                 </Tabs>

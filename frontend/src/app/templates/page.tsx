@@ -807,6 +807,7 @@ export default function TemplatesPage() {
                             initialText={templatePurpose}
                             contextType="purpose"
                             title="Refine Template Purpose"
+                            llmModel={selectedLlm}
                         />
 
                         {/* Editor Content - Tabbed View */}
@@ -886,6 +887,7 @@ export default function TemplatesPage() {
                                             blocks={blocks}
                                             onChange={setBlocks}
                                             markdown={markdownContent}
+                                            llmModel={selectedLlm}
                                         />
                                     ) : (
                                         <Textarea

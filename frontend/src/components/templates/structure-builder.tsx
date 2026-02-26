@@ -42,9 +42,10 @@ interface StructureBuilderProps {
     blocks: TemplateBlock[];
     onChange: (blocks: TemplateBlock[]) => void;
     markdown?: string; // Optional for legacy initialization
+    llmModel?: string;
 }
 
-export function TemplateStructureBuilder({ blocks, onChange, markdown }: StructureBuilderProps) {
+export function TemplateStructureBuilder({ blocks, onChange, markdown, llmModel }: StructureBuilderProps) {
     // Removed internal blocks state
     // const [blocks, setBlocks] = useState<TemplateBlock[]>([]);
 
@@ -451,7 +452,7 @@ export function TemplateStructureBuilder({ blocks, onChange, markdown }: Structu
     */
 
     return (
-        <TemplateCanvas blocks={blocks} sensors={sensors} activeId={activeId} activeBlock={activeBlock} activePaletteType={activePaletteType} handleDragStart={handleDragStart} handleDragOver={handleDragOver} handleDragEnd={handleDragEnd} handleUpdate={handleUpdate} handleDelete={handleDelete} addBlock={addBlock} handleMove={handleMove} isPaletteOpen={isPaletteOpen} setIsPaletteOpen={setIsPaletteOpen} />
+        <TemplateCanvas blocks={blocks} sensors={sensors} activeId={activeId} activeBlock={activeBlock} activePaletteType={activePaletteType} handleDragStart={handleDragStart} handleDragOver={handleDragOver} handleDragEnd={handleDragEnd} handleUpdate={handleUpdate} handleDelete={handleDelete} addBlock={addBlock} handleMove={handleMove} isPaletteOpen={isPaletteOpen} setIsPaletteOpen={setIsPaletteOpen} llmModel={llmModel} />
     );
 }
 
@@ -470,9 +471,10 @@ interface TemplateCanvasProps {
     handleMove: (id: string, direction: 'up' | 'down') => void;
     isPaletteOpen: boolean;
     setIsPaletteOpen: (open: boolean) => void;
+    llmModel?: string;
 }
 
-function TemplateCanvas({ blocks, sensors, activeId, activeBlock, activePaletteType, handleDragStart, handleDragOver, handleDragEnd, handleUpdate, handleDelete, addBlock, handleMove, isPaletteOpen, setIsPaletteOpen }: TemplateCanvasProps) {
+function TemplateCanvas({ blocks, sensors, activeId, activeBlock, activePaletteType, handleDragStart, handleDragOver, handleDragEnd, handleUpdate, handleDelete, addBlock, handleMove, isPaletteOpen, setIsPaletteOpen, llmModel }: TemplateCanvasProps) {
     const { setNodeRef, isOver } = useDroppable({
         id: "root-canvas",
         data: { isRoot: true }
@@ -554,6 +556,7 @@ function TemplateCanvas({ blocks, sensors, activeId, activeBlock, activePaletteT
                                                 onDelete={handleDelete}
                                                 onAddChild={addBlock}
                                                 onMove={handleMove}
+                                                llmModel={llmModel}
                                             />
                                         </React.Fragment>
                                     ))}

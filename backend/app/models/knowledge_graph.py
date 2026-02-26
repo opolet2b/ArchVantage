@@ -34,17 +34,18 @@ def init_knowledge_graph_schema():
     
     # 1. Base Vertex and Edge Types
     base_types = [
-        "CREATE VERTEX TYPE Entity IF NOT EXISTS",
-        "CREATE EDGE TYPE KNOWLEDGE_LINK IF NOT EXISTS",
-        "CREATE VERTEX TYPE Ontology IF NOT EXISTS",
-        "CREATE VERTEX TYPE NodeType IF NOT EXISTS",
-        "CREATE EDGE TYPE EdgeType IF NOT EXISTS",
-        "CREATE VERTEX TYPE QuarantineEntity IF NOT EXISTS"
+        ("Entity", "CREATE VERTEX TYPE Entity"),
+        ("KNOWLEDGE_LINK", "CREATE EDGE TYPE KNOWLEDGE_LINK"),
+        ("Ontology", "CREATE VERTEX TYPE Ontology"),
+        ("NodeType", "CREATE VERTEX TYPE NodeType"),
+        ("EdgeType", "CREATE EDGE TYPE EdgeType"),
+        ("QuarantineEntity", "CREATE VERTEX TYPE QuarantineEntity")
     ]
     
-    for cmd in base_types:
+    for type_name, cmd in base_types:
         try:
-            arcadedb.command(cmd, silent=True)
+            if not arcadedb.type_exists(type_name):
+                arcadedb.command(cmd, silent=True)
         except Exception as e:
             pass # Already exists or handled by silent=True
 

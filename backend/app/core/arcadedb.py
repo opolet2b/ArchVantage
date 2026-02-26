@@ -113,4 +113,17 @@ class ArcadeDBClient:
         except Exception:
             return False
 
+    def type_exists(self, class_name: str) -> bool:
+        """
+        Safely checks if a Vertex or Edge type exists using schema:types.
+        """
+        try:
+            res = self.query("SELECT name FROM schema:types", silent=True)
+            for r in res.get("result", []):
+                if r.get("name") == class_name:
+                    return True
+            return False
+        except Exception:
+            return False
+
 arcadedb = ArcadeDBClient()

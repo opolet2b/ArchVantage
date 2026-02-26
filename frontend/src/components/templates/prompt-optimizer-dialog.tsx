@@ -21,6 +21,7 @@ interface PromptOptimizerDialogProps {
     initialText?: string;
     contextType?: "instruction" | "purpose";
     title?: string;
+    llmModel?: string;
 }
 
 export function PromptOptimizerDialog({
@@ -29,7 +30,8 @@ export function PromptOptimizerDialog({
     onAccept,
     initialText = "",
     contextType = "instruction",
-    title = "AI Prompt improver"
+    title = "AI Prompt improver",
+    llmModel = "default"
 }: PromptOptimizerDialogProps) {
     const [inputText, setInputText] = useState(initialText);
     const [optimizedText, setOptimizedText] = useState("");
@@ -51,6 +53,7 @@ export function PromptOptimizerDialog({
                 body: JSON.stringify({
                     text: inputText,
                     context_type: contextType,
+                    llm_model: llmModel
                 }),
             });
 

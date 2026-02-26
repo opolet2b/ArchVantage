@@ -36,6 +36,7 @@ interface SortableBlockProps {
     onDelete: (id: string) => void;
     onAddChild: (parentId: string, type: TemplateBlock["type"]) => void;
     onMove: (id: string, direction: 'up' | 'down') => void;
+    llmModel?: string;
 }
 
 // Helper component for the container body drop zone
@@ -152,7 +153,7 @@ export function BlockCard({ block, depth = 0, onUpdate, onDelete, onAddChild, on
     )
 }
 
-export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild, onMove }: SortableBlockProps) {
+export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild, onMove, llmModel }: SortableBlockProps) {
     const [isOptimizerOpen, setIsOptimizerOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -330,6 +331,7 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                                                         onDelete={onDelete}
                                                         onAddChild={onAddChild}
                                                         onMove={onMove}
+                                                        llmModel={llmModel}
                                                     />
                                                 </React.Fragment>
                                             ))}
@@ -379,6 +381,7 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                         initialText={block.content || ""}
                         contextType="instruction"
                         title="Refine Instruction"
+                        llmModel={llmModel}
                     />
                 )}
             </Card>

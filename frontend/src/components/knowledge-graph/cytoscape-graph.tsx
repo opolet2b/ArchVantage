@@ -23,7 +23,32 @@ export default function CytoscapeGraph({ kbId, ingestionStatus }: { kbId?: strin
             })
             if (res.ok) {
                 const data = await res.json()
-                setElements(data.elements || [])
+
+                // Color generator based on string
+                const getColor = (str: string) => {
+                    let hash = 0;
+                    for (let i = 0; i < str.length; i++) {
+                        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    const c = (hash & 0x00FFFFFF).toString(16).toUpperCase();
+                    return '#' + '00000'.substring(0, 6 - c.length) + c;
+                };
+
+                // Add colors to nodes
+                const processedElements = (data.elements || []).map((el: any) => {
+                    if (el.group === 'nodes') {
+                        return {
+                            ...el,
+                            data: {
+                                ...el.data,
+                                color: getColor(el.data.type || 'Entity')
+                            }
+                        };
+                    }
+                    return el;
+                });
+
+                setElements(processedElements)
                 setMetadata(data.metadata || null)
             }
         } catch (error) {
@@ -91,30 +116,54 @@ export default function CytoscapeGraph({ kbId, ingestionStatus }: { kbId?: strin
                         elements={elements}
                         style={{ width: '100%', height: '100%' }}
                         cy={(cy) => { cyRef.current = cy }}
-                        layout={{ name: 'cose', componentSpacing: 100, nodeOverlap: 20, animate: true }}
+                        layout={{
+                            name: 'cose',
+                            padding: 50,
+                            nodeRepulsion: () => 400000,
+                            idealEdgeLength: () => 150,
+                            edgeElasticity: () => 100,
+                            gravity: 80,
+                            numIter: 1000,
+                            animate: true
+                        }}
                         stylesheet={[
                             {
                                 selector: 'node',
                                 style: {
                                     'label': 'data(label)',
-                                    'background-color': '#4f46e5',
+                                    'background-color': 'data(color)',
                                     'color': '#1e293b',
-                                    'font-size': '12px',
-                                    'width': '40px',
-                                    'height': '40px'
+                                    'font-size': '10px',
+                                    'width': '24px',
+                                    'height': '24px',
+                                    'text-wrap': 'wrap',
+                                    'text-max-width': '120px',
+                                    'text-valign': 'bottom',
+                                    'text-margin-y': 6,
+                                    'text-halign': 'center',
+                                    'text-background-opacity': 0.8,
+                                    'text-background-color': '#ffffff',
+                                    'text-background-padding': '2px',
+                                    'text-background-shape': 'roundrectangle',
+                                    'border-width': 2,
+                                    'border-color': '#ffffff'
                                 }
                             },
                             {
                                 selector: 'edge',
                                 style: {
                                     'label': 'data(label)',
-                                    'width': 2,
-                                    'line-color': '#cbd5e1',
-                                    'target-arrow-color': '#cbd5e1',
+                                    'width': 1.5,
+                                    'line-color': '#94a3b8',
+                                    'target-arrow-color': '#94a3b8',
                                     'target-arrow-shape': 'triangle',
                                     'curve-style': 'bezier',
-                                    'font-size': '10px',
-                                    'text-rotation': 'autorotate'
+                                    'font-size': '9px',
+                                    'text-rotation': 'autorotate',
+                                    'text-background-opacity': 0.8,
+                                    'text-background-color': '#ffffff',
+                                    'text-background-padding': '1px',
+                                    'color': '#64748b'
                                 }
                             }
                         ]}

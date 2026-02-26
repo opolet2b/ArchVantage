@@ -1,0 +1,77 @@
+[
+  {
+    "rel": "DEFINES",
+    "out": "Arbeitsprogramm 2022 (None)",
+    "in": "Arbeitsgruppe Telekommunikation (None)"
+  },
+  {
+    "rel": "DEFINES",
+    "out": "Arbeitsprogramm 2022 (None)",
+    "in": "Arbeitsgruppe Voice (None)"
+  },
+  {
+    "rel": "DEFINES",
+    "out": "Arbeitsprogramm 2022 (None)",
+    "in": "Arbeitsgruppe Informations- und Cybersicherheit (None)"
+  },
+  {
+    "rel": "DEFINES",
+    "out": "Arbeitsprogramm 2022 (None)",
+    "in": "Arbeitsgruppe Identit\u00e4tsmanagement und E-ID (None)"
+  },
+  {
+    "rel": "DEFINES",
+    "out": "Arbeitsprogramm 2022 (None)",
+    "in": "Arbeitsgruppe Datenplattformen (None)"
+  },
+  {
+    "rel": "INCLUDES",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Bund (None)"
+  },
+  {
+    "rel": "INCLUDES",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Kanton (None)"
+  },
+  {
+    "rel": "INCLUDES",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Gemeinde (None)"
+  },
+  {
+    "rel": "TARGETS",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Adressaten der Strategie (None)"
+  },
+  {
+    "rel": "HAS_PRINCIPLE",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Zielgruppengerechte Dienste und Informationen (None)"
+  },
+  {
+    "rel": "HAS_PRINCIPLE",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Automatisierte und durchg\u00e4ngige Prozesse (None)"
+  },
+  {
+    "rel": "HAS_PRINCIPLE",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Gemeinsame Datenverwaltung (None)"
+  },
+  {
+    "rel": "HAS_PRINCIPLE",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Offenheit und Transparenz (None)"
+  },
+  {
+    "rel": "HAS_PRINCIPLE",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Austausch und Zusammenarbeit (None)"
+  },
+  {
+    "rel": "HAS_PRINCIPLE",
+    "out": "E\u2011Government-Strategie Schweiz 2020\u20132023 (None)",
+    "in": "Standardisierung und Interoperabilit\u00e4t (None)"
+  }
+]

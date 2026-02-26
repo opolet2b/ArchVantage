@@ -16,6 +16,7 @@ from app.services.search_service import search_service
 from app.services.ontology_service import ontology_service
 from app.services.mcp_integration_service import mcp_integration_service
 from app.services.ingestion_service import ingestion_service
+from app.services.reconciliation_service import reconciliation_service
 from app.core.arcadedb import arcadedb
 
 router = APIRouter()
@@ -29,6 +30,10 @@ class SyncRequest(BaseModel):
 class TaxonomyExtractionRequest(BaseModel):
     llm_config_id: str
     sources: List[Dict[str, Any]]
+
+class AlignRequest(BaseModel):
+    node_id: str
+    target_class: str
 
 @router.post("/knowledge")
 async def knowledge_endpoint(request: SearchRequest):
@@ -145,9 +150,10 @@ async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, db: Ses
         if not class_name: continue
         
         try:
-            arcadedb.command(f"CREATE VERTEX TYPE `{class_name}` IF NOT EXISTS EXTENDS Entity", silent=True)
+            if not arcadedb.type_exists(class_name):
+                arcadedb.command(f"CREATE VERTEX TYPE `{class_name}` EXTENDS Entity", silent=True)
         except Exception as e:
-            pass # Already exists or handled by silent=True
+            pass # Handled by silent=True
 
     # 2. Trigger initial entity ingestion as a background task
     if approved_classes and db_kb.sources:
@@ -224,27 +230,38 @@ def get_kb_graph(kb_id: str, db: Session = Depends(get_db)):
         e_query = f"SELECT FROM KNOWLEDGE_LINK WHERE graph_id = '{kb_id}' LIMIT 2000"
         edges = arcadedb.query(e_query).get("result", [])
         
+        valid_node_ids = set()
         elements = []
         for v in vertices:
-            elements.append({
-                "data": {
-                    "id": v.get("@rid"),
-                    "label": v.get("name") or v.get("label") or "Entity",
-                    "type": v.get("@class")
-                }
-            })
+            rid = v.get("@rid")
+            if rid:
+                valid_node_ids.add(rid)
+                elements.append({
+                    "group": "nodes",
+                    "data": {
+                        "id": rid,
+                        "label": f"{v.get('name') or v.get('label') or 'Entity'}\n({v.get('@type')})",
+                        "type": v.get("@type")
+                    }
+                })
             
+        filtered_edges = 0
         for e in edges:
-            elements.append({
-                "data": {
-                    "id": e.get("@rid"),
-                    "source": e.get("@out"),
-                    "target": e.get("@in"),
-                    "label": e.get("relation_type") or "link"
-                }
-            })
+            src = e.get("@out") or e.get("out")
+            tgt = e.get("@in") or e.get("in")
+            if src in valid_node_ids and tgt in valid_node_ids:
+                filtered_edges += 1
+                elements.append({
+                    "group": "edges",
+                    "data": {
+                        "id": e.get("@rid"),
+                        "source": src,
+                        "target": tgt,
+                        "label": e.get("relation_type") or "link"
+                    }
+                })
             
-        print(f"[KnowledgeRouter] Graph fetch for {kb_id}: {len(vertices)} nodes, {len(edges)} edges.")
+        print(f"[KnowledgeRouter] Graph fetch for {kb_id}: {len(valid_node_ids)} nodes, {filtered_edges} valid edges.")
         return {"elements": elements, "metadata": metadata}
     except Exception as e:
         print(f"Graph fetch error for {kb_id}: {e}")
@@ -258,3 +275,14 @@ def get_kb_graph(kb_id: str, db: Session = Depends(get_db)):
             "metadata": { **metadata, "error": str(e) }
         }
 
+@router.get("/knowledge/kb/{kb_id}/reconciliation/quarantine")
+def get_quarantine_nodes(kb_id: str, db: Session = Depends(get_db)):
+    nodes = reconciliation_service.get_quarantine_nodes(kb_id)
+    return {"quarantine_items": nodes}
+
+@router.post("/knowledge/kb/{kb_id}/reconciliation/align")
+def align_quarantine_node(kb_id: str, req: AlignRequest, db: Session = Depends(get_db)):
+    success = reconciliation_service.align_node(kb_id, req.node_id, req.target_class)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to align node.")
+    return {"status": "success"}

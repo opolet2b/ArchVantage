@@ -138,7 +138,9 @@ class IngestionService:
                 created_nodes_map = {}
 
                 for entity in entities:
-                    ent_name = entity.get("name")
+                    ent_name_raw = entity.get("name")
+                    ent_name = ent_name_raw[0] if isinstance(ent_name_raw, list) and len(ent_name_raw) > 0 else str(ent_name_raw) if ent_name_raw else "Unnamed"
+                    
                     raw_type = entity.get("type", "Entity")
                     sanitized_type = re.sub(r'[^a-zA-Z0-9_]', '_', raw_type.replace(" ", "_"))
                     
@@ -154,20 +156,35 @@ class IngestionService:
                     ent_uid = f"ent-{uuid.uuid4().hex[:8]}"
 
                     try:
-                        # Use backticks for the class name to handle identifiers gracefully
-                        query = f"INSERT INTO `{ent_type}` SET uid = :uid, name = :name, summary = :summary, source_uri = :source, source_type = 'DOCUMENT', graph_id = :graph_id, last_synced = :now, sync_status = 'SYNCED' RETURN @rid"
-                        res = arcadedb.command(query, params={
-                            "uid": ent_uid,
-                            "name": ent_name,
-                            "summary": ent_summary,
-                            "source": ent_source,
-                            "graph_id": kb_id,
-                            "now": now_str
-                        })
+                        # Check existence first to prevent duplicates
+                        existing = arcadedb.query(
+                            f"SELECT @rid FROM `{ent_type}` WHERE name = :name AND graph_id = :graph_id LIMIT 1", 
+                            params={"name": ent_name, "graph_id": kb_id}
+                        ).get("result", [])
                         
-                        # Store the RID returned by the INSERT command
-                        if res and isinstance(res, dict) and "result" in res and len(res["result"]) > 0:
-                            created_nodes_map[ent_name] = res["result"][0].get("@rid")
+                        if existing:
+                            rid = existing[0].get("@rid")
+                            update_query = f"UPDATE {rid} SET summary = :summary, source_uri = :source, last_synced = :now, sync_status = 'SYNCED'"
+                            arcadedb.command(update_query, params={
+                                "summary": ent_summary,
+                                "source": ent_source,
+                                "now": now_str
+                            })
+                            created_nodes_map[ent_name] = rid
+                        else:
+                            query = f"INSERT INTO `{ent_type}` SET uid = :uid, name = :name, summary = :summary, source_uri = :source, source_type = 'DOCUMENT', graph_id = :graph_id, last_synced = :now, sync_status = 'SYNCED' RETURN @rid"
+                            res = arcadedb.command(query, params={
+                                "uid": ent_uid,
+                                "name": ent_name,
+                                "summary": ent_summary,
+                                "source": ent_source,
+                                "graph_id": kb_id,
+                                "now": now_str
+                            })
+                            
+                            # Store the RID returned by the INSERT command
+                            if res and isinstance(res, dict) and "result" in res and len(res["result"]) > 0:
+                                created_nodes_map[ent_name] = res["result"][0].get("@rid")
                             
                         inserted_count += 1
                     except Exception as e:
@@ -176,10 +193,15 @@ class IngestionService:
                 # 4. Create Edges
                 edges_inserted = 0
                 for rel in relations:
-                    src_name = rel.get("source_name")
-                    tgt_name = rel.get("target_name")
+                    src_name_raw = rel.get("source_name")
+                    tgt_name_raw = rel.get("target_name")
+                    src_name = src_name_raw[0] if isinstance(src_name_raw, list) and len(src_name_raw) > 0 else str(src_name_raw) if src_name_raw else None
+                    tgt_name = tgt_name_raw[0] if isinstance(tgt_name_raw, list) and len(tgt_name_raw) > 0 else str(tgt_name_raw) if tgt_name_raw else None
                     rel_type = rel.get("relation_type", "RELATED_TO")
                     
+                    if not src_name or not tgt_name:
+                        continue
+                        
                     src_rid = created_nodes_map.get(src_name)
                     tgt_rid = created_nodes_map.get(tgt_name)
                     
