@@ -1899,6 +1899,9 @@ class SmartTemplateService:
                         
                         candidate_content = final_document
                         
+                        # Added Best-Version Rollback: Track the best known version of each section
+                        best_sections = {}
+                        
                         try:
                             for iteration in range(1, max_iter + 1):
                                 cycle_node = {
@@ -1972,6 +1975,29 @@ class SmartTemplateService:
                                 for result in section_results:
                                     status_icon = "✓" if result['score'] >= min_q else "✗"
                                     
+                                    # --- Best-Version Rollback Check ---
+                                    # If we have a past best score for this section, and it's higher than the current score
+                                    if result['title'] in best_sections and result['score'] < best_sections[result['title']]['score']:
+                                        best_known = best_sections[result['title']]
+                                        print(f"[SmartTemplate] Regression detected in '{result['title']}' (New: {result['score']}, Best: {best_known['score']}). Rolling back.")
+                                        yield {"type": "log", "content": f"  ! Regression in '{result['title'][:30]}'. Rolling back to score {best_known['score']}."}
+                                        
+                                        # Rollback text in the working document
+                                        candidate_content = self._replace_section_in_document(
+                                            candidate_content, result, best_known['content']
+                                        )
+                                        # Use the old best score so the system knows the *actual* state of the text
+                                        result['score'] = best_known['score']
+                                        # Update the display status based on the rolled-back score
+                                        status_icon = "↺" if result['score'] >= min_q else "✗(↺)"
+                                    else:
+                                        # New High Score! 
+                                        best_sections[result['title']] = {
+                                            'score': result['score'],
+                                            'content': result['content']
+                                        }
+                                    # -----------------------------------
+                                    
                                     # Create per-section AUDITOR node (Restored Feature)
                                     status_str = "pass" if result['score'] >= min_q else "fail"
                                     issues_list = result.get('issues', [])
@@ -2003,9 +2029,13 @@ class SmartTemplateService:
                                 # Push updated plan with children to frontend
                                 yield {"type": "plan_update", "plan": execution_plan}
                                 
-                                # Calculate overall score
+                                # Calculate overall score based on the actual (potentially rolled back) section scores
+                                # If no sections (rare), fallback to the hybrid reviewer's overall score
                                 avg_score = sum(r['score'] for r in section_results) / len(section_results) if section_results else review_result['overall_score']
                                 print(f"[SmartTemplate] Cycle {iteration}: {len(weak_sections)} weak sections, avg score {avg_score:.0f}")
+                                
+                                # Update the global review node with the 'real' average score if there were rollbacks
+                                cycle_node["children"][0]["details"]["Quality Score"] = int(avg_score)
                                 
                                 yield {"type": "log", "content": f"Average Score: {avg_score:.0f}/100 ({len(weak_sections)} sections need work)"}
                                 
