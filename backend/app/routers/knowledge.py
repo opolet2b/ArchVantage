@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+import datetime
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
@@ -132,43 +133,65 @@ async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, db: Ses
     if not db_kb:
         raise HTTPException(status_code=404, detail="KB Config not found")
     
-    # 0. Ensure ArcadeDB is initialized
-    try:
-        from app.models.knowledge_graph import init_knowledge_graph_schema
-        init_knowledge_graph_schema()
-    except Exception as e:
-        print(f"Error initializing schema in establish_kb_db: {e}")
-    
-    # 1. Create specific Vertex types in ArcadeDB for each approved class
-    classes = db_kb.ontology_classes or []
-    approved_classes = [c for c in classes if c.get('approved') != False]
-    
-    import re
-    for cls in approved_classes:
-        # Sanitize class name consistently with IngestionService
-        class_name = re.sub(r'[^a-zA-Z0-9_]', '_', cls.get('name', '').replace(' ', '_'))
-        if not class_name: continue
+    log_path = r"C:\Users\opole\Downloads\ChatBotn\backend\establish_debug.log"
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(f"\n--- Establish Started: {datetime.datetime.now()} for KB {kb_id} ---\n")
         
+        # 0. Ensure ArcadeDB is initialized
         try:
-            if not arcadedb.type_exists(class_name):
-                arcadedb.command(f"CREATE VERTEX TYPE `{class_name}` EXTENDS Entity", silent=True)
+            from app.models.knowledge_graph import init_knowledge_graph_schema
+            f.write("Initializing base schema...\n")
+            init_knowledge_graph_schema()
+            f.write("Base schema initialized.\n")
         except Exception as e:
-            pass # Handled by silent=True
+            f.write(f"Error initializing schema: {e}\n")
+        
+        # 1. Create specific Vertex types in ArcadeDB for each approved class
+        classes = db_kb.ontology_classes or []
+        approved_classes = [c for c in classes if c.get('approved') != False]
+        
+        import re
+        for cls in approved_classes:
+            class_name = re.sub(r'[^a-zA-Z0-9_]', '_', cls.get('name', '').replace(' ', '_'))
+            if not class_name: continue
+            
+            try:
+                if not arcadedb.type_exists(class_name):
+                    f.write(f"Creating type: {class_name}\n")
+                    arcadedb.command(f"CREATE VERTEX TYPE `{class_name}` EXTENDS Entity", silent=True)
+            except Exception as e:
+                f.write(f"Error on type {class_name}: {e}\n")
+        
+        f.write(f"Starting background ingestion for {len(approved_classes)} classes...\n")
+        # 2. Trigger initial entity ingestion as a background task
+        # ... (rest of code follows outside this block but I need to wrap it or just keep the log open)
+
 
     # 2. Trigger initial entity ingestion as a background task
-    if approved_classes and db_kb.sources:
+    selected_sources = [s for s in db_kb.sources if s.get('id') in (db_kb.selected_source_ids or [])]
+    if not selected_sources:
+        selected_sources = db_kb.sources # fallback
+        
+    if approved_classes and selected_sources:
+        # Clear file hashes so it forces a re-scan on establish
+        db_kb.file_hashes = {}
+        
         background_tasks.add_task(
             ingestion_service.discover_and_ingest_entities,
             kb_id,
             approved_classes,
-            db_kb.sources,
+            selected_sources,
             db_kb.llm_config_id or "default"
         )
+    else:
+        pass
 
     # 3. Update status
+    print(f"[Establish] Ingesting in background and committing status for {kb_id}...")
     db_kb.status = "active"
     db.commit()
     db.refresh(db_kb)
+    print(f"[Establish] Done for {kb_id}.")
     
     return {"status": "success", "message": f"Schema established for {len(approved_classes)} classes. Background ingestion started."}
 
@@ -183,9 +206,18 @@ async def trigger_lazy_update(kb_id: str, request: SyncRequest):
     return {"status": "success"}
 
 @router.get("/knowledge/kb/{kb_id}/graph")
-def get_kb_graph(kb_id: str, db: Session = Depends(get_db)):
+def get_kb_graph(
+    kb_id: str, 
+    perspective: str = "relational", 
+    sources: List[str] = Query(None),
+    classes: List[str] = Query(None),
+    db: Session = Depends(get_db)
+):
     """
     Returns nodes and edges from ArcadeDB for the specific Knowledge Base.
+    Perspective can be 'relational' (default) or 'hierarchical'.
+    'sources' is an optional list of source_uri prefixes to filter by.
+    'classes' is an optional list of Ontology Classes to filter by.
     """
     db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
     if not db_kb:
@@ -194,27 +226,56 @@ def get_kb_graph(kb_id: str, db: Session = Depends(get_db)):
     metadata = {
         "kb_id": kb_id,
         "status": db_kb.status,
-        "ingestion_status": db_kb.ingestion_status or "idle"
+        "ingestion_status": db_kb.ingestion_status or "idle",
+        "perspective": perspective
     }
 
-    # Fetching instance data from ArcadeDB
-    # In a real scenario, we'd query by graph_id. 
-    # For this implementation, we return a sample or subset if graph_id is stored in nodes.
-    
     try:
-        classes = db_kb.ontology_classes or []
-        approved_classes = [c for c in classes if c.get('approved') != False]
+        all_classes = db_kb.ontology_classes or []
+        approved_classes = [c for c in all_classes if c.get('approved') != False]
+        
+        # Apply the frontend class filter if provided
+        if classes is not None:
+            if "--NONE--" in classes:
+                approved_classes = [] # Explicitly empty
+            elif len(classes) > 0:
+                approved_classes = [c for c in approved_classes if c.get('name') in classes]
         
         vertices = []
         import re
-        # Explicitly fetch from each approved subclass because IF NOT EXISTS doesn't update inheritance on existing classes
         for cls in approved_classes:
             class_name = re.sub(r'[^a-zA-Z0-9_]', '_', cls.get('name', '').replace(' ', '_'))
             if class_name:
                 try:
-                    v_query = f"SELECT FROM `{class_name}` WHERE graph_id = '{kb_id}' LIMIT 1000"
-                    res = arcadedb.query(v_query).get("result", [])
-                    # Avoid duplicates if polymorphism actually worked
+                    if not arcadedb.type_exists(class_name):
+                        continue
+                        
+                    v_query = f"SELECT FROM `{class_name}` WHERE graph_id = :kb_id"
+                    params = {"kb_id": kb_id}
+                    
+                    if sources:
+                        # Build an OR clause for multiple sources
+                        source_conditions = []
+                        import urllib.parse
+                        for i, src_prefix in enumerate(sources):
+                            param_key = f"src_{i}"
+                            
+                            # If it's a URL, we used to just match by domain. However, this causes 
+                            # two DIFFERENT sources on the same domain (like /pageA vs /pageB) to overlap. 
+                            # Instead, we should match the prefix of the URL so that sub-pages are caught
+                            # but different base directories aren't accidentally conflated.
+                            if src_prefix.startswith('http'):
+                                source_conditions.append(f"source_uri LIKE :{param_key}")
+                                params[param_key] = f"{src_prefix}%"
+                            else:
+                                # For local files, keep the strict prefix match
+                                source_conditions.append(f"source_uri LIKE :{param_key}")
+                                params[param_key] = f"{src_prefix}%"
+                        
+                        v_query += f" AND ({' OR '.join(source_conditions)})"
+                    
+                    v_query += " LIMIT 1000"
+                    res = arcadedb.query(v_query, params=params).get("result", [])
                     existing_rids = {v.get("@rid") for v in vertices if v.get("@rid")}
                     for node in res:
                         if node.get("@rid") not in existing_rids:
@@ -222,57 +283,130 @@ def get_kb_graph(kb_id: str, db: Session = Depends(get_db)):
                 except Exception as e:
                     print(f"[KnowledgeRouter] Could not query class {class_name}: {e}")
         
-        # Logging first vertex for structure debug
-        if vertices:
-            print(f"[KnowledgeRouter] Sample Vertex Structure: {vertices[0]}")
-        
-        # Fetching edges
-        e_query = f"SELECT FROM KNOWLEDGE_LINK WHERE graph_id = '{kb_id}' LIMIT 2000"
-        edges = arcadedb.query(e_query).get("result", [])
-        
-        valid_node_ids = set()
         elements = []
-        for v in vertices:
-            rid = v.get("@rid")
-            if rid:
-                valid_node_ids.add(rid)
+        
+        if perspective == "hierarchical":
+            sources = set()
+            types_by_source = {} # source -> set of types
+            instances = []
+            
+            for v in vertices:
+                rid = v.get("@rid")
+                if not rid: continue
+                
+                source = v.get("source_uri") or "Unknown Source"
+                v_type = v.get("@type") or "Entity"
+                
+                sources.add(source)
+                if source not in types_by_source:
+                    types_by_source[source] = set()
+                types_by_source[source].add(v_type)
+                
+                instances.append({
+                    "id": rid,
+                    "label": f"{v.get('name') or v.get('label') or 'Unnamed'}",
+                    "type": "Instance",
+                    "original_type": v_type,
+                    "source": source
+                })
+            
+            # Create Source Nodes
+            for src in sources:
+                src_node_id = f"src_{hash(src)}"
+                elements.append({
+                    "group": "nodes",
+                    "data": { "id": src_node_id, "label": f"Source: {src}", "type": "SourceDocument", "color": "#cbd5e1" } # generic gray
+                })
+                
+                # Create Type Nodes under this source
+                for t in types_by_source[src]:
+                    type_node_id = f"type_{hash(src)}_{hash(t)}"
+                    elements.append({
+                        "group": "nodes",
+                        "data": { "id": type_node_id, "label": f"Class: {t}", "type": "EntityType", "color": "#94a3b8" } # darker gray
+                    })
+                    # Link Source -> Type
+                    elements.append({
+                        "group": "edges",
+                        "data": {
+                            "id": f"edge_{src_node_id}_{type_node_id}",
+                            "source": src_node_id,
+                            "target": type_node_id,
+                            "label": "CONTAINS"
+                        }
+                    })
+            
+            # Create Instance Nodes and link to their Type node
+            for inst in instances:
+                src_node_id = f"src_{hash(inst['source'])}"
+                type_node_id = f"type_{hash(inst['source'])}_{hash(inst['original_type'])}"
+                
                 elements.append({
                     "group": "nodes",
                     "data": {
-                        "id": rid,
-                        "label": f"{v.get('name') or v.get('label') or 'Entity'}\n({v.get('@type')})",
-                        "type": v.get("@type")
+                        "id": inst["id"],
+                        "label": f"{inst['label']}\n({inst['original_type']})",
+                        "type": inst["original_type"], # Keep original for coloring
+                        "properties": {k: val for k, val in v.items() if not k.startswith('@') and k not in ['in_', 'out_']}
                     }
                 })
-            
-        filtered_edges = 0
-        for e in edges:
-            src = e.get("@out") or e.get("out")
-            tgt = e.get("@in") or e.get("in")
-            if src in valid_node_ids and tgt in valid_node_ids:
-                filtered_edges += 1
+                
                 elements.append({
                     "group": "edges",
                     "data": {
-                        "id": e.get("@rid"),
-                        "source": src,
-                        "target": tgt,
-                        "label": e.get("relation_type") or "link"
+                        "id": f"edge_{type_node_id}_{inst['id']}",
+                        "source": type_node_id,
+                        "target": inst["id"],
+                        "label": "INSTANCE_OF"
                     }
                 })
+                
+            print(f"[KnowledgeRouter] Hierarchical Graph fetch for {kb_id}: {len(sources)} sources, {sum(len(t) for t in types_by_source.values())} type nodes, {len(instances)} instances.")
+
+        else:
+            # RELATIONAL (Default)
+            valid_node_ids = set()
+            for v in vertices:
+                rid = v.get("@rid")
+                if rid:
+                    valid_node_ids.add(rid)
+                    elements.append({
+                        "group": "nodes",
+                        "data": {
+                            "id": rid,
+                            "label": f"{v.get('name') or v.get('label') or 'Entity'}\n({v.get('@type')})",
+                            "type": v.get("@type"),
+                            "properties": {k: val for k, val in v.items() if not k.startswith('@') and k not in ['in_', 'out_']}
+                        }
+                    })
+                
+            e_query = f"SELECT FROM KNOWLEDGE_LINK WHERE graph_id = '{kb_id}' LIMIT 2000"
+            edges = arcadedb.query(e_query).get("result", [])
             
-        print(f"[KnowledgeRouter] Graph fetch for {kb_id}: {len(valid_node_ids)} nodes, {filtered_edges} valid edges.")
+            filtered_edges = 0
+            for e in edges:
+                src = e.get("@out") or e.get("out")
+                tgt = e.get("@in") or e.get("in")
+                if src in valid_node_ids and tgt in valid_node_ids:
+                    filtered_edges += 1
+                    elements.append({
+                        "group": "edges",
+                        "data": {
+                            "id": e.get("@rid"),
+                            "source": src,
+                            "target": tgt,
+                            "label": e.get("relation_type") or "link"
+                        }
+                    })
+            print(f"[KnowledgeRouter] Relational Graph fetch for {kb_id}: {len(valid_node_ids)} nodes, {filtered_edges} valid edges.")
+
         return {"elements": elements, "metadata": metadata}
     except Exception as e:
         print(f"Graph fetch error for {kb_id}: {e}")
-        # Return fallback mock if ArcadeDB is empty or unreachable for demo
+        # Return empty graph with error metadata if ArcadeDB is unreachable or uninitialized
         return {
-            "elements": [
-                { "data": { "id": 'root', "label": 'Knowledge Core (Fallback)', "type": 'System' } },
-                { "data": { "id": 'n1', "label": 'Sample Entity', "type": 'Entity' } },
-                { "data": { "id": 'e1', "source": 'root', "target": 'n1', "label": 'related' } }
-            ],
-            "metadata": { **metadata, "error": str(e) }
+            "elements": [],
+            "metadata": { **metadata, "error": "Database not initialized or unreachable." }
         }
 
 @router.get("/knowledge/kb/{kb_id}/reconciliation/quarantine")

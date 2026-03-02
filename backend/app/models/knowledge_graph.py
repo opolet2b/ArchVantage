@@ -28,9 +28,12 @@ def init_knowledge_graph_schema():
     Initializes the ArcadeDB schema for the Knowledge Graph based on the design specs.
     It creates Vertex and Edge classes, and their respective properties and indexes.
     """
+    print("[SchemaInit] Starting ArcadeDB schema initialization...")
     # 0. Ensure database exists
     if not arcadedb.create_database():
-        print("Warning: Database creation check returned False. Continuing anyway...")
+        print("[SchemaInit] Database creation check returned False. Continuing anyway...")
+    else:
+        print("[SchemaInit] Database check/creation successful.")
     
     # 1. Base Vertex and Edge Types
     base_types = [
@@ -44,9 +47,13 @@ def init_knowledge_graph_schema():
     
     for type_name, cmd in base_types:
         try:
-            if not arcadedb.type_exists(type_name):
-                arcadedb.command(cmd, silent=True)
+            print(f"[SchemaInit] Checking/Creating type: {type_name}")
+            # Pass _retry=False to prevent infinite recursion during schema auto-creation
+            if not arcadedb.type_exists(type_name, _retry=False):
+                print(f"[SchemaInit] Executing: {cmd}")
+                arcadedb.command(cmd, silent=True, _retry=False)
         except Exception as e:
+            print(f"[SchemaInit] Error creating type {type_name}: {e}")
             pass # Already exists or handled by silent=True
 
     # 2. Properties
@@ -62,7 +69,7 @@ def init_knowledge_graph_schema():
     
     for cmd in properties:
         try:
-            arcadedb.command(cmd, silent=True)
+            arcadedb.command(cmd, silent=True, _retry=False)
         except Exception as e:
             pass
 
@@ -78,7 +85,7 @@ def init_knowledge_graph_schema():
     
     for cmd in indices:
         try:
-            arcadedb.command(cmd, silent=True)
+            arcadedb.command(cmd, silent=True, _retry=False)
         except Exception as e:
             pass
 

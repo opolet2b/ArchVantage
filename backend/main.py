@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-# DEV_RELOAD_TRIGGER: 2026-02-05 16:38
+# DEV_RELOAD_TRIGGER: 2026-02-27 15:45
 # Ensure NLTK resources are loaded before any other imports
 import app.core.nltk_utils
 

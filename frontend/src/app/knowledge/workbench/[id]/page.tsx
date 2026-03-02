@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { useRouter } from "next/navigation";
-import CytoscapeGraph from "@/components/knowledge-graph/cytoscape-graph";
+import { CytoscapeGraph } from "@/components/knowledge-graph/cytoscape-graph";
 import ReconciliationCenter from "@/components/knowledge-graph/reconciliation-center";
 import { SourceManager, type KnowledgeSource } from "@/components/knowledge-graph/source-manager";
 import { OntologyManager } from "@/components/knowledge-graph/ontology-manager";
@@ -32,6 +32,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
     const [selectedEdges, setSelectedEdges] = useState<string[]>([]);
     const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
     const [ingestionStatus, setIngestionStatus] = useState<string>("idle");
+    const [isEstablishing, setIsEstablishing] = useState<boolean>(false);
 
     const [presets, setPresets] = useState<any[]>([]);
     const [selectedPreset, setSelectedPreset] = useState<string>("");
@@ -83,7 +84,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                 toast({ title: "Error", description: "Could not load Knowledge Base configuration.", variant: "destructive" });
             }
         }
-    }, [isNew, unwrappedParams.id, toast, setKbMeta, setSelectedPreset, setSources, setExtractedClasses, setSelectedClasses, setExtractedEdges, setSelectedEdges, setSelectedSourceIds]);
+    }, [isNew, unwrappedParams.id]);
 
     React.useEffect(() => {
         fetchKB();
@@ -93,14 +94,26 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
     React.useEffect(() => {
         let interval: NodeJS.Timeout;
         if (ingestionStatus === "running") {
-            interval = setInterval(() => {
-                fetchKB();
-            }, 5000); // Poll every 5 seconds
+            interval = setInterval(async () => {
+                if (!isNew && unwrappedParams.id) {
+                    try {
+                        const res = await fetch(`${API_URL}/knowledge/kb/${unwrappedParams.id}`, {
+                            headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            setIngestionStatus(data.ingestion_status || "idle");
+                        }
+                    } catch (error) {
+                        console.error("Polling error", error);
+                    }
+                }
+            }, 5000);
         }
         return () => {
             if (interval) clearInterval(interval);
         };
-    }, [ingestionStatus, fetchKB]);
+    }, [ingestionStatus, isNew, unwrappedParams.id]);
 
     const handleSaveDraft = async () => {
         const payload = {
@@ -147,6 +160,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
             return;
         }
 
+        setIsEstablishing(true);
         try {
             const res = await fetch(`${API_URL}/knowledge/kb/${unwrappedParams.id}/establish`, {
                 method: "POST",
@@ -157,6 +171,8 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
 
             if (res.ok) {
                 toast({ title: "Knowledge Base Established", description: "Schema created! Running background discovery for initial entities." });
+                // Instantly set to running to show the UI spinner for the background ingestion step
+                setIngestionStatus("running");
                 // Refresh graph tab availability or status
                 fetchKB();
             } else {
@@ -165,6 +181,8 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
         } catch (error) {
             console.error("Establish error", error);
             toast({ title: "Establishment Failed", description: "Network error occurred.", variant: "destructive" });
+        } finally {
+            setIsEstablishing(false);
         }
     };
 
@@ -207,9 +225,9 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                     <Button size="sm" variant="outline" onClick={handleSaveDraft} className="rounded-full px-6 font-semibold border-slate-300">
                         <Save className="mr-2 h-4 w-4" /> SAVE CONFIGURATION
                     </Button>
-                    <Button size="sm" onClick={handleEstablishDB} disabled={ingestionStatus === 'running'} className="bg-slate-900 hover:bg-black text-white rounded-full px-6 font-semibold shadow-lg shadow-slate-900/10">
-                        {ingestionStatus === 'running' ? (
-                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Ingesting Data...</>
+                    <Button size="sm" onClick={handleEstablishDB} disabled={isEstablishing || ingestionStatus === 'running'} className="bg-slate-900 hover:bg-black text-white rounded-full px-6 font-semibold shadow-lg shadow-slate-900/10">
+                        {isEstablishing || ingestionStatus === 'running' ? (
+                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {isEstablishing ? 'Initializing Graph...' : 'Ingesting Data...'}</>
                         ) : (
                             <><Database className="mr-2 h-4 w-4" /> {isNew ? "Establish Knowledge Base" : "Update Knowledge Base"}</>
                         )}
@@ -218,10 +236,10 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
             </div>
 
             {/* Main Workbench Layout */}
-            <div className="flex-1 overflow-auto flex flex-col p-6 max-w-7xl mx-auto w-full">
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-6 max-w-7xl mx-auto w-full">
 
                 {/* Meta Section (Description) */}
-                <div className="mb-6 space-y-2">
+                <div className="mb-6 space-y-2 shrink-0">
                     <Label className="text-muted-foreground text-xs uppercase font-bold tracking-wider">Description</Label>
                     <Textarea
                         placeholder="Describe the purpose of this Knowledge Base..."
@@ -231,8 +249,8 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                     />
                 </div>
 
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-                    <TabsList className="w-fit mb-6">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+                    <TabsList className="w-fit mb-6 shrink-0">
                         <TabsTrigger value="sources" className="flex items-center gap-2">
                             <LinkIcon className="h-4 w-4" /> 1. Manage Sources
                         </TabsTrigger>
@@ -248,12 +266,12 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                     </TabsList>
 
                     {/* Step 1: Sources */}
-                    <TabsContent value="sources" className="flex-1 mt-0 outline-none">
+                    <TabsContent value="sources" className="flex-1 min-h-0 mt-0 outline-none overflow-y-auto pr-2 pb-10">
                         <SourceManager sources={sources} setSources={setSources} />
                     </TabsContent>
 
                     {/* Step 2: Ontology */}
-                    <TabsContent value="ontology" className="flex-1 mt-0 outline-none">
+                    <TabsContent value="ontology" className="flex-1 min-h-0 mt-0 outline-none overflow-y-auto pr-2 pb-10">
                         <OntologyManager
                             sources={sources}
                             llmConfigId={selectedPreset}
@@ -271,12 +289,17 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                     </TabsContent>
 
                     {/* Step 3: Cytoscape (Only if established!) */}
-                    <TabsContent value="graph" className="flex-1 mt-0 outline-none border rounded-xl overflow-hidden bg-muted/20 pb-16">
-                        <CytoscapeGraph kbId={unwrappedParams.id} ingestionStatus={ingestionStatus} />
+                    <TabsContent value="graph" className="flex-1 min-h-0 flex flex-col mt-0 outline-none border rounded-xl overflow-hidden bg-muted/20 pb-16">
+                        <CytoscapeGraph
+                            kbId={unwrappedParams.id}
+                            ingestionStatus={ingestionStatus}
+                            sources={sources}
+                            ontologyClasses={selectedClasses}
+                        />
                     </TabsContent>
 
                     {/* Step 4: Reconciliation (Only if established!) */}
-                    <TabsContent value="reconciliation" className="flex-1 mt-0 outline-none">
+                    <TabsContent value="reconciliation" className="flex-1 min-h-0 mt-0 outline-none overflow-y-auto pr-2 pb-10">
                         <ReconciliationCenter kbId={unwrappedParams.id} approvedClasses={selectedClasses} />
                     </TabsContent>
 

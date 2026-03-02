@@ -20,14 +20,21 @@ class DocumentParser:
         ext = ext.lower()
         
         try:
-            if ext in [".txt", ".md", ".csv"]:
+            if ext in [".txt", ".md", ".csv", ".xml"]:
                 return DocumentParser._extract_from_text(filepath, char_limit)
+            elif ext in [".html", ".htm"]:
+                return DocumentParser._extract_from_html(filepath, char_limit)
             elif ext == ".pdf":
                 return DocumentParser._extract_from_pdf(filepath, char_limit)
             elif ext == ".docx":
                 return DocumentParser._extract_from_docx(filepath, char_limit)
             elif ext == ".pptx":
                 return DocumentParser._extract_from_pptx(filepath, char_limit)
+            elif ext == ".xlsx":
+                return DocumentParser._extract_from_xlsx(filepath, char_limit)
+            elif ext in [".png", ".jpg", ".jpeg"]:
+                print(f"[DocumentParser] Skipping image file {filepath} (requires multimodal/OCR)")
+                return ""
             else:
                 print(f"[DocumentParser] Unsupported file extension {ext} for {filepath}")
                 return ""
@@ -86,6 +93,41 @@ class DocumentParser:
             return text[:char_limit]
         except ImportError:
             print("[DocumentParser] Missing python-pptx. Cannot parse PPTX.")
+            return ""
+
+    @staticmethod
+    def _extract_from_xlsx(filepath: str, char_limit: int) -> str:
+        try:
+            import pandas as pd
+            text = ""
+            # Read all sheets into a dictionary of DataFrames
+            excel_data = pd.read_excel(filepath, sheet_name=None)
+            for sheet_name, df in excel_data.items():
+                text += f"\n--- Sheet: {sheet_name} ---\n"
+                text += df.to_string(index=False) + "\n"
+                if len(text) > char_limit:
+                    break
+            return text[:char_limit]
+        except ImportError:
+            print("[DocumentParser] Missing pandas. Cannot parse XLSX.")
+            return ""
+        except Exception as e:
+            print(f"[DocumentParser] Excel processing error: {e}")
+            return ""
+
+    @staticmethod
+    def _extract_from_html(filepath: str, char_limit: int) -> str:
+        try:
+            from bs4 import BeautifulSoup
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                soup = BeautifulSoup(f, "html.parser")
+                text = soup.get_text(separator="\n", strip=True)
+                return text[:char_limit]
+        except ImportError:
+            print("[DocumentParser] Missing beautifulsoup4. Cannot parse HTML.")
+            return ""
+        except Exception as e:
+            print(f"[DocumentParser] HTML parsing error: {e}")
             return ""
 
 document_parser = DocumentParser()

@@ -1,22 +1,70 @@
-"use client"
-
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Maximize, Loader2, RefreshCcw } from "lucide-react"
+import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Expand, Loader2, RefreshCcw, Shrink, Layers, Scan, Network, Filter, Database } from "lucide-react"
 import CytoscapeComponent from 'react-cytoscapejs';
+import cytoscape from 'cytoscape';
+import dagre from 'cytoscape-dagre';
 import { API_URL } from "@/lib/utils"
+import { MultiSelect, type Option } from "@/components/ui/multi-select"
+import { type KnowledgeSource } from "./source-manager"
 
-export default function CytoscapeGraph({ kbId, ingestionStatus }: { kbId?: string, ingestionStatus?: string }) {
+cytoscape.use(dagre);
+
+interface CytoscapeGraphProps {
+    kbId?: string;
+    ingestionStatus?: string;
+    sources?: KnowledgeSource[];
+    ontologyClasses?: string[];
+}
+
+export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyClasses = [] }: CytoscapeGraphProps) {
     const [elements, setElements] = useState<any[]>([])
     const [metadata, setMetadata] = useState<any>(null)
     const [isLoading, setIsLoading] = useState(false)
+    const [isFullscreen, setIsFullscreen] = useState(false)
+    const [perspective, setPerspective] = useState<"relational" | "hierarchical">("relational")
+    const [selectedSourceFilters, setSelectedSourceFilters] = useState<string[]>([])
+    const [appliedSourceFilters, setAppliedSourceFilters] = useState<string[]>([])
+
+    // Taxonomy Filters
+    const [selectedOntologyFilters, setSelectedOntologyFilters] = useState<string[]>(ontologyClasses)
+    const [appliedOntologyFilters, setAppliedOntologyFilters] = useState<string[]>(ontologyClasses)
+
+    const [selectedNode, setSelectedNode] = useState<any>(null)
     const cyRef = useRef<any>(null)
+    const containerRef = useRef<HTMLDivElement>(null)
+
+    // Map sources to options for multi-select
+    const sourceOptions: Option[] = sources.map(src => ({
+        label: src.name || src.id,
+        // The value should be the URI prefix used for filtering
+        value: src.type === 'url' ? src.config.url : src.config.path
+    })).filter(opt => opt.value); // ensure value exists
 
     const fetchGraph = useCallback(async () => {
         if (!kbId) return;
         setIsLoading(true)
         try {
-            const res = await fetch(`${API_URL}/knowledge/kb/${kbId}/graph`, {
+            let url = `${API_URL}/knowledge/kb/${kbId}/graph?perspective=${perspective}`;
+
+            // Add source filters to URL
+            if (appliedSourceFilters.length > 0) {
+                appliedSourceFilters.forEach(src => {
+                    url += `&sources=${encodeURIComponent(src)}`;
+                });
+            }
+
+            // Add ontology class filters to URL
+            if (appliedOntologyFilters.length > 0) {
+                appliedOntologyFilters.forEach(cls => {
+                    url += `&classes=${encodeURIComponent(cls)}`;
+                });
+            } else if (ontologyClasses.length > 0) {
+                // If nothing is explicitly applied but classes exist, pass a dummy to ensure it returns empty
+                url += `&classes=--NONE--`
+            }
+
+            const res = await fetch(url, {
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem("token")}`
                 }
@@ -37,11 +85,13 @@ export default function CytoscapeGraph({ kbId, ingestionStatus }: { kbId?: strin
                 // Add colors to nodes
                 const processedElements = (data.elements || []).map((el: any) => {
                     if (el.group === 'nodes') {
+                        // Apply fixed colors if they came from backend (source/type nodes), otherwise generate
+                        const color = el.data.color || getColor(el.data.type || 'Entity');
                         return {
                             ...el,
                             data: {
                                 ...el.data,
-                                color: getColor(el.data.type || 'Entity')
+                                color: color
                             }
                         };
                     }
@@ -50,13 +100,22 @@ export default function CytoscapeGraph({ kbId, ingestionStatus }: { kbId?: strin
 
                 setElements(processedElements)
                 setMetadata(data.metadata || null)
+                setSelectedNode(null) // Reset selection when graph reloads
             }
         } catch (error) {
             console.error("Failed to fetch graph", error)
         } finally {
             setIsLoading(false)
         }
-    }, [kbId]);
+    }, [kbId, perspective, appliedSourceFilters, appliedOntologyFilters, ontologyClasses]);
+
+    // Synchronize initial filters when ontologyClasses prop is initially loaded
+    useEffect(() => {
+        if (ontologyClasses.length > 0 && appliedOntologyFilters.length === 0 && selectedOntologyFilters.length === 0) {
+            setSelectedOntologyFilters(ontologyClasses);
+            setAppliedOntologyFilters(ontologyClasses);
+        }
+    }, [ontologyClasses]);
 
     useEffect(() => {
         fetchGraph()
@@ -68,11 +127,28 @@ export default function CytoscapeGraph({ kbId, ingestionStatus }: { kbId?: strin
         }
     }, [ingestionStatus, fetchGraph])
 
+    useEffect(() => {
+        // When selectedNode changes, the container width animates to 2/3 or full.
+        // We wait for the animation to finish (roughly 300ms) then resize the cytoscape canvas.
+        const timer = setTimeout(() => {
+            if (cyRef.current) {
+                cyRef.current.resize();
+            }
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [selectedNode]);
+
     const handleZoomIn = () => cyRef.current?.zoom(cyRef.current.zoom() * 1.2)
     const handleZoomOut = () => cyRef.current?.zoom(cyRef.current.zoom() * 0.8)
     const handleFit = () => cyRef.current?.fit()
 
-    const containerRef = useRef<HTMLDivElement>(null)
+    const toggleFullscreen = () => {
+        setIsFullscreen(!isFullscreen);
+        // Add a slight delay to allow CSS transition before fitting the graph
+        setTimeout(() => {
+            if (cyRef.current) cyRef.current.fit();
+        }, 100);
+    }
 
     // Placeholder for Lazy Update Trigger
     const handleLazyUpdate = async (nodeId: string) => {
@@ -80,128 +156,333 @@ export default function CytoscapeGraph({ kbId, ingestionStatus }: { kbId?: strin
         // const res = await fetch(`/api/v1/knowledge/lazy-update`, { ... })
     }
 
-    return (
-        <div className="relative w-full h-full flex flex-col">
-            {/* Toolbar */}
-            <div className="absolute top-4 left-4 z-10 flex gap-2 bg-background/80 backdrop-blur border p-1 rounded-lg shadow-sm">
-                <Button variant="ghost" size="icon" onClick={fetchGraph} title="Refresh Graph" disabled={isLoading}>
-                    <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-                </Button>
-                <div className="w-px h-4 bg-muted my-auto mx-1" />
-                <Button variant="ghost" size="icon" onClick={handleZoomIn} title="Zoom In"><ZoomIn className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={handleZoomOut} title="Zoom Out"><ZoomOut className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={handleFit} title="Fit to Screen"><Maximize className="h-4 w-4" /></Button>
-            </div>
+    const cyStylesheet = useMemo(() => [
+        {
+            selector: 'node',
+            style: {
+                'label': 'data(label)',
+                'background-color': 'data(color)',
+                'color': '#1e293b',
+                'font-size': '10px',
+                'width': '24px',
+                'height': '24px',
+                'text-wrap': 'wrap',
+                'text-max-width': '120px',
+                'text-valign': 'bottom',
+                'text-margin-y': 6,
+                'text-halign': 'center',
+                'text-background-opacity': 0.8,
+                'text-background-color': '#ffffff',
+                'text-background-padding': '2px',
+                'text-background-shape': 'roundrectangle',
+                'border-width': 2,
+                'border-color': '#ffffff'
+            }
+        },
+        {
+            selector: 'edge',
+            style: {
+                'label': 'data(label)',
+                'width': 1.5,
+                'line-color': '#94a3b8',
+                'target-arrow-color': '#94a3b8',
+                'target-arrow-shape': 'triangle',
+                'curve-style': 'bezier',
+                'font-size': '9px',
+                'text-rotation': 'autorotate',
+                'text-background-opacity': 0.8,
+                'text-background-color': '#ffffff',
+                'text-background-padding': '1px',
+                'color': '#64748b'
+            }
+        }
+    ] as any, []);
 
-            <div className="absolute top-4 right-4 z-10 flex gap-2">
-                <div className="bg-card border shadow-sm rounded-lg p-3 text-sm flex flex-col gap-2">
-                    <div className="font-semibold mb-1">Legend</div>
-                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Synced Node (Blue)</div>
-                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-amber-500"></div> Outdated (Amber) <RefreshCw className="h-3 w-3 inline text-amber-500" /></div>
+    const cyLayout = useMemo(() => (
+        perspective === "hierarchical"
+            ? { name: 'dagre', rankDir: 'TB', nodeSep: 120, rankSep: 160 }
+            : {
+                name: 'cose',
+                randomize: true, // Forces nodes to start at random positions rather than stacking at (0,0)
+                componentSpacing: 60,
+                nodeOverlap: 20,
+                padding: 50,
+                nodeRepulsion: () => 400000,
+                idealEdgeLength: () => 150,
+                edgeElasticity: () => 100,
+                gravity: 80,
+                numIter: 1000,
+                animate: true
+            }
+    ) as any, [perspective]);
+
+    return (
+        <div className={`flex flex-col flex-1 min-h-0 ${isFullscreen ? 'fixed inset-0 z-50 bg-background' : 'relative w-full'}`}>
+            {/* Standard Flex Toolbar (No longer floating) */}
+            <div className="flex items-center justify-between p-3 border-b bg-background/50 z-10 shrink-0">
+                <div className="flex gap-2 items-center">
+                    <Button variant="ghost" size="sm" onClick={fetchGraph} title="Refresh Graph" disabled={isLoading} className="bg-white border shadow-sm text-slate-600 px-2 h-8">
+                        <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                    <div className="flex items-center gap-1 bg-white border p-1 rounded-md shadow-sm">
+                        <Button variant="ghost" size="sm" onClick={handleZoomIn} title="Zoom In" className="h-6 w-6 p-0 rounded-sm text-slate-500 hover:text-slate-900"><ZoomIn className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="sm" onClick={handleZoomOut} title="Zoom Out" className="h-6 w-6 p-0 rounded-sm text-slate-500 hover:text-slate-900"><ZoomOut className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="sm" onClick={handleFit} title="Fit to Screen" className="h-6 w-6 p-0 rounded-sm text-slate-500 hover:text-slate-900"><Scan className="h-4 w-4" /></Button>
+                    </div>
+                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                    <div className="flex items-center gap-1 bg-white border p-1 rounded-md shadow-sm">
+                        <Button
+                            variant={perspective === "relational" ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setPerspective("relational")}
+                            className="text-[11px] h-6 px-3 rounded-sm font-semibold"
+                        >
+                            <Network className="h-3.5 w-3.5 mr-1" /> Relational
+                        </Button>
+                        <Button
+                            variant={perspective === "hierarchical" ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setPerspective("hierarchical")}
+                            className="text-[11px] h-6 px-3 rounded-sm font-semibold"
+                        >
+                            <Layers className="h-3.5 w-3.5 mr-1" /> Hierarchical
+                        </Button>
+                    </div>
+                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                    <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"} className="bg-white border shadow-sm text-slate-600 px-2 h-8">
+                        {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+                    </Button>
+                </div>
+
+                <div className="flex gap-4">
+                    <div className="flex items-center gap-3 bg-muted/20 border-slate-200 border rounded-full px-4 py-1.5 shadow-[inset_0_1px_4px_rgba(0,0,0,0.02)] text-[11px] font-medium text-slate-600">
+                        <span className="text-muted-foreground/80 uppercase tracking-widest font-bold text-[10px] mr-1">Legend</span>
+                        <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm border border-blue-600/20"></div> Synced <span className="text-muted-foreground/50 ml-0.5">(Blue)</span></div>
+                        <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm border border-amber-600/20"></div> Outdated <span className="text-muted-foreground/50 ml-0.5">(Amber)</span></div>
+                    </div>
                 </div>
             </div>
 
-            {/* Canvas Container */}
-            <div
-                ref={containerRef}
-                className="w-full h-full border-2 border-dashed border-muted-foreground/20 m-4 rounded-xl overflow-hidden bg-slate-50/50"
-            >
-                {isLoading ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
-                        <Loader2 className="h-8 w-8 animate-spin mb-2" />
-                        <p>Loading Graph Data...</p>
+            {/* Canvas and Side Panel Container */}
+            <div className="relative w-full flex-1 flex min-h-0 overflow-hidden">
+
+                {/* Unified Sidebar for both Source and Taxonomy Filters */}
+                <div className="w-[280px] border-r border-dashed border-muted-foreground/20 bg-muted/5 shrink-0 flex flex-col h-full overflow-hidden relative z-20 transition-all duration-300">
+                    <div className="p-4 border-b bg-background/50 flex items-center gap-2 shrink-0">
+                        <Filter className="h-4 w-4 text-indigo-600" />
+                        <span className="font-semibold text-sm">Graph Filters</span>
                     </div>
-                ) : elements.length > 0 ? (
-                    <CytoscapeComponent
-                        elements={elements}
-                        style={{ width: '100%', height: '100%' }}
-                        cy={(cy) => { cyRef.current = cy }}
-                        layout={{
-                            name: 'cose',
-                            padding: 50,
-                            nodeRepulsion: () => 400000,
-                            idealEdgeLength: () => 150,
-                            edgeElasticity: () => 100,
-                            gravity: 80,
-                            numIter: 1000,
-                            animate: true
-                        }}
-                        stylesheet={[
-                            {
-                                selector: 'node',
-                                style: {
-                                    'label': 'data(label)',
-                                    'background-color': 'data(color)',
-                                    'color': '#1e293b',
-                                    'font-size': '10px',
-                                    'width': '24px',
-                                    'height': '24px',
-                                    'text-wrap': 'wrap',
-                                    'text-max-width': '120px',
-                                    'text-valign': 'bottom',
-                                    'text-margin-y': 6,
-                                    'text-halign': 'center',
-                                    'text-background-opacity': 0.8,
-                                    'text-background-color': '#ffffff',
-                                    'text-background-padding': '2px',
-                                    'text-background-shape': 'roundrectangle',
-                                    'border-width': 2,
-                                    'border-color': '#ffffff'
+
+                    <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
+
+                        {/* Source Filter Section */}
+                        {sources.length > 0 && (
+                            <div className="p-4 border-b border-dashed border-slate-200 shrink-0">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                                    <Database className="h-3 w-3 text-slate-400" />
+                                    Filter by Source
+                                </label>
+                                <MultiSelect
+                                    options={sourceOptions}
+                                    selected={selectedSourceFilters}
+                                    onChange={setSelectedSourceFilters}
+                                    placeholder="Select sources..."
+                                    className="bg-white border-slate-200 text-xs shadow-sm py-1 min-h-[32px]"
+                                />
+                            </div>
+                        )}
+
+                        {/* Taxonomy Filter Section */}
+                        <div className="flex flex-col flex-1 min-h-0">
+                            <div className="p-4 pb-2 flex items-center justify-between shrink-0">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                                    <Layers className="h-3 w-3 text-slate-400" />
+                                    Taxonomy
+                                </label>
+                                <div className="flex gap-2 items-center">
+                                    <button
+                                        onClick={() => setSelectedOntologyFilters(ontologyClasses)}
+                                        className="text-[10px] uppercase font-bold text-indigo-600 hover:text-indigo-800 transition-colors"
+                                    >ALL</button>
+                                    <span className="text-muted-foreground/20 text-[10px]">|</span>
+                                    <button
+                                        onClick={() => setSelectedOntologyFilters([])}
+                                        className="text-[10px] uppercase font-bold text-slate-400 hover:text-slate-700 transition-colors"
+                                    >NONE</button>
+                                    <span className="ml-2 text-[10px] font-mono font-medium bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                                        {selectedOntologyFilters.length}/{ontologyClasses.length}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2.5">
+                                {ontologyClasses.length === 0 ? (
+                                    <div className="text-xs text-muted-foreground italic text-center py-8">No ontology classes defined for this KB.</div>
+                                ) : (
+                                    ontologyClasses.map(cls => (
+                                        <div key={cls} className="flex items-center space-x-2.5">
+                                            <input
+                                                type="checkbox"
+                                                id={`filter-${cls}`}
+                                                checked={selectedOntologyFilters.includes(cls)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedOntologyFilters(prev => [...prev, cls]);
+                                                    } else {
+                                                        setSelectedOntologyFilters(prev => prev.filter(c => c !== cls));
+                                                    }
+                                                }}
+                                                className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                                            />
+                                            <label
+                                                htmlFor={`filter-${cls}`}
+                                                className="text-xs font-medium leading-none cursor-pointer text-slate-600 truncate hover:text-indigo-800 transition-colors"
+                                                title={cls}
+                                            >
+                                                {cls}
+                                            </label>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-4 border-t border-slate-200 bg-background/80 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.02)]">
+                        <Button
+                            className="w-full shadow-sm bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors disabled:bg-slate-300"
+                            size="sm"
+                            disabled={isLoading || (JSON.stringify(selectedOntologyFilters.sort()) === JSON.stringify(appliedOntologyFilters.sort()) && JSON.stringify(selectedSourceFilters.sort()) === JSON.stringify(appliedSourceFilters.sort()))}
+                            onClick={() => {
+                                setAppliedOntologyFilters([...selectedOntologyFilters]);
+                                setAppliedSourceFilters([...selectedSourceFilters]);
+                            }}
+                        >
+                            {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Filter className="h-4 w-4 mr-2 text-white/80" />}
+                            Apply Filters
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Canvas Container */}
+                <div
+                    ref={containerRef}
+                    className={`h-full border-2 border-dashed border-muted-foreground/20 m-4 rounded-xl overflow-hidden bg-slate-50/50 transition-all duration-300 ${selectedNode ? 'flex-1' : 'w-full'}`}
+                >
+                    {isLoading ? (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground">
+                            <Loader2 className="h-8 w-8 animate-spin mb-2" />
+                            <p>Loading Graph Data...</p>
+                        </div>
+                    ) : elements.length > 0 ? (
+                        <CytoscapeComponent
+                            elements={elements}
+                            style={{ width: '100%', height: '100%' }}
+                            cy={(cy) => {
+                                cyRef.current = cy;
+                                // Attach event listeners for node metadata
+                                cy.on('tap', 'node', function (evt) {
+                                    const nodeData = evt.target.data();
+                                    setSelectedNode(nodeData);
+                                });
+                                cy.on('tap', function (evt) {
+                                    if (evt.target === cy) {
+                                        setSelectedNode(null);
+                                    }
+                                });
+                            }}
+                            layout={cyLayout}
+                            stylesheet={cyStylesheet}
+                        />
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
+                            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                                {metadata?.ingestion_status === 'failed' ? (
+                                    <AlertCircle className="h-8 w-8 text-red-500" />
+                                ) : (
+                                    <RefreshCw className={`h-8 w-8 text-slate-400 ${metadata?.ingestion_status === 'running' ? 'animate-spin' : ''}`} />
+                                )}
+                            </div>
+                            <h3 className="text-lg font-semibold text-slate-800 mb-2">
+                                {metadata?.ingestion_status === 'running'
+                                    ? "AI Discovery in Progress..."
+                                    : metadata?.ingestion_status === 'failed'
+                                        ? "Ingestion Failed"
+                                        : "No nodes found in this Knowledge Base."
                                 }
-                            },
-                            {
-                                selector: 'edge',
-                                style: {
-                                    'label': 'data(label)',
-                                    'width': 1.5,
-                                    'line-color': '#94a3b8',
-                                    'target-arrow-color': '#94a3b8',
-                                    'target-arrow-shape': 'triangle',
-                                    'curve-style': 'bezier',
-                                    'font-size': '9px',
-                                    'text-rotation': 'autorotate',
-                                    'text-background-opacity': 0.8,
-                                    'text-background-color': '#ffffff',
-                                    'text-background-padding': '1px',
-                                    'color': '#64748b'
+                            </h3>
+                            <p className="max-w-[400px] mb-6 text-sm leading-relaxed text-slate-500">
+                                {metadata?.ingestion_status === 'running'
+                                    ? "Please wait while our AI scans your documents for entities and relationships. This may take a minute."
+                                    : metadata?.ingestion_status === 'failed'
+                                        ? `Error: ${metadata?.error || "A problem occurred during ingestion."} Try establishing the KB again or check backend logs.`
+                                        : "Click 'Establish/Update Knowledge Base' in the Configuration tab to start the AI discovery process."
                                 }
-                            }
-                        ]}
-                    />
-                ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
-                        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-                            {metadata?.ingestion_status === 'failed' ? (
-                                <AlertCircle className="h-8 w-8 text-red-500" />
+                            </p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fetchGraph()}
+                                className="bg-white hover:bg-slate-50 border-slate-200"
+                            >
+                                <RefreshCcw className="mr-2 h-4 w-4" />
+                                Refresh Graph
+                            </Button>
+                        </div>
+                    )}
+                </div>
+
+                {/* Node Metadata Side Panel */}
+                {selectedNode && (
+                    <div className="w-1/3 h-full overflow-y-auto border-l bg-card p-6 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.05)] transition-all duration-300 relative z-20">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 className="text-xl font-bold break-words">{selectedNode.label.split('\n')[0]}</h3>
+                                <div className="text-sm font-medium text-indigo-600 mt-1 uppercase tracking-wider">{selectedNode.type}</div>
+                            </div>
+                            <Button variant="ghost" size="icon" onClick={() => setSelectedNode(null)} className="flex-shrink-0">
+                                <span className="sr-only">Close</span>
+                                <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4"><path d="M11.7816 4.03157C12.0062 3.80702 12.0062 3.44295 11.7816 3.2184C11.5571 2.99385 11.193 2.99385 10.9685 3.2184L7.50005 6.68682L4.03164 3.2184C3.80708 2.99385 3.44301 2.99385 3.21846 3.2184C2.99391 3.44295 2.99391 3.80702 3.21846 4.03157L6.68688 7.49999L3.21846 10.9684C2.99391 11.193 2.99391 11.557 3.21846 11.7816C3.44301 12.0061 3.80708 12.0061 4.03164 11.7816L7.50005 8.31316L10.9685 11.7816C11.193 12.0061 11.5571 12.0061 11.7816 11.7816C12.0062 11.557 12.0062 11.193 11.7816 10.9684L8.31322 7.49999L11.7816 4.03157Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path></svg>
+                            </Button>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="space-y-1">
+                                <div className="text-xs text-muted-foreground uppercase font-semibold">Node ID</div>
+                                <div className="text-sm font-mono bg-muted p-2 rounded">{selectedNode.id}</div>
+                            </div>
+
+                            {selectedNode.properties && Object.keys(selectedNode.properties).length > 0 ? (
+                                <div className="space-y-4">
+                                    <div className="text-xs text-muted-foreground uppercase font-semibold border-b pb-2">Properties</div>
+
+                                    {/* Handle common properties generically */}
+                                    {Object.entries(selectedNode.properties).map(([key, value]) => {
+                                        if (key === 'name' || key === 'label') return null; // Already shown in header
+
+                                        return (
+                                            <div key={key} className="space-y-1">
+                                                <div className="text-xs text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</div>
+                                                <div className="text-sm">
+                                                    {typeof value === 'string' && value.startsWith('http') ? (
+                                                        <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline break-all">
+                                                            {value}
+                                                        </a>
+                                                    ) : typeof value === 'object' ? (
+                                                        <pre className="bg-slate-50 p-2 text-xs rounded border break-words whitespace-pre-wrap">{JSON.stringify(value, null, 2)}</pre>
+                                                    ) : (
+                                                        <div className="break-words">{String(value)}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             ) : (
-                                <RefreshCw className={`h-8 w-8 text-slate-400 ${metadata?.ingestion_status === 'running' ? 'animate-spin' : ''}`} />
+                                <div className="text-sm text-muted-foreground italic border-t pt-4">No additional properties available for this node.</div>
                             )}
                         </div>
-                        <h3 className="text-lg font-semibold text-slate-800 mb-2">
-                            {metadata?.ingestion_status === 'running'
-                                ? "AI Discovery in Progress..."
-                                : metadata?.ingestion_status === 'failed'
-                                    ? "Ingestion Failed"
-                                    : "No nodes found in this Knowledge Base."
-                            }
-                        </h3>
-                        <p className="max-w-[400px] mb-6 text-sm leading-relaxed text-slate-500">
-                            {metadata?.ingestion_status === 'running'
-                                ? "Please wait while our AI scans your documents for entities and relationships. This may take a minute."
-                                : metadata?.ingestion_status === 'failed'
-                                    ? `Error: ${metadata?.error || "A problem occurred during ingestion."} Try establishing the KB again or check backend logs.`
-                                    : "Click 'Establish/Update Knowledge Base' in the Configuration tab to start the AI discovery process."
-                            }
-                        </p>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => fetchGraph()}
-                            className="bg-white hover:bg-slate-50 border-slate-200"
-                        >
-                            <RefreshCcw className="mr-2 h-4 w-4" />
-                            Refresh Graph
-                        </Button>
                     </div>
                 )}
             </div>

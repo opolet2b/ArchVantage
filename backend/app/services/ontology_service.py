@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 from app.core.arcadedb import arcadedb
 from app.services.llm_service import llm_service
 from app.utils.document_parser import document_parser
+from app.services.web_crawler_service import web_crawler_service
 
 class OntologyService:
     def parse_json_ontology(self, content: str) -> Dict[str, Any]:
@@ -37,7 +38,7 @@ class OntologyService:
             
             if source_type == "local" and path and os.path.exists(path):
                 # Simple extraction: Grab the first few kb of text from available txt/md files
-                allowed_extensions = (".txt", ".md", ".csv", ".pdf", ".docx", ".pptx")
+                allowed_extensions = (".txt", ".md", ".csv", ".pdf", ".docx", ".pptx", ".xml", ".xlsx", ".html", ".htm")
 
                 if os.path.isdir(path):
                     files = [f for f in os.listdir(path) if f.endswith(allowed_extensions)]
@@ -47,7 +48,7 @@ class OntologyService:
                         filepath = os.path.join(path, filename)
                         yield json.dumps({"type": "progress", "message": f"Reading file: {filename}..."})
                         try:
-                            content = document_parser.extract_text_from_file(filepath, char_limit=5000)
+                            content = document_parser.extract_text_from_file(filepath, char_limit=40000)
                             if content.strip():
                                 accumulated_text += f"\n--- Source: {filename} ---\n{content}\n"
                         except Exception as e:
@@ -56,17 +57,25 @@ class OntologyService:
                 elif os.path.isfile(path) and path.endswith(allowed_extensions):
                      yield json.dumps({"type": "progress", "message": f"Reading single file: {os.path.basename(path)}..."})
                      try:
-                        content = document_parser.extract_text_from_file(path, char_limit=15000)
+                        content = document_parser.extract_text_from_file(path, char_limit=100000)
                         if content.strip():
                             accumulated_text += f"\n--- Source: {os.path.basename(path)} ---\n{content}\n"
                      except Exception as e:
                          print(f"Skipping {path}: {e}")
                          yield json.dumps({"type": "progress", "message": f"Warning: Failed to read {os.path.basename(path)}."})
-            else:
-                # Placeholder for MCP/URL parsers
-                msg = f"Skipping source {source.get('name')}: Type '{source_type}' not yet fully implemented or path invalid."
-                print(msg)
-                yield json.dumps({"type": "progress", "message": f"Warning: {msg}"})
+            
+            elif source_type == "url":
+                url = source.get("config", {}).get("url")
+                # For ontology extraction, we cap at depth 2 to keep it fast, or use user preference
+                depth = int(source.get("config", {}).get("max_depth") or 1)
+                if url:
+                    yield json.dumps({"type": "progress", "message": f"Crawling URL for taxonomy: {url} (depth={depth})..."})
+                    try:
+                        content = web_crawler_service.crawl_url(url, max_depth=depth)
+                        if content.strip():
+                            accumulated_text += content
+                    except Exception as e:
+                        yield json.dumps({"type": "progress", "message": f"Warning: Failed to crawl {url}: {e}"})
 
         if not accumulated_text.strip():
              msg = "No text accumulated from sources!"
@@ -75,8 +84,8 @@ class OntologyService:
              yield json.dumps({"type": "result", "classes": []})
              return
 
-        # Cap the text to avoid context limits on smaller models
-        accumulated_text = accumulated_text[:20000]
+        # Cap the text to avoid context limits on smaller models, but bump to 500k chars for thorough scan
+        accumulated_text = accumulated_text[:500000]
         yield json.dumps({"type": "progress", "message": f"Sending {len(accumulated_text)} characters of context to AI '{llm_config_id}' for taxonomy extraction..."})
         yield json.dumps({"type": "progress", "message": "Analyzing text and generating ontology classes... (This may take a minute)"})
 
@@ -144,7 +153,7 @@ class OntologyService:
             path = source.get("config", {}).get("path")
             
             if source_type == "local" and path and os.path.exists(path):
-                allowed_extensions = (".txt", ".md", ".csv", ".pdf", ".docx", ".pptx")
+                allowed_extensions = (".txt", ".md", ".csv", ".pdf", ".docx", ".pptx", ".xml", ".xlsx", ".html", ".htm")
 
                 if os.path.isdir(path):
                     files = [f for f in os.listdir(path) if f.endswith(allowed_extensions)]
@@ -152,7 +161,7 @@ class OntologyService:
                         filepath = os.path.join(path, filename)
                         yield json.dumps({"type": "progress", "message": f"Reading context from file: {filename}..."})
                         try:
-                            content = document_parser.extract_text_from_file(filepath, char_limit=5000)
+                            content = document_parser.extract_text_from_file(filepath, char_limit=40000)
                             if content.strip():
                                 accumulated_text += f"\n--- Source: {filename} ---\n{content}\n"
                         except Exception as e:
@@ -160,19 +169,31 @@ class OntologyService:
                 elif os.path.isfile(path) and path.endswith(allowed_extensions):
                      yield json.dumps({"type": "progress", "message": f"Reading context from: {os.path.basename(path)}..."})
                      try:
-                        content = document_parser.extract_text_from_file(path, char_limit=15000)
+                        content = document_parser.extract_text_from_file(path, char_limit=100000)
                         if content.strip():
                             accumulated_text += f"\n--- Source: {os.path.basename(path)} ---\n{content}\n"
                      except Exception as e:
-                         print(f"Skipping {path}: {e}")
+                          print(f"Skipping {path}: {e}")
+            
+            elif source_type == "url":
+                url = source.get("config", {}).get("url")
+                depth = int(source.get("config", {}).get("max_depth") or 1)
+                if url:
+                    yield json.dumps({"type": "progress", "message": f"Crawling URL for context: {url} (depth={depth})..."})
+                    try:
+                        content = web_crawler_service.crawl_url(url, max_depth=depth)
+                        if content.strip():
+                            accumulated_text += content
+                    except Exception as e:
+                        yield json.dumps({"type": "progress", "message": f"Warning: Failed to crawl {url}."})
 
         if not accumulated_text.strip():
              yield json.dumps({"type": "progress", "message": "No text accumulated from sources!"})
              yield json.dumps({"type": "result", "edges": []})
              return
 
-        # Cap the text to avoid context limits
-        accumulated_text = accumulated_text[:20000]
+        # Cap the text to avoid context limits, bumped to 500k
+        accumulated_text = accumulated_text[:500000]
         yield json.dumps({"type": "progress", "message": f"Sending {len(accumulated_text)} characters of context to AI '{llm_config_id}'..."})
         yield json.dumps({"type": "progress", "message": "Analyzing text to find logical relationships between the approved classes... (This may take a minute)"})
 

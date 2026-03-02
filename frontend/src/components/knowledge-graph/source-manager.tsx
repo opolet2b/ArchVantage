@@ -16,20 +16,49 @@ export interface KnowledgeSource {
 
 export function SourceManager({ sources, setSources }: { sources: KnowledgeSource[], setSources: React.Dispatch<React.SetStateAction<KnowledgeSource[]>> }) {
     const [isAdding, setIsAdding] = useState(false)
+    const [editingId, setEditingId] = useState<string | null>(null)
     const [newSource, setNewSource] = useState<Partial<KnowledgeSource>>({ type: "mcp" })
 
     const handleAddSource = () => {
         if (!newSource.name || !newSource.type) return
 
-        const source: KnowledgeSource = {
-            id: `source-${Date.now()}`,
-            type: newSource.type,
-            name: newSource.name,
-            config: newSource.config || {}
+        if (editingId) {
+            // Update existing
+            setSources(sources.map(s => s.id === editingId ? {
+                ...s,
+                type: newSource.type!,
+                name: newSource.name!,
+                config: newSource.config || {}
+            } : s))
+        } else {
+            // Add new
+            const source: KnowledgeSource = {
+                id: `source-${Date.now()}`,
+                type: newSource.type,
+                name: newSource.name,
+                config: newSource.config || {}
+            }
+            setSources([...sources, source])
         }
 
-        setSources([...sources, source])
         setIsAdding(false)
+        setEditingId(null)
+        setNewSource({ type: "mcp" })
+    }
+
+    const handleEditSource = (source: KnowledgeSource) => {
+        setNewSource({
+            type: source.type,
+            name: source.name,
+            config: { ...source.config }
+        })
+        setEditingId(source.id)
+        setIsAdding(true)
+    }
+
+    const handleCancel = () => {
+        setIsAdding(false)
+        setEditingId(null)
         setNewSource({ type: "mcp" })
     }
 
@@ -63,7 +92,7 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
             {isAdding && (
                 <Card className="border-indigo-200 shadow-md mb-6 bg-indigo-50/30">
                     <CardHeader>
-                        <CardTitle className="text-base text-indigo-900">Add New Source</CardTitle>
+                        <CardTitle className="text-base text-indigo-900">{editingId ? "Edit Source" : "Add New Source"}</CardTitle>
                         <CardDescription>Select a source type and define its connection parameters.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -94,13 +123,26 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
                         </div>
 
                         {newSource.type === "url" && (
-                            <div className="grid gap-2">
-                                <Label>Base URL</Label>
-                                <Input
-                                    placeholder="https://"
-                                    value={newSource.config?.url || ""}
-                                    onChange={(e) => setNewSource({ ...newSource, config: { ...newSource.config, url: e.target.value } })}
-                                />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label>Base URL</Label>
+                                    <Input
+                                        placeholder="https://"
+                                        value={newSource.config?.url || ""}
+                                        onChange={(e) => setNewSource({ ...newSource, config: { ...newSource.config, url: e.target.value } })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label>Max Crawl Depth</Label>
+                                    <Input
+                                        type="number"
+                                        min="1"
+                                        max="10"
+                                        value={newSource.config?.max_depth || "1"}
+                                        onChange={(e) => setNewSource({ ...newSource, config: { ...newSource.config, max_depth: e.target.value } })}
+                                    />
+                                    <p className="text-[10px] text-muted-foreground italic">1 = current page only, 2 = follow links once.</p>
+                                </div>
                             </div>
                         )}
 
@@ -125,9 +167,9 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
 
                     </CardContent>
                     <CardFooter className="flex justify-end gap-2 border-t pt-4 bg-white/50">
-                        <Button variant="ghost" onClick={() => setIsAdding(false)}>Cancel</Button>
+                        <Button variant="ghost" onClick={handleCancel}>Cancel</Button>
                         <Button onClick={handleAddSource} disabled={!newSource.name} className="bg-indigo-600 hover:bg-indigo-700">
-                            Save Source
+                            {editingId ? "Update Source" : "Save Source"}
                         </Button>
                     </CardFooter>
                 </Card>
@@ -161,7 +203,12 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
                                     <CardTitle className="text-base mt-2">{source.name}</CardTitle>
                                 </div>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-muted-foreground"
+                                        onClick={() => handleEditSource(source)}
+                                    >
                                         <Edit2 className="h-3 w-3" />
                                     </Button>
                                     <Button
@@ -176,8 +223,13 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
                             </CardHeader>
                             <CardContent className="pb-4 relative z-10">
                                 {source.type === "url" && (
-                                    <div className="text-xs text-muted-foreground font-mono truncate bg-slate-50 p-1.5 rounded border">
-                                        {source.config.url || "No URL specified"}
+                                    <div className="space-y-1.5">
+                                        <div className="text-xs text-muted-foreground font-mono truncate bg-slate-50 p-1.5 rounded border">
+                                            {source.config.url || "No URL specified"}
+                                        </div>
+                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1">
+                                            <span>Max Depth: <span className="font-bold text-slate-700">{source.config.max_depth || "1"}</span></span>
+                                        </div>
                                     </div>
                                 )}
                                 {source.type === "local" && (

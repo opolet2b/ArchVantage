@@ -37,24 +37,33 @@ class ArcadeDBClient:
         """
         Creates the database if it doesn't exist.
         """
-        url = self._get_url("create", include_db=False)
-        payload = {
-            "command": f"create database {self.db_name} {type}"
-        }
         try:
+            # We must use the base API without appending the db_name to create it
+            server_url = f"{self.host.rstrip('/')}/api/v1/server"
+            payload = {"command": f"create database {self.db_name}"}
+            
             with httpx.Client(auth=self.auth) as client:
-                # ArcadeDB 'create' can be hit via POST command or specific create endpoint
-                # The create database command is usually sent to the server directly
-                # However, for simplicity, we use the standard 'create' server command if available
-                res = client.post(f"{self.host.rstrip('/')}/api/v1/server", json={"command": f"create database {self.db_name}"})
+                res = client.post(server_url, json=payload, timeout=15.0)
+                
                 if res.status_code in (200, 403, 409): # 409 Conflict if already exists
                     return True
+                    
+                if res.status_code == 400:
+                    try:
+                        err_data = res.json()
+                        if "already exists" in err_data.get("detail", ""):
+                            return True
+                    except Exception:
+                        pass
+                        
+                print(f"Failed to create database. HTTP {res.status_code}: {res.text}")
                 return False
+                
         except Exception as e:
-            print(f"Database creation check/call failed: {e}")
+            print(f"Database creation call failed: {e}")
             return False
 
-    def command(self, query: str, language: str = "sql", params: Optional[Dict[str, Any]] = None, silent: bool = False) -> Dict[str, Any]:
+    def command(self, query: str, language: str = "sql", params: Optional[Dict[str, Any]] = None, silent: bool = False, _retry: bool = True) -> Dict[str, Any]:
         """
         Execute a command or query.
         language can be 'sql' or 'gremlin'
@@ -70,6 +79,7 @@ class ArcadeDBClient:
         try:
             with httpx.Client(auth=self.auth) as client:
                 response = client.post(url, json=payload, timeout=10.0)
+                
                 if response.status_code >= 400 and not silent:
                     print(f"ArcadeDB Error {response.status_code}: {response.text}")
                 response.raise_for_status()
@@ -79,7 +89,7 @@ class ArcadeDBClient:
                 print(f"ArcadeDB Command Error: {e}")
             raise e
 
-    def query(self, query: str, language: str = "sql", params: Optional[Dict[str, Any]] = None, silent: bool = False) -> Dict[str, Any]:
+    def query(self, query: str, language: str = "sql", params: Optional[Dict[str, Any]] = None, silent: bool = False, _retry: bool = True) -> Dict[str, Any]:
          """
          Execute an idempotent query.
          """
@@ -94,6 +104,7 @@ class ArcadeDBClient:
          try:
              with httpx.Client(auth=self.auth) as client:
                  response = client.post(url, json=payload, timeout=10.0)
+                 
                  if response.status_code >= 400 and not silent:
                     print(f"ArcadeDB Error {response.status_code}: {response.text}")
                  response.raise_for_status()
@@ -113,12 +124,12 @@ class ArcadeDBClient:
         except Exception:
             return False
 
-    def type_exists(self, class_name: str) -> bool:
+    def type_exists(self, class_name: str, _retry: bool = True) -> bool:
         """
         Safely checks if a Vertex or Edge type exists using schema:types.
         """
         try:
-            res = self.query("SELECT name FROM schema:types", silent=True)
+            res = self.query("SELECT name FROM schema:types", silent=True, _retry=_retry)
             for r in res.get("result", []):
                 if r.get("name") == class_name:
                     return True
