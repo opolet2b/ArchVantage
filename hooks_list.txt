@@ -1,0 +1,119 @@
+L111: (1) const { fitView, getViewport, setViewport, screenToFlowPosition } = useReactFlow();
+L112: (1) const nodesInitialized = useNodesInitialized();
+L113: (1) const { toast } = useToast();
+L126: (1) const canvasId = useCanvasStore(s => s.canvasId);
+L127: (1) const things = useCanvasStore(s => s.things);
+L128: (1) const links = useCanvasStore(s => s.links);
+L129: (1) const domains = useCanvasStore(s => s.domains);
+L130: (1) const viewport = useCanvasStore(s => s.viewport);
+L131: (1) const zoomLevel = useCanvasStore(s => s.zoomLevel);
+L132: (1) const selectedThingIds = useCanvasStore(s => s.selectedThingIds);
+L133: (1) const selectedDomainIds = useCanvasStore(s => s.selectedDomainIds);
+L134: (1) const selectionMode = useCanvasStore(s => s.selectionMode);
+L135: (1) const showLinks = useCanvasStore(s => s.showLinks);
+L136: (1) const hiddenNodeLinks = useCanvasStore(s => s.hiddenNodeLinks);
+L137: (1) const semanticZoomEnabled = useCanvasStore(s => s.semanticZoomEnabled);
+L138: (1) const dockedThingId = useCanvasStore(s => s.dockedThingId);
+L139: (1) const dockPosition = useCanvasStore(s => s.dockPosition);
+L140: (1) const editingThingId = useCanvasStore(s => s.editingThingId);
+L141: (1) const sidebarCollapsed = useCanvasStore(s => s.sidebarCollapsed);
+L142: (1) const snapToGrid = useCanvasStore(s => s.snapToGrid); // Grid System
+L145: (1) const updateViewport = useCanvasStore(s => s.updateViewport);
+L146: (1) const saveViewport = useCanvasStore(s => s.saveViewport);
+L147: (1) const moveThing = useCanvasStore(s => s.moveThing);
+L148: (1) const updateThing = useCanvasStore(s => s.updateThing);
+L149: (1) const updateThings = useCanvasStore(s => s.updateThings);
+L150: (1) const deleteThing = useCanvasStore(s => s.deleteThing);
+L151: (1) const selectThing = useCanvasStore(s => s.selectThing);
+L152: (1) const selectDomain = useCanvasStore(s => s.selectDomain);
+L153: (1) const emitCanvasEvent = useCanvasStore(s => s.emitCanvasEvent);
+L154: (1) const checkThingInDomain = useCanvasStore(s => s.checkThingInDomain);
+L155: (1) const updateDomain = useCanvasStore(s => s.updateDomain);
+L156: (1) const getHierarchyDepth = useCanvasStore(s => s.getHierarchyDepth);
+L157: (1) const toggleIconify = useCanvasStore(s => s.toggleIconify);
+L158: (1) const setDockedThing = useCanvasStore(s => s.setDockedThing);
+L159: (1) const deleteSelectedNodes = useCanvasStore(s => s.deleteSelectedNodes);
+L162: (1) const addThing = useCanvasStore(s => s.addThing);
+L163: (1) const addLink = useCanvasStore(s => s.addLink);
+L164: (1) const deleteLink = useCanvasStore(s => s.deleteLink);
+L165: (1) const clearSelection = useCanvasStore(s => s.clearSelection);
+L166: (1) const addDomain = useCanvasStore(s => s.addDomain);
+L167: (1) const moveDomain = useCanvasStore(s => s.moveDomain);
+L168: (1) const addThingToDomain = useCanvasStore(s => s.addThingToDomain);
+L169: (1) const removeThingFromDomain = useCanvasStore(s => s.removeThingFromDomain);
+L170: (1) const setSelectedItems = useCanvasStore(s => s.setSelectedItems);
+L171: (1) const setSelectionMode = useCanvasStore(s => s.setSelectionMode);
+L172: (1) const toggleShowLinks = useCanvasStore(s => s.toggleShowLinks);
+L173: (1) const setSemanticZoomEnabled = useCanvasStore(s => s.setSemanticZoomEnabled);
+L174: (1) const triggerZoneLayout = useCanvasStore(s => s.triggerZoneLayout); // Layout Engine
+L175: (1) const activeScenario = useCanvasStore(s => s.activeScenario);
+L184: (1) const [dockWidth, setDockWidth] = React.useState(400);
+L185: (1) const [dockHeight, setDockHeight] = React.useState(300);
+L186: (1) const [isResizing, setIsResizing] = React.useState(false);
+L188: (2) const handleResize = React.useCallback((e: MouseEvent) => {
+L203: (2) const stopResizing = React.useCallback(() => {
+L207: (2) React.useEffect(() => {
+L270: (1) const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
+L271: (1) const [showDomainSelector, setShowDomainSelector] = React.useState(false);
+L280: (1) const [contextMenuOpen, setContextMenuOpen] = React.useState(false);
+L281: (1) const [contextMenuPosition, setContextMenuPosition] = React.useState({ x: 0, y: 0 });
+L286: (2) const handleOpenConversation = React.useCallback((conversationId: string) => {
+L297: (2) const handleThingResize = React.useCallback((thingId: string, width: number, height: number) => {
+L302: (2) const handleSafeDeleteThing = React.useCallback(async (thingId: string) => {
+L320: (2) const thingNodes: Node[] = React.useMemo(() => things.map((thing) => ({
+L344: (2) const handleDomainUpdate = React.useCallback((domainId: string, updates: { name?: string; description?: string; color?: string }) => {
+L349: (1) const onNodeContextMenu = React.useCallback(
+L378: (1) const handleDomainContextMenu = React.useCallback(
+L397: (2) const handleDomainResize = React.useCallback((domainId: string, width: number, height: number, x?: number, y?: number) => {
+L444: (2) const handleDomainResizeEnd = React.useCallback((domainId: string, width: number, height: number, x?: number, y?: number) => {
+L456: (2) const domainNodes: Node[] = React.useMemo(() => domains.map((domain) => {
+L510: (1) const allNodes = React.useMemo(() =>
+L516: (2) const getLinkColor = React.useCallback((linkType: string) => {
+L538: (2) const allEdges: Edge[] = React.useMemo(() => {
+L644: (1) const [nodes, setNodes, onNodesChange] = useNodesState(allNodes);
+L645: (1) const [edges, setEdges, onEdgesChange] = useEdgesState(allEdges);
+L656: (2) React.useEffect(() => {
+L661: (2) React.useEffect(() => {
+L692: (1) const isResizingRef = React.useRef(false);
+L695: (1) const handleNodesChange = React.useCallback(
+L735: (2) React.useEffect(() => {
+L784: (2) React.useEffect(() => {
+L789: (1) const onSelectionDragStart = React.useCallback(
+L796: (1) const onSelectionDragStop = React.useCallback(
+L809: (1) const onNodeDragStart = React.useCallback(
+L824: (1) const onNodeDragStop = React.useCallback(
+L1182: (2) const handleMove = React.useCallback((_: any, viewport: any) => {
+L1188: (1) const onConnect = React.useCallback(
+L1203: (1) const handleCreateLink = React.useCallback(
+L1221: (1) const onEdgeClick = React.useCallback(
+L1234: (1) const handleUpdateLink = React.useCallback(
+L1268: (2) const handleDeleteLink = React.useCallback(async () => {
+L1277: (2) const handleEdgesDelete = React.useCallback(async (edges: Edge[]) => {
+L1299: (2) const onMoveEnd = React.useCallback(() => {
+L1305: (2) React.useEffect(() => {
+L1314: (1) const onNodeClick = React.useCallback(
+L1332: (2) const onPaneClick = React.useCallback(() => {
+L1337: (1) const handlePaneContextMenu = React.useCallback(
+L1386: (1) const transclusionGhostId = useCanvasStore((state) => state.transclusionGhostId);
+L1390: (2) React.useEffect(() => {
+L1416: (1) const [isDraggingFile, setIsDraggingFile] = React.useState(false);
+L1420: (2) const handleDragOver = React.useCallback((e: React.DragEvent) => {
+L1437: (1) const onSelectionChange = React.useCallback(
+L1496: (2) const handleDragLeave = React.useCallback((e: React.DragEvent) => {
+L1509: (2) React.useEffect(() => {
+L1788: (2) const handleContextMenuAction = React.useCallback(async (action: string, context: "canvas" | "domain" | "selection", domainId?: string, fragment?: any) => {
+L2235: (1) const { conversations, createNewConversation, setActiveConversationId } = useConversation();
+L2236: (1) const { setViewMode } = useViewMode();
+L2240: (1) const [showTextDialog, setShowTextDialog] = React.useState(false);
+L2241: (1) const [showDomainDialog, setShowDomainDialog] = React.useState(false);
+L2242: (1) const [showUrlDialog, setShowUrlDialog] = React.useState(false);
+L2243: (1) const [showConversationDialog, setShowConversationDialog] = React.useState(false);
+L2244: (1) const [showImageSlidesDialog, setShowImageSlidesDialog] = React.useState(false);
+L2245: (1) const [showMCPToolDialog, setShowMCPToolDialog] = React.useState(false);
+L2248: (1) const [isDraggingNode, setIsDraggingNode] = React.useState(false);
+L2255: (1) const [textContent, setTextContent] = React.useState("");
+L2256: (1) const [domainName, setDomainName] = React.useState("");
+L2257: (1) const [domainDescription, setDomainDescription] = React.useState("");
+L2258: (1) const [urlContent, setUrlContent] = React.useState("");
+L2259: (1) const [scrapeDepth, setScrapeDepth] = React.useState(0);
+L2260: (1) const [warnExternal, setWarnExternal] = React.useState(true);

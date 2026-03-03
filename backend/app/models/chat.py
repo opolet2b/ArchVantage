@@ -13,6 +13,7 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     model: Optional[str] = "gpt-3.5-turbo"
     conversation_id: Optional[str] = None
+    kb_id: Optional[str] = None
 
 
 class CitationMatch(BaseModel):

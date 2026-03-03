@@ -2096,7 +2096,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 const currentUrl = normalizeUrl(rawUrl);
                 const pageContent = pages[currentUrl];
 
-                const renderBrowserContent = React.useMemo(() => {
+                const renderBrowserContent = (() => {
                     // Always log for debugging
                     console.log("DEBUG: Current URL (Normalized):", currentUrl);
                     console.log("DEBUG: Raw URL:", rawUrl);
@@ -2145,7 +2145,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             ancestorIds={[thing.id]}
                         />
                     );
-                }, [currentUrl, pageContent, thing.id, thing.content, handleTransclusionStateChange, handleTextSelection]);
+                })();
 
                 return (
                     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden">

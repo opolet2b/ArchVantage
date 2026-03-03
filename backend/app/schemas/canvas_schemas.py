@@ -315,6 +315,7 @@ class DomainResponse(BaseModel):
 class SummarizeRequest(BaseModel):
     """Request to generate summaries for a thing."""
     thing_id: str
+    kb_id: Optional[str] = None
 
 
 class SummarizeResponse(BaseModel):
@@ -342,6 +343,7 @@ class BatchAnalyzeRequest(BaseModel):
     action: AnalyzeAction
     custom_prompt: Optional[str] = None
     model: Optional[str] = None
+    kb_id: Optional[str] = None
 
 
 class FragmentData(BaseModel):
@@ -374,6 +376,7 @@ class AnalyzeRequest(BaseModel):
     model: Optional[str] = None
     custom_prompt: Optional[str] = None  # For "ask" action
     image_data: Optional[str] = None  # Base64 image data for vision analysis
+    kb_id: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -431,6 +434,7 @@ class ExecuteTemplateRequest(BaseModel):
     level_of_detail: Optional[str] = "medium" # low, medium, high
     source_fragment: Optional[FragmentData] = None
     user_id: Optional[int] = None # Added for tracking execution owner
+    kb_id: Optional[str] = None
 
 class ExecuteTemplateResponse(BaseModel):
     """Response for template execution start."""

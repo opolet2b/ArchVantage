@@ -34,6 +34,14 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import domToImage from "dom-to-image-more";
 
@@ -58,6 +66,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const canvasId = useCanvasStore((s) => s.canvasId);
     const activeScenario = useCanvasStore((s) => s.activeScenario);
     const toolbarConfig = activeScenario?.configuration?.ui_overrides?.toolbar_config;
+    const selectedKbId = useCanvasStore((s) => s.selectedKbId);
     // Viewport moved to ZoomIndicator for performance
 
     // Actions
@@ -69,6 +78,8 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const deleteSelectedNodes = useCanvasStore((s) => s.deleteSelectedNodes);
     const refreshThings = useCanvasStore((s) => s.refreshThings);
     const updateCanvasSettings = useCanvasStore((s) => s.updateCanvasSettings);
+    const setSelectedKbId = useCanvasStore((s) => s.setSelectedKbId);
+
     // @ts-ignore
     const showStandardTools = !toolbarConfig || toolbarConfig.keep_standard_tools !== false;
 
@@ -82,15 +93,19 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const [isLoadingModels, setIsLoadingModels] = React.useState(true);
     const [scenarioSelectorOpen, setScenarioSelectorOpen] = React.useState(false);
 
+    const [kbs, setKbs] = React.useState<any[]>([]);
+    const [isLoadingKbs, setIsLoadingKbs] = React.useState(true);
+
     React.useEffect(() => {
         const fetchModels = async () => {
             try {
                 const token = localStorage.getItem("token");
                 const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
 
-                const [presetsRes, defaultsRes] = await Promise.all([
+                const [presetsRes, defaultsRes, kbsRes] = await Promise.all([
                     fetch(`${API_URL}/config/presets`, { headers }),
-                    fetch(`${API_URL}/config/defaults`, { headers })
+                    fetch(`${API_URL}/config/defaults`, { headers }),
+                    fetch(`${API_URL}/knowledge/kb`, { headers })
                 ]);
 
                 if (presetsRes.ok) {
@@ -126,10 +141,16 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         }
                     }
                 }
+
+                if (kbsRes.ok) {
+                    const kbData = await kbsRes.json();
+                    setKbs(kbData);
+                }
             } catch (error) {
-                console.error("Failed to fetch model presets:", error);
+                console.error("Failed to fetch model presets or kbs:", error);
             } finally {
                 setIsLoadingModels(false);
+                setIsLoadingKbs(false);
             }
         };
         fetchModels();
@@ -197,9 +218,9 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     };
 
     return (
-        <div className="flex items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0">
-            <div id="canvas-model-selectors" className="flex items-center">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0 gap-y-2">
+            <div id="canvas-model-selectors" className="flex flex-wrap items-center gap-y-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mr-4">
                     <Brain className="h-4 w-4" />
                     <span>Model:</span>
                     {isLoadingModels ? (
@@ -232,7 +253,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                     )}
                 </div>
 
-                <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 ml-4">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
                     <Eye className="h-4 w-4" />
                     <span>Vision:</span>
                     {isLoadingModels ? (
@@ -268,133 +289,171 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         </Select>
                     )}
                 </div>
-            </div>
 
-            <div className="flex items-center gap-1 border-l pl-4 ml-4 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-md">
-                {showStandardTools && (
-                    <>
-                        <Button
-                            variant={selectionMode === "hand" ? "secondary" : "ghost"}
-                            size="sm"
-                            className={cn("h-8 w-8 p-0", selectionMode === "hand" && "bg-white dark:bg-slate-700 shadow-sm")}
-                            onClick={() => setSelectionMode("hand")}
-                            title="Hand Tool (Pan) - Hold Shift to Select"
+                <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
+                    <LucideIcons.Database className="h-4 w-4" />
+                    <span>Knowledge Base:</span>
+                    {isLoadingKbs ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Select
+                            value={selectedKbId || "none"}
+                            onValueChange={(value) => {
+                                setSelectedKbId(value === "none" ? null : value);
+                                updateCanvasSettings({ kb_id: value === "none" ? null : value });
+                            }}
                         >
-                            <Hand className="h-4 w-4" />
+                            <SelectTrigger className="w-[200px] h-8 text-sm">
+                                <SelectValue placeholder="Select Knowledge Base..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none">
+                                    <span className="text-muted-foreground italic">None</span>
+                                </SelectItem>
+                                {kbs.map((kb) => (
+                                    <SelectItem key={kb.id} value={kb.id}>
+                                        <div className="flex flex-col">
+                                            <span>{kb.name}</span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                                {kbs.length === 0 && (
+                                    <div className="p-2 text-xs text-muted-foreground">
+                                        No active KBs found
+                                    </div>
+                                )}
+                            </SelectContent>
+                        </Select>
+                    )}
+                </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-md border">
+                    {showStandardTools && (
+                        <>
+                            <Button
+                                variant={selectionMode === "hand" ? "secondary" : "ghost"}
+                                size="sm"
+                                className={cn("h-8 w-8 p-0", selectionMode === "hand" && "bg-white dark:bg-slate-700 shadow-sm")}
+                                onClick={() => setSelectionMode("hand")}
+                                title="Hand Tool (Pan) - Hold Shift to Select"
+                            >
+                                <Hand className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant={selectionMode === "selection" ? "secondary" : "ghost"}
+                                size="sm"
+                                className={cn("h-8 w-8 p-0", selectionMode === "selection" && "bg-white dark:bg-slate-700 shadow-sm")}
+                                onClick={() => setSelectionMode("selection")}
+                                title="Pointer Tool (Select) - Drag to Select"
+                            >
+                                <MousePointer2 className="h-4 w-4" />
+                            </Button>
+                        </>
+                    )}
+
+                    {/* Custom Main Tools moved to Node Selection Toolbar */}
+                </div>
+
+                <div className="flex items-center gap-1 border-l pl-4">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-slate-500 hover:text-primary"
+                        onClick={() => setScenarioSelectorOpen(true)}
+                        title="Scenarios (Vertical Modes)"
+                    >
+                        <Layers className="h-4 w-4 mr-2" />
+                        Scenarios
+                    </Button>
+                    <ScenarioSelector
+                        open={scenarioSelectorOpen}
+                        onOpenChange={setScenarioSelectorOpen}
+                        onSelect={handleScenarioSelect}
+                    />
+                </div>
+
+                <div className="h-6 w-px bg-border mx-2 hidden sm:block" />
+
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-8 shadow-sm">
+                            <LucideIcons.MoreHorizontal className="h-4 w-4 mr-2" />
+                            View & Actions
                         </Button>
-                        <Button
-                            variant={selectionMode === "selection" ? "secondary" : "ghost"}
-                            size="sm"
-                            className={cn("h-8 w-8 p-0", selectionMode === "selection" && "bg-white dark:bg-slate-700 shadow-sm")}
-                            onClick={() => setSelectionMode("selection")}
-                            title="Pointer Tool (Select) - Drag to Select"
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-[240px]">
+                        <DropdownMenuLabel>View Options</DropdownMenuLabel>
+
+                        <div className="flex items-center justify-between px-2 py-1.5">
+                            <Label htmlFor="grid-toggle" className="text-sm font-normal cursor-pointer">
+                                Show Grid
+                            </Label>
+                            <Switch
+                                id="grid-toggle"
+                                checked={useCanvasStore((s) => s.snapToGrid)}
+                                onCheckedChange={() => useCanvasStore.getState().toggleSnapToGrid()}
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between px-2 py-1.5">
+                            <Label htmlFor="links-toggle" className="text-sm font-normal cursor-pointer">
+                                Show Links
+                            </Label>
+                            <Switch
+                                id="links-toggle"
+                                checked={showLinks}
+                                onCheckedChange={() => toggleShowLinks()}
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between px-2 py-1.5 border-b pb-2 mb-1">
+                            <div className="flex items-center gap-2">
+                                <Label htmlFor="semantic-toggle" className="text-sm font-normal cursor-pointer">
+                                    Semantic Zoom
+                                </Label>
+                            </div>
+                            <div className="flex flex-row items-center gap-2">
+                                <Switch
+                                    id="semantic-toggle"
+                                    checked={!!semanticZoomEnabled}
+                                    onCheckedChange={setSemanticZoomEnabled}
+                                />
+                                <ZoomIndicator />
+                            </div>
+                        </div>
+
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+
+                        <DropdownMenuItem onClick={handleCaptureThumbnail} className="cursor-pointer">
+                            <Camera className="h-4 w-4 mr-2 text-slate-500" />
+                            <span>Capture 3D Thumbnail</span>
+                        </DropdownMenuItem>
+
+                        <DropdownMenuItem
+                            className="cursor-pointer text-green-600 focus:text-green-600 focus:bg-green-50 dark:focus:bg-green-950/30"
+                            onClick={async () => {
+                                const confirmed = window.confirm("Sync All Files?");
+                                if (confirmed) {
+                                    try {
+                                        // @ts-ignore
+                                        await useCanvasStore.getState().syncAllThings();
+                                        toast({ title: "Sync Complete" });
+                                        refreshThings();
+                                    } catch (error) {
+                                        toast({ title: "Sync Failed", variant: "destructive" });
+                                    }
+                                }
+                            }}
                         >
-                            <MousePointer2 className="h-4 w-4" />
-                        </Button>
-                    </>
-                )}
+                            <RefreshCcw className="h-4 w-4 mr-2" />
+                            <span>Sync All Files</span>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
 
-                {/* Custom Main Tools moved to Node Selection Toolbar */}
-            </div>
-
-            <div className="flex items-center gap-1 border-l pl-4 ml-4">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-slate-500 hover:text-primary"
-                    onClick={() => setScenarioSelectorOpen(true)}
-                    title="Scenarios (Vertical Modes)"
-                >
-                    <Layers className="h-4 w-4 mr-2" />
-                    Scenarios
-                </Button>
-                <ScenarioSelector
-                    open={scenarioSelectorOpen}
-                    onOpenChange={setScenarioSelectorOpen}
-                    onSelect={handleScenarioSelect}
-                />
-            </div>
-
-            <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-slate-500 hover:text-blue-600"
-                    onClick={handleCaptureThumbnail}
-                    title="3D orientation thumbnail"
-                >
-                    <Camera className="h-4 w-4 mr-2" />
-                    3D capture
-                </Button>
-            </div>
-
-            <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                <div className="flex items-center gap-2">
-                    <Label htmlFor="grid-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
-                        Grid
-                    </Label>
-                    <Switch
-                        id="grid-toggle"
-                        checked={useCanvasStore((s) => s.snapToGrid)}
-                        onCheckedChange={() => useCanvasStore.getState().toggleSnapToGrid()}
-                    />
-                </div>
-            </div>
-
-            <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                <div className="flex items-center gap-2">
-                    <Label htmlFor="links-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
-                        Links
-                    </Label>
-                    <Switch
-                        id="links-toggle"
-                        checked={showLinks}
-                        onCheckedChange={() => toggleShowLinks()}
-                    />
-                </div>
-            </div>
-
-            <div className="flex items-center gap-2 border-l pl-4 ml-4 h-8">
-                <div className="flex items-center gap-2">
-                    <Label htmlFor="semantic-toggle" className="text-xs font-medium text-slate-500 cursor-pointer">
-                        Semantic
-                    </Label>
-                    <Switch
-                        id="semantic-toggle"
-                        checked={!!semanticZoomEnabled}
-                        onCheckedChange={setSemanticZoomEnabled}
-                    />
-                </div>
-
-                <ZoomIndicator />
-            </div>
-
-            <div className="flex items-center gap-2 border-l pl-4 ml-4">
-                <Button
-                    id="canvas-sync-btn"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 text-slate-500 hover:text-green-600"
-                    onClick={async () => {
-                        const confirmed = window.confirm("Sync All Files?");
-                        if (confirmed) {
-                            try {
-                                // @ts-ignore
-                                await useCanvasStore.getState().syncAllThings();
-                                toast({ title: "Sync Complete" });
-                                refreshThings();
-                            } catch (error) {
-                                toast({ title: "Sync Failed", variant: "destructive" });
-                            }
-                        }
-                    }}
-                    title="Sync All Files"
-                >
-                    <RefreshCcw className="h-4 w-4 mr-2" />
-                    Sync All
-                </Button>
-
-                <div className="h-6 w-px bg-border mx-2" />
+                <div className="h-6 w-px bg-border mx-2 hidden sm:block" />
 
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -428,7 +487,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                 </AlertDialog>
             </div>
 
-            <div className="flex items-center gap-2 border-l pl-4 ml-4">
+            <div className="flex items-center gap-2">
                 <CanvasSettingsDialog />
             </div>
         </div >

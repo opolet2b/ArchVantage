@@ -1,0 +1,86 @@
+L321: (1) const { toast } = useToast();
+L322: (1) const hiddenNodeLinks = useCanvasStore(state => state.hiddenNodeLinks);
+L323: (1) const toggleNodeLinks = useCanvasStore(state => state.toggleNodeLinks);
+L337: (1) const canvasId = useCanvasStore((state) => state.canvasId);
+L342: (1) const storeThing = useCanvasStore(state => state.things.find(t => t.id === thing.id));
+L346: (1) const zoomLevel = useCanvasStore((state) => state.zoomLevel);
+L347: (1) const updateThing = useCanvasStore((state) => state.updateThing);
+L348: (1) const deleteThing = useCanvasStore((state) => state.deleteThing);
+L349: (1) const selectThing = useCanvasStore((state) => state.selectThing);
+L350: (1) const setHighlightTarget = useCanvasStore((state) => state.setHighlightTarget);
+L351: (1) const setContentSelection = useCanvasStore((state) => state.setContentSelection);
+L352: (1) const onToggleIconify = useCanvasStore((state) => state.toggleIconify);
+L353: (1) const onDelete = useCanvasStore((state) => state.deleteThing);
+L354: (1) const checkSyncStatus = useCanvasStore((state) => state.checkSyncStatus);
+L355: (1) const performSyncUpdate = useCanvasStore((state) => state.performSyncUpdate);
+L356: (1) const setDockedThing = useCanvasStore((state) => state.setDockedThing);
+L357: (1) const setEditingThingId = useCanvasStore((state) => state.setEditingThingId);
+L358: (1) const editingThingId = useCanvasStore((state) => state.editingThingId);
+L359: (1) const dockedThingId = useCanvasStore((state) => state.dockedThingId);
+L360: (1) const dockPosition = useCanvasStore((state) => state.dockPosition);
+L361: (1) const canvasSettings = useCanvasStore((state) => state.canvasSettings);
+L362: (1) const toggleInspector = useCanvasStore((state) => state.toggleInspector);
+L364: (1) const processingThings = useCanvasStore((state) => state.processingThings);
+L366: (1) const activeScenario = useCanvasStore((state) => state.activeScenario);
+L368: (1) const [selected, setSelected] = React.useState(isSelected);
+L371: (1) const [isFullScreen, setIsFullScreen] = React.useState(false);
+L374: (1) const [isEditingContent, setIsEditingContent] = React.useState(false);
+L375: (1) const [isTrulyFullscreen, setIsTrulyFullscreen] = React.useState(false);
+L383: (2) React.useEffect(() => {
+L389: (1) const [executionPlanOpen, setExecutionPlanOpen] = React.useState(false);
+L393: (2) const handleOpenExecutionPlan = React.useCallback(() => {
+L398: (1) const [linkTypeDialogOpen, setLinkTypeDialogOpen] = React.useState(false);
+L403: (2) React.useEffect(() => {
+L419: (2) React.useEffect(() => {
+L428: (2) const startEditing = React.useCallback(() => {
+L433: (1) const [syncDialogOpen, setSyncDialogOpen] = React.useState(false);
+L450: (2) React.useEffect(() => {
+L575: (1) const [isRefreshingNodes, setIsRefreshingNodes] = React.useState(false);
+L631: (1) const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
+L636: (1) const [deleteRegionDialogOpen, setDeleteRegionDialogOpen] = React.useState(false);
+L640: (1) const [hasInnerSelection, setHasInnerSelection] = React.useState(false);
+L643: (1) const [localStatus, setLocalStatus] = React.useState(currentThing.rag_status);
+L646: (1) const [isEditingTitle, setIsEditingTitle] = React.useState(false);
+L647: (1) const [titleInputValue, setTitleInputValue] = React.useState("");
+L650: (2) React.useEffect(() => {
+L662: (2) React.useEffect(() => {
+L666: (2) React.useEffect(() => {
+L671: (2) const handleVectorize = React.useCallback(async () => {
+L706: (2) React.useEffect(() => {
+L750: (1) const [askDialogOpen, setAskDialogOpen] = React.useState(false);
+L751: (1) const [customPrompt, setCustomPrompt] = React.useState("");
+L754: (1) const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
+L757: (1) const [isThinkingVisible, setIsThinkingVisible] = React.useState(false);
+L760: (2) const { thinkingContent, cleanContent, hasThinking } = React.useMemo(() => {
+L781: (1) const addThing = useCanvasStore((state) => state.addThing);
+L782: (1) const addLink = useCanvasStore((state) => state.addLink);
+L783: (1) const updateLink = useCanvasStore((state) => state.updateLink);
+L784: (1) const deleteLink = useCanvasStore((state) => state.deleteLink);
+L785: (1) const selectedModel = useCanvasStore((state) => state.selectedModel);
+L786: (1) const visionModel = useCanvasStore((state) => state.visionModel);
+L787: (1) const links = useCanvasStore((state) => state.links);
+L788: (1) const { analyze, isLoading } = useAnalyze();
+L791: (1) // const removeExternalLink = useCanvasStore(state => state.removeExternalLink);
+L794: (1) const [crossCanvasLinkDialogOpen, setCrossCanvasLinkDialogOpen] = React.useState(false);
+L803: (2) const externalLinks = React.useMemo(() => {
+L823: (2) React.useEffect(() => {
+L879: (1) const [resultDialogOpen, setResultDialogOpen] = React.useState(false);
+L883: (1) const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false);
+L890: (2) const executionPlanData = React.useMemo(() => {
+L1072: (2) React.useEffect(() => {
+L1096: (2) const imageOverlays = React.useMemo(() => {
+L1143: (2) const handleTextSelection = React.useCallback((fragment: Fragment, position: { x: number; y: number }) => {
+L1149: (2) const handleRegionCreate = React.useCallback(async (fragment: Fragment, _position?: { x: number; y: number }) => {
+L1192: (2) const handleConfirmDeleteRegion = React.useCallback(async () => {
+L1237: (2) const handleOverlayDelete = React.useCallback(async (id: string) => {
+L1252: (2) const handleOverlayResize = React.useCallback(async (overlayId: string, x: number, y: number, width: number, height: number) => {
+L1286: (2) const createNodeAndLink = React.useCallback(async (text: string, sourceFragment: Fragment, targetCanvasId?: string) => {
+L1316: (2) const fetchImageAsBase64 = React.useCallback(async (url: string): Promise<string | null> => {
+L1376: (1) const handleAction = React.useCallback(
+L1489: (2) const handleAskSubmit = React.useCallback(async (e?: React.SyntheticEvent) => {
+L1536: (2) const handleLink = React.useCallback((fragment: Fragment) => {
+L1544: (2) const handleLinkToTarget = React.useCallback((targetId: string) => {
+L1554: (2) const handleConfirmLink = React.useCallback(async (type: LinkType, label: string, description: string) => {
+L1575: (2) const handleCreateThing = React.useCallback(async () => {
+L1584: (1) const highlightedFragment = useCanvasStore(state => state.highlightedFragment);
+L2099: (6) const renderBrowserContent = React.useMemo(() => {

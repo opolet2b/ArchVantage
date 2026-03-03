@@ -108,6 +108,30 @@ class IngestionService:
 
                 print(f"[IngestionService] Discovery for KB {kb_id} started. Accumulated {len(accumulated_text)} chars of text. Skipped {skipped_files} unchanged files.")
 
+                # 1.5. Vectorize Ontology into ChromaDB for Semantic Search later
+                from app.services.rag_service import rag_service
+                
+                print(f"[IngestionService] Vectorizing Ontology for KB {kb_id} into ChromaDB...")
+                for cls in ontology_classes:
+                    cls_name = cls.get("name", "Unknown")
+                    cls_desc = cls.get("description", "")
+                    
+                    # Store descriptive metadata as text to be embedded
+                    ontology_text = f"Knowledge Base Ontology Class: {cls_name}. Description: {cls_desc}"
+                    
+                    # Attach standard metadata for filtering later in RAG search
+                    v_meta = {
+                        "kb_id": kb_id,
+                        "type": "ontology_class",
+                        "class_name": cls_name
+                    }
+                    try:
+                        rag_service.ingest_text(ontology_text, metadata=v_meta)
+                    except Exception as ve:
+                        print(f"[IngestionService] Failed to vectorize ontology class {cls_name}: {ve}")
+                        
+                print(f"[IngestionService] Ontology vectorization complete.")
+
                 # 2. Extract entities and relationships via LLM
                 class_names = [cls.get("name") for cls in ontology_classes]
                 # Get approved edges list to feed to LLM

@@ -683,6 +683,14 @@ class SmartTemplateService:
              
         is_doc_template = bool(template.document_template_id) or "Document" in template.category_name
         
+        # --- KB Context Enrichment ---
+        if request.kb_id:
+            from app.services.context_enrichment_service import context_enrichment_service
+            active_model = request.model or "default"
+            kb_context = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_id, db, active_model)
+            if kb_context:
+                combined_context = f"{kb_context}\n\nSelected Content:\n{combined_context}"
+                
         inputs = {
             "selection": entities_data,
             "combined_context": combined_context,
@@ -1656,7 +1664,19 @@ class SmartTemplateService:
                        if r.description:
                            lbl += f" ({r.description})"
                        combined_context += f"- {src} --[{lbl}]--> {tgt}\n"
-        
+        # --- KB Context Enrichment ---
+        if request.kb_id:
+            from app.services.context_enrichment_service import context_enrichment_service
+            template_purpose = template.name
+            if template.pipeline_config and isinstance(template.pipeline_config, dict):
+                 template_purpose = template.pipeline_config.get("purpose", template.name)
+                 
+            active_model = request.model or "default"
+            kb_context = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_id, db, active_model)
+            if kb_context:
+                combined_context = f"{kb_context}\n\nSelected Content:\n{combined_context}"
+                yield {"type": "progress", "content": "Knowledge Base context retrieved."}
+
         # Determine extraction instructions (try to find first Extractor step config)
         extraction_instructions = ExtractionInstructions(focus="Key information related to analysis goals")
         if template.pipeline_config:

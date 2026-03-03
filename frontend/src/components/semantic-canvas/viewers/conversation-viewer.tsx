@@ -81,6 +81,8 @@ export function ConversationViewer({
     const { fitView } = useReactFlow();
     const selectThing = useCanvasStore(state => state.selectThing);
     const setHighlightTarget = useCanvasStore(state => state.setHighlightTarget);
+    const selectedKbId = useCanvasStore(state => state.selectedKbId);
+    const selectedModel = useCanvasStore(state => state.selectedModel);
 
     // Voice Recognition Hook
     const { isListening, isSupported, toggleListening } = useSpeechRecognition({
@@ -185,8 +187,9 @@ export function ConversationViewer({
                 },
                 body: JSON.stringify({
                     messages: [...messages, userMessage],
-                    model: "default", // Or passed prop
-                    conversation_id: conversationId // Pass ID for potential RAG context lookup
+                    model: selectedModel || "default", // Or passed prop
+                    conversation_id: conversationId, // Pass ID for potential RAG context lookup
+                    kb_id: selectedKbId
                 }),
             });
 

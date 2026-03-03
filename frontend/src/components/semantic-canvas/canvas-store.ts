@@ -363,6 +363,10 @@ interface CanvasState {
     selectedModel: string | null;
     setSelectedModel: (model: string | null) => void;
 
+    // Selected Knowledge Base for semantic enrichment
+    selectedKbId: string | null;
+    setSelectedKbId: (id: string | null) => void;
+
     // Analysis Detail Level
     levelOfDetail: "low" | "medium" | "high";
     setLevelOfDetail: (level: "low" | "medium" | "high") => void;
@@ -650,6 +654,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedModel: null,
     setSelectedModel: (model) => set({ selectedModel: model }),
 
+    // Selected Knowledge Base
+    selectedKbId: null,
+    setSelectedKbId: (id) => set({ selectedKbId: id }),
+
     // Analysis Detail Level
     levelOfDetail: "medium",
     setLevelOfDetail: (level) => set({ levelOfDetail: level }),
@@ -902,6 +910,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 canvasSettings: config,
                 selectedModel: config.model || null,
                 visionModel: config.vision_model || null,
+                selectedKbId: config.kb_id || null,
                 viewport: canvas.viewport,
                 zoomLevel: getZoomLevel(canvas.viewport.zoom),
                 isLoading: false,
@@ -2008,7 +2017,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 body: JSON.stringify({
                     thing_ids: thingIds,
                     action: action,
-                    model: model
+                    model: model,
+                    kb_id: get().selectedKbId
                 }),
             });
 
@@ -2302,7 +2312,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                         canvas_id: canvasId,
                         thing_ids: thingIds,
                         domain_ids: domainIds,
-                        model: activeModel || undefined
+                        model: activeModel || undefined,
+                        kb_id: get().selectedKbId
                     }),
                 }
             );

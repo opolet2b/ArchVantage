@@ -317,6 +317,32 @@ async def chat_endpoint(
             last_msg = m.content
             break
 
+    # Detect active model/preset
+    active_model = request.model
+    if active_model == "default" and request.conversation_id:
+        # Check if the canvas has a preferred model set in owner_config
+        from app.models.canvas_models import CanvasThing, Canvas
+        
+        # Portable JSON filtering: pull candidates and filter in Python to avoid DB-specific JSON syntax issues
+        candidates = db.query(CanvasThing).filter(CanvasThing.type == "conversation").all()
+        convo_thing = next((t for t in candidates if str(t.content.get("conversation_id")) == request.conversation_id), None)
+        if convo_thing and convo_thing.canvas_id:
+            canvas = db.query(Canvas).filter(Canvas.id == convo_thing.canvas_id).first()
+            if canvas and canvas.owner_config and canvas.owner_config.get("selected_preset"):
+                active_model = canvas.owner_config["selected_preset"]
+                print(f"[Chat] Using canvas-specific preset: {active_model}")
+
+    # --- KB Context Enrichment ---
+    from app.services.context_enrichment_service import context_enrichment_service
+    kb_context = await context_enrichment_service.enrich_context(last_msg, request.kb_id, db, active_model)
+    if kb_context:
+        # Augment the last message content with the KB context
+        for m in reversed(final_messages):
+            if m.role == "user":
+                m.content = f"{kb_context}\n\nQuestion: {last_msg}"
+                last_msg = m.content
+                break
+
     total_nodes = []
     citations = []
 
@@ -343,20 +369,6 @@ async def chat_endpoint(
                 score=res.get('score', 1.0)
             ))
 
-    # Detect active model/preset
-    active_model = request.model
-    if active_model == "default" and request.conversation_id:
-        # Check if the canvas has a preferred model set in owner_config
-        from app.models.canvas_models import CanvasThing, Canvas
-        
-        # Portable JSON filtering: pull candidates and filter in Python to avoid DB-specific JSON syntax issues
-        candidates = db.query(CanvasThing).filter(CanvasThing.type == "conversation").all()
-        convo_thing = next((t for t in candidates if str(t.content.get("conversation_id")) == request.conversation_id), None)
-        if convo_thing and convo_thing.canvas_id:
-            canvas = db.query(Canvas).filter(Canvas.id == convo_thing.canvas_id).first()
-            if canvas and canvas.owner_config and canvas.owner_config.get("selected_preset"):
-                active_model = canvas.owner_config["selected_preset"]
-                print(f"[Chat] Using canvas-specific preset: {active_model}")
 
     if total_nodes:
         # Use LlamaIndex Response Synthesizer to handle token budgeting
