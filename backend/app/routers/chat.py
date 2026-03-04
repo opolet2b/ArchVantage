@@ -22,7 +22,7 @@ from app.models.agent_blueprint import AgentBlueprint
 router = APIRouter()
 
 
-def resolve_conversation_context(db: Session, conversation_id: str, last_user_message: str = "") -> dict:
+def resolve_conversation_context(db: Session, conversation_id: str, last_user_message: str = "", active_model: str = "default") -> dict:
     """
     Helper to resolve context for a conversation.
     Returns a dict with:
@@ -155,7 +155,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 
                 for cand in rag_candidates:
                     tid = cand["thing_id"]
-                    results = rag_service.search(query, filters={"thing_id": tid}, k=3)
+                    results = rag_service.search(query, filters={"thing_id": tid}, k=3, model_name=active_model)
                     
                     if results:
                         used_citation_ids.add(tid)
@@ -167,7 +167,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                     else:
                         # Fallback
                         fallback_results = rag_service.search(
-                            "Summary Introduction Abstract", filters={"thing_id": tid}, k=2
+                            "Summary Introduction Abstract", filters={"thing_id": tid}, k=2, model_name=active_model
                         )
                         if fallback_results:
                             used_citation_ids.add(tid)
@@ -285,11 +285,11 @@ async def debug_chat_context(
     """Debug endpoint to see what context is resolved for a conversation ID."""
     from app.services.rag_service import rag_service
     
-    result = resolve_conversation_context(db, conversation_id, "DEBUG_TEST")
+    result = resolve_conversation_context(db, conversation_id, "DEBUG_TEST", "default")
     
     # Debug the fallback logic too
     if not result.get("linked_items"):
-        direct_results = rag_service.search("DEBUG_TEST", conversation_id=conversation_id, k=3, response_mode="simple")
+        direct_results = rag_service.search("DEBUG_TEST", conversation_id=conversation_id, k=3, response_mode="simple", model_name="default")
         result["fallback_rag_results"] = direct_results
         result["fallback_message"] = f"Found {len(direct_results)} items via direct RAG search"
         
@@ -339,7 +339,7 @@ async def chat_endpoint(
         # Augment the last message content with the KB context
         for m in reversed(final_messages):
             if m.role == "user":
-                m.content = f"{kb_context}\n\nQuestion: {last_msg}"
+                m.content = f"{kb_context}\n\n=== PRIMARY SUBJECT (USER QUERY) ===\n{last_msg}\n======================================\n\nCRITICAL INSTRUCTION: The Knowledge Base Context above is STRICTLY for reference. Your primary task is to answer the User Query inside the PRIMARY SUBJECT block."
                 last_msg = m.content
                 break
 
@@ -348,13 +348,13 @@ async def chat_endpoint(
 
     if request.conversation_id:
         # Resolve Canvas Context (Nodes)
-        ctx_result = resolve_conversation_context(db, request.conversation_id, last_msg)
+        ctx_result = resolve_conversation_context(db, request.conversation_id, last_msg, active_model)
         total_nodes.extend(ctx_result.get("nodes", []))
         citations = ctx_result.get("citations", [])
         
         # FALLBACK: Check for direct RAG content
         if not ctx_result.get("linked_items"):
-            direct_results = rag_service.search(last_msg, conversation_id=request.conversation_id, k=3)
+            direct_results = rag_service.search(last_msg, conversation_id=request.conversation_id, k=3, model_name=active_model)
             for res in direct_results:
                 total_nodes.append(NodeWithScore(
                     node=TextNode(text=res['text'], metadata=res.get('metadata', {})),
@@ -362,7 +362,7 @@ async def chat_endpoint(
                 ))
     else:
         # Sidebar Generic Fallback
-        results = rag_service.search(last_msg, filters={"owner_id": current_user.id, "source": "sidebar_upload"}, k=3)
+        results = rag_service.search(last_msg, filters={"owner_id": current_user.id, "source": "sidebar_upload"}, k=3, model_name=active_model)
         for res in results:
             total_nodes.append(NodeWithScore(
                 node=TextNode(text=res['text'], metadata=res.get('metadata', {})),

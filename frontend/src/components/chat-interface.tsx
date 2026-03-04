@@ -106,7 +106,7 @@ export function ChatInterface() {
     const [currentParamIndex, setCurrentParamIndex] = React.useState(0)
 
     // Canvas Store
-    const { flyToNode, setHighlightTarget } = useCanvasStore()
+    const { flyToNode, setHighlightTarget, selectedModel } = useCanvasStore()
 
     // Hook for agent execution
     const execution = useAgentExecution({
@@ -131,7 +131,7 @@ export function ChatInterface() {
                         await fetch(`${API_URL}/conversations/${activeConversationId}/messages`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(agentMsg)
+                            body: JSON.stringify({ ...agentMsg, model: selectedModel || "default" })
                         })
                     } catch (err) {
                         console.error("Failed to save agent message:", err)
@@ -209,7 +209,7 @@ export function ChatInterface() {
             await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(systemMsg)
+                body: JSON.stringify({ ...systemMsg, model: selectedModel || "default" })
             })
 
         } catch (error) {
@@ -341,7 +341,7 @@ export function ChatInterface() {
                 await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(userMessage)
+                    body: JSON.stringify({ ...userMessage, model: selectedModel || "default" })
                 })
             }
 
@@ -360,7 +360,7 @@ export function ChatInterface() {
                 },
                 body: JSON.stringify({
                     messages: allMessages,
-                    model: "default",
+                    model: selectedModel || "default",
                     conversation_id: currentConversationId
                 }),
                 signal: abortController.signal
@@ -381,7 +381,7 @@ export function ChatInterface() {
             await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(assistantMessage)
+                body: JSON.stringify({ ...assistantMessage, model: selectedModel || "default" })
             })
 
             setMessages((prev) => [...prev, assistantMessage])
@@ -602,7 +602,7 @@ export function ChatInterface() {
                 await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(userMsg)
+                    body: JSON.stringify({ ...userMsg, model: selectedModel || "default" })
                 })
             } catch (err) {
                 console.error("Failed to save user message:", err)

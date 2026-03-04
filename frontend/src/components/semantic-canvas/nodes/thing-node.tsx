@@ -1294,7 +1294,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         // Create new text thing with title derived from source fragment ID
         const newThingTitle = sourceFragment.id || "Analysis Result";
         // CRITICAL FIX: Pass cId explicitly to addThing
-        const newThing = await addThing("text", { text }, position, undefined, undefined, newThingTitle, undefined, undefined);
+        const newThing = await addThing("text", { text }, position, 400, 300, newThingTitle, undefined, undefined);
 
         if (newThing) {
             // Create link
@@ -1574,7 +1574,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // Handle creating result as new thing (from result dialog if we used that)
     const handleCreateThing = React.useCallback(async () => {
         if (!analysisResult) return;
-        await addThing("text", { text: analysisResult }, { x: thing.position_x + 50, y: thing.position_y + 50 });
+        await addThing("text", { text: analysisResult }, { x: thing.position_x + 50, y: thing.position_y + 50 }, 400, 300);
         setResultDialogOpen(false);
         setAnalysisResult("");
     }, [analysisResult, addThing, thing]);

@@ -15,6 +15,7 @@ import { CytoscapeGraph } from "@/components/knowledge-graph/cytoscape-graph";
 import ReconciliationCenter from "@/components/knowledge-graph/reconciliation-center";
 import { SourceManager, type KnowledgeSource } from "@/components/knowledge-graph/source-manager";
 import { OntologyManager } from "@/components/knowledge-graph/ontology-manager";
+import { Switch } from "@/components/ui/switch";
 import { API_URL } from "@/lib/utils";
 
 export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,6 +34,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
     const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
     const [ingestionStatus, setIngestionStatus] = useState<string>("idle");
     const [isEstablishing, setIsEstablishing] = useState<boolean>(false);
+    const [forceReindex, setForceReindex] = useState<boolean>(false);
 
     const [presets, setPresets] = useState<any[]>([]);
     const [selectedPreset, setSelectedPreset] = useState<string>("");
@@ -162,7 +164,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
 
         setIsEstablishing(true);
         try {
-            const res = await fetch(`${API_URL}/knowledge/kb/${unwrappedParams.id}/establish`, {
+            const res = await fetch(`${API_URL}/knowledge/kb/${unwrappedParams.id}/establish?force=${forceReindex}`, {
                 method: "POST",
                 headers: {
                     Authorization: `Bearer ${localStorage.getItem("token")}`
@@ -170,9 +172,11 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
             });
 
             if (res.ok) {
-                toast({ title: "Knowledge Base Established", description: "Schema created! Running background discovery for initial entities." });
+                toast({ title: "Knowledge Base Established", description: forceReindex ? "Full re-index started!" : "Incremental update started!" });
                 // Instantly set to running to show the UI spinner for the background ingestion step
                 setIngestionStatus("running");
+                // Reset force toggle after kick-off
+                setForceReindex(false);
                 // Refresh graph tab availability or status
                 fetchKB();
             } else {
@@ -225,6 +229,17 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                     <Button size="sm" variant="outline" onClick={handleSaveDraft} className="rounded-full px-6 font-semibold border-slate-300">
                         <Save className="mr-2 h-4 w-4" /> SAVE CONFIGURATION
                     </Button>
+                    <div className="flex items-center gap-2 border-l pl-3 mr-1">
+                        <Switch
+                            id="force-reindex"
+                            checked={forceReindex}
+                            onCheckedChange={setForceReindex}
+                            className="scale-75"
+                        />
+                        <Label htmlFor="force-reindex" className="text-[10px] font-bold text-muted-foreground cursor-pointer uppercase tracking-tighter">
+                            Force re-index
+                        </Label>
+                    </div>
                     <Button size="sm" onClick={handleEstablishDB} disabled={isEstablishing || ingestionStatus === 'running'} className="bg-slate-900 hover:bg-black text-white rounded-full px-6 font-semibold shadow-lg shadow-slate-900/10">
                         {isEstablishing || ingestionStatus === 'running' ? (
                             <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {isEstablishing ? 'Initializing Graph...' : 'Ingesting Data...'}</>

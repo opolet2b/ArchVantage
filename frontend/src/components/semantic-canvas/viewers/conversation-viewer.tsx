@@ -174,7 +174,11 @@ export function ConversationViewer({
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify(userMessage),
+                body: JSON.stringify({
+                    role: userMessage.role,
+                    content: userMessage.content,
+                    model: selectedModel || "default"
+                }),
             });
 
             // 2. Get AI Response
@@ -209,7 +213,7 @@ export function ConversationViewer({
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify(assistantMessage),
+                body: JSON.stringify({ ...assistantMessage, model: selectedModel || "default" }),
             });
 
             setMessages((prev) => [...prev, assistantMessage]);

@@ -336,7 +336,7 @@ function CanvasViewInner() {
         // Include width/height if thing has been resized or use default for heavy types (skip for iconified)
         style: (!thing.iconified && useCanvasStore.getState().zoomLevel !== "domain") ? {
             width: thing.width ?? 400, // Default width if not set to prevent auto-resize to content
-            height: thing.height ?? undefined, // Allow height to be auto if not set, or set default?
+            height: thing.height ?? 300, // Default height if not set to prevent auto-resize to content
         } : undefined,
     })), [things, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing, handleThingResize]);
 
@@ -2275,11 +2275,12 @@ function CanvasViewInner() {
                 status: "ready"
             },
             pendingDropPos || getCenterPosition(),
-            undefined, // width
-            undefined, // height
+            400, // width
+            300, // height
             config.tool_name, // title
             undefined, // color
-            undefined // scrapeOptions
+            undefined, // scrapeOptions
+            undefined // transientExtras
         );
         setShowMCPToolDialog(false);
         setPendingDropPos(null);
@@ -2305,8 +2306,8 @@ function CanvasViewInner() {
             "text",
             { text: textContent },
             pendingDropPos || getCenterPosition(),
-            undefined, // width
-            undefined, // height
+            400, // width
+            300, // height
             textContent.slice(0, 30), // title
             undefined, // color
             undefined // scrapeOptions
@@ -2329,8 +2330,8 @@ function CanvasViewInner() {
             "url",
             { url: urlContent.trim() },
             position,
-            undefined, // width
-            undefined, // height
+            400, // width
+            300, // height
             urlContent.trim(), // title
             undefined, // color
             {
@@ -2399,7 +2400,36 @@ function CanvasViewInner() {
     const handleNewConversation = async (position?: { x: number; y: number }, autoLinkTargets: Array<{ id: string; type: string }> = [], color?: string, sourceCanvasId?: string) => {
         const newConvId = await createNewConversation();
         if (newConvId) {
-            const pos = position || getCenterPosition();
+            let finalPos = position || getCenterPosition();
+
+            // Adjust position relative to source nodes if dropping on a thing or multiple things
+            const targetThings = autoLinkTargets.filter(t => t.type === "thing");
+            if (targetThings.length > 0) {
+                const storeThings = useCanvasStore.getState().things;
+                const sourceNodes = targetThings.map(t => storeThings.find(st => st.id === t.id)).filter(Boolean);
+
+                if (sourceNodes.length === 1) {
+                    const sourceNode = sourceNodes[0];
+                    if (sourceNode) {
+                        finalPos = {
+                            x: sourceNode.position_x + (sourceNode.width || 400) + 50,
+                            y: sourceNode.position_y
+                        };
+                    }
+                } else if (sourceNodes.length > 1) {
+                    let sumX = 0;
+                    let sumY = 0;
+                    sourceNodes.forEach(node => {
+                        sumX += node!.position_x + ((node!.width || 400) / 2);
+                        sumY += node!.position_y + ((node!.height || 300) / 2);
+                    });
+                    finalPos = {
+                        x: sumX / sourceNodes.length,
+                        y: sumY / sourceNodes.length
+                    };
+                }
+            }
+
             const canvasIdToUse = sourceCanvasId || pendingCanvasId || undefined;
 
             // Detect Domain Grouping
@@ -2412,9 +2442,9 @@ function CanvasViewInner() {
                     conversation_id: newConvId,
                     messages: [],
                 },
-                pos,
-                undefined, // width
-                undefined, // height
+                finalPos,
+                400, // width
+                300, // height
                 "New Conversation", // title
                 color,
                 undefined // scrapeOptions
@@ -2458,8 +2488,8 @@ function CanvasViewInner() {
                 messages: conversation.messages || [],
             },
             pendingDropPos || getCenterPosition(),
-            undefined, // width
-            undefined, // height
+            400, // width
+            300, // height
             conversation.title || "Selected Conversation", // title
             undefined, // color
             undefined // scrapeOptions
@@ -2526,8 +2556,8 @@ function CanvasViewInner() {
                             file_hash: upload.file_hash,
                         },
                         position, // Use drop position
-                        undefined, // width
-                        undefined, // height
+                        400, // width
+                        300, // height
                         file.name // title
                     );
                 }
@@ -2545,8 +2575,8 @@ function CanvasViewInner() {
                             content: text,
                         },
                         position,
-                        undefined, // width
-                        undefined, // height
+                        400, // width
+                        300, // height
                         file.name // title
                     );
                 } else {
@@ -2563,8 +2593,8 @@ function CanvasViewInner() {
                                 file_size: file.size,
                             },
                             position,
-                            undefined, // width
-                            undefined, // height
+                            400, // width
+                            300, // height
                             file.name // title
                         );
                     }
@@ -2633,8 +2663,8 @@ function CanvasViewInner() {
                     slides: uploadedSlides
                 },
                 pendingDropPos || getCenterPosition(),
-                undefined, // width
-                undefined, // height
+                400, // width
+                300, // height
                 "Image Slideshow" // title
             );
         }

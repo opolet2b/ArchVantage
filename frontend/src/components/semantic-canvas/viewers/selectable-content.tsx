@@ -256,7 +256,7 @@ export function SelectableContent({
 
         // Create new text thing
         const title = sourceFragment.id || "Analysis Result";
-        const newThing = await addThing("text", { text }, position, undefined, undefined, title);
+        const newThing = await addThing("text", { text }, position, 400, 300, title);
 
         if (newThing) {
             // Create link
@@ -427,7 +427,7 @@ export function SelectableContent({
 
         // Use stored source fragment ID for title if available
         const title = analysisSourceFragment?.id || "Analysis Result";
-        await addThing("text", { text: analysisResult }, { x: 100, y: 100 }, undefined, undefined, title);
+        await addThing("text", { text: analysisResult }, { x: 100, y: 100 }, 400, 300, title);
 
         if (analysisSourceFragment) {
             // Link back to source? createNodeAndLink does this.
@@ -438,7 +438,7 @@ export function SelectableContent({
             await createNodeAndLink(analysisResult, analysisSourceFragment);
         } else {
             // Fallback if no source (shouldn't happen in this flow)
-            await addThing("text", { text: analysisResult }, { x: 100, y: 100 }, undefined, undefined, title);
+            await addThing("text", { text: analysisResult }, { x: 100, y: 100 }, 400, 300, title);
         }
 
         setResultDialogOpen(false);

@@ -475,9 +475,11 @@ Rules:
 
 2. After the frontmatter, create the Markdown structure.
 
-3. Available Syntax & Features:
+3. Available Syntax & Features (USE THESE EXACT TAGS):
 
    a. **Sections & Headers**: Use #, ##, ### for structure.
+      CRITICAL: NEVER use Markdown headers (#, ##, ###) inside <!-- IF --> or <!-- BEGIN LOOP --> blocks. Headers define top-level document structure and will immediately break the list/block hierarchy. Use bold text (**Item Name**) instead to emphasize items inside blocks.
+
 
    b. **Instructions (Dynamic Content)**:
       Use `<!-- INSTRUCTION: Describe what to generate -->` for content that the AI should generate during execution.
@@ -487,18 +489,30 @@ Rules:
       Write normal text for content that should always appear exactly as written (e.g., table headers, disclaimers, labels).
       Example: `**Disclaimer:** This report is computer-generated.`
 
-   d. **Logic & Control Flow** (Jinja2-style):
-      - **IF/ELSE**: `{% if condition %}` ... `{% endif %}`
-      - **LOOPS**: `{% for item in items %}` ... `{% endfor %}`
-      - Use these to structure complex templates (e.g., iterating over a list of findings).
+   d. **Logic & Control Flow**:
+      - **IF/ELSE**: 
+        ```
+        <!-- IF: condition_name -->
+        Content if true
+        <!-- ELSE -->
+        Content if false
+        <!-- ENDIF -->
+        ```
+      - **LOOPS**: 
+        ```
+        <!-- BEGIN LOOP: items_variable -->
+        Content for each item. Use {{ loop_item.field }} to refer to current item properties.
+        <!-- END LOOP -->
+        ```
+      - Use these to structure complex templates based on available data.
 
    e. **Variables**:
-      You can reference variables using `{{ variable_name }}` if applicable, though primarily use Instructions for generation.
+      Reference simple variables using `{{ variable_name }}`.
 
 4. Design Best Practices:
    - Use the user's description to determine the Theme (Colors/Fonts).
    - Create a clean, professional layout.
-   - Use tables for structured data (with static headers and dynamic rows).
+   - Use tables for structured data.
 
 Example Output:
 ---
@@ -511,12 +525,15 @@ h1_color: "#1e293b"
 <!-- INSTRUCTION: Write a high-level summary of the analysis. -->
 
 ## Detailed Findings
+<!-- IF: has_findings -->
 | Category | Observation | Impact |
 |----------|-------------|--------|
-<!-- INSTRUCTION: improved the instruction to generate table rows regarding findings -->
-{% for finding in findings %}
-| {{ finding.category }} | {{ finding.observation }} | {{ finding.impact }} |
-{% endfor %}
+<!-- BEGIN LOOP: findings -->
+| {{ loop_item.category }} | {{ loop_item.observation }} | {{ loop_item.impact }} |
+<!-- END LOOP -->
+<!-- ELSE -->
+No significant findings were identified in the source documents.
+<!-- ENDIF -->
 
 **Note:** This section is confidential.
 """

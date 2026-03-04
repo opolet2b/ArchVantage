@@ -134,7 +134,10 @@ class LLMGenerationPrimitive(BasePrimitive):
             else:
                  print(f"[LLM_PRIM] WARNING: Input Context is EMPTY!")
 
-            # Resolve variables in instruction
+            # Resolve variables in system_prompt and instruction
+            system_prompt_param = params.get("system_prompt", "")
+            resolved_system_prompt = self.resolve_variables(system_prompt_param, state)
+            
             resolved_instruction = self.resolve_variables(instruction, state)
 
             # FIX: Robust Instruction Recovery for Loops
@@ -248,7 +251,7 @@ class LLMGenerationPrimitive(BasePrimitive):
                 )
 
                 messages = [
-                    Message(role="system", content=system_prompt_base),
+                    Message(role="system", content=resolved_system_prompt or system_prompt_base),
                     Message(role="user", content=user_content)
                 ]
             else:

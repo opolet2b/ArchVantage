@@ -79,6 +79,30 @@ def _get_canvas_with_access(canvas_id: str, db: Session, user: User, abort_if_no
     return canvas
 
 
+def _resolve_active_model(db: Session, canvas_id: str, requested_model: Optional[str]) -> Optional[str]:
+    """
+    Resolve requested model name to actual preset name.
+    If requested_model is 'default', use the canvas-specific default from settings.
+    """
+    if requested_model and requested_model != "default":
+        return requested_model
+
+    # Fetch canvas to check its local model setting
+    canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+    if canvas:
+        config = canvas.owner_config or {}
+        canvas_model = config.get("model")
+        if canvas_model:
+            print(f"[CanvasRouter] Resolved 'default' model to Canvas setting: {canvas_model}")
+            return canvas_model
+
+    # Fallback to system default
+    defaults = config_service.get_defaults()
+    system_default = defaults.get("default_llm")
+    print(f"[CanvasRouter] Resolved 'default' model to System default: {system_default}")
+    return system_default
+
+
 # =============================================================================
 # Canvas CRUD
 # =============================================================================
@@ -1890,7 +1914,8 @@ def query_canvas(
     results = rag_service.search(
         query=request.query,
         filters={"canvas_id": canvas_id},
-        k=request.k
+        k=request.k,
+        model_name=request.model if hasattr(request, "model") else None
     )
     
     return results
@@ -1970,7 +1995,9 @@ async def analyze_selection(
                      # Fallback if asset_id is missing
                      search_filters["canvas_id"] = canvas_id
  
-                 results = rag_service.search(query=query_text, k=5, filters=search_filters)
+                 # Resolve model for RAG search
+                 active_model = _resolve_active_model(db, canvas_id, request.model)
+                 results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
                  
                  if results:
                      # Join chunks to form context
@@ -2052,7 +2079,7 @@ async def analyze_selection(
     from app.models.chat import Message
     from app.services.vision_service import vision_service
 
-    model_name = request.model or "default"
+    active_model = _resolve_active_model(db, canvas_id, request.model)
 
     try:
         # Check for image data
@@ -2098,7 +2125,7 @@ async def analyze_selection(
                 image_data=image_payload,
                 prompt=final_user_prompt,
                 system_prompt=final_system_prompt,
-                model_name=model_name
+                model_name=active_model
             )
         else:
             # Standard Text LLM
@@ -2123,7 +2150,7 @@ async def analyze_selection(
                     Message(role="system", content=system_prompt),
                     Message(role="user", content=user_prompt)
                 ],
-                model_name=request.model
+                model_name=active_model
             )
             print(f"[Analyze] LLM Response received (len={len(response)})")
         
@@ -2244,12 +2271,13 @@ async def analyze_batch(
 
     # 5. Call LLM
     try:
+        active_model = _resolve_active_model(db, canvas_id, request.model)
         response_text = await llm_service.chat(
             messages=[
                 Message(role="system", content=system_prompt),
                 Message(role="user", content=user_prompt)
             ],
-            model_name=request.model or "default"
+            model_name=active_model
         )
         
         return AnalyzeResponse(
@@ -2291,10 +2319,13 @@ async def discover_links(
     from app.schemas.canvas_schemas import DiscoverLinksResponse, DiscoveredLinkDetail
     import json
 
+    # 0. Resolve Model
+    active_model = _resolve_active_model(db, canvas_id, request.model)
+
     debug_service.log("INFO", "DiscoverLinks", f"Starting discovery for Canvas {canvas_id}", {
         "thing_ids": request.thing_ids,
         "domain_ids": request.domain_ids,
-        "model": request.model
+        "model": active_model
     })
 
     try:
@@ -2347,7 +2378,8 @@ async def discover_links(
                             results = rag_service.search(
                                 query="Summary and key themes of this document",
                                 filters=filters,
-                                k=3
+                                k=3,
+                                model_name=active_model
                             )
                             
                             if not results:
@@ -2359,7 +2391,8 @@ async def discover_links(
                                     results = rag_service.search(
                                         query="Summary and key themes of this document",
                                         filters={"file_name": filename},
-                                        k=3
+                                        k=3,
+                                        model_name=active_model
                                     )
 
                             if results:
@@ -2384,7 +2417,8 @@ async def discover_links(
                             results = rag_service.search(
                                 query="Describe this image",
                                 filters=filters,
-                                k=3
+                                k=3,
+                                model_name=active_model
                             )
                             
                             if results:
@@ -2507,33 +2541,14 @@ async def discover_links(
         })
 
 
-        # 4. Call LLM
-        from app.services.config_service import config_service
-        
-        # Resolve Model Preset if needed
-        model_name = request.model
-        config = config_service.get_config()
-        presets = config.get("presets", [])
-        
-        # Check if request.model matches a preset name
-        matched_preset = next((p for p in presets if p["name"] == model_name), None)
-        
-        if matched_preset:
-            if matched_preset["type"] == "local":
-                model_name = matched_preset.get("model_name", model_name)
-                debug_service.log("INFO", "DiscoverLinks", f"Resolved preset '{request.model}' to local model '{model_name}'")
-            else:
-                 model_name = matched_preset.get("model_name") or request.model
-                 debug_service.log("INFO", "DiscoverLinks", f"Resolved remote preset '{request.model}' to '{model_name}'")
-        else:
-             debug_service.log("WARN", "DiscoverLinks", f"No preset found for '{request.model}', using as raw model name.")
-
+        # 4. Call LLM (using resolved active_model)
+        from app.models.chat import Message
         response_text = await llm_service.chat(
             messages=[
                 Message(role="system", content=system_prompt),
                 Message(role="user", content=user_prompt)
             ],
-            model_name=model_name,
+            model_name=active_model,
             response_format={"type": "json_object"}
         )
         
@@ -2666,6 +2681,9 @@ async def execute_template_endpoint(
             detail="Canvas not found"
         )
 
+    # Resolve active model
+    request.model = _resolve_active_model(db, canvas_id, request.model)
+
     try:
         return await smart_template_service.execute_template(db, request)
     except ValueError as e:
@@ -2717,6 +2735,9 @@ async def execute_template_stream_endpoint(
                 return super().default(obj)
             except TypeError:
                 return str(obj)
+
+    # Resolve active model
+    request.model = _resolve_active_model(db, canvas_id, request.model)
 
     async def event_generator():
         try:

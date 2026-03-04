@@ -128,14 +128,14 @@ async def extract_predicates(request: ExtractPredicatesRequest):
     )
 
 @router.post("/knowledge/kb/{kb_id}/establish")
-async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, force: bool = False, db: Session = Depends(get_db)):
     db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
     if not db_kb:
         raise HTTPException(status_code=404, detail="KB Config not found")
     
     log_path = r"C:\Users\opole\Downloads\ChatBotn\backend\establish_debug.log"
     with open(log_path, "a", encoding="utf-8") as f:
-        f.write(f"\n--- Establish Started: {datetime.datetime.now()} for KB {kb_id} ---\n")
+        f.write(f"\n--- Establish Started: {datetime.datetime.now()} for KB {kb_id} (force={force}) ---\n")
         
         # 0. Ensure ArcadeDB is initialized
         try:
@@ -173,8 +173,12 @@ async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, db: Ses
         selected_sources = db_kb.sources # fallback
         
     if approved_classes and selected_sources:
-        # Clear file hashes so it forces a re-scan on establish
-        db_kb.file_hashes = {}
+        # Clear file hashes ONLY if forced or if it's the very first time (status not active)
+        if force or db_kb.status != "active":
+            print(f"[Establish] Clearing file hashes for KB {kb_id} (force={force}, status={db_kb.status})")
+            db_kb.file_hashes = {}
+        else:
+            print(f"[Establish] Preserving existing file hashes for incremental update of KB {kb_id}")
         
         background_tasks.add_task(
             ingestion_service.discover_and_ingest_entities,

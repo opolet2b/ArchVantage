@@ -147,7 +147,8 @@ class AgentToolDiscovery:
         self, 
         query: str, 
         top_k: int = 10,
-        db = None
+        db = None,
+        model_name: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Find most relevant tools for a user query.
@@ -165,7 +166,8 @@ class AgentToolDiscovery:
             results = rag_service.search(
                 query=query,
                 conversation_id=self.collection_name,
-                k=top_k
+                k=top_k,
+                model_name=model_name
             )
             
             discovered = []
@@ -206,7 +208,8 @@ class AgentToolDiscovery:
         self, 
         query: str, 
         db = None,
-        top_k: int = 10
+        top_k: int = 10,
+        model_name: Optional[str] = None
     ) -> str:
         """
         Get a formatted context string of relevant tools for LLM consumption.
@@ -219,7 +222,7 @@ class AgentToolDiscovery:
         Returns:
             Formatted string describing available tools
         """
-        discovered = self.discover_tools(query, top_k, db)
+        discovered = self.discover_tools(query, top_k, db, model_name=model_name)
         
         if not discovered:
             return "No relevant tools found."

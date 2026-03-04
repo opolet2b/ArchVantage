@@ -1009,6 +1009,26 @@ class RAGService:
             print(f"[RAGService] Error deleting by canvas {canvas_id}: {e}")
             return False
 
+    def delete_ontology_embeddings(self, kb_id: str):
+        """Delete all ontology class embeddings for a specific KB."""
+        self.initialize()
+        try:
+            if self.chroma_collection:
+                print(f"[RAGService] Deleting existing ontology embeddings for KB: {kb_id}")
+                self.chroma_collection.delete(
+                    where={
+                        "$and": [
+                            {"kb_id": kb_id},
+                            {"type": "ontology_class"}
+                        ]
+                    }
+                )
+                return True
+            return False
+        except Exception as e:
+            print(f"[RAGService] Error deleting ontology embeddings for {kb_id}: {e}")
+            return False
+
     def delete_by_thing(self, thing_id: str):
         self.initialize()
         """Delete all embeddings associated with a specific thing."""

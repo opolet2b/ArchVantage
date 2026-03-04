@@ -416,8 +416,8 @@ export function ArchiMateToolViewer({ thing }: ArchiMateToolViewerProps) {
                         "text",
                         { text: `## ${view.name}\n\n*Imported View*` },
                         { x: thing.position_x, y: thing.position_y + currentYOffset },
-                        undefined,
-                        undefined,
+                        400,
+                        300,
                         view.name
                     );
 

@@ -151,7 +151,7 @@ class SmartTemplateService:
             print(f"[SmartTemplate] Review failed: {e}")
             return 0, f"Auditor Critical Error: {str(e)}", {}
 
-    async def _refine_document(self, content: str, purpose: str, feedback: str, model: str = "gpt-4o", level_of_detail: str = "medium", cycle_index: int = 1) -> str:
+    async def _refine_document(self, content: str, purpose: str, feedback: str, model: str = "default", level_of_detail: str = "medium", cycle_index: int = 1) -> str:
         """
         Phase 3: Refinement.
         Updates the draft based on feedback, pushing it towards the Target Detail Level.
@@ -399,7 +399,7 @@ class SmartTemplateService:
         self, 
         section: dict, 
         document_purpose: str, 
-        model: str = "gpt-4o"
+        model: str = "default"
     ) -> dict:
         """
         Review a single section for quality.
@@ -487,7 +487,7 @@ class SmartTemplateService:
         self, 
         section: dict, 
         document_purpose: str, 
-        model: str = "gpt-4o"
+        model: str = "default"
     ) -> dict:
         """
         Refine a single section based on feedback.
@@ -689,7 +689,7 @@ class SmartTemplateService:
             active_model = request.model or "default"
             kb_context = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_id, db, active_model)
             if kb_context:
-                combined_context = f"{kb_context}\n\nSelected Content:\n{combined_context}"
+                combined_context = f"{kb_context}\n\n=== PRIMARY SUBJECT (SELECTED CONTENT) ===\n{combined_context}\n==========================================\n\nCRITICAL INSTRUCTION: The template instructions apply STRICTLY to the 'PRIMARY SUBJECT' above. The Knowledge Base context is only provided as supplementary reference material to check against."
                 
         inputs = {
             "selection": entities_data,
@@ -705,7 +705,7 @@ class SmartTemplateService:
             "id": template.id
         }
         
-        runtime = AgentRuntime(blueprint_mock, db)
+        runtime = AgentRuntime(blueprint_mock, db, model_override=request.model)
         print(f"[SmartTemplate] Executing template '{template.name}' with {len(entities_data)} items.")
         
         try:
@@ -1628,7 +1628,7 @@ class SmartTemplateService:
              # Create AssetRef
              asset_ref = AssetRef(
                  id=t.id,
-                 type=t.type.value,
+                 type=t.type.value if hasattr(t.type, "value") else str(t.type),
                  url=None, # TODO: Resolve URL if applicable
                  content=content_summary
              )
@@ -1636,7 +1636,7 @@ class SmartTemplateService:
 
              entities_data.append({
                  "id": t.id,
-                 "type": t.type.value,
+                 "type": t.type.value if hasattr(t.type, "value") else str(t.type),
                  "title": t.title,
                  "content": content_summary
              })
@@ -1654,11 +1654,11 @@ class SmartTemplateService:
              
              if rels:
                   combined_context += "\n\nRELATIONSHIPS:\n"
-                  id_to_title = {t.id: t.title or t.type.value for t in things}
+                  id_to_title = {t.id: t.title or (t.type.value if hasattr(t.type, "value") else str(t.type)) for t in things}
                   for r in rels:
                        src = id_to_title.get(r.source_id, "Unknown")
                        tgt = id_to_title.get(r.target_id, "Unknown")
-                       lbl = r.type.value
+                       lbl = r.type.value if hasattr(r.type, "value") else str(r.type)
                        if r.label:
                            lbl += f": {r.label}"
                        if r.description:
@@ -1674,7 +1674,7 @@ class SmartTemplateService:
             active_model = request.model or "default"
             kb_context = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_id, db, active_model)
             if kb_context:
-                combined_context = f"{kb_context}\n\nSelected Content:\n{combined_context}"
+                combined_context = f"{kb_context}\n\n=== PRIMARY SUBJECT (SELECTED CONTENT) ===\n{combined_context}\n==========================================\n\nCRITICAL INSTRUCTION: The user's query applies STRICTLY to the 'PRIMARY SUBJECT' above. The Knowledge Base context is only provided as supplementary reference material to check against."
                 yield {"type": "progress", "content": "Knowledge Base context retrieved."}
 
         # Determine extraction instructions (try to find first Extractor step config)
@@ -2210,7 +2210,8 @@ class SmartTemplateService:
                                         query=query_text,
                                         filters={"asset_id": target_asset_ids},
                                         k=3,
-                                        response_mode="simple"
+                                        response_mode="simple",
+                                        model_name=request.model
                                     )
                                     
                                     if rag_results:
@@ -2285,8 +2286,21 @@ class SmartTemplateService:
                         
                         # Calculate position for new thing (offset from source)
                         source_thing = things[0] if things else None
-                        new_x = (source_thing.position_x + 350) if source_thing else 100
-                        new_y = source_thing.position_y if source_thing else 100
+                        if source_thing:
+                            if len(things) == 1:
+                                new_x = source_thing.position_x + (source_thing.width or 400.0) + 50.0
+                                new_y = source_thing.position_y
+                            else:
+                                valid_t = [t for t in things if t.position_x is not None and t.position_y is not None]
+                                if valid_t:
+                                    new_x = sum([t.position_x + ((t.width or 400.0) / 2.0) for t in valid_t]) / len(valid_t)
+                                    new_y = sum([t.position_y + ((t.height or 300.0) / 2.0) for t in valid_t]) / len(valid_t)
+                                else:
+                                    new_x = 100
+                                    new_y = 100
+                        else:
+                            new_x = 100
+                            new_y = 100
                         
                         # Use source thing's canvas_id (NOT request.canvas_id which may be stale)
                         target_canvas_id = source_thing.canvas_id if source_thing else request.canvas_id
@@ -2482,7 +2496,7 @@ class SmartTemplateService:
              for n in pipeline_config_to_use["nodes"]:
                   node_label_map[n["id"]] = n.get("label", n.get("id"))
 
-        runtime = AgentRuntime(blueprint_mock, db)
+        runtime = AgentRuntime(blueprint_mock, db, model_override=request.model)
 
 
         print(f"[SmartTemplate] Streaming execution for '{template.name}' with {len(entities_data)} items.")
@@ -4272,9 +4286,29 @@ class SmartTemplateService:
                          local_edges.append({"source": current_prev_id, "target": node_id})
                      current_prev_id = node_id
                 
-                # --- CASE E: RAW STRING (Ignore) ---
+                # --- CASE E: RAW STRING (Jinja2 Support) ---
                 elif isinstance(item, str):
-                    continue
+                    if not item.strip():
+                        continue
+                        
+                    # Create a simple TEXT_TEMPLATE node to resolve variables/render the text
+                    text_node_id = f"node_text_{depth}_{index}_{str(uuid.uuid4())[:8]}"
+                    text_node = {
+                        "id": text_node_id,
+                        "type": "TEXT_TEMPLATE",
+                        "label": f"Text: {item[:30]}...",
+                        "params": {
+                            "mode": "simple",
+                            "template_string": item,
+                            "output_variable": f"text_output_{depth}_{index}"
+                        }
+                    }
+                    local_nodes.append(text_node)
+                    local_vars.append(text_node_id)
+                    
+                    if current_prev_id and current_prev_id != "START_SUB":
+                        local_edges.append({"source": current_prev_id, "target": text_node_id})
+                    current_prev_id = text_node_id
                      
             return local_nodes, local_edges, local_vars
 

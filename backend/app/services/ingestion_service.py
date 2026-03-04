@@ -111,6 +111,9 @@ class IngestionService:
                 # 1.5. Vectorize Ontology into ChromaDB for Semantic Search later
                 from app.services.rag_service import rag_service
                 
+                print(f"[IngestionService] Preparing Ontology for KB {kb_id} (De-duplicating existing vectors)...")
+                rag_service.delete_ontology_embeddings(kb_id)
+                
                 print(f"[IngestionService] Vectorizing Ontology for KB {kb_id} into ChromaDB...")
                 for cls in ontology_classes:
                     cls_name = cls.get("name", "Unknown")

@@ -48,7 +48,8 @@ class ContextEnrichmentService:
              semantic_results = rag_service.search(
                  query, 
                  filters={"kb_id": kb_id, "type": "ontology_class"}, 
-                 k=5
+                 k=5,
+                 model_name=db_kb.llm_config_id or active_model
              )
              matched_classes = []
              for res in semantic_results:
@@ -70,14 +71,24 @@ class ContextEnrichmentService:
             
         print(f"[ContextEnrichment] Identified relevant classes: {matched_classes}")
         
+        import re
+        
         # 4. Search ArcadeDB for nodes instantiated under these semantic classes
         matched_nodes = []
         for cls_name in matched_classes + ["Entity"]:
+            # Sanitize the class name before asking ArcadeDB because ChromaDB metadata holds the raw display name
+            sanitized_cls = re.sub(r'[^a-zA-Z0-9_]', '_', cls_name.replace(" ", "_"))
+            if not sanitized_cls:
+                continue
+                
             try:
+                if not arcadedb.type_exists(sanitized_cls):
+                    continue
+                    
                 # First try to find nodes in this class that explicitly match keywords
                 for kw in keywords:
                      if len(kw) < 3: continue
-                     db_query = f"SELECT FROM `{cls_name}` WHERE graph_id = :gid AND (name.toLowerCase() LIKE :kw OR summary.toLowerCase() LIKE :kw) LIMIT 5"
+                     db_query = f"SELECT FROM `{sanitized_cls}` WHERE graph_id = :gid AND (name.toLowerCase() LIKE :kw OR summary.toLowerCase() LIKE :kw) LIMIT 5"
                      res = arcadedb.query(db_query, params={
                          "gid": kb_id,
                          "kw": f"%{kw.lower()}%"
@@ -87,7 +98,7 @@ class ContextEnrichmentService:
                 # If still no keyword matches, just grab the top instances of this class
                 # since the semantic query already determined this class is highly relevant!
                 if not matched_nodes:
-                     db_query_fallback = f"SELECT FROM `{cls_name}` WHERE graph_id = :gid LIMIT 3"
+                     db_query_fallback = f"SELECT FROM `{sanitized_cls}` WHERE graph_id = :gid LIMIT 3"
                      res_fb = arcadedb.query(db_query_fallback, params={"gid": kb_id}).get("result", [])
                      matched_nodes.extend(res_fb)
             except Exception as e:

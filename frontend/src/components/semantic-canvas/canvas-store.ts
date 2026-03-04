@@ -1394,7 +1394,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 }),
             });
 
-            if (!res.ok) throw new Error("Failed to add thing");
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(`Failed to add thing: ${res.status} ${errorText}`);
+            }
 
             const thing: CanvasThing = await res.json();
 

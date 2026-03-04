@@ -266,10 +266,11 @@ class LLMService:
             print(f"Error in LLMService: {e}")
             return f"Error: {str(e)}"
 
-    async def generate_title(self, content: str, type: str = "conversation") -> str:
+    async def generate_title(self, content: str, type: str = "conversation", model_name: str = "default") -> str:
         """Generates a short 3-5 word title for the given content."""
         try:
-            llm, resolved_name = self._get_model("default")
+            print(f"!!! DEBUG llm_service.generate_title received model_name: '{model_name}'")
+            llm, resolved_name = self._get_model(model_name)
             
             prompt = f"""
             Generate a short, concise title (3-5 words) for the following {type}.

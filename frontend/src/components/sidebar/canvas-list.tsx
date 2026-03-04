@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CanvasPermissionsDialog } from "../semantic-canvas/canvas-permissions-dialog";
+import { useCanvasStore } from "../semantic-canvas/canvas-store";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -263,7 +264,8 @@ export function CanvasList() {
         // Let's just do it silently and update when done, maybe show a toast if we had one.
 
         try {
-            const res = await fetch(`${API_URL}/canvases/${id}/auto-rename`, {
+            const selectedModel = useCanvasStore.getState().selectedModel || "default";
+            const res = await fetch(`${API_URL}/canvases/${id}/auto-rename?model=${selectedModel}`, {
                 method: "POST",
                 headers: {
                     Authorization: `Bearer ${token}`

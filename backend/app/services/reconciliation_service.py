@@ -39,11 +39,18 @@ class ReconciliationService:
             # Ensure graph_id is set
             props["graph_id"] = kb_id
             
+            # Ensure target_class is properly sanitized like it is everywhere else
+            import re
+            sanitized_target_class = re.sub(r'[^a-zA-Z0-9_]', '_', target_class.replace(" ", "_"))
+            if not sanitized_target_class:
+                print(f"[ReconciliationService] Invalid empty target class after sanitization: '{target_class}'")
+                return False
+            
             # 3. Create new node in target_class
             set_clauses = [f"`{k}` = :{k}" for k in props.keys()]
             set_statement = ", ".join(set_clauses)
             
-            insert_query = f"INSERT INTO `{target_class}` SET {set_statement} RETURN @rid"
+            insert_query = f"INSERT INTO `{sanitized_target_class}` SET {set_statement} RETURN @rid"
             new_res = arcadedb.command(insert_query, params=props)
             
             if not new_res or not new_res.get("result"):

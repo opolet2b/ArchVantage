@@ -170,7 +170,46 @@ class ConversationService:
             
         return count
 
-    async def add_message(self, conv_id: str, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _resolve_active_model(self, conv_id: str, requested_model: str = "default") -> str:
+        """
+        If requested_model is "default", try to find if this conversation belongs 
+        to a Canvas and use that canvas's selected LLM.
+        """
+        if requested_model and requested_model != "default":
+            return requested_model
+            
+        try:
+            from app.core.database import SessionLocal
+            from app.models.canvas_models import CanvasThing, ThingType, Canvas
+            
+            db = SessionLocal()
+            # 1. Find the Thing referencing this conversation
+            thing = db.query(CanvasThing).filter(
+                CanvasThing.type == ThingType.CONVERSATION
+            ).all()
+            
+            target_canvas_id = None
+            for t in thing:
+                if t.content.get("conversation_id") == conv_id:
+                    target_canvas_id = t.canvas_id
+                    break
+            
+            if target_canvas_id:
+                # 2. Get Canvas settings
+                canvas = db.query(Canvas).filter(Canvas.id == target_canvas_id).first()
+                if canvas and canvas.owner_config:
+                    model = canvas.owner_config.get("selectedModel")
+                    if model:
+                        print(f"[ConversationService] Resolved 'default' -> '{model}' via Canvas {target_canvas_id}")
+                        return model
+            
+            db.close()
+        except Exception as e:
+            print(f"[ConversationService] Error resolving canvas model: {e}")
+            
+        return requested_model
+
+    async def add_message(self, conv_id: str, message: Dict[str, Any], model_name: str = "default") -> Optional[Dict[str, Any]]:
         conversations = self._get_all()
         if conv_id not in conversations:
             return None
@@ -183,15 +222,16 @@ class ConversationService:
         # Actually, let's do it if title is "New Conversation" and we have at least one user message
         conv = conversations[conv_id]
         if conv["title"] == "New Conversation" and len(conv["messages"]) >= 2:
-             # Trigger async title generation (fire and forget or await?)
-             # For simplicity, let's await it here or we can make a separate call
-             await self.generate_title(conv_id)
+             # Resolve model properly
+             active_model = self._resolve_active_model(conv_id, model_name)
+             # Trigger async title generation
+             await self.generate_title(conv_id, model_name=active_model)
              # Reload to get updated title
              return self._get_all()[conv_id]
 
         return conv
 
-    async def generate_title(self, conv_id: str):
+    async def generate_title(self, conv_id: str, model_name: str = "default"):
         conversations = self._get_all()
         if conv_id not in conversations:
             return
@@ -204,8 +244,11 @@ class ConversationService:
              
         content_to_analyze = first_user_msg["content"]
         
+        # Resolve model properly
+        active_model = self._resolve_active_model(conv_id, model_name)
+        
         # Use the specialized method
-        title = await llm_service.generate_title(content_to_analyze, type="conversation")
+        title = await llm_service.generate_title(content_to_analyze, type="conversation", model_name=active_model)
         
         if title:
              self.update_conversation(conv_id, {"title": title})

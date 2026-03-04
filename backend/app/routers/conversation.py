@@ -28,7 +28,8 @@ class AddMessageRequest(BaseModel):
     role: str
     content: str
     citations: Optional[List[Dict[str, Any]]] = None
-
+    model: Optional[str] = "default"
+    
 @router.post("/conversations", response_model=CreateConversationResponse)
 def create_conversation():
     return conversation_service.create_conversation()
@@ -86,7 +87,8 @@ def import_conversations(conversations: List[Dict[str, Any]]):
 
 @router.post("/conversations/{conv_id}/messages", response_model=Conversation)
 async def add_message(conv_id: str, request: AddMessageRequest):
-    conv = await conversation_service.add_message(conv_id, request.dict())
+    print(f"!!! DEBUG /messages payload received model: '{request.model}'")
+    conv = await conversation_service.add_message(conv_id, request.dict(), model_name=request.model)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conv
