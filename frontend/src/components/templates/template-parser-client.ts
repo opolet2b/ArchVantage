@@ -5,6 +5,7 @@ export interface TemplateBlock {
     title?: string; // For sections
     content?: string; // For instructions, text, if-conditions, or frontmatter yaml
     loopSource?: string; // For loops
+    assignTo?: string; // For instructions (dynamic extraction)
     children?: TemplateBlock[]; // Nested blocks
 }
 
@@ -26,6 +27,11 @@ export class TemplateParserClient {
         const endIfRegex = /<!--\s*ENDIF\s*-->/i;
         const headerRegex = /^(#{1,6})\s+(.*)/;
 
+        // State for multi-line instruction parsing
+        let inInstructionBlock = false;
+        let instructionBuffer: string[] = [];
+        let currentAssignTo: string | undefined = undefined;
+
         // State for frontmatter detection
         let inFrontmatter = false;
         let frontmatterContent: string[] = [];
@@ -34,6 +40,31 @@ export class TemplateParserClient {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const trimmedLine = line.trim();
+
+            // --- 0. Handle Multi-Line Instruction Block ---
+            if (inInstructionBlock) {
+                if (line.includes("-->")) {
+                    const parts = line.split("-->", 1);
+                    instructionBuffer.push(parts[0].trim());
+
+                    const fullText = instructionBuffer.join(" ").trim();
+                    const currentContext = stack[stack.length - 1];
+                    currentContext.list.push({
+                        id: crypto.randomUUID(),
+                        type: "instruction",
+                        content: fullText,
+                        assignTo: currentAssignTo
+                    });
+
+                    inInstructionBlock = false;
+                    instructionBuffer = [];
+                    currentAssignTo = undefined;
+                    continue;
+                } else {
+                    instructionBuffer.push(trimmedLine);
+                    continue;
+                }
+            }
 
             // Handle YAML Frontmatter (lines between first --- and second ---)
             if (trimmedLine === '---') {
@@ -108,11 +139,6 @@ export class TemplateParserClient {
 
             // 4. ELSE
             if (elseRegex.test(line)) {
-                // We must be in an IF block. Close it and start an ELSE block?
-                // Visualizing ELSE is tricky in a tree. 
-                // Option: The "IF" block contains the "Then" children.
-                // We pop the IF, create an ELSE block at the same level.
-
                 // 1. Check if we are inside an IF
                 const ifIndex = stack.findLastIndex(s => s.block?.type === "if");
                 if (ifIndex !== -1) {
@@ -144,11 +170,6 @@ export class TemplateParserClient {
             // 6. Section (Header)
             const headerMatch = line.match(headerRegex);
             if (headerMatch) {
-                // Sections usually reset context back to Root or a higher level Section
-                // But if we are inside a Loop, we might want to keep it?
-                // Logic: A header generally starts a new section at the ROOT level or effectively closes previous siblings.
-                // For simplified builder: Sections are Root Level items.
-
                 // Clear stack to root
                 stack.splice(1);
 
@@ -163,14 +184,25 @@ export class TemplateParserClient {
                 continue;
             }
 
-            // 7. Instruction
-            const instructionMatch = line.match(instructionRegex);
-            if (instructionMatch) {
-                currentList.push({
-                    id: crypto.randomUUID(),
-                    type: "instruction",
-                    content: instructionMatch[1].trim()
-                });
+            // 7. Instruction (New Support for [ASSIGN: var] and Multi-line)
+            const startInstrMatch = line.match(/<!--\s*INSTRUCTIONS?(?:\s*\[ASSIGN:\s*([^\]]+)\])?:\s*(.*)/i);
+            if (startInstrMatch) {
+                const assignTo = startInstrMatch[1]?.trim();
+                const contentStart = startInstrMatch[2]?.trim();
+
+                if (contentStart.includes("-->")) {
+                    const parts = contentStart.split("-->", 1);
+                    currentList.push({
+                        id: crypto.randomUUID(),
+                        type: "instruction",
+                        content: parts[0].trim(),
+                        assignTo: assignTo
+                    });
+                } else {
+                    inInstructionBlock = true;
+                    instructionBuffer.push(contentStart);
+                    currentAssignTo = assignTo;
+                }
                 continue;
             }
 
@@ -214,7 +246,8 @@ export class TemplateParserClient {
                 markdown += `<!-- ELSE -->\n`;
                 if (block.children) markdown += this.serialize(block.children);
             } else if (block.type === "instruction") {
-                markdown += `<!-- INSTRUCTION: ${block.content} -->\n`;
+                const assignTag = block.assignTo ? ` [ASSIGN: ${block.assignTo}]` : "";
+                markdown += `<!-- INSTRUCTION${assignTag}: ${block.content} -->\n`;
             } else if (block.type === "text") {
                 markdown += `${block.content}\n`;
             }

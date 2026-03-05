@@ -1,0 +1,280 @@
+[
+  {
+    "id": "mock_uuid",
+    "type": "frontmatter",
+    "content": "h1_font: \"Inter\"  \r\nh1_color: \"#1e293b\"          # Dark blue‑gray for main titles  \r\nh2_font: \"Inter\"  \r\nh2_color: \"#334155\"          # Slightly lighter for subtitles  \r\nh3_font: \"Inter\"  \r\nh3_color: \"#475569\"          # Mid‑tone for section headings within loops  \r\nbody_font: \"Roboto\"  \r\nbody_color: \"#1f2937\"        # Primary text color (almost black)  \r\nquote_bg_color: \"#f0f4f8\"    # Light gray background for quoted excerpts  \r\ntable_header_bg: \"#e2e8f0\"   # Soft blue‑gray for table header rows  \r\ntable_border_color: \"#cbd5e1\"  \r"
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "{{ Document Comparison Audit }}",
+    "children": []
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Executive Summary",
+    "children": [
+      {
+        "id": "mock_uuid",
+        "type": "instruction",
+        "content": "Provide a concise overview of the audit, highlighting the total number of differences found and the overall impact on compliance, quality, or risk."
+      }
+    ]
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Methodology",
+    "children": [
+      {
+        "id": "mock_uuid",
+        "type": "instruction",
+        "content": "Describe the approach used to compare the documents (e.g., side‑by‑side diff, keyword analysis, version control), any tools employed, and the criteria for classifying issues (severity, priority)."
+      }
+    ]
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Findings – Differences Identified",
+    "children": [
+      {
+        "id": "mock_uuid",
+        "type": "instruction",
+        "content": "Compare the supplied documents and produce a JSON object with an `items` array. Each item must contain the following fields: - `issue_id` (unique identifier) - `description` (brief summary of the difference) - `location_doc_a` (section/page/paragraph in Document A) - `location_doc_b` (section/page/paragraph in Document B) - `diff_detail` (exact textual or structural difference) - `severity` (Low, Medium, High, Critical) - `suggested_improvement` (actionable recommendation to resolve the issue) Return the JSON in the format: `{ \"items\": [ { ... }, { ... } ] }`.",
+        "assignTo": "diff_data"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- IF: diff_data -->  \r"
+      }
+    ]
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Summary Table of All Differences",
+    "children": [
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "| Issue ID | Description | Location (Doc A) | Location (Doc B) | Severity |\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "|----------|-------------|------------------|------------------|----------|\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- BEGIN LOOP: diff_data.items -->\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "| {{ loop_item.issue_id }} | {{ loop_item.description }} | {{ loop_item.location_doc_a }} | {{ loop_item.location_doc_b }} | {{ loop_item.severity }} |\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- END LOOP -->\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "**Detailed Issue Breakdown**  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- BEGIN LOOP: diff_data.items -->\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "**Issue {{ loop_item.issue_id }} – {{ loop_item.severity }}**  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "*Description:* {{ loop_item.description }}  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "*Location in Document A:* {{ loop_item.location_doc_a }}  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "*Location in Document B:* {{ loop_item.location_doc_b }}  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "*Difference Detail:*  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "> {{ loop_item.diff_detail }}\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "*Suggested Improvement:*  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "- {{ loop_item.suggested_improvement }}\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "---  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- END LOOP -->\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- ELSE -->  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "No differences were detected between the provided documents.  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- ENDIF -->\r"
+      }
+    ]
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Recommendations – Action Plan",
+    "children": [
+      {
+        "id": "mock_uuid",
+        "type": "instruction",
+        "content": "From `diff_data.items`, extract a list of unique actionable improvements, grouping them by severity and recommended owner (if provided in the source data). Return a JSON object with an `actions` array, each containing `severity`, `improvement`, and optional `owner`.",
+        "assignTo": "recommendations"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- IF: recommendations -->  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "| Severity | Recommended Improvement | Owner (optional) |\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "|----------|------------------------|------------------|\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- BEGIN LOOP: recommendations.actions -->\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "| {{ loop_item.severity }} | {{ loop_item.improvement }} | {{ loop_item.owner | default:\"N/A\" }} |\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- END LOOP -->\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "**Implementation Timeline**  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "instruction",
+        "content": "Propose a phased timeline (e.g., Immediate, Short‑term, Long‑term) for applying the recommendations, considering their severity and dependencies."
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- ELSE -->  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "All identified issues have already been addressed with appropriate actions.  \r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "<!-- ENDIF -->\r"
+      }
+    ]
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Appendices",
+    "children": []
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Source excerpts (optional)",
+    "children": [
+      {
+        "id": "mock_uuid",
+        "type": "instruction",
+        "content": "Include any critical excerpts from the original documents that illustrate the differences, formatted as blockquotes using the defined `quote_bg_color`."
+      }
+    ]
+  },
+  {
+    "id": "mock_uuid",
+    "type": "section",
+    "title": "Glossary",
+    "children": [
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "| Term | Definition |\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "|------|------------|\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "| **Severity** | The impact level of a difference on compliance, security, or operational risk. |\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "| **Improvement** | A concrete, actionable step to resolve or mitigate the identified issue. |\r"
+      },
+      {
+        "id": "mock_uuid",
+        "type": "text",
+        "content": "**Note:** This audit is confidential and intended for internal review only.\r"
+      }
+    ]
+  }
+]

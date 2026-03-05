@@ -121,6 +121,12 @@ export function BlockCard({ block, depth = 0, onUpdate, onDelete, onAddChild, on
 
                 <span className="text-xs font-bold uppercase text-muted-foreground mr-2">{block.type}</span>
 
+                {block.assignTo && (
+                    <span className="text-[10px] font-mono bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 px-1 rounded border border-emerald-200 dark:border-emerald-800">
+                        ASSIGN: {block.assignTo}
+                    </span>
+                )}
+
                 {/* Inline Editor (ReadOnly in Overlay generally, or static) */}
                 <div className="flex-1 font-semibold text-sm">
                     {block.title || block.loopSource || block.content || block.type}
@@ -217,6 +223,19 @@ export function SortableBlock({ block, depth = 0, onUpdate, onDelete, onAddChild
                     {block.type === "else" && <GitBranch className="h-4 w-4 text-orange-300 rotate-180" />}
 
                     <span className="text-xs font-bold uppercase text-muted-foreground mr-2">{block.type}</span>
+
+                    {/* ASSIGN field for Instructions */}
+                    {block.type === "instruction" && (
+                        <div className="flex items-center gap-1 mr-2 px-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded">
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">ASSIGN:</span>
+                            <Input
+                                value={block.assignTo || ""}
+                                className="h-6 w-24 text-[10px] p-1 border-none bg-transparent focus-visible:ring-0 font-mono"
+                                onChange={(e) => onUpdate(block.id, { assignTo: e.target.value })}
+                                placeholder="variable..."
+                            />
+                        </div>
+                    )}
 
                     {/* Suggest Button for Instruction */}
                     {block.type === "instruction" && (

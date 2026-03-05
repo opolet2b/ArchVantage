@@ -14,9 +14,9 @@ from app.utils.document_parser import document_parser
 from app.services.web_crawler_service import web_crawler_service
 
 class ContextEnrichmentService:
-    async def enrich_context(self, query: str, kb_id: Optional[str], db: Session, active_model: str = "default") -> str:
+    async def enrich_context(self, query: str, kb_id: Optional[str], db: Session, active_model: str = "default") -> tuple[str, list]:
         if not kb_id or kb_id == "none" or kb_id == "--NONE--":
-            return ""
+            return "", []
             
         # 1. Check if KB exists
         db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
@@ -108,13 +108,14 @@ class ContextEnrichmentService:
         unique_nodes = {n.get("@rid"): n for n in matched_nodes if n.get("@rid")}.values()
         
         if not unique_nodes:
-            return ""
+            return "", []
             
         print(f"[ContextEnrichment] Found {len(unique_nodes)} matching KB nodes.")
         
         # 4. Fetch related external content
         enriched_blocks = []
         sources_fetched = set()
+        citations = []
         
         for node in list(unique_nodes)[:10]:  # Limit to top 10
             name = node.get("name", "Unknown")
@@ -123,6 +124,17 @@ class ContextEnrichmentService:
             source_uri = node.get("source_uri")
             
             node_context = f"### KB Entity: {name} ({ntype})\n**Summary:** {summary}\n"
+            
+            node_id = node.get("@rid")
+            if node_id and node_id.startswith("#"):
+                node_id = node_id[1:]
+                
+            citation = {
+                "id": str(node_id),
+                "title": name,
+                "type": ntype,
+                "matches": []
+            }
             
             # Fetch external content if valid
             if source_uri and source_uri not in sources_fetched:
@@ -141,16 +153,18 @@ class ContextEnrichmentService:
                         snippet = self._find_best_snippet(ext_content, keywords)
                         if snippet:
                              node_context += f"**Source Snippet ([Source: {source_uri}]):**\n{snippet}...\n"
+                             citation["matches"].append({"text": snippet, "score": 1.0, "page": None, "bbox": None, "row_id": None})
                 except Exception as e:
                     print(f"[ContextEnrichment] Failed to fetch source {source_uri}: {e}")
                     
             enriched_blocks.append(node_context)
+            citations.append(citation)
             
         if not enriched_blocks:
-            return ""
+            return "", []
             
         final_context = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n" + "\n\n".join(enriched_blocks) + "\n--------------------------------\n"
-        return final_context
+        return final_context, citations
         
     def _find_best_snippet(self, text: str, keywords: List[str], window: int = 1500) -> str:
         """Finds the most relevant snippet of text containing the keywords."""

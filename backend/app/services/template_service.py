@@ -505,6 +505,16 @@ Rules:
         <!-- END LOOP -->
         ```
       - Use these to structure complex templates based on available data.
+ 
+    f. **Dynamic Data Extraction (ASSIGN)**:
+       Use `<!-- INSTRUCTION [ASSIGN: variable_name]: Describe what to extract -->` to perform inline data extraction.
+       - This instructs the generator to output pure JSON data instead of text.
+       - The data is saved to `variable_name` (e.g., as an `items` array) for use in subsequent loops.
+       - The instruction itself outputs nothing to the document.
+       - CRITICAL: Always use this for table/list loops where the data needs to be extracted from raw context.
+       - Example:
+         `<!-- INSTRUCTION [ASSIGN: differences]: Extract a list of differences between Doc A and Doc B. Return a JSON object with 'items' array. -->`
+         `<!-- BEGIN LOOP: differences.items --> ... <!-- END LOOP -->`
 
    e. **Variables**:
       Reference simple variables using `{{ variable_name }}`.
@@ -525,10 +535,11 @@ h1_color: "#1e293b"
 <!-- INSTRUCTION: Write a high-level summary of the analysis. -->
 
 ## Detailed Findings
-<!-- IF: has_findings -->
+<!-- INSTRUCTION [ASSIGN: diff_data]: Analyze documents and extract an 'items' list of findings. -->
+<!-- IF: diff_data -->
 | Category | Observation | Impact |
 |----------|-------------|--------|
-<!-- BEGIN LOOP: findings -->
+<!-- BEGIN LOOP: diff_data -->
 | {{ loop_item.category }} | {{ loop_item.observation }} | {{ loop_item.impact }} |
 <!-- END LOOP -->
 <!-- ELSE -->
@@ -565,7 +576,8 @@ Rules:
 1. Keep it concise but specific.
 2. Use imperative language (e.g., "Analyze...", "Summarize...", "List...").
 3. If the input is vague, make reasonable assumptions to improve it, or retain the core intent but structure it better.
-4. Do NOT add conversational filler ("Here is the optimized prompt"). JUST return the optimized text.
+4. If the instruction contains an assignment tag like `[ASSIGN: var]`, ensure it is PRESERVED exactly in the output.
+5. Do NOT add conversational filler ("Here is the optimized prompt"). JUST return the optimized text.
 """
         
         messages = [

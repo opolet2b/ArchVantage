@@ -881,6 +881,62 @@ Specific Instructions:
 
             formatted_source = format_input(source_text) if (isinstance(source_text, (dict, list)) or (isinstance(source_text, str) and source_text.strip().startswith("{"))) else source_text
 
+            # Execute [ASSIGN: var] instructions BEFORE the main restructuring
+            import re
+            assign_pattern = re.compile(r'<!--\s*INSTRUCTIONS?(?:\s*\[ASSIGN:\s*([^\]]+)\])?:\s*(.*?)-->', re.DOTALL | re.IGNORECASE)
+            
+            matches = list(assign_pattern.finditer(body_template))
+            for match in matches:
+                assign_to = match.group(1)
+                full_match = match.group(0)
+                if assign_to:
+                    assign_to = assign_to.strip()
+                    instruction = match.group(2).strip()
+                    print(f"[TextTemplate] Executing ASSIGN for variable '{assign_to}'")
+                    
+                    assign_system_prompt = (
+                        "You are a precise data extraction assistant.\n"
+                        "Extract information from the provided context according to the instruction.\n"
+                        "Return ONLY valid JSON. If you are extracting a list of items, wrap it in a root object with the key 'items', e.g., {\"items\": [...]}.\n"
+                        "Do NOT include any markdown formatting, conversational text, or explanations outside the JSON."
+                    )
+                    assign_user_prompt = f"INSTRUCTION: {instruction}\n\nCONTENT TO EXTRACT FROM:\n{formatted_source[:15000]}"
+                    
+                    try:
+                        from app.models.chat import Message
+                        assign_messages = [
+                            Message(role="system", content=assign_system_prompt),
+                            Message(role="user", content=assign_user_prompt)
+                        ]
+                        result_str = await llm_service.chat(assign_messages, model_name=llm_model, response_format={"type": "json_object"})
+                        
+                        import json
+                        clean_response = result_str.strip()
+                        if clean_response.startswith("```json"):
+                            clean_response = clean_response[7:]
+                        elif clean_response.startswith("```"):
+                            clean_response = "\n".join(clean_response.split("\n")[1:])
+                        if clean_response.endswith("```"):
+                            clean_response = clean_response[:-3].strip()
+                            
+                        parsed_data = json.loads(clean_response)
+                        
+                        if "variables" not in state: state["variables"] = {}
+                        if isinstance(parsed_data, dict) and assign_to in parsed_data:
+                            state["variables"][assign_to] = parsed_data[assign_to]
+                        elif isinstance(parsed_data, dict) and "items" in parsed_data:
+                            state["variables"][assign_to] = parsed_data["items"]
+                        else:
+                            state["variables"][assign_to] = parsed_data
+                            
+                    except Exception as e:
+                        print(f"[TextTemplate] JSON Parsing error for assignment {assign_to}: {e}")
+                        if "variables" not in state: state["variables"] = {}
+                        state["variables"][assign_to] = result_str if 'result_str' in locals() else ""
+                    
+                    # Remove the ASSIGN block from the template body
+                    body_template = body_template.replace(full_match, "")
+
             # Step 2: Construct LLM prompt
             system_prompt = """You are a document restructuring assistant.
 Your task is to replace the <!-- INSTRUCTION: --> blocks in the provided 

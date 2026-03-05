@@ -255,6 +255,8 @@ export default function TemplatesPage() {
                         setTemplatePurpose("");
                         setMinQuality(80);
                         setMaxIterations(3);
+                        // Reset LLM so it doesn't bleed from previous templates
+                        setSelectedLlm(llmModels.length > 0 ? llmModels[0].id : "default");
                     } else if (typeof struct === 'object') {
                         // New Format: { purpose: string, blocks: array, execution_config: ... }
                         setBlocks(struct.blocks || []);
@@ -268,12 +270,20 @@ export default function TemplatesPage() {
                             setMaxIterations(3);
                             setLevelOfDetail("standard");
                         }
+
+                        // Handle Builder-specific config (Selected LLM)
+                        if (struct.builder_config && struct.builder_config.selected_llm) {
+                            setSelectedLlm(struct.builder_config.selected_llm);
+                        } else {
+                            setSelectedLlm(llmModels.length > 0 ? llmModels[0].id : "default");
+                        }
                     }
                 } else {
                     setBlocks([]);
                     setTemplatePurpose("");
                     setMinQuality(80);
                     setMaxIterations(3);
+                    setSelectedLlm(llmModels.length > 0 ? llmModels[0].id : "default");
                 }
 
 
@@ -315,6 +325,9 @@ export default function TemplatesPage() {
                     min_quality: minQuality,
                     max_iterations: maxIterations,
                     level_of_detail: levelOfDetail
+                },
+                builder_config: {
+                    selected_llm: selectedLlm
                 }
             };
 

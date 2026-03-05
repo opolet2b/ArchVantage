@@ -1,0 +1,94 @@
+---  
+h1_font: "Inter"  
+h1_color: "#1e293b"          # Dark blue‑gray for main titles  
+h2_font: "Inter"  
+h2_color: "#334155"          # Slightly lighter for subtitles  
+h3_font: "Inter"  
+h3_color: "#475569"          # Mid‑tone for section headings within loops  
+body_font: "Roboto"  
+body_color: "#1f2937"        # Primary text color (almost black)  
+quote_bg_color: "#f0f4f8"    # Light gray background for quoted excerpts  
+table_header_bg: "#e2e8f0"   # Soft blue‑gray for table header rows  
+table_border_color: "#cbd5e1"  
+---  
+
+# {{ Document Comparison Audit }}
+
+## Executive Summary  
+<!-- INSTRUCTION: Provide a concise overview of the audit, highlighting the total number of differences found and the overall impact on compliance, quality, or risk. -->
+
+## Methodology  
+<!-- INSTRUCTION: Describe the approach used to compare the documents (e.g., side‑by‑side diff, keyword analysis, version control), any tools employed, and the criteria for classifying issues (severity, priority). -->
+
+## Findings – Differences Identified  
+<!-- INSTRUCTION [ASSIGN: diff_data]: Compare the supplied documents and produce a JSON object with an `items` array. Each item must contain the following fields:  
+- `issue_id` (unique identifier)  
+- `description` (brief summary of the difference)  
+- `location_doc_a` (section/page/paragraph in Document A)  
+- `location_doc_b` (section/page/paragraph in Document B)  
+- `diff_detail` (exact textual or structural difference)  
+- `severity` (Low, Medium, High, Critical)  
+- `suggested_improvement` (actionable recommendation to resolve the issue)  
+Return the JSON in the format: `{ "items": [ { ... }, { ... } ] }`. -->  
+
+<!-- IF: diff_data -->  
+
+### Summary Table of All Differences  
+| Issue ID | Description | Location (Doc A) | Location (Doc B) | Severity |
+|----------|-------------|------------------|------------------|----------|
+<!-- BEGIN LOOP: diff_data.items -->
+| {{ loop_item.issue_id }} | {{ loop_item.description }} | {{ loop_item.location_doc_a }} | {{ loop_item.location_doc_b }} | {{ loop_item.severity }} |
+<!-- END LOOP -->
+
+**Detailed Issue Breakdown**  
+
+<!-- BEGIN LOOP: diff_data.items -->
+**Issue {{ loop_item.issue_id }} – {{ loop_item.severity }}**  
+*Description:* {{ loop_item.description }}  
+
+*Location in Document A:* {{ loop_item.location_doc_a }}  
+*Location in Document B:* {{ loop_item.location_doc_b }}  
+
+*Difference Detail:*  
+> {{ loop_item.diff_detail }}
+
+*Suggested Improvement:*  
+- {{ loop_item.suggested_improvement }}
+
+---  
+<!-- END LOOP -->
+
+<!-- ELSE -->  
+No differences were detected between the provided documents.  
+<!-- ENDIF -->
+
+## Recommendations – Action Plan  
+<!-- INSTRUCTION [ASSIGN: recommendations]: From `diff_data.items`, extract a list of unique actionable improvements, grouping them by severity and recommended owner (if provided in the source data). Return a JSON object with an `actions` array, each containing `severity`, `improvement`, and optional `owner`. -->  
+
+<!-- IF: recommendations -->  
+
+| Severity | Recommended Improvement | Owner (optional) |
+|----------|------------------------|------------------|
+<!-- BEGIN LOOP: recommendations.actions -->
+| {{ loop_item.severity }} | {{ loop_item.improvement }} | {{ loop_item.owner | default:"N/A" }} |
+<!-- END LOOP -->
+
+**Implementation Timeline**  
+<!-- INSTRUCTION: Propose a phased timeline (e.g., Immediate, Short‑term, Long‑term) for applying the recommendations, considering their severity and dependencies. -->  
+
+<!-- ELSE -->  
+All identified issues have already been addressed with appropriate actions.  
+<!-- ENDIF -->
+
+## Appendices  
+
+### Source excerpts (optional)  
+<!-- INSTRUCTION: Include any critical excerpts from the original documents that illustrate the differences, formatted as blockquotes using the defined `quote_bg_color`. -->  
+
+### Glossary  
+| Term | Definition |
+|------|------------|
+| **Severity** | The impact level of a difference on compliance, security, or operational risk. |
+| **Improvement** | A concrete, actionable step to resolve or mitigate the identified issue. |
+
+**Note:** This audit is confidential and intended for internal review only.

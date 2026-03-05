@@ -228,34 +228,90 @@ class DocumentTemplateService:
         The instruction content becomes the prompt for AI generation.
         """
         instruction = block.get("content", "")
+        assign_to = block.get("assignTo") or block.get("assign_to")
         
         # Interpolate variables in instruction
         instruction = self._interpolate(instruction, context)
         
         if not instruction.strip():
             return ""
-        
-        # Get level of detail for generation guidance
-        level_of_detail = context.get("_level_of_detail", "standard")
-        
-        # Build system prompt
-        system_prompt = self._build_instruction_system_prompt(level_of_detail)
-        
-        # Build user prompt with context
-        user_prompt = self._build_instruction_user_prompt(instruction, context)
-        
-        execution_log.append({
-            "type": "ai_call",
-            "block_id": block.get("id"),
-            "instruction_preview": instruction[:200],
-            "level_of_detail": level_of_detail,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        
-        # Call AI
-        result = await self._generate_with_ai(system_prompt, user_prompt, context)
-        
-        return result
+            
+        if assign_to:
+            # ASSIGN MODE: Extract JSON and store in context
+            system_prompt = (
+                "You are a precise data extraction assistant.\n"
+                "Extract information from the provided context according to the instruction.\n"
+                "Return ONLY valid JSON. If you are extracting a list of items, wrap it in a root object with the key 'items', e.g., {\"items\": [...]}.\n"
+                "Do NOT include any markdown formatting, conversational text, or explanations outside the JSON."
+            )
+            user_prompt = self._build_instruction_user_prompt(instruction, context)
+            
+            execution_log.append({
+                "type": "ai_extraction",
+                "block_id": block.get("id"),
+                "assign_to": assign_to,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            result_str = await self._generate_with_ai(
+                system_prompt, 
+                user_prompt, 
+                context,
+                response_format={"type": "json_object"}
+            )
+            
+            # Parse result and update context
+            try:
+                import json
+                
+                # Clean up potential Markdown Code Blocks
+                clean_response = result_str.strip()
+                if clean_response.startswith("```"):
+                    clean_response = "\n".join(clean_response.split("\n")[1:])
+                if clean_response.endswith("```"):
+                    clean_response = clean_response[:-3].strip()
+                    
+                parsed_data = json.loads(clean_response)
+                
+                # Unwrap common root keys if the user requested a list
+                if isinstance(parsed_data, dict) and assign_to in parsed_data:
+                    context[assign_to] = parsed_data[assign_to]
+                elif isinstance(parsed_data, dict) and "items" in parsed_data:
+                    context[assign_to] = parsed_data["items"]
+                else:
+                    context[assign_to] = parsed_data
+                    
+            except Exception as e:
+                print(f"[DocTemplateService] JSON Parsing error for assignment {assign_to}: {e}")
+                # Fallback: store raw string and hope the template engine can handle it or just log it
+                context[assign_to] = result_str
+                
+            # Nothing is output to the document at this block's position
+            return ""
+            
+        else:
+            # STANDARD MODE: Generate text for the document
+            # Get level of detail for generation guidance
+            level_of_detail = context.get("_level_of_detail", "standard")
+            
+            # Build system prompt
+            system_prompt = self._build_instruction_system_prompt(level_of_detail)
+            
+            # Build user prompt with context
+            user_prompt = self._build_instruction_user_prompt(instruction, context)
+            
+            execution_log.append({
+                "type": "ai_call",
+                "block_id": block.get("id"),
+                "instruction_preview": instruction[:200],
+                "level_of_detail": level_of_detail,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+            
+            # Call AI
+            result = await self._generate_with_ai(system_prompt, user_prompt, context)
+            
+            return result
     
     async def _handle_loop(
         self, 
@@ -272,8 +328,8 @@ class DocumentTemplateService:
         loop_source = block.get("loopSource", "")
         children = block.get("children", [])
         
-        # Get items from context
-        items = context.get(loop_source, [])
+        # Get items from context (supporting nested keys)
+        items = self._resolve_context_variable(loop_source, context) or []
         
         if not items:
             execution_log.append({
@@ -284,30 +340,34 @@ class DocumentTemplateService:
             })
             return ""
         
-        # Create batch context with all items
-        batch_context = {
-            **context,
-            "items": items,
-            "item_count": len(items),
-            "loop_source": loop_source
-        }
-        
         execution_log.append({
-            "type": "loop_batch",
+            "type": "loop_start",
             "block_id": block.get("id"),
             "source": loop_source,
             "item_count": len(items),
             "timestamp": datetime.utcnow().isoformat()
         })
         
-        # Process children ONCE with batch context
+        # Process children for EACH item
         child_outputs = []
-        for child in children:
-            child_result = await self._process_block(
-                child, batch_context, depth, execution_log
-            )
-            if child_result and child_result.strip():
-                child_outputs.append(child_result)
+        for index, item in enumerate(items):
+            local_context = {
+                **context,
+                "loop_item": item,
+                "item": item,
+                "loop_index": index,
+                "loop_index1": index + 1,
+                "loop_length": len(items),
+                "loop_first": index == 0,
+                "loop_last": index == len(items) - 1,
+            }
+            
+            for child in children:
+                child_result = await self._process_block(
+                    child, local_context, depth, execution_log
+                )
+                if child_result and child_result.strip():
+                    child_outputs.append(child_result)
         
         return "\n".join(child_outputs)
     
@@ -452,6 +512,25 @@ class DocumentTemplateService:
         except Exception as e:
             print(f"[DocTemplateService] Interpolation error: {e}")
             return text
+            
+    def _resolve_context_variable(self, path: str, context: Dict[str, Any]) -> Any:
+        """
+        Resolve a potentially nested variable path (e.g. 'differences.items') in context.
+        """
+        if not path:
+            return None
+            
+        if "." not in path:
+            return context.get(path)
+            
+        parts = path.split(".")
+        current = context
+        for part in parts:
+            if isinstance(current, dict):
+                current = current.get(part)
+            else:
+                return None
+        return current
     
     def _evaluate_condition(
         self, 
@@ -631,7 +710,8 @@ Generate the content now:"""
         self, 
         system_prompt: str, 
         user_prompt: str,
-        context: Dict[str, Any]
+        context: Dict[str, Any],
+        response_format: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Call the LLM service to generate content.
@@ -657,6 +737,8 @@ Generate the content now:"""
             call_kwargs = {"messages": messages}
             if model:
                 call_kwargs["model_name"] = model
+            if response_format:
+                call_kwargs["response_format"] = response_format
             
             response = await self.llm_service.chat(**call_kwargs)
             

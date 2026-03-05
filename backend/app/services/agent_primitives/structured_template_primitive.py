@@ -102,35 +102,56 @@ class StructuredTemplatePrimitive(BasePrimitive):
                 output.append(rendered)
 
             elif block_type == "instruction":
-                # Instructions are usually for the LLM to generate content.
-                # In this primitive, if we want to support "Smart Generation", we need to call LLM here.
-                # For now, let's assume this is a "Static Execution" text or simple substitution.
-                
-                # WAIT: The requirement is for "Smart Templates" where instructions drive generation.
-                # If this primitive is running effectively as a "Compiler + Generator", it needs to call LLM for sections.
-                
-                # However, the current architecture separates "TextTemplate" (generation) from "Compiler" (aggregation).
-                # If this primitive replaces "TextTemplate", it should generate content.
-                
-                # Let's implement a simple "Execute Instruction" logic:
                 instruction = block.get("content", "")
-                # check if there's context to generate from?
-                # For now, just output the instruction as a comment or handle simple generation if needed?
-                # Implementation Plan said "add to system prompt or context". 
-                # If we produce Markdown, maybe we just leave it as a comment for the NEXT step (Smart Analysis)?
-                # OR, do we generate right here?
+                assign_to = block.get("assignTo") or block.get("assign_to")
                 
-                # Design Decision: This primitive produces the FINAL Markdown.
-                # If an instruction implies "Write this section", we should call LLM.
-                # BUT, doing LLM calls for every granular instruction might be slow/expensive.
-                
-                # Let's assume for this MVP, instructions are rendered as HTML comments 
-                # OR we implement a simple generation if requested.
-                # The user prompt said: "execution engine... will have it easy to process sections".
-                # It implies this primitive IS the execution engine.
-                
-                # Let's stick to rendering format for now, as Smart Analysis usually wraps this.
-                output.append(f"<!-- INSTRUCTION: {instruction} -->")
+                if assign_to:
+                    print(f"[StructuredTemplatePrimitive] Executing ASSIGN for variable '{assign_to}'")
+                    system_prompt = (
+                        "You are a precise data extraction assistant.\n"
+                        "Extract information from the provided context according to the instruction.\n"
+                        "Return ONLY valid JSON. If you are extracting a list of items, wrap it in a root object with the key 'items', e.g., {\"items\": [...]}.\n"
+                        "Do NOT include any markdown formatting, conversational text, or explanations outside the JSON."
+                    )
+                    
+                    import json
+                    context_str = json.dumps(variables, default=str)[:15000]
+                    user_prompt = f"INSTRUCTION: {instruction}\n\nCONTENT TO EXTRACT FROM:\n{context_str}"
+                    
+                    try:
+                        from app.models.chat import Message
+                        messages = [
+                            Message(role="system", content=system_prompt),
+                            Message(role="user", content=user_prompt)
+                        ]
+                        # Use the service's chat with response_format
+                        result_str = await self.llm_service.chat(messages, response_format={"type": "json_object"})
+                        
+                        clean_response = result_str.strip()
+                        if clean_response.startswith("```json"):
+                            clean_response = clean_response[7:]
+                        elif clean_response.startswith("```"):
+                            clean_response = "\n".join(clean_response.split("\n")[1:])
+                        if clean_response.endswith("```"):
+                            clean_response = clean_response[:-3].strip()
+                            
+                        parsed_data = json.loads(clean_response)
+                        
+                        if isinstance(parsed_data, dict) and assign_to in parsed_data:
+                            variables[assign_to] = parsed_data[assign_to]
+                        elif isinstance(parsed_data, dict) and "items" in parsed_data:
+                            variables[assign_to] = parsed_data["items"]
+                        else:
+                            variables[assign_to] = parsed_data
+                            
+                    except Exception as e:
+                        print(f"[StructuredTemplatePrimitive] JSON Parsing error for assignment {assign_to}: {e}")
+                        variables[assign_to] = result_str if 'result_str' in locals() else ""
+                    
+                    # Do not append instruction text to output
+                    continue
+                else:
+                    output.append(f"<!-- INSTRUCTION: {instruction} -->")
 
             elif block_type == "loop":
                 loop_source = block.get("loopSource")

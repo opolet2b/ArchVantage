@@ -334,7 +334,7 @@ async def chat_endpoint(
 
     # --- KB Context Enrichment ---
     from app.services.context_enrichment_service import context_enrichment_service
-    kb_context = await context_enrichment_service.enrich_context(last_msg, request.kb_id, db, active_model)
+    kb_context, kb_citations = await context_enrichment_service.enrich_context(last_msg, request.kb_id, db, active_model)
     if kb_context:
         # Augment the last message content with the KB context
         for m in reversed(final_messages):
@@ -345,6 +345,9 @@ async def chat_endpoint(
 
     total_nodes = []
     citations = []
+    
+    if kb_context:
+        citations.extend(kb_citations)
 
     if request.conversation_id:
         # Resolve Canvas Context (Nodes)
@@ -404,7 +407,13 @@ async def chat_endpoint(
             prev_msgs = final_messages[:-1]
             history_summary = "Conversation history:\n" + "\n".join([f"{m.role}: {m.content[:200]}..." for m in prev_msgs[-5:]])
         
-        full_query = f"{history_summary}\n\nUser Question: {last_msg}"
+        full_query = (
+            f"{history_summary}\n\n"
+            f"User Question: {last_msg}\n\n"
+            f"IMPORTANT: You MUST cite the sources used in your answer. "
+            f"Use inline citations in the format [Title] or [Note] to indicate exactly which reference from the context was used for each argument or fact." 
+            f"Note: Ensure that you use the EXACT titles shown in the context blocks."
+        )
         
         # Synthesize response using nodes
         response_content = await synthesizer.asynthesize(

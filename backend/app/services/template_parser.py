@@ -5,6 +5,7 @@ from pydantic import BaseModel
 class TemplateInstruction(BaseModel):
     text: str
     context: Optional[str] = None # e.g. "loop_item"
+    assign_to: Optional[str] = None # e.g. "my_data" for dynamic extraction
 
 class ConditionalBlock(BaseModel):
     condition: str
@@ -66,6 +67,7 @@ class TemplateParser:
         # State for multi-line instruction parsing
         in_instruction_block = False
         instruction_buffer = []
+        current_assign_to = None
 
         for line in lines:
             line = line.strip()
@@ -80,12 +82,14 @@ class TemplateParser:
                     full_instr_text = " ".join(instruction_buffer).strip()
                     
                     # Add to context
-                    current_list.append(TemplateInstruction(text=full_instr_text))
+                    new_instr = TemplateInstruction(text=full_instr_text, assign_to=current_assign_to)
+                    current_list.append(new_instr)
                     if current_section:
-                        current_section.instructions.append(TemplateInstruction(text=full_instr_text))
+                        current_section.instructions.append(new_instr)
                         
                     in_instruction_block = False
                     instruction_buffer = []
+                    current_assign_to = None
                     
                     # Process remainder of line? Usually nothing after -->
                     continue
@@ -174,9 +178,12 @@ class TemplateParser:
             # --- 7. Instructions ---
             # Check for start of instruction
             # Support both single-line "<!-- INSTRUCTION: ... -->" and multi-line "<!-- INSTRUCTION: ..."
-            start_instr_match = re.search(r'<!--\s*INSTRUCTIONS?:\s*(.*)', line, re.IGNORECASE)
+            # NEW: Support "<!-- INSTRUCTION [ASSIGN: var]: ..."
+            start_instr_match = re.search(r'<!--\s*INSTRUCTIONS?(?:\s*\[ASSIGN:\s*([^\]]+)\])?:\s*(.*)', line, re.IGNORECASE)
             if start_instr_match:
-                content_start = start_instr_match.group(1).strip()
+                assign_to = start_instr_match.group(1)
+                if assign_to: assign_to = assign_to.strip()
+                content_start = start_instr_match.group(2).strip()
                 
                 # Check if it closes on the same line
                 if "-->" in content_start:
@@ -184,13 +191,15 @@ class TemplateParser:
                     instr_text = parts[0].strip()
                     
                     # Add Logic
-                    current_list.append(TemplateInstruction(text=instr_text))
+                    new_instr = TemplateInstruction(text=instr_text, assign_to=assign_to)
+                    current_list.append(new_instr)
                     if current_section:
-                        current_section.instructions.append(TemplateInstruction(text=instr_text))
+                        current_section.instructions.append(new_instr)
                 else:
                     # Start of multi-line
                     in_instruction_block = True
                     instruction_buffer.append(content_start)
+                    current_assign_to = assign_to
                 continue
             
             # --- 8. Content (Text) ---
@@ -243,7 +252,8 @@ class TemplateParser:
                 return section
 
             elif b_type == "instruction":
-                return TemplateInstruction(text=b_content or b_title)
+                assign_to = block.get("assignTo") or block.get("assign_to")
+                return TemplateInstruction(text=b_content or b_title, assign_to=assign_to)
 
             elif b_type == "text":
                 # Raw text is treated as an instruction
