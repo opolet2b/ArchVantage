@@ -1,0 +1,233 @@
+--- Document Template Execution Context ---
+Timestamp: 2026-03-05 17:50:41.180095
+Final Doc Length: 11017 chars
+
+Variables:
+
+### extractor_input
+{
+  "assets": [
+    {
+      "id": "2213818a-5c9c-47d4-ae6e-6e3fee108e80",
+      "type": "document",
+      "url": null,
+      "content": "AI in public  \nadministrations\nFocus report on artificial intelligence as part of  \nthe 2025 National eGovernment Study\ndigital-public-services-switzerland.ch \nseco.admin.ch\n\n2\nFocus Report on AI\nIntroduction   3\nPerception and assessment of AI  \n \u2192\u2002Regulation and data protection  5\n \u2192\u2002 Expectations on traceability and  \ntransparency of AI applications  7\n \u2192\u2002Trust in AI and ethical questions  9\nAI in public administrations  \n \u2192\u2002 Training and knowledge exchange  \non AI in public administrations  11\n \u2192\u2002 Obstacles to the use of AI in  \npublic administrations  13\nConclusions and need for action  14\nPublication details   16\n\n3\nFocus Report on AI\nIntroduction\nDigital Public Services Switzerland coordinates \nthe digitalisation activities of the Confederation, \ncantons and communes. Its implementation  \nactivities are based on the Digital Public Services \nSwitzerland strategy for 2024-2027. \nThe National eGovernment Survey 1 is carried out \nevery three years, with the aim of obtaining up-  \nto-date insights into the use and availability  \nof electronic public services. For the survey, \nmembers of the Swiss general public, the busi -\nness community and public administrations are \nasked about the use and implementation of digital \npublic services. In the 2025 edition of the National \neGovernment Survey, an additional survey was \nconducted on the use of generative artificial  \nintelligence (AI). \nInitial fundamental findings on AI have already \nbeen published in the study:\n\u2002\u2013  Low level of knowledge in all target groups  \nRespondents from the general public, busi-\nnesses and public administrations assessed \ntheir own level of knowledge about AI as low.\n\u2002\u2013  Limited use of AI  \nIn all areas, the use of AI is not very wide-\nspread. Two thirds of businesses do not use \nAI. Use of AI by public administrations is \nalso low.\n\u2002\u2013  Increased efficiency  \nIn both the business community and public \nadministrations, AI is mainly used for internal \napplications. The aim is to save time and \nautomate processes. In addition, businesses \nuse AI in external service settings, to expand \ntheir service offering and improve their image.\nIn this focus report on AI, we look at the percep-\ntion and assessment of AI among the general \npublic, businesses and public administrations. \n1\u2003 Amberg, H.; B\u00fcchler, C.; Buess, M. (2025): National eGovernment Study 2025. The use and implementation of e-government services \nfrom the perspective of the general public, businesses and the public administration. DemoSCOPE AG and Interface Politikstudien \nForschung Beratung AG, Adligenswil/Lucerne, see \u2192\u2002www.digital-public-services-switzerland.ch/en/publications/studies/nationale- \ne-government-studie-2025, accessed on 16 June 2025\n\n4\nFocus Report on AI\nGenerative artificial intelligence (AI)\nGenerative artificial intelligence describes an area \nof artificial intelligence which focuses on content \ncreation. The most well known of these are so-\ncalled large language models (LLM). LLMs in -\nclude, for example, chatbots such as ChatGTP, \nGemini or Midjourney, as well as translation or \nspellcheck assistants like DeepL or DeepL Write. \nThe main difference between generative AI and \nearlier models is mainly in their area of applica -\ntion. Although an LLM is still aimed at predicting \nthe next word in a sentence, this capability al -\nlows it to be used to hold conversations, rework \ntexts, make database queries or even draw ap -\nparently logical conclusions. It is important to \nnote that, despite observable cognitive capabili-\nties, generative AI should be distinguished from \nartificial general intelligence (AGI). AGI is seen \nas having been achieved if a model generally ex-\nceeds human cognitive capabilities. Image edit -\ning programs such as Lensa or Adobe Firefly, \nwhich use AI, are regarded as generative AI. In \nthe rest of this report, only the term AI is used for \nreasons of simplicity; it is intended to always de-\nnote generative AI.\nThe following description of AI was used as an explanation in the \noriginal surveys:\n\n\n5\nFocus Report on AI\nPerception and  \nassessment of AI\nBelow, the survey is used to illustrate how the general public,  \nthe business community and public administrations assess  \nthe regulation, traceability and transparency of the use of AI.\nRegulation and data protection\nThe authorities surveyed at all levels of govern -\nment consider that regulating the development \nand use of AI applications and technologies is \na task for the state . Seventy-three percent of \npublic service units (tend to) agree with this \nstatement, as did the general population (71\u2009%) \nand businesses (67\u2009%).\nMoreove
+
+### selection
+[
+  {
+    "id": "2213818a-5c9c-47d4-ae6e-6e3fee108e80",
+    "type": "document",
+    "title": "Focus-Report-AI-National-E-Government-study_2025.pdf",
+    "content": "AI in public  \nadministrations\nFocus report on artificial intelligence as part of  \nthe 2025 National eGovernment Study\ndigital-public-services-switzerland.ch \nseco.admin.ch\n\n2\nFocus Report on AI\nIntroduction   3\nPerception and assessment of AI  \n \u2192\u2002Regulation and data protection  5\n \u2192\u2002 Expectations on traceability and  \ntransparency of AI applications  7\n \u2192\u2002Trust in AI and ethical questions  9\nAI in public administrations  \n \u2192\u2002 Training and knowledge exchange  \non AI in public administrations  11\n \u2192\u2002 Obstacles to the use of AI in  \npublic administrations  13\nConclusions and need for action  14\nPublication details   16\n\n3\nFocus Report on AI\nIntroduction\nDigital Public Services Switzerland coordinates \nthe digitalisation activities of the Confederation, \ncantons and communes. Its implementation  \nactivities are based on the Digital Public Services \nSwitzerland strategy for 2024-2027. \nThe National eGovernment Survey 1 is carried out \nevery three years, with the aim of obtaining up-  \nto-date insights into the use and availability  \nof electronic public services. For the survey, \nmembers of the Swiss general public, the busi -\nness community and public administrations are \nasked about the use and implementation of digital \npublic services. In the 2025 edition of the National \neGovernment Survey, an additional survey was \nconducted on the use of generative artificial  \nintelligence (AI). \nInitial fundamental findings on AI have already \nbeen published in the study:\n\u2002\u2013  Low level of knowledge in all target groups  \nRespondents from the general public, busi-\nnesses and public administrations assessed \ntheir own level of knowledge about AI as low.\n\u2002\u2013  Limited use of AI  \nIn all areas, the use of AI is not very wide-\nspread. Two thirds of businesses do not use \nAI. Use of AI by public administrations is \nalso low.\n\u2002\u2013  Increased efficiency  \nIn both the business community and public \nadministrations, AI is mainly used for internal \napplications. The aim is to save time and \nautomate processes. In addition, businesses \nuse AI in external service settings, to expand \ntheir service offering and improve their image.\nIn this focus report on AI, we look at the percep-\ntion and assessment of AI among the general \npublic, businesses and public administrations. \n1\u2003 Amberg, H.; B\u00fcchler, C.; Buess, M. (2025): National eGovernment Study 2025. The use and implementation of e-government services \nfrom the perspective of the general public, businesses and the public administration. DemoSCOPE AG and Interface Politikstudien \nForschung Beratung AG, Adligenswil/Lucerne, see \u2192\u2002www.digital-public-services-switzerland.ch/en/publications/studies/nationale- \ne-government-studie-2025, accessed on 16 June 2025\n\n4\nFocus Report on AI\nGenerative artificial intelligence (AI)\nGenerative artificial intelligence describes an area \nof artificial intelligence which focuses on content \ncreation. The most well known of these are so-\ncalled large language models (LLM). LLMs in -\nclude, for example, chatbots such as ChatGTP, \nGemini or Midjourney, as well as translation or \nspellcheck assistants like DeepL or DeepL Write. \nThe main difference between generative AI and \nearlier models is mainly in their area of applica -\ntion. Although an LLM is still aimed at predicting \nthe next word in a sentence, this capability al -\nlows it to be used to hold conversations, rework \ntexts, make database queries or even draw ap -\nparently logical conclusions. It is important to \nnote that, despite observable cognitive capabili-\nties, generative AI should be distinguished from \nartificial general intelligence (AGI). AGI is seen \nas having been achieved if a model generally ex-\nceeds human cognitive capabilities. Image edit -\ning programs such as Lensa or Adobe Firefly, \nwhich use AI, are regarded as generative AI. In \nthe rest of this report, only the term AI is used for \nreasons of simplicity; it is intended to always de-\nnote generative AI.\nThe following description of AI was used as an explanation in the \noriginal surveys:\n\n\n5\nFocus Report on AI\nPerception and  \nassessment of AI\nBelow, the survey is used to illustrate how the general public,  \nthe business community and public administrations assess  \nthe regulation, traceability and transparency of the use of AI.\nRegulation and data protection\nThe authorities surveyed at all levels of govern -\nment consider that regulating the development \nand use of AI applications and technologies is \na task for the state . Seventy-three percent of \npublic service units (tend to) agree with this \nstatement, as did the general population (71\u2009%) \nand busi
+
+### combined_context
+Item: Focus-Report-AI-National-E-Government-study_2025.pdf (document)
+AI in public  
+administrations
+Focus report on artificial intelligence as part of  
+the 2025 National eGovernment Study
+digital-public-services-switzerland.ch 
+seco.admin.ch
+
+2
+Focus Report on AI
+Introduction   3
+Perception and assessment of AI  
+ → Regulation and data protection  5
+ →  Expectations on traceability and  
+transparency of AI applications  7
+ → Trust in AI and ethical questions  9
+AI in public administrations  
+ →  Training and knowledge exchange  
+on AI in public administrations  11
+ →  Obstacles to the use of AI in  
+public administrations  13
+Conclusions and need for action  14
+Publication details   16
+
+3
+Focus Report on AI
+Introduction
+Digital Public Services Switzerland coordinates 
+the digitalisation activities of the Confederation, 
+cantons and communes. Its implementation  
+activities are based on the Digital Public Services 
+Switzerland strategy for 2024-2027. 
+The National eGovernment Survey 1 is carried out 
+every three years, with the aim of obtaining up-  
+to-date insights into the use and availability  
+of electronic public services. For the survey, 
+members of the Swiss general public, the busi -
+ness community and public administrations are 
+asked about the use and implementation of digital 
+public services. In the 2025 edition of the National 
+eGovernment Survey, an additional survey was 
+conducted on the use of generative artificial  
+intelligence (AI). 
+Initial fundamental findings on AI have already 
+been published in the study:
+ –  Low level of knowledge in all target groups  
+Respondents from the general public, busi-
+nesses and public administrations assessed 
+their own level of knowledge about AI as low.
+ –  Limited use of AI  
+In all areas, the use of AI is not very wide-
+spread. Two thirds of businesses do not use 
+AI. Use of AI by public administrations is 
+also low.
+ –  Increased efficiency  
+In both the business community and public 
+administrations, AI is mainly used for internal 
+applications. The aim is to save time and 
+automate processes. In addition, businesses 
+use AI in external service settings, to expand 
+their service offering and improve their image.
+In this focus report on AI, we look at the percep-
+tion and assessment of AI among the general 
+public, businesses and public administrations. 
+1  Amberg, H.; Büchler, C.; Buess, M. (2025): National eGovernment Study 2025. The use and implementation of e-government services 
+from the perspective of the general public, businesses and the public administration. DemoSCOPE AG and Interface Politikstudien 
+Forschung Beratung AG, Adligenswil/Lucerne, see → www.digital-public-services-switzerland.ch/en/publications/studies/nationale- 
+e-government-studie-2025, accessed on 16 June 2025
+
+4
+Focus Report on AI
+Generative artificial intelligence (AI)
+Generative artificial intelligence describes an area 
+of artificial intelligence which focuses on content 
+creation. The most well known of these are so-
+called large language models (LLM). LLMs in -
+clude, for example, chatbots such as ChatGTP, 
+Gemini or Midjourney, as well as translation or 
+spellcheck assistants like DeepL or DeepL Write. 
+The main difference between generative AI and 
+earlier models is mainly in their area of applica -
+tion. Although an LLM is still aimed at predicting 
+the next word in a sentence, this capability al -
+lows it to be used to hold conversations, rework 
+texts, make database queries or even draw ap -
+parently logical conclusions. It is important to 
+note that, despite observable cognitive capabili-
+ties, generative AI should be distinguished from 
+artificial general intelligence (AGI). AGI is seen 
+as having been achieved if a model generally ex-
+ceeds human cognitive capabilities. Image edit -
+ing programs such as Lensa or Adobe Firefly, 
+which use AI, are regarded as generative AI. In 
+the rest of this report, only the term AI is used for 
+reasons of simplicity; it is intended to always de-
+note generative AI.
+The following description of AI was used as an explanation in the 
+original surveys:
+
+
+5
+Focus Report on AI
+Perception and  
+assessment of AI
+Below, the survey is used to illustrate how the general public,  
+the business community and public administrations assess  
+the regulation, traceability and transparency of the use of AI.
+Regulation and data protection
+The authorities surveyed at all levels of govern -
+ment consider that regulating the development 
+and use of AI applications and technologies is 
+a task for the state . Seventy-three percent of 
+public service units (tend to) agree with this 
+statement, as did the general population (71 %) 
+and businesses (67 %).
+Moreover, 60% of all respondents think that, as 
+regards the use of AI applications, stricter rules 
+should apply to the authorities than to the  
+business sector. 
+Around 62 % of those surveyed from the general 
+population and the business community also 
+have serious concerns about data protecti
+
+### canvas_id
+2a534f35-8f3c-40b0-b479-86f6c8b07e4e
+
+### model
+OpenRouter GPT-OSS 120
+
+### entities
+[
+  {
+    "id": "2213818a-5c9c-47d4-ae6e-6e3fee108e80",
+    "type": "document",
+    "title": "Focus-Report-AI-National-E-Government-study_2025.pdf",
+    "content": "AI in public  \nadministrations\nFocus report on artificial intelligence as part of  \nthe 2025 National eGovernment Study\ndigital-public-services-switzerland.ch \nseco.admin.ch\n\n2\nFocus Report on AI\nIntroduction   3\nPerception and assessment of AI  \n \u2192\u2002Regulation and data protection  5\n \u2192\u2002 Expectations on traceability and  \ntransparency of AI applications  7\n \u2192\u2002Trust in AI and ethical questions  9\nAI in public administrations  \n \u2192\u2002 Training and knowledge exchange  \non AI in public administrations  11\n \u2192\u2002 Obstacles to the use of AI in  \npublic administrations  13\nConclusions and need for action  14\nPublication details   16\n\n3\nFocus Report on AI\nIntroduction\nDigital Public Services Switzerland coordinates \nthe digitalisation activities of the Confederation, \ncantons and communes. Its implementation  \nactivities are based on the Digital Public Services \nSwitzerland strategy for 2024-2027. \nThe National eGovernment Survey 1 is carried out \nevery three years, with the aim of obtaining up-  \nto-date insights into the use and availability  \nof electronic public services. For the survey, \nmembers of the Swiss general public, the busi -\nness community and public administrations are \nasked about the use and implementation of digital \npublic services. In the 2025 edition of the National \neGovernment Survey, an additional survey was \nconducted on the use of generative artificial  \nintelligence (AI). \nInitial fundamental findings on AI have already \nbeen published in the study:\n\u2002\u2013  Low level of knowledge in all target groups  \nRespondents from the general public, busi-\nnesses and public administrations assessed \ntheir own level of knowledge about AI as low.\n\u2002\u2013  Limited use of AI  \nIn all areas, the use of AI is not very wide-\nspread. Two thirds of businesses do not use \nAI. Use of AI by public administrations is \nalso low.\n\u2002\u2013  Increased efficiency  \nIn both the business community and public \nadministrations, AI is mainly used for internal \napplications. The aim is to save time and \nautomate processes. In addition, businesses \nuse AI in external service settings, to expand \ntheir service offering and improve their image.\nIn this focus report on AI, we look at the percep-\ntion and assessment of AI among the general \npublic, businesses and public administrations. \n1\u2003 Amberg, H.; B\u00fcchler, C.; Buess, M. (2025): National eGovernment Study 2025. The use and implementation of e-government services \nfrom the perspective of the general public, businesses and the public administration. DemoSCOPE AG and Interface Politikstudien \nForschung Beratung AG, Adligenswil/Lucerne, see \u2192\u2002www.digital-public-services-switzerland.ch/en/publications/studies/nationale- \ne-government-studie-2025, accessed on 16 June 2025\n\n4\nFocus Report on AI\nGenerative artificial intelligence (AI)\nGenerative artificial intelligence describes an area \nof artificial intelligence which focuses on content \ncreation. The most well known of these are so-\ncalled large language models (LLM). LLMs in -\nclude, for example, chatbots such as ChatGTP, \nGemini or Midjourney, as well as translation or \nspellcheck assistants like DeepL or DeepL Write. \nThe main difference between generative AI and \nearlier models is mainly in their area of applica -\ntion. Although an LLM is still aimed at predicting \nthe next word in a sentence, this capability al -\nlows it to be used to hold conversations, rework \ntexts, make database queries or even draw ap -\nparently logical conclusions. It is important to \nnote that, despite observable cognitive capabili-\nties, generative AI should be distinguished from \nartificial general intelligence (AGI). AGI is seen \nas having been achieved if a model generally ex-\nceeds human cognitive capabilities. Image edit -\ning programs such as Lensa or Adobe Firefly, \nwhich use AI, are regarded as generative AI. In \nthe rest of this report, only the term AI is used for \nreasons of simplicity; it is intended to always de-\nnote generative AI.\nThe following description of AI was used as an explanation in the \noriginal surveys:\n\n\n5\nFocus Report on AI\nPerception and  \nassessment of AI\nBelow, the survey is used to illustrate how the general public,  \nthe business community and public administrations assess  \nthe regulation, traceability and transparency of the use of AI.\nRegulation and data protection\nThe authorities surveyed at all levels of govern -\nment consider that regulating the development \nand use of AI applications and technologies is \na task for the state . Seventy-three percent of \npublic service units (tend to) agree with this \nstatement, as did the general population (71\u2009%) \nand busi
+
+### doc_list
+{
+  "items": [
+    {
+      "title": "Focus-Report-AI-National-E-Government-study_2025.pdf",
+      "version": "2025",
+      "author": "Helen Amberg; Chiara B\u00fcchler; Dr. Michael Buess",
+      "date": "2025-06-16"
+    },
+    {
+      "title": "STAN_d_DEF_2024-11-11_eCH-0122_V2.0.0_Architektur_E-Government_Schweiz_Grundlagen.pdf",
+      "version": "2.0.0",
+      "author": "Verein eCH",
+      "date": "2024-11-11"
+    },
+    {
+      "title": "National_eGovernment_Study_2022_short_report.pdf",
+      "version": "2022",
+      "author": "Dr. Michael Buess; Helen Amberg; Chiara B\u00fcchler",
+      "date": "2022-01-01"
+    }
+  ]
+}
+
+### diff_data
+{
+  "total_count": 6,
+  "items": [
+    {
+      "doc_pair": "Focus-Report-AI-National-E-Government-study_2025.pdf vs STAN_d_DEF_2024-11-11_eCH-0122_V2.0.0_Architektur_E-Government_Schweiz_Grundlagen.pdf",
+      "section": "Purpose and Scope",
+      "difference_summary": "The AI focus report examines perception, regulation, and use of artificial intelligence in public administrations, while the eCH standard provides a technical architectural framework for e\u2011government services with no AI content.",
+      "severity": "High",
+      "recommendation": "Consider aligning AI governance references with the architectural standards for coherence."
+    },
+    {
+      "doc_pair": "Focus-Report-AI-National-E-Government-study_2025.pdf vs STAN_d_DEF_2024-11-11_eCH-0122_V2.0.0_Architektur_E-Government_Schweiz_Grundlagen.pdf",
+      "section": "Document Structure",
+      "difference_summary": "The AI report is organized into introduction, perception assessment, generative AI description, and conclusions, whereas the eCH document follows a formal standard layout with chapters on architecture, business capabilities, and technical models.",
+      "severity": "Medium",
+      "recommendation": "Adopt a consistent sectional naming convention when producing future cross\u2011domain documents."
+    },
+    {
+      "doc_pair": "Focus-Report-AI-National-E-Government-study_2025.pdf vs National_eGovernment_Study_2022_short_report.pdf",
+      "section": "Data and Findings",
+      "difference_summary": "The AI report provides statistics on AI knowledge levels, limited AI usage, and efficiency gains, while the 2022 study reports on overall e\u2011government service adoption, demand\u2011supply gaps, and access to personal data, with no AI\u2011specific metrics.",
+      "severity": "High",
+      "recommendation": "Integrate AI\u2011related metrics into the broader e\u2011government surveys for a unified data set."
+    },
+    {
+      "doc_pair": "Focus-Report-AI-National-E-Government-study_2025.pdf vs National_eGovernment_Study_2022_short_report.pdf",
+      "section": "Stakeholder Focus",
+      "difference_summary": "Both documents address the general public, businesses, and public administrations, but the AI report concentrates on AI regulation, traceability, and ethical concerns, whereas the 2022 report focuses on service usage, satisfaction, and digital participation.",
+      "severity": "Medium",
+      "recommendation": "Create a cross\u2011reference matrix linking stakeholder concerns across AI and general e\u2011government topics."
+    },
+    {
+      "doc_pair": "STAN_d_DEF_2024-11-11_eCH-0122_V2.0.0_Architektur_E-Government_Schweiz_Grundlagen.pdf vs National_eGovernment_Study_2022_short_report.pdf",
+      "section": "Content Type (Technical Standards vs Survey Results)",
+      "difference_summary": "The eCH standard delivers normative technical specifications, architecture models, and implementation guidance, while the 2022 study presents survey\u2011based results, user satisfaction levels, and demand analyses without technical detail.",
+      "severity": "High",
+      "recommendation": "Reference the technical standards within survey reports to clarify implementation expectations."
+    },
+    {
+      "doc_pair": "STAN_d_DEF_2024-11-11_eCH-0122_V2.0.0_Architektur_E-Government_Schweiz_Grundlagen.pdf vs National_eGovernment_Study_2022_short_report.pdf",
+      "section": "Level of Detail",
+      "difference_summary": "The eCH document includes detailed versioning, normative clauses, and architectural diagrams, whereas the 2022 short report offers high\u2011level summaries and key figures, lacking granular technical descriptions.",
+      "severity": "Medium",
+      "recommendation": "Provide an annex in future survey reports that summarizes relevant technical standards for stakeholder reference."
+    }
+  ]
+}

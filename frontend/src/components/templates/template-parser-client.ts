@@ -3,6 +3,7 @@ export interface TemplateBlock {
     id: string;
     type: "section" | "instruction" | "loop" | "text" | "if" | "else" | "subsection" | "frontmatter";
     title?: string; // For sections
+    level?: number; // For sections (1-6)
     content?: string; // For instructions, text, if-conditions, or frontmatter yaml
     loopSource?: string; // For loops
     assignTo?: string; // For instructions (dynamic extraction)
@@ -170,16 +171,34 @@ export class TemplateParserClient {
             // 6. Section (Header)
             const headerMatch = line.match(headerRegex);
             if (headerMatch) {
-                // Clear stack to root
-                stack.splice(1);
+                const level = headerMatch[1].length;
+                // Pop until we find a parent that is NOT a section
+                // OR is a section with a LOWER level (parent)
+                // This allows sections to be siblings, but stay nested inside loops/ifs
+                while (stack.length > 1) {
+                    const top = stack[stack.length - 1].block;
+                    if (top?.type === "section") {
+                        if (level <= (top.level || 1)) {
+                            stack.pop();
+                        } else {
+                            break; // Higher level (child)
+                        }
+                    } else {
+                        break; // Non-section block (parent)
+                    }
+                }
 
                 const newSection: TemplateBlock = {
                     id: crypto.randomUUID(),
                     type: "section",
                     title: headerMatch[2].trim(),
+                    level: level,
                     children: []
                 };
-                root.push(newSection);
+
+                // Add to whatever is now at the top of the stack (could be root, loop, or if)
+                const parent = stack[stack.length - 1];
+                parent.list.push(newSection);
                 stack.push({ block: newSection, list: newSection.children! });
                 continue;
             }

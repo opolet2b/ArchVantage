@@ -12,6 +12,14 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from jinja2 import Environment, BaseLoader, exceptions as jinja_exceptions
 
+# LlamaIndex for intelligent chunking
+try:
+    from llama_index.core import Settings
+    from llama_index.core.node_parser import SentenceSplitter
+except ImportError:
+    Settings = None
+    SentenceSplitter = None
+
 
 class DocumentTemplateService:
     """
@@ -105,6 +113,29 @@ class DocumentTemplateService:
         
         final_document = "\n\n".join(output_parts)
         
+        # DEBUG: Dump context to file for inspection
+        try:
+            debug_dir = "C:/Users/opole/Downloads/ChatBotn/backend/debug_docs"
+            import os
+            os.makedirs(debug_dir, exist_ok=True)
+            with open(f"{debug_dir}/DOC_TEMPLATE_CONTEXT.txt", "w", encoding="utf-8") as f:
+                f.write(f"--- Document Template Execution Context ---\n")
+                f.write(f"Timestamp: {datetime.utcnow()}\n")
+                f.write(f"Final Doc Length: {len(final_document)} chars\n\n")
+                f.write("Variables:\n")
+                for k, v in context.items():
+                    if k.startswith("_"): continue
+                    if isinstance(v, (dict, list)):
+                        try:
+                            v_str = json.dumps(v, indent=2)
+                        except:
+                            v_str = str(v)
+                    else:
+                        v_str = str(v)
+                    f.write(f"\n### {k}\n{v_str[:5000]}\n")
+        except Exception as e:
+            print(f"[DocTemplateService] Debug dump error: {e}")
+        
         return final_document, execution_log
     
     async def _process_block(
@@ -180,6 +211,11 @@ class DocumentTemplateService:
         children = block.get("children", [])
         
         # Interpolate variables in title
+        # FIX: If title looks like {{ Var With Spaces }}, it's probably literal text intended for rendering later
+        # or a user typo.
+        if title.startswith("{{") and title.endswith("}}") and " " in title.strip("{}"):
+             title = title.strip("{}").strip()
+             
         title = self._interpolate(title, context)
         
         # Generate markdown header (## for depth 0, ### for depth 1, etc.)
@@ -241,7 +277,7 @@ class DocumentTemplateService:
             system_prompt = (
                 "You are a precise data extraction assistant.\n"
                 "Extract information from the provided context according to the instruction.\n"
-                "Return ONLY valid JSON. If you are extracting a list of items, wrap it in a root object with the key 'items', e.g., {\"items\": [...]}.\n"
+                "Return ONLY valid JSON. Your response must be a single JSON object or array as requested.\n"
                 "Do NOT include any markdown formatting, conversational text, or explanations outside the JSON."
             )
             user_prompt = self._build_instruction_user_prompt(instruction, context)
@@ -268,22 +304,43 @@ class DocumentTemplateService:
                 clean_response = result_str.strip()
                 if clean_response.startswith("```"):
                     clean_response = "\n".join(clean_response.split("\n")[1:])
+                    if clean_response.startswith("json"):
+                        clean_response = "\n".join(clean_response.split("\n")[1:])
                 if clean_response.endswith("```"):
                     clean_response = clean_response[:-3].strip()
                     
                 parsed_data = json.loads(clean_response)
                 
-                # Unwrap common root keys if the user requested a list
-                if isinstance(parsed_data, dict) and assign_to in parsed_data:
-                    context[assign_to] = parsed_data[assign_to]
-                elif isinstance(parsed_data, dict) and "items" in parsed_data:
-                    context[assign_to] = parsed_data["items"]
+                # Normalization: Unwrap common root keys
+                if isinstance(parsed_data, dict):
+                    # 1. Direct unwrap ONLY if the root key matches assign_to
+                    # (e.g. AI returns {"doc_list": {"items": []}} for doc_list)
+                    if assign_to in parsed_data and len(parsed_data.keys()) == 1:
+                        parsed_data = parsed_data[assign_to]
+                    # Note: We NO LONGER unwrap "items" automatically because 
+                    # user templates often explicitly expect "variable.items"
+                        
+                # Now handle the potentially unwrapped data
+                if isinstance(parsed_data, list):
+                    normalized_items = []
+                    # Normalize common field name prefixes (like 'l' prefix found in logs)
+                    for item in parsed_data:
+                         if isinstance(item, dict):
+                             normalized_item = {}
+                             for k, v in item.items():
+                                 # Remove common prefixes like 'l' but keep original as fallback
+                                 simple_k = k[1:] if (k.startswith('l') and len(k) > 2) else k
+                                 normalized_item[simple_k] = v
+                                 normalized_item[k] = v # Keep original
+                             normalized_items.append(normalized_item)
+                         else:
+                             normalized_items.append(item)
+                    context[assign_to] = normalized_items
                 else:
                     context[assign_to] = parsed_data
                     
             except Exception as e:
                 print(f"[DocTemplateService] JSON Parsing error for assignment {assign_to}: {e}")
-                # Fallback: store raw string and hope the template engine can handle it or just log it
                 context[assign_to] = result_str
                 
             # Nothing is output to the document at this block's position
@@ -495,23 +552,65 @@ class DocumentTemplateService:
     
     def _interpolate(self, text: str, context: Dict[str, Any]) -> str:
         """
-        Interpolate Jinja2 variables in text.
-        
-        Handles {{ variable }} and {{ variable | filter }} syntax.
+        Definitive Generic Interpolation:
+        1. Normalizes syntax (default:, |, parentheses)
+        2. Resolves property conflicts (converts .prop to ['prop'])
+        3. Protects against crashes (Safe rendering)
+        4. Logs failures to debug file
         """
         if not text or "{{" not in text:
             return text
+            
+        import re
         
-        try:
-            template = self.jinja_env.from_string(text)
-            return template.render(**context)
-        except jinja_exceptions.UndefinedError as e:
-            # Return original text if variable undefined
-            print(f"[DocTemplateService] Interpolation warning: {e}")
-            return text
-        except Exception as e:
-            print(f"[DocTemplateService] Interpolation error: {e}")
-            return text
+        def _normalize_tag(match):
+            raw_tag = match.group(0)
+            content = match.group(1).strip()
+            
+            try:
+                # A. Handle property conflicts (Jinja2 prefers method calls over key access)
+                # Convert var.property to var['property'] for ALL properties to be safe
+                # But NOT if it's followed by ( which indicates a filter or function call
+                # and not if it's 'length' or other built-in filters
+                builtin_filters = ['length', 'upper', 'lower', 'capitalize', 'title', 'trim', 'default', 'first', 'last', 'join', 'sum', 'sort']
+                
+                # Use a negative lookahead to avoid converting filters or method calls
+                # Match \w+\.\w+ but NOT \w+\.filter_name
+                # This is complex, so let's use a simpler approach:
+                # Convert \w+\.property to \w+['property'] if property is not a filter
+                def _convert_property(m):
+                    var, prop = m.groups()
+                    if prop in builtin_filters:
+                        return f"{var}.{prop}"
+                    return f"{var}['{prop}']"
+                
+                content = re.sub(r'(\w+)\.(\w+)(?!\()', _convert_property, content)
+                
+                # B. Normalize 'default: "val"' to '| default("val")'
+                content = re.sub(r'\|\s*default', 'default', content)
+                content = re.sub(r'default\s*[:(]\s*([^|}]+)', r'| default(\1)', content)
+                
+                # Step C: Ensure closing parenthesis
+                if 'default(' in content and content.count('(') > content.count(')'):
+                    content = content.strip() + ')'
+                
+                # Render
+                test_env = self.jinja_env.from_string(f"{{{{ {content} }}}}")
+                return test_env.render(**context)
+                
+            except Exception as e:
+                # LOG ERROR TO FILE
+                try:
+                    debug_dir = "C:/Users/opole/Downloads/ChatBotn/backend/debug_docs"
+                    import os
+                    os.makedirs(debug_dir, exist_ok=True)
+                    with open(f"{debug_dir}/INTERPOLATE_ERRORS.txt", "a", encoding="utf-8") as f:
+                        f.write(f"[{datetime.utcnow()}] Tag: {raw_tag} | Normalized: {content} | Error: {e}\n")
+                except: pass
+                return raw_tag
+
+        processed_text = re.sub(r'\{\{(.*?)\}\}', _normalize_tag, text)
+        return processed_text
             
     def _resolve_context_variable(self, path: str, context: Dict[str, Any]) -> Any:
         """
@@ -661,19 +760,20 @@ class DocumentTemplateService:
         
         detail_text = detail_guidance.get(level_of_detail, detail_guidance["standard"])
         
-        return f"""You are a document content generator.
+        return f"""You are a professional document content generator.
 
-TASK: Generate content based on the instruction provided.
+TASK: Generate high-quality content based on the provided instruction and context.
 
 FORMAT REQUIREMENTS:
 {detail_text}
 
 RULES:
-1. Follow the instruction exactly
-2. Do NOT include section headers unless asked
-3. Do NOT add meta-commentary about the task
-4. Write in a professional, clear style
-5. If data is provided, use it accurately
+1. Follow the provided instruction exactly.
+2. Maintain a professional, consistent tone throughout.
+3. Use the provided context data accurately and objectively.
+4. Do NOT include section headers in your response unless explicitly asked to.
+5. Do NOT include meta-commentary, introductory remarks, or explanations of your process. 
+6. If the instruction expects a specific format (like JSON), return ONLY that format.
 """
     
     def _build_instruction_user_prompt(
@@ -681,26 +781,116 @@ RULES:
         instruction: str, 
         context: Dict[str, Any]
     ) -> str:
-        """Build user prompt with instruction and relevant context."""
-        # Extract relevant context (exclude internal keys)
-        relevant_context = {
+        """
+        Build user prompt with instruction and relevant context.
+        Uses dynamic truncation and intelligent chunking if data is too large.
+        """
+        # 1. Get Model Context Window
+        model_name = context.get("_model")
+        
+        # Try to get from LlamaIndex Settings first (synchronized by RAGService)
+        window = 4096
+        if Settings and hasattr(Settings, "context_window") and Settings.context_window:
+            window = Settings.context_window
+        else:
+            # Fallback to config presets
+            from app.services.config_service import config_service
+            llm_presets = config_service.get_config().get("llm_presets", [])
+            if model_name:
+                for preset in llm_presets:
+                    if preset.get("name") == model_name:
+                        window = preset.get("context_window", 4096)
+                        break
+        
+        # Allocate 75% of window for context data for large models, 60% for small ones
+        context_ratio = 0.75 if window > 8000 else 0.6
+        MAX_CONTEXT_TOKENS = int(window * context_ratio)
+        # Roughly 4 chars per token for English
+        MAX_CONTEXT_CHARS = MAX_CONTEXT_TOKENS * 4
+        
+        # 2. Extract and Flatten Context
+        raw_relevant = {
             k: v for k, v in context.items() 
             if not k.startswith("_") and v is not None
         }
         
-        # Build context section if we have data
-        context_section = ""
-        if relevant_context:
-            context_items = []
-            for key, value in relevant_context.items():
-                if isinstance(value, (list, dict)):
-                    value_str = json.dumps(value, indent=2)[:1000]
-                else:
-                    value_str = str(value)[:500]
-                context_items.append(f"**{key}**: {value_str}")
+        # Deduplication and Flattening
+        relevant_context = {}
+        seen_contents = set()
+        
+        # Prioritize key names that usually contain primary data
+        sorted_keys = sorted(raw_relevant.keys(), key=lambda x: (
+            0 if x in ["selection", "entities", "assets"] else 1,
+            0 if x == "combined_context" else 1, # Combined context last as it's often redundant
+            x
+        ))
+        
+        for k in sorted_keys:
+            v = raw_relevant[k]
             
-            if context_items:
-                context_section = "\n\nAVAILABLE DATA:\n" + "\n".join(context_items)
+            # If it's a list, try to flatten it
+            if isinstance(v, list) and v and isinstance(v[0], dict):
+                for i, item in enumerate(v):
+                    item_str = json.dumps(item, sort_keys=True)
+                    if item_str not in seen_contents:
+                        # Create a unique sub-key
+                        sub_key = f"{k}_{i+1}"
+                        # If it has a title, use it in the key for better AI context
+                        title = item.get("title") or item.get("name")
+                        if title:
+                            # Clean title for key
+                            clean_title = "".join(c if c.isalnum() else "_" for c in str(title))[:30]
+                            sub_key = f"{k}_{i+1}_{clean_title}"
+                            
+                        relevant_context[sub_key] = item
+                        seen_contents.add(item_str)
+            else:
+                v_str = json.dumps(v, sort_keys=True) if isinstance(v, (dict, list)) else str(v)
+                if v_str not in seen_contents:
+                    relevant_context[k] = v
+                    seen_contents.add(v_str)
+
+        if not relevant_context:
+            return f"INSTRUCTION: {instruction}\n\nGenerate the content now:"
+
+        # 3. Identify and handle large text blocks (Smart Splitter)
+        context_items = []
+        keys = sorted(relevant_context.keys())
+        
+        # Calculate budget per item
+        budget_per_item = MAX_CONTEXT_CHARS // max(1, len(keys))
+        
+        for key in keys:
+            value = relevant_context[key]
+            
+            if isinstance(value, (list, dict)):
+                text_to_process = json.dumps(value, indent=2)
+            else:
+                text_to_process = str(value)
+            
+            # If too large, use smart head/tail truncation
+            if len(text_to_process) > budget_per_item:
+                if SentenceSplitter:
+                    # Allocate at least 2000 chars or 25% of budget to each chunk to keep some meaning
+                    chunk_size = max(2000, budget_per_item // 3)
+                    splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=100)
+                    chunks = splitter.split_text(text_to_process)
+                    if chunks:
+                        if len(chunks) > 2:
+                            # Keep beginning, middle (if possible), and end
+                            processed_value = chunks[0] + "\n\n[... content truncated ...]\n\n" + chunks[-1]
+                        else:
+                            processed_value = "\n\n".join(chunks)
+                    else:
+                        processed_value = text_to_process[:budget_per_item] + "... [truncated]"
+                else:
+                    processed_value = text_to_process[:budget_per_item] + "... [truncated]"
+            else:
+                processed_value = text_to_process
+                
+            context_items.append(f"### {key}\n{processed_value}")
+        
+        context_section = "\n\nAVAILABLE DATA:\n" + "\n\n".join(context_items)
         
         return f"""INSTRUCTION: {instruction}{context_section}
 

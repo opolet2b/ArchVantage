@@ -1787,7 +1787,7 @@ class SmartTemplateService:
         
         # Debug Logging to File
         try:
-            with open("c:/Users/opole/.gemini/antigravity/brain/5682f1e1-88d7-441b-9713-8db9f498f08a/backend_debug.txt", "a") as f:
+            with open("C:/Users/opole/Downloads/ChatBotn/backend/backend_debug.txt", "a") as f:
                 f.write(f"\n[STREAM] {datetime.utcnow()} - Request Model: '{request.model}' (Type: {type(request.model)})\n")
                 f.write(f"[STREAM] Inputs Model: '{inputs.get('model')}'\n")
         except Exception as e:

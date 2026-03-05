@@ -1,0 +1,38 @@
+
+Template: Comparison
+- section [{{ Report Title }}]: 
+  - section [Purpose]: 
+    - instruction: Explain the purpose of this semantic comparison, focusing on how the two documents differ in mean...
+  - section [Document Overviews]: 
+    - instruction [ASSIGN: doc_overview]: Extract a concise semantic overview for each document. Return a JSON object with the following st...
+    - if: doc_overview
+      - text: **Document A – {{ doc_overview.doc_a.title }}**  
+      - text: {{ doc_overview.doc_a.summary }}
+      - text: **Document B – {{ doc_overview.doc_b.title }}**  
+      - text: {{ doc_overview.doc_b.summary }}
+    - else: 
+      - text: *No overview data available.*
+  - section [Semantic Comparison]: 
+    - section [Common Topics]: 
+      - instruction [ASSIGN: semantic_diff]: Analyze the two documents' semantic content. Return a JSON object with: { "common_topics": [ "Top...
+      - if: semantic_diff.common_topics
+        - loop: 
+          - text: - {{ loop_item }}
+      - else: 
+        - text: *No common topics identified.*
+    - section [Differences in Topic Handling]: 
+      - if: semantic_diff.differences
+        - text: | Topic | Document A Approach | Document B Approach | Note |
+        - text: |-------|----------------------|----------------------|------|
+        - loop: 
+          - text: | {{ loop_item.topic }} | {{ loop_item.doc_a }} | {{ loop_item.doc_b }} | {{ loop_item.note }} |
+      - else: 
+        - text: *No notable differences identified.*
+    - section [Primary Topic Disparity]: 
+      - if: semantic_diff.different_primary_topic
+        - text: **The documents focus on fundamentally different primary topics.**
+      - else: 
+        - text: **Both documents share the same primary topic.**
+  - section [Conclusion]: 
+    - instruction: Summarize the key insights from the semantic comparison, highlighting any major divergences or al...
+    - text: **Disclaimer:** This report is generated automatically based on the provided documents and reflec...
