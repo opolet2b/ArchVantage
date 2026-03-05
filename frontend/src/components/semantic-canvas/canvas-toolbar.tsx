@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/use-toast";
 import domToImage from "dom-to-image-more";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ModelPreset {
     name: string;
@@ -76,6 +77,8 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const toggleShowLinks = useCanvasStore((s) => s.toggleShowLinks);
     const setSemanticZoomEnabled = useCanvasStore((s) => s.setSemanticZoomEnabled);
     const deleteSelectedNodes = useCanvasStore((s) => s.deleteSelectedNodes);
+    const things = useCanvasStore((s) => s.things);
+    const domains = useCanvasStore((s) => s.domains);
     const refreshThings = useCanvasStore((s) => s.refreshThings);
     const updateCanvasSettings = useCanvasStore((s) => s.updateCanvasSettings);
     const setSelectedKbId = useCanvasStore((s) => s.setSelectedKbId);
@@ -467,22 +470,69 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             Delete ({selectedThingIds.length + selectedDomainIds.length})
                         </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Selected Items?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will permanently delete {selectedThingIds.length} things and {selectedDomainIds.length} domains.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                                onClick={() => deleteSelectedNodes()}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                                Delete
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
+                    <AlertDialogContent className="max-w-md w-full overflow-hidden flex flex-col max-h-[90vh] p-0 gap-0 shadow-2xl border-slate-200 dark:border-slate-800">
+                        <div className="p-6 pb-2 shrink-0">
+                            <AlertDialogHeader>
+                                <AlertDialogTitle className="text-xl font-bold tracking-tight">Delete Selected Items?</AlertDialogTitle>
+                                <AlertDialogDescription className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                    This will permanently delete {selectedThingIds.length} things and {selectedDomainIds.length} domains.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                        </div>
+
+                        <div className="px-6 py-2 flex-1 min-h-0">
+                            <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50/50 dark:bg-slate-900/50 flex flex-col h-[280px] w-full min-w-0">
+                                <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 border-b flex justify-between items-center shrink-0">
+                                    <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 dark:text-slate-500">Items List</span>
+                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-700 px-2 py-0.5 rounded-full shadow-sm">
+                                        {selectedThingIds.length + selectedDomainIds.length} Selected
+                                    </span>
+                                </div>
+
+                                <div className="overflow-y-auto flex-1 p-2 space-y-1 w-full min-w-0 scroll-smooth">
+                                    {selectedThingIds.map(id => {
+                                        const thing = things.find(t => t.id === id);
+                                        return (
+                                            <div key={id} className="flex items-center gap-3 py-2 px-3 hover:bg-white dark:hover:bg-slate-800 rounded-md transition-all group border border-transparent hover:border-slate-200/50 dark:hover:border-slate-700/50 hover:shadow-sm min-w-0">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)] shrink-0" />
+                                                <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex-1 truncate min-w-0">
+                                                    {thing?.title || thing?.type || "Unknown Thing"}
+                                                </span>
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 shrink-0 bg-slate-100 dark:bg-slate-900/80 px-2 py-0.5 rounded-sm whitespace-nowrap min-w-[70px] text-center">
+                                                    {thing?.type || "Thing"}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                    {selectedDomainIds.map(id => {
+                                        const domain = domains.find(d => d.id === id);
+                                        return (
+                                            <div key={id} className="flex items-center gap-3 py-2 px-3 hover:bg-white dark:hover:bg-slate-800 rounded-md transition-all group border border-transparent hover:border-slate-200/50 dark:hover:border-slate-700/50 hover:shadow-sm min-w-0">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.4)] shrink-0" />
+                                                <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex-1 truncate min-w-0">
+                                                    {domain?.name || "Unnamed Domain"}
+                                                </span>
+                                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 shrink-0 bg-slate-100 dark:bg-slate-900/80 px-2 py-0.5 rounded-sm whitespace-nowrap min-w-[70px] text-center">
+                                                    Domain
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-6 pt-4 border-t bg-slate-50 dark:bg-slate-900/40 shrink-0 mt-2">
+                            <AlertDialogFooter className="sm:space-x-3 gap-2 sm:gap-0">
+                                <AlertDialogCancel className="mt-0 font-semibold px-6 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={() => deleteSelectedNodes()}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-bold px-6 shadow-md"
+                                >
+                                    Delete
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </div>
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
