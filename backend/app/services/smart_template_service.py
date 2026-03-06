@@ -3759,6 +3759,37 @@ class SmartTemplateService:
                                     refined_doc_parts = []
                                     ready_things = [t for t in things if t.rag_status == "completed"]
                                     
+                                    # [BUGFIX] Pre-populate std_citations with ALL valid canvas items.
+                                    # If a document doesn't trigger a >0.35 score chunk match in the section search below, 
+                                    # it would be entirely missing from the reference list, breaking LLM marker mapping.
+                                    # Pre-populating ensures the title is always available for fallback matching.
+                                    for t in ready_things:
+                                        if not any(c["id"] == t.id for c in std_citations):
+                                            # Try to extract any text content for the fallback scanner
+                                            raw_t = ""
+                                            if t.content:
+                                                parts_t = []
+                                                for k in ["text", "content", "generated_markdown", "generated_description", "ai_description"]:
+                                                    val = t.content.get(k)
+                                                    if val and isinstance(val, str):
+                                                        parts_t.append(val)
+                                                
+                                                slides_arr = t.content.get("slides")
+                                                if slides_arr and isinstance(slides_arr, list):
+                                                    for s_idx, s in enumerate(slides_arr):
+                                                        if isinstance(s, dict) and s.get("ai_description"):
+                                                            parts_t.append(f"Slide {s_idx+1}: {s.get('ai_description')}")
+                                                
+                                                raw_t = "\n".join(parts_t)
+                                                
+                                            std_citations.append({
+                                                "id": t.id,
+                                                "title": t.title or "Source",
+                                                "type": t.type.value,
+                                                "text": raw_t,
+                                                "matches": []
+                                            })
+                                    
                                     for i, part in enumerate(parts):
                                         if not part.strip():
                                             if part: refined_doc_parts.append(part)
@@ -3783,19 +3814,15 @@ class SmartTemplateService:
                                         query_text = str(clean_text)[:250].replace("\n", " ")
                                         chunk_citations_added = []
                                         
-                                        # Collect Asset IDs for filtering
-                                        target_asset_ids = []
-                                        asset_map = {} # Map asset_id -> thing
+                                        # Collect Thing IDs for filtering
+                                        target_thing_ids = []
+                                        asset_map = {} # Map thing_id -> thing
                                         for t in ready_things:
-                                            # Resolve Asset ID (Primary Key for RAG)
-                                            a_id = t.content.get("asset_id")
-                                            if a_id:
-                                                target_asset_ids.append(a_id)
-                                                asset_map[a_id] = t
-                                            # Fallback: Check if thing itself is indexed (unlikely for files but possible for text)
-                                            # else: asset_map[t.id] = t (If we supported thing_id indexing)
+                                            # Resolve Thing ID (Primary Key for RAG in canvas_worker)
+                                            target_thing_ids.append(t.id)
+                                            asset_map[t.id] = t
 
-                                        if not target_asset_ids:
+                                        if not target_thing_ids:
                                             continue # No searchable assets
                                             
                                         try:
@@ -3803,7 +3830,7 @@ class SmartTemplateService:
                                             # We use k=3 to get the top 3 matches across ALL documents
                                             rag_results = rag_service.search(
                                                 query=query_text,
-                                                filters={"asset_id": target_asset_ids}, # List -> IN Filter
+                                                filters={"thing_id": target_thing_ids}, # List -> IN Filter
                                                 k=3,
                                                 response_mode="simple",
                                                 model_name=request.model # Pass correctly selected model
@@ -3819,9 +3846,9 @@ class SmartTemplateService:
                                                     if score < 0.35: continue 
                                                     
                                                     # Resolve Source Thing
-                                                    # Results should have 'asset_id' in metadata
-                                                    res_asset_id = r.get("metadata", {}).get("asset_id")
-                                                    source_thing = asset_map.get(res_asset_id)
+                                                    # Results should have 'thing_id' in metadata
+                                                    res_thing_id = r.get("metadata", {}).get("thing_id")
+                                                    source_thing = asset_map.get(res_thing_id)
                                                     
                                                     if not source_thing: continue
                                                     
@@ -3837,7 +3864,7 @@ class SmartTemplateService:
                                                     match_entry = {
                                                         "text": r.get("text", ""),
                                                         "score": score,
-                                                        "page": r.get("metadata", {}).get("page_label"),
+                                                        "page": r.get("metadata", {}).get("page_label") or r.get("metadata", {}).get("slide_number"),
                                                         "bbox": r.get("metadata", {}).get("bbox"),
                                                     }
                                                     
@@ -3867,8 +3894,153 @@ class SmartTemplateService:
                                         else:
                                              refined_doc_parts.append(part)
                                     
-                                    # 3. Update Content with Inline Links
-                                    final_doc_with_links = "".join(refined_doc_parts)
+                                    # 3. Absolute Sequential Citation and Filtering (Sequential Fix)
+                                    # Ensure markers are 1, 2, 3... in order of appearance
+                                    body_content = "".join(refined_doc_parts)
+                                    import re
+                                    
+                                    def normalize_title(t: str) -> str:
+                                        if not t: return ""
+                                        t = t.replace('‑', '-').replace('–', '-')
+                                        t = re.sub(r'[^\w\s-]', '', t.lower())
+                                        return " ".join(t.split())
+
+                                    # Clean Slate: Strip existing References section if any
+                                    header_patterns = [
+                                        r'\n+### References.*$', r'\n+References:.*$', r'\n+References\n*.*$',
+                                        r'\n+【References】.*$', r'\n+## References.*$',
+                                        r'\n+### Sources.*$', r'\n+Sources:.*$', r'\n+Sources\n*.*$',
+                                        r'\n+【Sources】.*$', r'\n+## Sources.*$',
+                                        r'\n+Source:.*$', r'\n+Source\n*.*$'
+                                    ]
+                                    for pattern in header_patterns:
+                                        body_content = re.sub(pattern, '', body_content, flags=re.DOTALL | re.IGNORECASE)
+
+                                    found_markers = []
+                                    # Support both 【】 and []
+                                    for match in re.finditer(r'【([^】]+)】|\[([^\]]+)\]', body_content):
+                                        val = match.group(1) or match.group(2)
+                                        if val:
+                                            val_stripped = val.strip()
+                                            if val_stripped.isdigit():
+                                                print(f"[SmartTemplate-CIT] Ignoring LLM-generated numeric marker: {match.group(0)}")
+                                                body_content = body_content.replace(match.group(0), "")
+                                                continue
+                                                
+                                            found_markers.append({
+                                                "raw": match.group(0),
+                                                "val": val_stripped,
+                                                "norm": normalize_title(val),
+                                                "pos": match.start()
+                                            })
+
+                                    re_index_map = {} # raw -> new_idx
+                                    new_citations = []
+                                    next_idx = 1
+                                    
+                                    # Mapping helpers
+                                    marker_to_cit = {normalize_title(c["title"]): c for c in std_citations if c.get("title")}
+                                    for c in std_citations:
+                                        for m in c.get("matches", []):
+                                            p = m.get("page")
+                                            if p:
+                                                marker_to_cit[normalize_title(f"slide {p}")] = c
+                                                marker_to_cit[normalize_title(f"page {p}")] = c
+                                                if str(p).isdigit():
+                                                     marker_to_cit[normalize_title(p)] = c
+
+                                    unique_sources_used = {} # (cit_id, specific_ref) -> new_idx
+                                    
+                                    for marker in found_markers:
+                                        norm_val = marker["norm"]
+                                        raw = marker["raw"]
+                                        
+                                        target_cit = None
+                                        if norm_val in marker_to_cit:
+                                            target_cit = marker_to_cit[norm_val]
+                                        else:
+                                            # Fuzzy fallback
+                                            for k, c in marker_to_cit.items():
+                                                # Check title
+                                                if norm_val and k and (norm_val in k or k in norm_val):
+                                                    target_cit = c
+                                                    break
+                                                # Check ontology name fallback (for KB snippets)
+                                                ont_name = normalize_title(c.get("ontology_name", ""))
+                                                if ont_name and norm_val and (norm_val in ont_name or ont_name in norm_val):
+                                                    target_cit = c
+                                                    break
+                                                    
+                                        # Deep text scan for phantom slide/page markers
+                                        if not target_cit:
+                                            p_match = re.search(r'(?:slide|page|row)\s*(\d+)', norm_val, re.IGNORECASE)
+                                            if p_match:
+                                                target_num = p_match.group(1)
+                                                # Check which citation text contains this number
+                                                for c in std_citations:
+                                                    # 1. Search full document text if available
+                                                    full_text = c.get("text", "")
+                                                    pattern = r'(?:slide|page)(?:s)?\s*:?\s*' + str(target_num) + r'\b'
+                                                    if full_text and re.search(pattern, full_text, re.IGNORECASE):
+                                                        target_cit = c
+                                                        break
+                                                        
+                                                    # 2. Search RAG chunks
+                                                    for m in c.get("matches", []):
+                                                        text = m.get("text", "")
+                                                        if re.search(pattern, text, re.IGNORECASE):
+                                                            target_cit = c
+                                                            break
+                                                    if target_cit:
+                                                        break
+                                        
+                                        if target_cit:
+                                            specific_ref = None
+                                            p_match = re.search(r'(?:slide|page|row)\s*(\d+)', norm_val, re.IGNORECASE)
+                                            if p_match:
+                                                specific_ref = f"Slide/Page {p_match.group(1)}"
+                                            
+                                            key = (target_cit["id"], specific_ref)
+                                            if key not in unique_sources_used:
+                                                unique_sources_used[key] = next_idx
+                                                new_cit = target_cit.copy()
+                                                new_cit["ref_index"] = next_idx
+                                                if specific_ref:
+                                                     new_cit["title"] = f"{target_cit['title']} ({specific_ref})"
+                                                new_citations.append(new_cit)
+                                                next_idx += 1
+                                            
+                                            re_index_map[raw] = unique_sources_used[key]
+                                            print(f"[SmartTemplate-CIT] MATCHED: '{raw}' -> '{target_cit['title']}' (Specific: {specific_ref})")
+                                        else:
+                                            print(f"[SmartTemplate-CIT] FAILED TO MATCH: '{raw}' (norm: '{norm_val}'). Available: {list(marker_to_cit.keys())}")
+
+                                    # 4. Perform replacements and rebuild footer
+                                    if re_index_map:
+                                        sorted_markers = sorted(found_markers, key=lambda x: x["pos"], reverse=True)
+                                        text_chars = list(body_content)
+                                        for marker in sorted_markers:
+                                            raw = marker["raw"]
+                                            if raw in re_index_map:
+                                                new_marker = f"【{re_index_map[raw]}】"
+                                                start = marker["pos"]
+                                                end = start + len(raw)
+                                                text_chars[start:end] = list(new_marker)
+                                        
+                                        body_content = "".join(text_chars)
+                                        std_citations = new_citations
+
+                                        # Append Reference List (Only Used Sources)
+                                        ref_list_md = "\n\n### References\n"
+                                        for cit in sorted(std_citations, key=lambda x: x["ref_index"]):
+                                            ref_list_md += f"【{cit['ref_index']}】 {cit['title']}\n"
+                                        
+                                        final_doc_with_links = body_content + ref_list_md
+                                    else:
+                                        # No citations used - exclude footer entirely
+                                        final_doc_with_links = body_content
+                                        if not found_markers:
+                                            std_citations = []
                                     
                                     # Update specific keys based on what was used
                                     if thing_content.get("text"): thing_content["text"] = final_doc_with_links

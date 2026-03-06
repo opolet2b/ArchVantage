@@ -123,7 +123,21 @@ class ContextEnrichmentService:
             summary = node.get("summary", "")
             source_uri = node.get("source_uri")
             
-            node_context = f"### KB Entity: {name} ({ntype})\n**Summary:** {summary}\n"
+            # Extract metadata for citation matching
+            # Priority: Metadata property > Scan summary for "Slide X" or "Page X"
+            node_page = node.get("page_label") or node.get("slide_number") or node.get("page")
+            if not node_page and summary:
+                # Regex to find "Slide X" or "Page X" or "Slide: X" etc.
+                p_match = re.search(r'(?:slide|page)\s*:?\s*(\d+)', summary, re.IGNORECASE)
+                if p_match:
+                    node_page = p_match.group(1)
+            
+            node_row = node.get("row_id")
+            
+            node_context = f"### KB Entity: {name} ({ntype})\n"
+            if node_page:
+                node_context += f"**Reference:** Slide/Page {node_page}\n"
+            node_context += f"**Citation Marker:** 【{name}】\n**Summary:** {summary}\n"
             
             node_id = node.get("@rid")
             if node_id and node_id.startswith("#"):
@@ -141,22 +155,64 @@ class ContextEnrichmentService:
                 sources_fetched.add(source_uri)
                 try:
                     ext_content = ""
+                    source_title = "Source Document"
                     if source_uri.startswith("http"):
-                        # Fetch URL (limit depth to 0 for quick context)
                         ext_content = web_crawler_service.crawl_url(source_uri, max_depth=0)
+                        source_title = source_uri.split("/")[-1] or source_uri
                     elif os.path.exists(source_uri):
-                        # Fetch file
                         ext_content = document_parser.extract_text_from_file(source_uri, char_limit=4000)
+                        source_title = os.path.splitext(os.path.basename(source_uri))[0]
                         
                     if ext_content:
-                        # Chunk the text roughly around the keywords
                         snippet = self._find_best_snippet(ext_content, keywords)
                         if snippet:
+                             # Check snippet for page as well
+                             match_page = node_page
+                             if not match_page:
+                                 s_match = re.search(r'(?:slide|page|row)\s*:?\s*(\d+)', snippet, re.IGNORECASE)
+                                 if s_match:
+                                     match_page = s_match.group(1)
+                                     
                              node_context += f"**Source Snippet ([Source: {source_uri}]):**\n{snippet}...\n"
-                             citation["matches"].append({"text": snippet, "score": 1.0, "page": None, "bbox": None, "row_id": None})
+                             
+                             # If we have a snippet, the citation should point to the DOCUMENT, not the ontology node
+                             citation["title"] = source_title
+                             citation["type"] = "Document"
+                             citation["ontology_name"] = name
+                             
+                             citation["matches"].append({
+                                 "text": snippet, 
+                                 "score": 1.0, 
+                                 "page": str(match_page) if match_page else None, 
+                                 "bbox": None, 
+                                 "row_id": str(node_row) if node_row else None
+                             })
                 except Exception as e:
                     print(f"[ContextEnrichment] Failed to fetch source {source_uri}: {e}")
                     
+            # Fallback match if no external content found (ensure page is still linked)
+            if not citation["matches"]:
+                 # Update title from source_uri if possible even on fallback
+                 if source_uri:
+                     try:
+                         if source_uri.startswith("http"):
+                             fallback_title = source_uri.split("/")[-1] or source_uri
+                         else:
+                             import os
+                             fallback_title = os.path.splitext(os.path.basename(source_uri))[0]
+                         if fallback_title:
+                             citation["title"] = fallback_title
+                             citation["ontology_name"] = name
+                             citation["type"] = "Document"
+                     except: pass
+                     
+                 citation["matches"].append({
+                     "text": summary[:200], # Use start of summary as snippet
+                     "score": 0.5,
+                     "page": str(node_page) if node_page else None,
+                     "row_id": str(node_row) if node_row else None
+                 })
+
             enriched_blocks.append(node_context)
             citations.append(citation)
             
@@ -164,6 +220,17 @@ class ContextEnrichmentService:
             return "", []
             
         final_context = "\n\n--- KNOWLEDGE BASE CONTEXT ---\n" + "\n\n".join(enriched_blocks) + "\n--------------------------------\n"
+        
+        # DEBUG: Dump context to see exactly what LLM is seeing
+        try:
+            with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "tmp_context_dump.txt"), "w", encoding="utf-8") as f:
+                f.write(final_context)
+                f.write("\n\n--- CITATIONS ---\n")
+                import json
+                f.write(json.dumps(citations, indent=2))
+        except Exception as e:
+            print(f"Debug dump failed: {e}")
+            
         return final_context, citations
         
     def _find_best_snippet(self, text: str, keywords: List[str], window: int = 1500) -> str:

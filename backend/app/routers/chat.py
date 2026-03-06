@@ -125,11 +125,14 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 
                 if node.content.get("asset_id"):
                     rag_candidates.append({"thing_id": node.id, "asset_id": node.content["asset_id"]})
+                elif node.type in ["slideshow", "document", "text"]:
+                    rag_candidates.append({"thing_id": node.id, "asset_id": None})
                 
                 # Capture Text Context as TextNodes
                 if node.type in ["text", "message", "agent_result", "url"]:
                     txt = node.content.get("text") or node.content.get("content") or ""
                     if txt:
+                        used_citation_ids.add(node.id)
                         nodes.append(NodeWithScore(
                             node=TextNode(
                                 text=f"[{node.title or 'Note'}]: {txt}", 
@@ -139,6 +142,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                         ))
                         
                 if node.content.get("generated_description"):
+                    used_citation_ids.add(node.id)
                     nodes.append(NodeWithScore(
                         node=TextNode(
                             text=f"[Image Description: {node.title}]: {node.content['generated_description']}",
@@ -180,6 +184,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
             # B. Add Raw Text Context
             for node in linked_nodes:
                  if node.type == "document" and node.content.get("content"):
+                      used_citation_ids.add(node.id)
                       nodes.append(NodeWithScore(
                           node=TextNode(
                               text=f"[{node.title}]: {node.content['content']}",
@@ -229,10 +234,27 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 original_node = next((n for n in linked_nodes if n.id == tid), None)
                 if not original_node: continue
                 
+                raw_t = ""
+                if original_node.content:
+                    parts_t = []
+                    for k in ["text", "content", "generated_markdown", "generated_description", "ai_description"]:
+                        val = original_node.content.get(k)
+                        if val and isinstance(val, str):
+                            parts_t.append(val)
+                    
+                    slides_arr = original_node.content.get("slides")
+                    if slides_arr and isinstance(slides_arr, list):
+                        for s_idx, s in enumerate(slides_arr):
+                            if isinstance(s, dict) and s.get("ai_description"):
+                                parts_t.append(f"Slide {s_idx+1}: {s.get('ai_description')}")
+                    
+                    raw_t = "\n".join(parts_t)
+                
                 citation = {
                     "id": original_node.id, 
                     "title": original_node.title or "Untitled", 
                     "type": original_node.type,
+                    "text": raw_t,
                     "matches": []
                 }
                 
@@ -253,7 +275,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                     match_data = {
                         "text": snippet,
                         "score": m.score,
-                        "page": m.node.metadata.get("page_label"),    # PDF Page
+                        "page": m.node.metadata.get("page_label") or m.node.metadata.get("slide_number"), # PDF Page or PowerPoint Slide
                         "bbox": m.node.metadata.get("bbox"),          # Visual Grounding [x,y,w,h]
                         "row_id": m.node.metadata.get("row_id")       # Table Row
                     }
@@ -353,24 +375,51 @@ async def chat_endpoint(
         # Resolve Canvas Context (Nodes)
         ctx_result = resolve_conversation_context(db, request.conversation_id, last_msg, active_model)
         total_nodes.extend(ctx_result.get("nodes", []))
-        citations = ctx_result.get("citations", [])
+        citations.extend(ctx_result.get("citations", []))
         
         # FALLBACK: Check for direct RAG content
         if not ctx_result.get("linked_items"):
             direct_results = rag_service.search(last_msg, conversation_id=request.conversation_id, k=3, model_name=active_model)
             for res in direct_results:
+                meta = res.get('metadata', {})
                 total_nodes.append(NodeWithScore(
-                    node=TextNode(text=res['text'], metadata=res.get('metadata', {})),
+                    node=TextNode(text=res['text'], metadata=meta),
                     score=res.get('score', 1.0)
                 ))
+                # Add to citations for re-indexing
+                asset_id = meta.get("asset_id") or meta.get("file_id") or f"rag-{uuid.uuid4().hex[:4]}"
+                title = meta.get("title") or meta.get("file_name") or meta.get("source_uri") or "Source"
+                citations.append({
+                    "id": str(asset_id),
+                    "title": title,
+                    "type": meta.get("type", "Document"),
+                    "matches": [{
+                        "text": res['text'],
+                        "score": res.get('score', 1.0),
+                        "page": meta.get("page_label") or meta.get("slide_number")
+                    }]
+                })
     else:
         # Sidebar Generic Fallback
         results = rag_service.search(last_msg, filters={"owner_id": current_user.id, "source": "sidebar_upload"}, k=3, model_name=active_model)
         for res in results:
+            meta = res.get('metadata', {})
             total_nodes.append(NodeWithScore(
-                node=TextNode(text=res['text'], metadata=res.get('metadata', {})),
+                node=TextNode(text=res['text'], metadata=meta),
                 score=res.get('score', 1.0)
             ))
+            asset_id = meta.get("asset_id") or meta.get("file_id") or f"side-{uuid.uuid4().hex[:4]}"
+            title = meta.get("title") or meta.get("file_name") or "Sidebar Upload"
+            citations.append({
+                "id": str(asset_id),
+                "title": title,
+                "type": "Document",
+                "matches": [{
+                    "text": res['text'],
+                    "score": res.get('score', 1.0),
+                    "page": meta.get("page_label") or meta.get("slide_number")
+                }]
+            })
 
 
     if total_nodes:
@@ -411,8 +460,8 @@ async def chat_endpoint(
             f"{history_summary}\n\n"
             f"User Question: {last_msg}\n\n"
             f"IMPORTANT: You MUST cite the sources used in your answer. "
-            f"Use inline citations in the format [Title] or [Note] to indicate exactly which reference from the context was used for each argument or fact." 
-            f"Note: Ensure that you use the EXACT titles shown in the context blocks."
+            f"Use inline citations in the format 【Source Name】 (e.g., 【Slide 7】 or 【E-Government Strategy】) as shown in the context blocks. "
+            f"Place these markers immediately after the sentences or facts they support."
         )
         
         # Synthesize response using nodes
@@ -421,6 +470,162 @@ async def chat_endpoint(
             nodes=total_nodes
         )
         response_content = str(response_content)
+
+        # --- SEQUENTIAL RE-INDEXING (Post-processing) ---
+        import re
+        
+        def normalize_title(t: str) -> str:
+            if not t: return ""
+            # Handle special characters (non-breaking hyphen, specialized spaces)
+            t = t.replace('‑', '-').replace('–', '-')
+            # Remove all non-alphanumeric (except hyphen) while preserving spaces, then collapse whitespace
+            t = re.sub(r'[^\w\s-]', '', t.lower())
+            return " ".join(t.split())
+
+        # 1. Strip any existing "References" or "Sources" section to start fresh
+        body_content = response_content
+        header_patterns = [
+            r'\n+### References.*$', r'\n+References:.*$', r'\n+References\n*.*$',
+            r'\n+【References】.*$', r'\n+## References.*$',
+            r'\n+### Sources.*$', r'\n+Sources:.*$', r'\n+Sources\n*.*$',
+            r'\n+【Sources】.*$', r'\n+## Sources.*$',
+            r'\n+Source:.*$', r'\n+Source\n*.*$'
+        ]
+        for pattern in header_patterns:
+            body_content = re.sub(pattern, '', body_content, flags=re.DOTALL | re.IGNORECASE)
+
+        # 2. Extract markers ONLY from the body
+        found_markers = []
+        for match in re.finditer(r'【([^】]+)】|\[([^\]]+)\]', body_content):
+            val = match.group(1) or match.group(2)
+            if val:
+                val_stripped = val.strip()
+                # Ignore markers that are just pure digits, because this means the LLM
+                # tried to do the sequential numbering itself instead of using the source names.
+                if val_stripped.isdigit():
+                    print(f"[RE-INDEX] Ignoring LLM-generated numeric marker: {match.group(0)}")
+                    # Remove it from the text entirely so it doesn't clutter
+                    body_content = body_content.replace(match.group(0), "")
+                    continue
+                    
+                found_markers.append({
+                    "raw": match.group(0),
+                    "val": val.strip(),
+                    "norm": normalize_title(val),
+                    "pos": match.start()
+                })
+
+        re_index_map = {} # raw -> new_idx
+        new_citations = []
+        next_idx = 1
+        
+        # Build comprehensive mapping (Markers -> Citation)
+        marker_to_cit = {normalize_title(c["title"]): c for c in citations if c.get("title")}
+        
+        for c in citations:
+            for m in c.get("matches", []):
+                p = m.get("page")
+                if p:
+                    marker_to_cit[normalize_title(f"slide {p}")] = c
+                    marker_to_cit[normalize_title(f"page {p}")] = c
+                    if str(p).isdigit():
+                        marker_to_cit[normalize_title(p)] = c
+
+        unique_sources_used = {} # (cit_id, specific_ref) -> new_idx
+        
+        print(f"[RE-INDEX] Found markers in text: {[m['val'] for m in found_markers]}")
+        print(f"[RE-INDEX] Reference titles available: {[c['title'] for c in citations]}")
+
+        for marker in found_markers:
+            norm_val = marker["norm"]
+            raw = marker["raw"]
+            
+            target_cit = None
+            if norm_val in marker_to_cit:
+                target_cit = marker_to_cit[norm_val]
+            else:
+                for k, c in marker_to_cit.items():
+                    # Check title
+                    if norm_val and k and (norm_val in k or k in norm_val):
+                        target_cit = c
+                        break
+                    # Check ontology name fallback (for KB snippets)
+                    ont_name = normalize_title(c.get("ontology_name", ""))
+                    if ont_name and norm_val and (norm_val in ont_name or ont_name in norm_val):
+                        target_cit = c
+                        break
+                        
+                # Deep text scan for phantom slide/page markers
+                if not target_cit:
+                    p_match = re.search(r'(?:slide|page|row)\s*(\d+)', norm_val, re.IGNORECASE)
+                    if p_match:
+                        target_num = p_match.group(1)
+                        # Check which citation text contains this number
+                        for c in citations:
+                            # 1. Search full document text if available (for newly injected canvas items)
+                            full_text = c.get("text", "")
+                            pattern = r'(?:slide|page)(?:s)?\s*:?\s*' + str(target_num) + r'\b'
+                            if full_text and re.search(pattern, full_text, re.IGNORECASE):
+                                target_cit = c
+                                break
+                                
+                            # 2. Search RAG specific matches
+                            for m in c.get("matches", []):
+                                text = m.get("text", "")
+                                if re.search(pattern, text, re.IGNORECASE):
+                                    target_cit = c
+                                    break
+                            if target_cit:
+                                break
+            
+            if target_cit:
+                specific_ref = None
+                p_match = re.search(r'(?:slide|page|row)\s*(\d+)', norm_val, re.IGNORECASE)
+                if p_match:
+                    specific_ref = f"Slide/Page {p_match.group(1)}"
+                
+                key = (target_cit["id"], specific_ref)
+                if key not in unique_sources_used:
+                    unique_sources_used[key] = next_idx
+                    new_cit = target_cit.copy()
+                    new_cit["ref_index"] = next_idx
+                    if specific_ref:
+                         new_cit["title"] = f"{target_cit['title']} ({specific_ref})"
+                    new_citations.append(new_cit)
+                    next_idx += 1
+                
+                re_index_map[raw] = unique_sources_used[key]
+                print(f"[RE-INDEX] MATCHED: '{raw}' -> '{target_cit['title']}' (Specific: {specific_ref})")
+            else:
+                print(f"[RE-INDEX] FAILED TO MATCH: '{raw}' (norm: '{norm_val}'). Available: {list(marker_to_cit.keys())}")
+
+        # 3. Perform replacements on the body
+        if re_index_map:
+            sorted_markers = sorted(found_markers, key=lambda x: x["pos"], reverse=True)
+            text_chars = list(body_content)
+            for marker in sorted_markers:
+                raw = marker["raw"]
+                if raw in re_index_map:
+                    new_marker = f"【{re_index_map[raw]}】"
+                    start = marker["pos"]
+                    end = start + len(raw)
+                    text_chars[start:end] = list(new_marker)
+            
+            final_response = "".join(text_chars)
+            
+            # 4. Append Absolute Footer
+            ref_footer = "\n\n### References\n"
+            for c in sorted(new_citations, key=lambda x: x["ref_index"]):
+                ref_footer += f"【{c['ref_index']}】 {c['title']}\n"
+            
+            response_content = final_response + ref_footer
+            citations = new_citations
+        else:
+            response_content = body_content
+            if not found_markers:
+                citations = []
+        # -----------------------------------------------------
+
     else:
         # Simple LLM call if no context
         response_content = await llm_service.chat(final_messages, active_model)

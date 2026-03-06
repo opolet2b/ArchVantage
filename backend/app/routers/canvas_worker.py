@@ -75,7 +75,9 @@ async def handle_async_vectorization(
         # Base metadata for all RAG items
         base_metadata = {
             "canvas_id": canvas_id, 
-            "thing_id": thing_id
+            "thing_id": thing_id,
+            "title": thing.title or "Untitled Document",
+            "file_name": thing.title or "Untitled Document"
         }
         if active_batch_id:
             base_metadata["ingestion_batch_id"] = active_batch_id
