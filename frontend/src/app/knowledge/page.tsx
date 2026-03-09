@@ -110,7 +110,7 @@ export default function KnowledgeLibraryPage() {
                                             <Badge variant="outline" className="mb-2 font-mono text-xs text-muted-foreground">
                                                 {kb.sources ? kb.sources.length : 0} Sources
                                             </Badge>
-                                            <Badge variant="secondary" className="mb-2 text-[10px] uppercase font-bold tracking-wider">
+                                            <Badge variant={kb.status === "active" ? "default" : "secondary"} className={`mb-2 text-[10px] uppercase font-bold tracking-wider ${kb.status === "active" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : ""}`}>
                                                 {kb.status || "draft"}
                                             </Badge>
                                         </div>

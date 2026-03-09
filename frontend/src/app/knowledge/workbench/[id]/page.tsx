@@ -25,7 +25,8 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
     const [sources, setSources] = useState<KnowledgeSource[]>([]);
     const [kbMeta, setKbMeta] = useState({
         name: isNew ? "Untitled Knowledge Base" : "Pharma Research Graph",
-        description: isNew ? "" : "Knowledge graph containing clinical trial data mapped to the OMOP vocabulary."
+        description: isNew ? "" : "Knowledge graph containing clinical trial data mapped to the OMOP vocabulary.",
+        status: "draft" as string
     });
     const [extractedClasses, setExtractedClasses] = useState<any[]>([]);
     const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
@@ -67,7 +68,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    setKbMeta({ name: data.name || "", description: data.description || "" });
+                    setKbMeta({ name: data.name || "", description: data.description || "", status: data.status || "draft" });
                     setSelectedPreset(data.llm_config_id || "");
                     setSources(data.sources || []);
                     const loadedClasses = data.ontology_classes || [];
@@ -126,7 +127,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
             selected_source_ids: selectedSourceIds,
             ontology_classes: extractedClasses.map(c => ({ ...c, approved: selectedClasses.includes(c.name) })),
             ontology_edges: extractedEdges.map(e => ({ ...e, approved: selectedEdges.includes(`${e.source}|${e.relation}|${e.target}`) })),
-            status: "draft"
+            status: kbMeta.status // Preserve active status if already indexed
         };
 
         try {
@@ -204,12 +205,18 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600">
                             <Database className="h-5 w-5" />
                         </div>
-                        <div>
-                            <Input
-                                value={kbMeta.name}
-                                onChange={(e) => setKbMeta({ ...kbMeta, name: e.target.value })}
-                                className="font-bold text-sm leading-none text-slate-800 h-6 border-transparent hover:border-input focus-visible:ring-0 p-0 shadow-none px-1 -ml-1 w-[300px]"
-                            />
+                        <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    value={kbMeta.name}
+                                    onChange={(e) => setKbMeta({ ...kbMeta, name: e.target.value })}
+                                    className="font-bold text-sm leading-none text-slate-800 h-6 border-transparent hover:border-input focus-visible:ring-0 p-0 shadow-none px-1 -ml-1 w-[200px]"
+                                />
+                                <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${kbMeta.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                                    }`}>
+                                    {kbMeta.status}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -244,7 +251,7 @@ export default function KnowledgeWorkbenchPage({ params }: { params: Promise<{ i
                         {isEstablishing || ingestionStatus === 'running' ? (
                             <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {isEstablishing ? 'Initializing Graph...' : 'Ingesting Data...'}</>
                         ) : (
-                            <><Database className="mr-2 h-4 w-4" /> {isNew ? "Establish Knowledge Base" : "Update Knowledge Base"}</>
+                            <><Database className="mr-2 h-4 w-4" /> SAVE & RE-INDEX GRAPH</>
                         )}
                     </Button>
                 </div>

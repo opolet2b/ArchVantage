@@ -554,7 +554,21 @@ async def chat_endpoint(
                     if ont_name and norm_val and (norm_val in ont_name or ont_name in norm_val):
                         target_cit = c
                         break
-                        
+                
+                # Cleanup hallucinated LLM suffixes if standard match failed
+                if not target_cit:
+                    import re
+                    clean_norm = re.sub(r'\b(?:snippet|source|doc|document|file)\b', '', norm_val).strip()
+                    if clean_norm and len(clean_norm) >= 4:
+                        for k, c in marker_to_cit.items():
+                            if clean_norm in k or k in clean_norm:
+                                target_cit = c
+                                break
+                            ont_name = normalize_title(c.get("ontology_name", ""))
+                            if ont_name and (clean_norm in ont_name or ont_name in clean_norm):
+                                target_cit = c
+                                break
+
                 # Deep text scan for phantom slide/page markers
                 if not target_cit:
                     p_match = re.search(r'(?:slide|page|row)\s*(\d+)', norm_val, re.IGNORECASE)

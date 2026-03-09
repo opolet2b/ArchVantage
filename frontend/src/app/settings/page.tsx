@@ -16,7 +16,7 @@ import { MaintenanceTab } from "@/components/settings/maintenance-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, Server, FolderOpen, FileText, Database, Bug, Palette } from "lucide-react"
+import { Users, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -58,9 +58,10 @@ export default function SettingsPage() {
                     <aside className="w-full md:w-64 flex flex-col gap-2">
                         <Button
                             variant={activeTab === "model" ? "secondary" : "ghost"}
-                            className="justify-start"
+                            className="justify-start gap-2"
                             onClick={() => handleTabChange("model")}
                         >
+                            <BrainCircuit className="h-4 w-4" />
                             Model Configuration
                         </Button>
                         <Button
@@ -73,16 +74,18 @@ export default function SettingsPage() {
                         </Button>
                         <Button
                             variant={activeTab === "rag" ? "secondary" : "ghost"}
-                            className="justify-start"
+                            className="justify-start gap-2"
                             onClick={() => handleTabChange("rag")}
                         >
+                            <BookOpen className="h-4 w-4" />
                             RAG / Knowledge
                         </Button>
                         <Button
                             variant={activeTab === "querying" ? "secondary" : "ghost"}
-                            className="justify-start"
+                            className="justify-start gap-2"
                             onClick={() => handleTabChange("querying")}
                         >
+                            <Search className="h-4 w-4" />
                             Advanced Querying
                         </Button>
                         <Button

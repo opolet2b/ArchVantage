@@ -40,7 +40,6 @@ export function RagSettingsTab() {
     const [isResetting, setIsResetting] = useState(false)
     const [ingesting, setIngesting] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
-    const [responseMode, setResponseMode] = useState<string>("simple")
     const [availableModels, setAvailableModels] = useState<string[]>([])
 
     // Load config on mount
@@ -61,22 +60,12 @@ export function RagSettingsTab() {
 
     const fetchConfig = async () => {
         try {
-            const [ragRes, queryRes] = await Promise.all([
-                fetch(`${API_URL}/config/rag`),
-                fetch(`${API_URL}/config/querying`)
-            ])
-
+            const ragRes = await fetch(`${API_URL}/config/rag`)
             if (ragRes.ok) {
                 const data = await ragRes.json()
                 if (data.config) {
                     setConfig(data.config)
                     setSavedConfig(data.config)
-                }
-            }
-            if (queryRes.ok) {
-                const data = await queryRes.json()
-                if (data.config && data.config.response_mode) {
-                    setResponseMode(data.config.response_mode)
                 }
             }
         } catch (error) {
@@ -89,26 +78,13 @@ export function RagSettingsTab() {
     const handleSave = async () => {
         setIsSaving(true)
         try {
-            // Fetch current querying config first to preserve other fields
-            const currentQueryPayload = await fetch(`${API_URL}/config/querying`).then(r => r.json()).then(d => d.config || {})
+            const ragRes = await fetch(`${API_URL}/config/rag`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(config),
+            })
 
-            const [ragRes, queryRes] = await Promise.all([
-                fetch(`${API_URL}/config/rag`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(config),
-                }),
-                fetch(`${API_URL}/config/querying`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        ...currentQueryPayload,
-                        response_mode: responseMode
-                    }),
-                })
-            ])
-
-            if (ragRes.ok && queryRes.ok) {
+            if (ragRes.ok) {
                 const data = await ragRes.json()
                 toast({
                     title: "Configuration Saved",
@@ -318,6 +294,26 @@ export function RagSettingsTab() {
                                         />
                                     </div>
                                 )}
+
+                                <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
+                                    <Button
+                                        onClick={handleResetAndReindex}
+                                        disabled={isResetting || ingesting || isSaving}
+                                        variant="default"
+                                    >
+                                        {isResetting ? (
+                                            <>
+                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                Rebuilding Database...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <RefreshCw className="mr-2 h-4 w-4" />
+                                                Save & Re-index Knowledge Base
+                                            </>
+                                        )}
+                                    </Button>
+                                </div>
                             </div>
 
                             {/* Parsing Configuration */}
@@ -376,83 +372,25 @@ export function RagSettingsTab() {
                                         onCheckedChange={(c) => setConfig({ ...config, enable_metadata: c })}
                                     />
                                 </div>
-                            </div>
 
-                            {/* Response Synthesis Configuration */}
-                            <div className="space-y-4 border rounded-md p-4 bg-slate-50 dark:bg-slate-900/50">
-                                <h3 className="font-semibold text-sm uppercase text-muted-foreground mb-2">Response Synthesis</h3>
-
-                                <div className="space-y-2">
-                                    <Label className="flex items-center gap-2">
-                                        Synthesis Mode
-                                        <HelpTooltip contentPath="querying/response_synthesizer" />
-                                    </Label>
-                                    <Select
-                                        value={responseMode}
-                                        onValueChange={setResponseMode}
-                                    >
-                                        <SelectTrigger><SelectValue placeholder="Select mode" /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="simple">Simple (Fast, Manual Chat Context)</SelectItem>
-                                            <SelectItem value="compact">Compact (Concatenate & Refine)</SelectItem>
-                                            <SelectItem value="tree_summarize">Tree Summarize (Deep Summary)</SelectItem>
-                                            <SelectItem value="refine">Refine (Iterative Improvement)</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <div className="mt-2 text-xs text-muted-foreground space-y-1">
-                                        <p><strong>Note:</strong> This setting <strong>ONLY</strong> applies to <strong>Knowledge Base access</strong> (Linked Assets).</p>
-                                        <p>Local document chats (Sidebar uploads) will always use 'Simple' mode for speed.</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Action Buttons */}
-                            <div className="flex flex-col gap-4 pt-4">
-                                <div className="flex gap-3">
+                                <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
                                     <Button
                                         onClick={handleSave}
                                         disabled={isSaving}
-                                        className="flex-1"
                                         variant="outline"
                                     >
                                         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                                         Save Configuration
                                     </Button>
-
-                                    <Button
-                                        onClick={handleResetAndReindex}
-                                        disabled={isResetting || ingesting || isSaving}
-                                        className="flex-[2]"
-                                        variant="default"
-                                    >
-                                        {isResetting ? (
-                                            <>
-                                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                Rebuilding Database...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <RefreshCw className="mr-2 h-4 w-4" />
-                                                Save & Re-index Knowledge Base
-                                            </>
-                                        )}
-                                    </Button>
-
-                                    {/* Legacy simple ingest button if needed, or subsumed by Reset? 
-                                        Let's keep a simple 'Add to Index' button for just appending? 
-                                        Actually, for Advanced Config, 'Re-index' is the main action. 
-                                        But 'Add' is useful if just adding files. 
-                                        For now, 'Save & Re-index' covers the configuration change use case. 
-                                    */}
                                 </div>
-
-                                {status && (
-                                    <div className={`text-sm p-3 rounded-md flex items-center gap-2 ${status.startsWith("Error") ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" : "bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"}`}>
-                                        {(isResetting || ingesting) && <Loader2 className="h-3 w-3 animate-spin" />}
-                                        {status}
-                                    </div>
-                                )}
                             </div>
+
+                            {status && (
+                                <div className={`text-sm p-3 rounded-md flex items-center gap-2 ${status.startsWith("Error") ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" : "bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"}`}>
+                                    {(isResetting || ingesting) && <Loader2 className="h-3 w-3 animate-spin" />}
+                                    {status}
+                                </div>
+                            )}
                         </>
                     )}
                 </CardContent>

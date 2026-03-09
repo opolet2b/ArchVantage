@@ -503,6 +503,34 @@ export function QueryingSettingsTab() {
 
                             </div>
 
+                            {/* RESPONSE SYNTHESIS SECTION */}
+                            <div className="space-y-4 border-b pb-6">
+                                <h3 className="font-semibold text-sm uppercase text-muted-foreground mb-4">Response Synthesis</h3>
+
+                                <div className="space-y-2">
+                                    <Label className="flex items-center gap-2">
+                                        Synthesis Mode
+                                        <HelpTooltip contentPath="querying/response_synthesizer" />
+                                    </Label>
+                                    <Select
+                                        value={config.response_mode}
+                                        onValueChange={(v) => setConfig({ ...config, response_mode: v })}
+                                    >
+                                        <SelectTrigger><SelectValue placeholder="Select mode" /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="simple">Simple (Fast, Manual Chat Context)</SelectItem>
+                                            <SelectItem value="compact">Compact (Concatenate & Refine)</SelectItem>
+                                            <SelectItem value="tree_summarize">Tree Summarize (Deep Summary)</SelectItem>
+                                            <SelectItem value="refine">Refine (Iterative Improvement)</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <div className="mt-2 text-xs text-muted-foreground space-y-1">
+                                        <p><strong>Note:</strong> This setting <strong>ONLY</strong> applies to <strong>Knowledge Base access</strong> (Linked Assets).</p>
+                                        <p>Local document chats (Sidebar uploads) will always use 'Simple' mode for speed.</p>
+                                    </div>
+                                </div>
+                            </div>
+
 
                             <Button onClick={handleSave} disabled={isSaving} className="w-full">
                                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

@@ -77,7 +77,13 @@ class RAGService:
             
             # --- Resolve Embedding Model from Preset (Priority) ---
             embedding_preset = self.config_service.get_default_embedding_preset()
-            llm_preset = self.config_service.get_default_llm_preset()
+            
+            # Logic: Use provided model_name if available, else use default.
+            if model_name:
+                custom_preset = self.config_service.get_preset_config(model_name)
+                llm_preset = custom_preset if custom_preset else self.config_service.get_default_llm_preset()
+            else:
+                llm_preset = self.config_service.get_default_llm_preset()
             
             # Sync LlamaIndex Global Settings with User Config
             if llm_preset:
@@ -90,8 +96,7 @@ class RAGService:
                 # Sync Global LLM for synthesis
                 from app.services.llm_service import llm_service
                 
-                # Logic: Use provided model_name if available, else use default.
-                active_model = model_name or llm_preset["name"]
+                active_model = llm_preset["name"]
                 
                 # Check if Settings.llm is already set to this model to avoid redundant init
                 current_llm = getattr(Settings, "llm", None)

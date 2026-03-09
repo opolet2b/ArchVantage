@@ -1,11 +1,12 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Globe, HardDrive, Network, Plus, Trash2, Edit2 } from "lucide-react"
+import { Globe, HardDrive, Network, Plus, Trash2, Edit2, Loader2 } from "lucide-react"
+import { API_URL } from "@/lib/utils"
 
 export interface KnowledgeSource {
     id: string
@@ -18,6 +19,81 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
     const [isAdding, setIsAdding] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
     const [newSource, setNewSource] = useState<Partial<KnowledgeSource>>({ type: "mcp" })
+
+    const [mcpServers, setMcpServers] = useState<any[]>([])
+    const [mcpTools, setMcpTools] = useState<any[]>([])
+    const [isLoadingServers, setIsLoadingServers] = useState(false)
+    const [isDiscoveringTools, setIsDiscoveringTools] = useState(false)
+
+    useEffect(() => {
+        if (isAdding && newSource.type === "mcp") {
+            fetchServers()
+        }
+    }, [isAdding, newSource.type])
+
+    const fetchServers = async () => {
+        setIsLoadingServers(true)
+        try {
+            const res = await fetch(`${API_URL}/mcp-servers`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+            })
+            if (res.ok) {
+                const data = await res.json()
+                setMcpServers(data)
+            }
+        } catch (error) {
+            console.error("Failed to fetch MCP servers", error)
+        } finally {
+            setIsLoadingServers(false)
+        }
+    }
+
+    const discoverTools = async (serverId: string) => {
+        setIsDiscoveringTools(true)
+        try {
+            const res = await fetch(`${API_URL}/mcp-servers/${serverId}/discover`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+            })
+            if (res.ok) {
+                const data = await res.json()
+                setMcpTools(data.tools || [])
+            } else {
+                setMcpTools([])
+            }
+        } catch (error) {
+            console.error("Failed to discover tools", error)
+            setMcpTools([])
+        } finally {
+            setIsDiscoveringTools(false)
+        }
+    }
+
+    const handleServerSelect = (serverId: string) => {
+        const server = mcpServers.find(s => s.id.toString() === serverId)
+        setNewSource({
+            ...newSource,
+            config: {
+                ...newSource.config,
+                server_id: serverId,
+                server_name: server ? server.name : ""
+            }
+        })
+        discoverTools(serverId)
+    }
+
+    const handleToolSelect = (toolName: string) => {
+        const tool = mcpTools.find(t => t.name === toolName)
+        setNewSource({
+            ...newSource,
+            name: newSource.name || `${newSource.config?.server_name || "Server"} - ${toolName}`,
+            config: {
+                ...newSource.config,
+                tool_name: toolName,
+                tool_schema: tool ? JSON.stringify(tool) : ""
+            }
+        })
+    }
 
     const handleAddSource = () => {
         if (!newSource.name || !newSource.type) return
@@ -54,6 +130,9 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
         })
         setEditingId(source.id)
         setIsAdding(true)
+        if (source.type === "mcp" && source.config?.server_id) {
+            discoverTools(source.config.server_id)
+        }
     }
 
     const handleCancel = () => {
@@ -159,9 +238,54 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
 
                         {newSource.type === "mcp" && (
                             <div className="grid gap-4 bg-white p-4 rounded-md border mt-2">
-                                <p className="text-sm text-muted-foreground">
-                                    When the backend is fully connected, this area will allow you to select from active MCP servers (e.g., PostgreSQL, Jira, custom endpoints) and map specific queries or tools to this knowledge graph.
-                                </p>
+                                <div className="grid gap-2">
+                                    <Label>MCP Server</Label>
+                                    <Select
+                                        value={newSource.config?.server_id || ""}
+                                        onValueChange={handleServerSelect}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder={isLoadingServers ? "Loading servers..." : "Select an MCP server"} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {mcpServers.map(server => (
+                                                <SelectItem key={server.id} value={server.id.toString()}>{server.name}</SelectItem>
+                                            ))}
+                                            {mcpServers.length === 0 && !isLoadingServers && (
+                                                <SelectItem value="none" disabled>No servers configured</SelectItem>
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {newSource.config?.server_id && (
+                                    <div className="grid gap-2">
+                                        <Label className="flex items-center gap-2">
+                                            API / Tool
+                                            {isDiscoveringTools && <Loader2 className="h-3 w-3 animate-spin" />}
+                                        </Label>
+                                        <Select
+                                            value={newSource.config?.tool_name || ""}
+                                            onValueChange={handleToolSelect}
+                                            disabled={isDiscoveringTools || mcpTools.length === 0}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={isDiscoveringTools ? "Discovering tools..." : "Select a tool to connect"} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {mcpTools.map(tool => (
+                                                    <SelectItem key={tool.name} value={tool.name}>{tool.name}</SelectItem>
+                                                ))}
+                                                {mcpTools.length === 0 && !isDiscoveringTools && (
+                                                    <SelectItem value="none" disabled>No tools discovered</SelectItem>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            {newSource.config?.tool_name && mcpTools.find(t => t.name === newSource.config?.tool_name)?.description}
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -238,8 +362,11 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
                                     </div>
                                 )}
                                 {source.type === "mcp" && (
-                                    <div className="text-xs text-muted-foreground font-mono truncate bg-slate-50 p-1.5 rounded border">
-                                        MCP Configuration
+                                    <div className="space-y-1.5">
+                                        <div className="flex flex-col gap-1 text-xs text-muted-foreground bg-slate-50 p-1.5 rounded border">
+                                            <span className="font-medium text-slate-700 truncate">{source.config.server_name || "Unknown Server"}</span>
+                                            <span className="truncate font-mono text-[10px]">{source.config.tool_name || "No Tool Selected"}</span>
+                                        </div>
                                     </div>
                                 )}
                             </CardContent>

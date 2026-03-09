@@ -106,7 +106,7 @@ export function ChatInterface() {
     const [currentParamIndex, setCurrentParamIndex] = React.useState(0)
 
     // Canvas Store
-    const { flyToNode, setHighlightTarget, selectedModel } = useCanvasStore()
+    const { flyToNode, setHighlightTarget, selectedModel, selectedKbId } = useCanvasStore()
 
     // Hook for agent execution
     const execution = useAgentExecution({
@@ -361,7 +361,8 @@ export function ChatInterface() {
                 body: JSON.stringify({
                     messages: allMessages,
                     model: selectedModel || "default",
-                    conversation_id: currentConversationId
+                    conversation_id: currentConversationId,
+                    kb_id: selectedKbId || undefined
                 }),
                 signal: abortController.signal
             })

@@ -1,0 +1,48 @@
+[
+  {
+    "id": "562bf03d-f18e-4419-95c4-760709105cc0",
+    "name": "SwissEgov",
+    "status": "active",
+    "sources": [
+      {
+        "id": "source-1772013608127",
+        "type": "local",
+        "name": "Swiss eGov",
+        "config": {
+          "path": "C:\\Users\\opole\\Downloads\\Swiss_eGov"
+        }
+      },
+      {
+        "id": "source-1772132308633",
+        "type": "local",
+        "name": "EIRA",
+        "config": {
+          "path": "C:\\Users\\opole\\Downloads\\EIRA"
+        }
+      },
+      {
+        "id": "source-1772200711631",
+        "type": "url",
+        "name": "Swiss IT eGov",
+        "config": {
+          "url": "https://www.bk.admin.ch/bk/en/home/digitale-transformation-ikt-lenkung/bundesarchitektur/e-government-architektur.html",
+          "max_depth": "2"
+        }
+      },
+      {
+        "id": "source-1772209217123",
+        "type": "url",
+        "name": "Architektur Bund",
+        "config": {
+          "url": "https://www.bk.admin.ch/bk/en/home/digitale-transformation-ikt-lenkung/bundesarchitektur/egovernment-portals.html",
+          "max_depth": "2"
+        }
+      }
+    ],
+    "selected_source_ids": [
+      "source-1772013608127",
+      "source-1772132308633",
+      "source-1772200711631"
+    ]
+  }
+]
