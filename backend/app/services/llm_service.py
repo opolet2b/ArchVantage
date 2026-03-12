@@ -61,7 +61,8 @@ class LLMService:
             
             if preset.get("type") == "local":
                 from langchain_ollama import ChatOllama
-                return ChatOllama(model=target_model_id, base_url="http://localhost:11434"), resolved_name
+                ollama_url = preset.get("api_url") or "http://localhost:11434"
+                return ChatOllama(model=target_model_id, base_url=ollama_url), resolved_name
             else:
                 # Generic OpenAI-compatible client (remote or default)
                 from langchain_openai import ChatOpenAI
@@ -117,7 +118,8 @@ class LLMService:
             
             if preset.get("type") == "local":
                 from llama_index.llms.ollama import Ollama
-                return Ollama(model=m_name, base_url="http://localhost:11434", context_window=window)
+                ollama_url = api_url or "http://localhost:11434"
+                return Ollama(model=m_name, base_url=ollama_url, context_window=window)
             elif preset.get("type") == "remote":
                 # Use OpenAI class ONLY for real OpenAI models to avoid name validation crashes
                 is_openai = m_name.startswith("gpt-") or "api.openai.com" in api_url
@@ -410,7 +412,6 @@ class LLMService:
             Content:
             {content[:4000]}
             """
-            
             import json
             response_text = await self.chat(
                 [Message(role="user", content=prompt)], 
@@ -420,34 +421,19 @@ class LLMService:
             
             print(f"[LLMService] Zoom summary raw response: {response_text[:200]}...")
             
-            content_to_parse = self._extract_json(response_text)
-            
-            if not content_to_parse:
-                raise ValueError("Could not extract any content from LLM response")
-
-            if content_to_parse.startswith("Error:"):
-                raise ValueError(content_to_parse)
-
-            try:
-                # Use strict=False to allow control characters (like newlines) in strings
-                summaries = json.loads(content_to_parse, strict=False)
-            except json.JSONDecodeError as je:
-                print(f"[LLMService] JSON parse failed on: {content_to_parse[:200]}")
-                # Fallback: if it's not JSON, just return it as a single paragraph summary
-                return {
-                    "label": "Analysis active",
-                    "one_line": "AI summary in progress...",
-                    "sentence": "The AI is processing the content but returned a non-standard format.",
-                    "paragraph": content_to_parse[:500]
-                }
+            # The chat returns raw JSON or a string containing JSON. 
+            # We use the _extract_json helper to be robust.
+            json_str = self._extract_json(response_text)
+            data = json.loads(json_str)
             
             # Ensure all keys exist
-            required_keys = ["label", "one_line", "sentence", "paragraph"]
-            for key in required_keys:
-                if key not in summaries:
-                    summaries[key] = f"Summary level {key} unavailable."
+            required = ["label", "one_line", "sentence", "paragraph"]
+            for key in required:
+                if key not in data:
+                    data[key] = "Not available"
                     
-            return summaries
+            return data
+            
         except Exception as e:
             print(f"Error in generate_zoom_summaries: {e}")
             import traceback

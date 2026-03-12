@@ -6,6 +6,7 @@ from typing import List, Optional
 from app.core.database import get_db
 from app.schemas import smart_template as schemas
 from app.services.smart_template_service import smart_template_service
+from app.services.debug_service import debug_service
 
 router = APIRouter(prefix="/smart-templates", tags=["smart-templates"])
 
@@ -17,7 +18,9 @@ def get_categories(context: Optional[str] = None, db: Session = Depends(get_db))
 
 @router.post("/categories", response_model=schemas.SmartGlobalCategoryResponse)
 def create_category(item: schemas.SmartGlobalCategoryCreate, db: Session = Depends(get_db)):
-    return smart_template_service.create_global_category(db, item)
+    result = smart_template_service.create_global_category(db, item)
+    debug_service.log("INFO", "Smart Templates", "Category", f"Created category: {item.name}")
+    return result
 
 @router.put("/categories/{item_id}", response_model=schemas.SmartGlobalCategoryResponse)
 def update_category(item_id: str, item: schemas.SmartGlobalCategoryUpdate, db: Session = Depends(get_db)):

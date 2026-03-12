@@ -5,6 +5,7 @@ import os
 import shutil
 from app.models.agent_model import AgentConfig
 from app.services.rag_service import rag_service
+from app.services.debug_service import debug_service
 
 router = APIRouter()
 
@@ -37,6 +38,7 @@ async def create_agent(agent: AgentConfig):
         raise HTTPException(status_code=400, detail="Agent already exists")
     agents[agent.id] = agent
     save_agents(agents)
+    debug_service.log("INFO", "Agents and Tools", "Agents", f"Created agent: {agent.name} ({agent.id})")
     return agent
 
 @router.get("/agents/{agent_id}", response_model=AgentConfig)

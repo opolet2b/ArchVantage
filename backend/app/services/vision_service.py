@@ -71,6 +71,7 @@ class OpenAIVisionProvider(VisionProvider):
             openai_api_key=final_api_key,
             openai_api_base=base_url,
             max_tokens=1024,
+            request_timeout=600.0, # 10m timeout for thinking models
             model_kwargs=model_kwargs or {}
         )
         
@@ -103,11 +104,18 @@ class OpenAIVisionProvider(VisionProvider):
         
         messages.append(HumanMessage(content=user_content))
         
+        import time
+        start_time = time.perf_counter()
+        print(f"[OpenAIVisionProvider] Sending request to {base_url or 'OpenAI'} for model {model_name} (Payload size: {len(image_data)} chars)...")
+        
         try:
             response = await chat.ainvoke(messages)
+            elapsed = time.perf_counter() - start_time
+            print(f"[OpenAIVisionProvider] Received response in {elapsed:.2f}s. Content len: {len(response.content)} chars.")
             return response.content
         except Exception as e:
-            print(f"[OpenAIVisionProvider] Error: {e}")
+            elapsed = time.perf_counter() - start_time
+            print(f"[OpenAIVisionProvider] Error after {elapsed:.2f}s: {e}")
             raise e
 
 class OllamaVisionProvider(VisionProvider):
@@ -166,18 +174,25 @@ class OllamaVisionProvider(VisionProvider):
              # Prepend system message
              payload["messages"].insert(0, {"role": "system", "content": system_prompt})
         
+        import time
+        start_time = time.perf_counter()
+        final_base_url = base_url or self.base_url
+        
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{self.base_url}/api/chat", 
+                    f"{final_base_url}/api/chat", 
                     json=payload,
-                    timeout=300.0 # Vision models can be slow (increased to 5m)
+                    timeout=600.0 # Vision models can be slow (increased to 10m)
                 )
                 
+                elapsed = time.perf_counter() - start_time
                 if response.status_code != 200:
                     error_text = response.text
-                    print(f"[OllamaVisionProvider] API Error: {response.status_code} - {error_text}")
+                    print(f"[OllamaVisionProvider] API Error after {elapsed:.2f}s: {response.status_code} - {error_text}")
                     return f"Error from Ollama: {response.status_code} - {error_text}"
+                
+                print(f"[OllamaVisionProvider] Received response in {elapsed:.2f}s.")
                 
                 result = response.json()
                 # DEBUG: Log raw output to catch empty responses
@@ -276,6 +291,11 @@ class VisionService:
         else:
             # Check if input matches a Preset Name
             target_preset = next((p for p in presets if p["name"] == model_name), None)
+            
+            # Fallback: check if input matches a model_name tag within presets
+            if not target_preset:
+                target_preset = next((p for p in presets if p.get("model_name") == model_name), None)
+
             
         # 2. Determine Provider & Actual Model Tag
         provider = None

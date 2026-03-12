@@ -132,6 +132,7 @@ def create_canvas(
     db.add(canvas)
     db.commit()
     db.refresh(canvas)
+    debug_service.log("INFO", "Canvas", "CRUD", f"Created canvas: {canvas.name} ({canvas.id})", {"owner_id": current_user.id})
     return canvas
 
 
@@ -2161,7 +2162,7 @@ async def analyze_selection(
             created_thing_id=None
         )
     except Exception as e:
-        print(f"[Analyze] Error: {e}")
+        debug_service.log("ERROR", "Smart Analysis", "Analysis", f"Error in analyze_selection: {str(e)}", {"thing_id": request.thing_id, "action": request.action})
         raise HTTPException(status_code=500, detail=str(e))
 
 

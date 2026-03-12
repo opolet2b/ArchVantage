@@ -372,17 +372,17 @@ export function ScenarioManagementPanel({ embedded = false }: ScenarioManagement
                                     </CardContent>
                                 </Card>
 
-                                {selectedScenario.configuration.ui_overrides?.toolbox_macros && selectedScenario.configuration.ui_overrides.toolbox_macros.length > 0 && (
+                                {selectedScenario.configuration.ui_overrides?.toolbar_config?.tools && selectedScenario.configuration.ui_overrides.toolbar_config.tools.length > 0 && (
                                     <Card>
                                         <CardHeader>
-                                            <CardTitle className="text-base">Specialized Tools</CardTitle>
-                                            <CardDescription>Custom interface actions and tools</CardDescription>
+                                            <CardTitle className="text-base">Scenario Toolbox</CardTitle>
+                                            <CardDescription>Custom interface actions and specialized tools.</CardDescription>
                                         </CardHeader>
                                         <CardContent>
                                             <div className="flex flex-wrap gap-2">
-                                                {selectedScenario.configuration.ui_overrides.toolbox_macros.map((m: any) => (
-                                                    <Badge key={m.id} variant="secondary" className="px-3 py-1 text-sm">
-                                                        {m.label}
+                                                {selectedScenario.configuration.ui_overrides.toolbar_config.tools.map((t: any) => (
+                                                    <Badge key={t.id} variant="secondary" className="px-3 py-1 text-sm">
+                                                        {t.label}
                                                     </Badge>
                                                 ))}
                                             </div>

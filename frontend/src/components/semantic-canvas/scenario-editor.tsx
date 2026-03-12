@@ -351,6 +351,10 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                         </TabsList>
 
                         <TabsContent value="toolbar" className="flex-1 py-4 overflow-y-auto">
+                            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+                                <p className="font-semibold mb-1">Scenario Toolbox</p>
+                                <p>Configure custom AI-powered actions and specialized tools that will be available in this scenario. These appear in the Scenario Toolbox overview.</p>
+                            </div>
                             <ToolbarConfigEditor
                                 config={toolbarConfig}
                                 onChange={setToolbarConfig}

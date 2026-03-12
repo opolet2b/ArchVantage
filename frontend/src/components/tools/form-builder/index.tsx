@@ -15,11 +15,29 @@ import { WidgetPropertiesPanel } from "./widget-properties-panel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Save, Eye, FileJson, FileInput } from "lucide-react"
+import { Save, Eye, FileJson, FileInput, Sparkles, Loader2, FileUp } from "lucide-react"
 import { SchemaEditor } from "../schema-editor"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
 import { FormPreviewDialog } from "./form-preview-dialog"
 import { ContextualTrainer, TrainerStep } from "@/components/ui/contextual-trainer"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { API_URL } from "@/lib/utils"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
 
 interface FormBuilderProps {
     initialConfig?: {
@@ -66,10 +84,69 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
     // Modification State
     const [isDirty, setIsDirty] = useState(false)
 
+    // LLM Config State
+    const [llmModels, setLlmModels] = useState<{ name: string; id: string }[]>([])
+    const [selectedLlm, setSelectedLlm] = useState<string>("default")
+
+    // AI Generation State
+    const [showAiDialog, setShowAiDialog] = useState(false)
+    const [aiDescription, setAiDescription] = useState("")
+    const [isGenerating, setIsGenerating] = useState(false)
+
+    // PDF Conversion State
+    const [showPdfDialog, setShowPdfDialog] = useState(false)
+    const [pdfFile, setPdfFile] = useState<File | null>(null)
+    const [isScannedPdf, setIsScannedPdf] = useState(false)
+    const [selectedVlm, setSelectedVlm] = useState<string>("")
+    const [isConverting, setIsConverting] = useState(false)
+    const [isDraggingOver, setIsDraggingOver] = useState(false)
+
+    // VLM models (filtered from presets where is_vision is true)
+    const vlmModels = llmModels.filter((m: any) => m.is_vision === true)
+
     // Notify parent of dirty state change
     useEffect(() => {
         onDirtyChange?.(isDirty)
     }, [isDirty, onDirtyChange])
+
+    // Fetch LLM configuration presets
+    useEffect(() => {
+        const fetchLlmModels = async () => {
+            try {
+                const response = await fetch(`${API_URL}/config/presets`, {
+                    headers: {
+                        Authorization: `Bearer ${localStorage.getItem("token")}`,
+                    },
+                })
+                if (response.ok) {
+                    const data = await response.json()
+                    let models: { name: string; id: string }[] = []
+                    if (Array.isArray(data.presets)) {
+                        models = data.presets.map((preset: any) => ({
+                            id: preset.name || preset.model_name,
+                            name: preset.name || preset.model_name,
+                            is_vision: preset.is_vision || false,
+                        }))
+                    } else {
+                        models = Object.entries(data.presets || {}).map(
+                            ([id, preset]: [string, any]) => ({
+                                id: preset.name || preset.model_name || id,
+                                name: preset.name || id,
+                                is_vision: preset.is_vision || false,
+                            })
+                        )
+                    }
+                    setLlmModels(models)
+                    if (models.length > 0 && selectedLlm === "default") {
+                        setSelectedLlm(models[0].id)
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to fetch LLM models:", error)
+            }
+        }
+        fetchLlmModels()
+    }, [])
 
     // Generate unique ID for new widgets
     const generateId = (baseId: string): string => {
@@ -213,6 +290,103 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
             input_schema: inputSchema
         })
         setIsDirty(false)
+    }
+
+    // Handle AI form generation
+    const handleGenerateWithAI = async () => {
+        if (!aiDescription.trim()) return
+        setIsGenerating(true)
+        try {
+            const response = await fetch(`${API_URL}/generate-form`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: JSON.stringify({
+                    description: aiDescription,
+                    llm_model: selectedLlm,
+                }),
+            })
+            if (response.ok) {
+                const data = await response.json()
+                const form = data.form
+                // Load the generated form into the builder
+                if (form.title) setFormTitle(form.title)
+                if (form.submit_label) setSubmitLabel(form.submit_label)
+                if (form.components) setWidgets(form.components)
+                if (form.layout) {
+                    setGridRows(form.layout.rows || 4)
+                    setGridCols(form.layout.cols || 2)
+                }
+                setSelectedWidgetId(null)
+                setIsDirty(true)
+                setShowAiDialog(false)
+                setAiDescription("")
+            } else {
+                const err = await response.json().catch(() => ({}))
+                console.error("AI generation failed:", err.detail || response.statusText)
+                alert(`Generation failed: ${err.detail || response.statusText}`)
+            }
+        } catch (error) {
+            console.error("Error generating form:", error)
+            alert("Failed to generate form. Check your connection and LLM configuration.")
+        } finally {
+            setIsGenerating(false)
+        }
+    }
+
+    // Handle PDF form conversion
+    const handleConvertPdf = async () => {
+        if (!pdfFile) return
+        if (isScannedPdf && !selectedVlm) {
+            alert("Please select a VLM configuration for scanned PDF processing.")
+            return
+        }
+        setIsConverting(true)
+        try {
+            const formData = new FormData()
+            formData.append("file", pdfFile)
+            formData.append("llm_model", selectedLlm)
+            formData.append("is_scanned", String(isScannedPdf))
+            if (isScannedPdf && selectedVlm) {
+                formData.append("vlm_model", selectedVlm)
+            }
+
+            const response = await fetch(`${API_URL}/convert-pdf-form`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${localStorage.getItem("token")}`,
+                },
+                body: formData,
+            })
+            if (response.ok) {
+                const data = await response.json()
+                const form = data.form
+                if (form.title) setFormTitle(form.title)
+                if (form.submit_label) setSubmitLabel(form.submit_label)
+                if (form.components) setWidgets(form.components)
+                if (form.layout) {
+                    setGridRows(form.layout.rows || 4)
+                    setGridCols(form.layout.cols || 2)
+                }
+                setSelectedWidgetId(null)
+                setIsDirty(true)
+                setShowPdfDialog(false)
+                setPdfFile(null)
+                setIsScannedPdf(false)
+                setSelectedVlm("")
+            } else {
+                const err = await response.json().catch(() => ({}))
+                console.error("PDF conversion failed:", err.detail || response.statusText)
+                alert(`Conversion failed: ${err.detail || response.statusText}`)
+            }
+        } catch (error) {
+            console.error("Error converting PDF:", error)
+            alert("Failed to convert PDF. Check your connection and LLM configuration.")
+        } finally {
+            setIsConverting(false)
+        }
     }
 
     // Grid Logic
@@ -361,7 +535,38 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
                         />
                     </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
+                    {/* LLM Configuration Dropdown */}
+                    <Select value={selectedLlm} onValueChange={setSelectedLlm}>
+                        <SelectTrigger className="w-[180px] h-9">
+                            <SelectValue placeholder="Select LLM" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {llmModels.map((model) => (
+                                <SelectItem key={model.id} value={model.id}>
+                                    {model.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAiDialog(true)}
+                        id="ai-generate-btn"
+                    >
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Create form with AI
+                    </Button>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowPdfDialog(true)}
+                        id="pdf-convert-btn"
+                    >
+                        <FileUp className="h-4 w-4 mr-2" />
+                        Convert Form
+                    </Button>
                     <HelpTooltip contentPath="tools/gui-builder" className="h-8 w-8 border" displayMode="dialog" />
                     <Button variant="outline" size="sm" onClick={() => setShowPreview(true)} id="preview-btn">
                         <Eye className="h-4 w-4 mr-2" />
@@ -467,6 +672,203 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
                 workflowId="form_builder_walkthrough"
                 steps={FORM_BUILDER_STEPS}
             />
+
+            {/* AI Form Generation Dialog */}
+            <Dialog open={showAiDialog} onOpenChange={setShowAiDialog}>
+                <DialogContent className="sm:max-w-[525px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Sparkles className="h-5 w-5 text-amber-500" />
+                            Create form with AI
+                        </DialogTitle>
+                        <DialogDescription>
+                            Describe the form you want and the AI will generate it for you.
+                            For example: &quot;A form for entering one&apos;s coordinates&quot;
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Textarea
+                            value={aiDescription}
+                            onChange={(e) => setAiDescription(e.target.value)}
+                            placeholder="Describe the form you want to create..."
+                            rows={5}
+                            className="resize-none"
+                            disabled={isGenerating}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowAiDialog(false)}
+                            disabled={isGenerating}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleGenerateWithAI}
+                            disabled={isGenerating || !aiDescription.trim()}
+                        >
+                            {isGenerating ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Generating...
+                                </>
+                            ) : (
+                                <>
+                                    <Sparkles className="h-4 w-4 mr-2" />
+                                    Generate
+                                </>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* PDF Form Conversion Dialog */}
+            <Dialog open={showPdfDialog} onOpenChange={(open) => {
+                setShowPdfDialog(open)
+                if (!open) {
+                    setPdfFile(null)
+                    setIsScannedPdf(false)
+                    setSelectedVlm("")
+                    setIsDraggingOver(false)
+                }
+            }}>
+                <DialogContent className="sm:max-w-[525px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <FileUp className="h-5 w-5 text-blue-500" />
+                            Convert Form
+                        </DialogTitle>
+                        <DialogDescription>
+                            Upload a PDF or an image (JPG, PNG) and the AI will extract its fields into a form builder configuration.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-4">
+                        {/* File Drop Zone */}
+                        <div
+                            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                                isDraggingOver
+                                    ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
+                                    : pdfFile
+                                    ? "border-green-500 bg-green-50 dark:bg-green-950/20"
+                                    : "border-muted-foreground/25 hover:border-muted-foreground/50"
+                            }`}
+                            onDragOver={(e) => {
+                                e.preventDefault()
+                                setIsDraggingOver(true)
+                            }}
+                            onDragLeave={() => setIsDraggingOver(false)}
+                            onDrop={(e) => {
+                                e.preventDefault()
+                                setIsDraggingOver(false)
+                                const file = e.dataTransfer.files[0]
+                                const allowedTypes = ["application/pdf", "image/jpeg", "image/png"]
+                                if (file && allowedTypes.includes(file.type)) {
+                                    setPdfFile(file)
+                                }
+                            }}
+                            onClick={() => {
+                                const input = document.createElement("input")
+                                input.type = "file"
+                                input.accept = ".pdf,.jpg,.jpeg,.png"
+                                input.onchange = (e) => {
+                                    const file = (e.target as HTMLInputElement).files?.[0]
+                                    if (file) setPdfFile(file)
+                                }
+                                input.click()
+                            }}
+                        >
+                            {pdfFile ? (
+                                <div className="space-y-1">
+                                    <FileUp className="h-8 w-8 mx-auto text-green-500" />
+                                    <p className="font-medium text-sm">{pdfFile.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {(pdfFile.size / 1024).toFixed(1)} KB — Click to change
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    <FileUp className="h-8 w-8 mx-auto text-muted-foreground" />
+                                    <p className="text-sm font-medium">Drop a PDF or image here or click to browse</p>
+                                    <p className="text-xs text-muted-foreground">PDF, JPG, PNG accepted</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Scanned PDF Switch */}
+                        <div className="flex items-center justify-between rounded-lg border p-3">
+                            <div className="space-y-0.5">
+                                <Label htmlFor="scanned-pdf-toggle" className="text-sm font-medium cursor-pointer">
+                                    Scanned Form
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Enable if the form is a scanned document or image (requires a Vision Model)
+                                </p>
+                            </div>
+                            <Switch
+                                id="scanned-pdf-toggle"
+                                checked={isScannedPdf}
+                                onCheckedChange={setIsScannedPdf}
+                                disabled={isConverting}
+                            />
+                        </div>
+
+                        {/* VLM Dropdown (shown only when Scanned PDF is on) */}
+                        {isScannedPdf && (
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Vision Model (VLM) *</Label>
+                                <Select value={selectedVlm} onValueChange={setSelectedVlm}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a Vision Model..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {vlmModels.length > 0 ? (
+                                            vlmModels.map((model) => (
+                                                <SelectItem key={model.id} value={model.id}>
+                                                    {model.name}
+                                                </SelectItem>
+                                            ))
+                                        ) : (
+                                            <SelectItem value="__none" disabled>
+                                                No vision models configured
+                                            </SelectItem>
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                    The VLM will analyse the document/image to recognise form fields.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="ghost"
+                            onClick={() => setShowPdfDialog(false)}
+                            disabled={isConverting}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleConvertPdf}
+                            disabled={isConverting || !pdfFile || (isScannedPdf && !selectedVlm)}
+                        >
+                            {isConverting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    Converting...
+                                </>
+                            ) : (
+                                <>
+                                    <FileUp className="h-4 w-4 mr-2" />
+                                    Convert
+                                </>
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

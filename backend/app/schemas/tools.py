@@ -232,6 +232,12 @@ class MappingSuggestionRequest(BaseModel):
     model_name: Optional[str] = None
 
 
+class FormGenerationRequest(BaseModel):
+    """Request to generate a GUI form from a description using AI."""
+    description: str
+    llm_model: str = "default"
+
+
 class PipelineGenerationResponse(BaseModel):
     """Response from pipeline generation."""
     pipeline: Dict[str, Any]  # The generated pipeline JSON

@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.core.security import verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, decode_access_token
 from app.models.user import User
 from app.schemas.user import Token, TokenData
+from app.services.debug_service import debug_service
 
 router = APIRouter()
 
@@ -64,17 +65,17 @@ class PermissionChecker:
 
 @router.post("/auth/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    print(f"[DEBUG-AUTH] Login attempt for: {form_data.username}")
+    debug_service.log("INFO", "Authentication", "Login", f"Login attempt for: {form_data.username}")
     user = db.query(User).filter(User.email == form_data.username).first()
     if user:
-        print(f"[DEBUG-AUTH] User found. ID: {user.id}")
+        debug_service.log("INFO", "Authentication", "Login", f"User found. ID: {user.id}")
         is_valid = verify_password(form_data.password, user.password_hash)
-        print(f"[DEBUG-AUTH] Password valid: {is_valid}")
+        debug_service.log("DEBUG", "Authentication", "Login", f"Password valid: {is_valid}")
     else:
-        print(f"[DEBUG-AUTH] User not found for email: {form_data.username}")
+        debug_service.log("WARNING", "Authentication", "Login", f"User not found for email: {form_data.username}")
         # Print all users to see what's in the DB
         all_users = db.query(User).all()
-        print(f"[DEBUG-AUTH] All users in DB: {[u.email for u in all_users]}")
+        debug_service.log("DEBUG", "Authentication", "Internal", f"All users in DB: {[u.email for u in all_users]}")
         
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(

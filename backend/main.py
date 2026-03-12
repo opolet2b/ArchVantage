@@ -26,6 +26,7 @@ from app.routers import (
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
     smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology
 )
+from app.services.debug_service import debug_service
 from app.services.watcher_service import watcher_service
 from app.core.database import engine, Base
 from dotenv import load_dotenv
@@ -61,11 +62,12 @@ async def startup_event():
         from app.services.prompt_service import prompt_service
         from app.prompts import ALL_PROMPTS
         prompt_service.register_prompts(ALL_PROMPTS)
-        print(f"DEBUG: Registered {len(ALL_PROMPTS)} prompts")
+        debug_service.log("INFO", "System", "Startup", f"Application started. Registered {len(ALL_PROMPTS)} prompts.")
         
-        # Initialize Knowledge Graph Schema (ArcadeDB)
+        # Initialize Knowledge Graph Schema (ArcadeDB) in background
+        import asyncio
         from app.models.knowledge_graph import init_knowledge_graph_schema
-        init_knowledge_graph_schema()
+        asyncio.create_task(asyncio.to_thread(init_knowledge_graph_schema))
         
         # Initialize RAG Service (Lazy loading, so no explicit init here)
         from app.services.rag_service import rag_service
@@ -119,4 +121,5 @@ def read_root():
 
 @app.get("/health")
 def health_check():
+    debug_service.log("DEBUG", "System", "Health", "Health check performed")
     return {"status": "ok"}

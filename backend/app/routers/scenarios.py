@@ -19,6 +19,7 @@ from app.schemas.scenario_schemas import (
     InstantiateScenarioRequest, ApplyScenarioRequest
 )
 from app.schemas.canvas_schemas import CanvasResponse
+from app.services.debug_service import debug_service
 
 router = APIRouter(prefix="/scenarios", tags=["scenarios"])
 
@@ -67,6 +68,7 @@ def create_scenario(
     db.add(db_scenario)
     db.commit()
     db.refresh(db_scenario)
+    debug_service.log("INFO", "Scenario", "CRUD", f"Created scenario: {db_scenario.name} ({db_scenario.id})")
     return db_scenario
 
 @router.get("/{scenario_id}", response_model=ScenarioResponse)
@@ -221,6 +223,7 @@ def instantiate_scenario(
         
     db.commit()
     db.refresh(new_canvas)
+    debug_service.log("INFO", "Scenario", "Instantiation", f"Instantiated scenario {scenario.name} into canvas {new_canvas.id}")
     return new_canvas
 
 

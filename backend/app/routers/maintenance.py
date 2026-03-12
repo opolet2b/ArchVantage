@@ -6,6 +6,7 @@ from app.models.user import User
 from app.services.maintenance_service import maintenance_service
 from pydantic import BaseModel
 from typing import List, Dict, Any
+from app.services.debug_service import debug_service
 
 router = APIRouter()
 
@@ -34,4 +35,6 @@ def cleanup_orphans(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete selected orphaned items."""
-    return maintenance_service.delete_orphans(db, request.model_dump())
+    result = maintenance_service.delete_orphans(db, request.model_dump())
+    debug_service.log("INFO", "System", "Cleanup", f"Performed cleanup of orphaned items.")
+    return result

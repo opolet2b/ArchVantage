@@ -11,7 +11,7 @@ if TYPE_CHECKING:
         from llama_index.embeddings.ollama import OllamaEmbedding
     except ImportError:
         pass
-
+from app.services.debug_service import debug_service
 
 class RAGService:
     def __init__(self):
@@ -38,7 +38,7 @@ class RAGService:
         if self._initialized and not model_name:
             return
 
-        print("[RAGService] Initializing RAG Service (loading libraries)...")
+        debug_service.log("INFO", "Knowledge Base", "RAG", "Initializing RAG Service (loading library)...")
         self.init_error = None
         
         try:
@@ -238,7 +238,7 @@ class RAGService:
                 self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
                 print("DEBUG: ChromaDB Client successfully initialized.")
             except Exception as e:
-                print(f"CRITICAL ERROR: Failed to initialize ChromaDB: {e}")
+                debug_service.log("ERROR", "Knowledge Base", "RAG", f"CRITICAL ERROR: Failed to initialize ChromaDB: {e}")
                 
                 # Attempt to recover from corruption
                 if "tenant" in str(e).lower() or "sqlite" in str(e).lower() or "database" in str(e).lower():

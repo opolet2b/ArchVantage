@@ -114,6 +114,19 @@ class ArcadeDBClient:
                 print(f"ArcadeDB Query Error: {e}")
              raise e
 
+    def is_reachable(self, timeout: float = 2.0) -> bool:
+        """
+        Quickly check if ArcadeDB is reachable without waiting for long timeouts.
+        """
+        try:
+            # Check if the server is up by calling a lightweight endpoint
+            server_url = f"{self.host.rstrip('/')}/api/v1/server"
+            with httpx.Client(auth=self.auth) as client:
+                res = client.get(server_url, timeout=timeout)
+                return res.status_code < 500
+        except Exception:
+            return False
+
     def check_connection(self) -> bool:
         """
         Checks if the database exists and credentials are correct.

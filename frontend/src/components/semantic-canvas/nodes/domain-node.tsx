@@ -212,43 +212,6 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
 
     return (
         <>
-            {/* Enhanced NodeResizer with visible handles */}
-            <NodeResizer
-                color={displayColor}
-                isVisible={selected}
-                minWidth={constraints.minWidth}
-                minHeight={constraints.minHeight}
-                handleStyle={resizeHandleStyle}
-                lineStyle={lineHandleStyle}
-                onResizeStart={(_e, params) => {
-                    // setResizeHandle((params as any).handle); // Removed dynamic constraints logic
-                }}
-                onResize={(_e, params) => {
-                    if (data.onResize) {
-                        data.onResize(domain.id, params.width, params.height, params.x, params.y);
-                    }
-                }}
-                onResizeEnd={(_e, params) => {
-                    setResizeHandle(null);
-                    if (data.onResizeEnd) {
-                        data.onResizeEnd(domain.id, params.width, params.height, params.x, params.y);
-                    }
-                }}
-            />
-
-            {/* Connection Handles - Left (Target) and Right (Source) only */}
-            <Handle
-                type="target"
-                position={Position.Left}
-                className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950"
-                style={{ zIndex: 50 }}
-            />
-            <Handle
-                type="source"
-                position={Position.Right}
-                className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950"
-                style={{ zIndex: 50 }}
-            />
 
             {/* Main Container Wrapper - No Opacity ensures child elements like Label are fully visible */}
             <div
@@ -259,6 +222,29 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                     onContextMenu?.(e, domain.id);
                 }}
             >
+                {/* NodeResizer - Inside relative container to ensure handles are on top and correctly positioned */}
+                <NodeResizer
+                    color={displayColor}
+                    isVisible={selected}
+                    minWidth={constraints.minWidth}
+                    minHeight={constraints.minHeight}
+                    handleStyle={resizeHandleStyle}
+                    lineStyle={lineHandleStyle}
+                    onResizeStart={(_e, _params) => {
+                        // setResizeHandle((params as any).handle);
+                    }}
+                    onResize={(_e, params) => {
+                        if (data.onResize) {
+                            data.onResize(domain.id, params.width, params.height, params.x, params.y);
+                        }
+                    }}
+                    onResizeEnd={(_e, params) => {
+                        setResizeHandle(null);
+                        if (data.onResizeEnd) {
+                            data.onResizeEnd(domain.id, params.width, params.height, params.x, params.y);
+                        }
+                    }}
+                />
                 {/* Visual Background Layer - Opacity Applied Here */}
                 <div
                     className={cn(
@@ -497,31 +483,32 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                 )}
 
                 {/* Connection Handles (Required for edges to connect to domains) */}
+                {/* Consistent Orange Styling for all handles */}
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
-                    style={{ backgroundColor: displayColor }}
+                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ zIndex: 50 }}
                 />
                 <Handle
                     type="source"
                     position={Position.Right}
-                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
-                    style={{ backgroundColor: displayColor }}
+                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ zIndex: 50 }}
                 />
                 <Handle
                     type="target"
                     id="top"
                     position={Position.Top}
-                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
-                    style={{ backgroundColor: displayColor }}
+                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ zIndex: 50 }}
                 />
                 <Handle
                     type="source"
                     id="bottom"
                     position={Position.Bottom}
-                    className="!w-3 !h-3 opacity-0 hover:opacity-100 transition-opacity"
-                    style={{ backgroundColor: displayColor }}
+                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    style={{ zIndex: 50 }}
                 />
             </div>
 

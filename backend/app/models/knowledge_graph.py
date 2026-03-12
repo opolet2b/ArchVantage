@@ -29,6 +29,13 @@ def init_knowledge_graph_schema():
     It creates Vertex and Edge classes, and their respective properties and indexes.
     """
     print("[SchemaInit] Starting ArcadeDB schema initialization...")
+    
+    # Check reachability with a short timeout to avoid blocking background threads unnecessarily
+    # (Even though it's backgrounded, we don't want to hang the thread too long)
+    if not arcadedb.is_reachable(timeout=1.0):
+        print("[SchemaInit] WARNING: ArcadeDB is not reachable. Background schema initialization will not proceed.")
+        return
+
     # 0. Ensure database exists
     if not arcadedb.create_database():
         print("[SchemaInit] Database creation check returned False. Continuing anyway...")

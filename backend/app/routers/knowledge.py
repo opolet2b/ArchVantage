@@ -19,6 +19,7 @@ from app.services.mcp_integration_service import mcp_integration_service
 from app.services.ingestion_service import ingestion_service
 from app.services.reconciliation_service import reconciliation_service
 from app.core.arcadedb import arcadedb
+from app.services.debug_service import debug_service
 
 router = APIRouter()
 
@@ -69,6 +70,7 @@ def create_kb_config(kb: KnowledgeBaseConfigCreate, db: Session = Depends(get_db
     db.add(db_kb)
     db.commit()
     db.refresh(db_kb)
+    debug_service.log("INFO", "Knowledge Base", "Config", f"Created KB config: {db_kb.name} ({db_kb.id})")
     return db_kb
 
 @router.put("/knowledge/kb/{kb_id}", response_model=KnowledgeBaseConfigResponse)
@@ -191,11 +193,10 @@ async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, force: 
         pass
 
     # 3. Update status
-    print(f"[Establish] Ingesting in background and committing status for {kb_id}...")
+    debug_service.log("INFO", "Knowledge Base", "Establish", f"Starting background ingestion for {kb_id} status=active")
     db_kb.status = "active"
     db.commit()
     db.refresh(db_kb)
-    print(f"[Establish] Done for {kb_id}.")
     
     return {"status": "success", "message": f"Schema established for {len(approved_classes)} classes. Background ingestion started."}
 

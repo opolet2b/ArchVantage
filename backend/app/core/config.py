@@ -20,6 +20,7 @@ class Settings:
     ARCADEDB_USER: str = os.getenv("ARCADEDB_USER", "root")
     ARCADEDB_PASSWORD: str = os.getenv("ARCADEDB_PASSWORD", "playwithdata")
     ARCADEDB_DATABASE: str = os.getenv("ARCADEDB_DATABASE", "knowledge_graph")
+    ENABLE_ARCADEDB: bool = os.getenv("ENABLE_ARCADEDB", "True").lower() == "true"
 
     # CORS Configuration
     # Parse comma-separated string from env, or use default list

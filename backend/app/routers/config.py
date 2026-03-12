@@ -5,6 +5,7 @@ from app.services.config_service import config_service
 from app.core.env_manager import env_manager
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
+from app.services.debug_service import debug_service
 
 router = APIRouter(tags=["config"])
 
@@ -47,6 +48,7 @@ def save_preset(preset: ConfigRequest):
     
     config["presets"] = presets
     config_service.save_config(config)
+    debug_service.log("INFO", "Settings", "Presets", f"Saved preset: {preset.name}")
     return {"status": "success", "preset": preset_dict}
 
 @router.delete("/config/presets/{preset_name}")
@@ -146,6 +148,7 @@ def set_database_config(request: DatabaseConfigRequest):
         "message": "Configuration saved. Please restart the backend for changes to take effect.",
         "restart_required": True
     }
+    debug_service.log("WARNING", "Settings", "Database", "Database configuration updated. Restart required.")
 
 @router.post("/config/database/test")
 def test_database_connection(request: DatabaseConfigRequest):

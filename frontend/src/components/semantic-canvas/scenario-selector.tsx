@@ -82,23 +82,29 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-[90vw] h-[90vh] flex flex-col">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
+            <DialogContent className="max-w-4xl w-[90vw] h-[80vh] flex flex-col p-0 overflow-hidden shadow-2xl border-slate-200 dark:border-slate-800">
+                <DialogHeader className="p-6 pb-4 shrink-0 border-b bg-white dark:bg-slate-900">
+                    <DialogTitle className="flex items-center gap-2 text-xl font-bold tracking-tight">
                         <Layers className="w-5 h-5 text-primary" />
                         Select a Scenario
                     </DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="text-sm font-medium text-slate-500 dark:text-slate-400">
                         Choose a specialized mode for your canvas. Scenarios configure the interface,
                         tools, and automations for specific use cases.
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-hidden flex gap-6 py-4">
+                <div className="flex-1 overflow-hidden flex flex-row p-0 min-h-0 bg-slate-50/30 dark:bg-slate-900/10">
                     {/* List */}
-                    <div className="w-1/3 border-r pr-4">
-                        <ScrollArea className="h-full">
-                            <div className="flex flex-col gap-2">
+                    <div className="w-[320px] shrink-0 border-r bg-white dark:bg-slate-900/50 flex flex-col min-h-0">
+                        <div className="px-4 py-3 bg-slate-50/50 dark:bg-slate-800/50 border-b flex justify-between items-center shrink-0">
+                            <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 dark:text-slate-500">Available Scenarios</span>
+                            <Badge variant="outline" className="text-[10px] font-bold bg-white dark:bg-slate-700 shadow-sm border-slate-200 dark:border-slate-800">
+                                {scenarios.length} Found
+                            </Badge>
+                        </div>
+                        <ScrollArea className="flex-1">
+                            <div className="p-3 gap-2 flex flex-col h-full">
                                 {loading && (
                                     <div className="flex justify-center p-4">
                                         <Loader2 className="animate-spin text-muted-foreground" />
@@ -128,8 +134,8 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                                 )}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="font-semibold truncate">{scenario.name}</div>
-                                                <div className="text-xs text-muted-foreground truncate">{scenario.description}</div>
+                                                <div className="font-bold text-sm text-slate-800 dark:text-slate-200 truncate">{scenario.name}</div>
+                                                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-1">{scenario.description}</div>
                                             </div>
                                             {selectedId === scenario.id && (
                                                 <Check className="w-4 h-4 text-primary" />
@@ -142,7 +148,9 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                     </div>
 
                     {/* Preview / Details */}
-                    <div className="flex-1 pl-2">
+                    <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-slate-900">
+                        <ScrollArea className="flex-1">
+                            <div className="p-8 h-full">
                         {selectedId ? (
                             (() => {
                                 const selected = scenarios.find(s => s.id === selectedId);
@@ -178,16 +186,16 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                                 </CardContent>
                                             </Card>
 
-                                            {selected.configuration.ui_overrides?.toolbox_macros && selected.configuration.ui_overrides.toolbox_macros.length > 0 && (
+                                            {selected.configuration.ui_overrides?.toolbar_config?.tools && selected.configuration.ui_overrides.toolbar_config.tools.length > 0 && (
                                                 <Card>
                                                     <CardHeader className="pb-2">
-                                                        <CardTitle className="text-sm font-medium">Specialized Tools</CardTitle>
+                                                        <CardTitle className="text-sm font-medium">Scenario Toolbox</CardTitle>
                                                     </CardHeader>
                                                     <CardContent>
                                                         <div className="flex flex-wrap gap-2">
-                                                            {selected.configuration.ui_overrides.toolbox_macros.map((m: any) => (
-                                                                <Badge key={m.id} variant="secondary">
-                                                                    {m.label}
+                                                            {selected.configuration.ui_overrides.toolbar_config.tools.map((t: any) => (
+                                                                <Badge key={t.id} variant="secondary">
+                                                                    {t.label}
                                                                 </Badge>
                                                             ))}
                                                         </div>
@@ -200,10 +208,13 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                 );
                             })()
                         ) : (
-                            <div className="h-full flex items-center justify-center text-muted-foreground">
-                                Select a scenario to view details
+                            <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4 opacity-50">
+                                <Layers className="w-12 h-12 stroke-[1px]" />
+                                <span className="text-sm font-medium">Select a scenario to view details</span>
                             </div>
                         )}
+                        </div>
+                        </ScrollArea>
                     </div>
                 </div>
 

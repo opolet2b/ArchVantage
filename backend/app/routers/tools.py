@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, Form, UploadFile
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.schemas.tools import (
     Tool, ToolCreate, ToolUpdate, Category, CategoryCreate, CategoryUpdate,
     SystemPromptGenerationRequest, InputSchemaGenerationRequest,
-    PipelineGenerationRequest,
+    PipelineGenerationRequest, FormGenerationRequest,
     MCPServer, MCPServerCreate, MCPServerUpdate,
     ToolsTreeResponse,
     ToolSuggestionRequest, MappingSuggestionRequest
@@ -13,6 +13,7 @@ from app.schemas.tools import (
 from app.services import tools as tool_service
 from app.routers.auth import get_current_active_user, get_current_admin_user
 from app.models.user import User
+from app.services.debug_service import debug_service
 
 router = APIRouter()
 
@@ -52,7 +53,9 @@ def create_tool(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    return tool_service.create_tool(db=db, tool=tool, owner_id=current_user.id)
+    result = tool_service.create_tool(db=db, tool=tool, owner_id=current_user.id)
+    debug_service.log("INFO", "Agents and Tools", "Tools", f"Created tool: {tool.name}", {"tool_id": result.id})
+    return result
 
 @router.get("/tools/{tool_id}", response_model=Tool)
 def read_tool(
@@ -163,6 +166,7 @@ async def execute_tool(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    debug_service.log("INFO", "Agents and Tools", "Execution", f"Executing tool {tool_id}", {"params": params})
     return await tool_service.execute_tool(db=db, tool_id=tool_id, params=params)
 
 
@@ -255,6 +259,115 @@ async def generate_pipeline(
         execution_sample=request.execution_sample  # Pass execution sample if provided
     )
     return result
+
+
+@router.post("/generate-form")
+async def generate_form(
+    request: FormGenerationRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Generate a GUI form configuration from a natural language description.
+
+    Uses the selected LLM to interpret the user's requirements and
+    produce a JSON form configuration loadable by the FormBuilder.
+    """
+    try:
+        form_config = await tool_service.generate_form(
+            description=request.description,
+            llm_model=request.llm_model
+        )
+        debug_service.log(
+            "INFO", "Agents and Tools", "Tools",
+            f"Generated AI form: {form_config.get('title', 'Untitled')}",
+            {"components_count": len(form_config.get('components', []))}
+        )
+        return {"form": form_config}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Form generation failed: {str(e)}"
+        )
+
+
+@router.post("/convert-pdf-form")
+async def convert_pdf_form(
+    file: UploadFile = File(...),
+    llm_model: str = Form("default"),
+    is_scanned: bool = Form(False),
+    vlm_model: str = Form(None),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Convert an uploaded form (PDF or image) into a GUI form configuration.
+
+    Accepts PDF, JPG, or PNG files. For scanned forms or images,
+    a VLM model must be specified to recognise fields.
+    """
+    import tempfile
+    import os
+
+    allowed_extensions = (".pdf", ".jpg", ".jpeg", ".png")
+    file_ext = "." + file.filename.lower().rsplit(".", 1)[-1] if "." in file.filename else ""
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF, JPG, and PNG files are accepted."
+        )
+
+    # Images are always treated as scanned
+    if file_ext in (".jpg", ".jpeg", ".png"):
+        is_scanned = True
+
+    # Save uploaded file to a temporary location
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=file_ext
+        ) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        # Call service
+        form_config = await tool_service.convert_pdf_to_form(
+            file_path=tmp_path,
+            llm_model=llm_model,
+            is_scanned=is_scanned,
+            vlm_model=vlm_model
+        )
+
+        debug_service.log(
+            "INFO", "Agents and Tools", "Tools",
+            f"Converted PDF form: {file.filename}",
+            {
+                "components_count": len(
+                    form_config.get('components', [])
+                ),
+                "is_scanned": is_scanned
+            }
+        )
+        return {"form": form_config}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF form conversion failed: {str(e)}"
+        )
+    finally:
+        # Clean up temp file (Windows: pypdfium2 may still hold the handle)
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except PermissionError:
+                # Defer cleanup — file is locked by pypdfium2
+                import atexit
+                atexit.register(
+                    lambda p=tmp_path: os.unlink(p)
+                    if os.path.exists(p) else None
+                )
 
 
 @router.post("/tools/suggest-tools")

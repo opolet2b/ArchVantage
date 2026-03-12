@@ -830,6 +830,351 @@ async def suggest_mappings(
         return {}
 
 
+async def generate_form(description: str, llm_model: str = "default") -> dict:
+    """
+    Generate a GUI form configuration from a natural-language description.
+
+    Uses an LLM to interpret the user's requirements and produce a JSON
+    form configuration compatible with the FormBuilder component.
+
+    Args:
+        description: Natural language description of the desired form.
+        llm_model: Name/ID of the LLM preset to use.
+
+    Returns:
+        Dict containing title, submit_label, components, and layout.
+    """
+    from app.services.llm_service import llm_service
+
+    system_prompt = """You are an expert form designer. You generate JSON form \
+configurations for a GUI form builder.
+
+AVAILABLE WIDGET TYPES (use these exact type IDs):
+INPUT FIELDS:
+- "text_input": Single-line text field (has placeholder)
+- "text_area": Multi-line text field (has placeholder)
+- "number": Numeric input (has placeholder, validation: min_value/max_value)
+- "email": Email input (has placeholder, validation: pattern)
+- "password": Password input (has placeholder)
+- "date_picker": Date selector
+- "time_picker": Time selector
+- "file_picker": File upload
+
+SELECTION FIELDS:
+- "dropdown": Single-select dropdown (requires options array)
+- "checkbox_group": Multi-select checkboxes (requires options array)
+- "radio_group": Single-select radio buttons (requires options array)
+- "toggle": On/off switch (default: "true" or "false"). USE THIS for single yes/no checkboxes.
+
+DISPLAY WIDGETS:
+- "section_header": Section title (label is the title text)
+- "divider": Horizontal separator (label can be empty)
+- "instructional_text": Help/instruction paragraph (label is the text)
+- "picture": Image display (requires url and alt_text)
+
+WIDGET CONFIG FORMAT:
+{
+  "id": "unique_snake_case_id",
+  "type": "<one of the types above>",
+  "label": "Human-readable label",
+  "placeholder": "Hint text (for input types)",
+  "required": true/false,
+  "validation": {
+    "min_length": <number>,
+    "max_length": <number>,
+    "min_value": <number>,
+    "max_value": <number>,
+    "pattern": "<regex>"
+  },
+  "options": [
+    {"label": "Display text", "value": "internal_value"}
+  ],
+  "default": "default value as string",
+  "layout": {
+    "row": <0-based row index>,
+    "col": <0-based col index>,
+    "rowSpan": 1,
+    "colSpan": 1
+  }
+}
+
+OUTPUT FORMAT (respond with ONLY this JSON, no markdown):
+{
+  "title": "Form Title",
+  "submit_label": "Submit",
+  "components": [ <array of widget configs> ],
+  "layout": { "rows": <total rows>, "cols": 2 }
+}
+
+RULES:
+1. Lay out widgets on a 2-column grid. Place labels/section headers spanning 2 cols.
+2. Use section_header widgets to logically group related fields.
+3. Mark fields as required when they are logically essential.
+4. Assign unique snake_case IDs to each widget.
+5. Choose the most appropriate widget type for each field.
+6. Add sensible placeholders for input fields.
+7. Add validation where appropriate (e.g. email pattern, min/max for numbers).
+8. IMPORTANT: There is NO standalone "checkbox" type. For a single yes/no checkbox, use "toggle". For multiple checkboxes ("select all that apply"), use "checkbox_group" with options.
+9. Respond with raw JSON only — no markdown fences, no commentary."""
+
+    user_prompt = f"Generate a form for the following requirement:\n\n{description}"
+
+    response = await llm_service.chat_completion(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        model=llm_model,
+        temperature=0.7,
+        json_mode=True
+    )
+
+    # Parse the LLM response
+    cleaned = llm_service._extract_json(response)
+
+    try:
+        result = json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        print(f"[generate_form] Failed to parse LLM response: {cleaned[:300]}")
+        result = {
+            "title": "Generated Form",
+            "submit_label": "Submit",
+            "components": [],
+            "layout": {"rows": 4, "cols": 2}
+        }
+
+    # Ensure required keys exist
+    result.setdefault("title", "Generated Form")
+    result.setdefault("submit_label", "Submit")
+    result.setdefault("components", [])
+    result.setdefault("layout", {"rows": 4, "cols": 2})
+
+    return result
+
+
+async def convert_pdf_to_form(
+    file_path: str,
+    llm_model: str = "default",
+    is_scanned: bool = False,
+    vlm_model: str = None
+) -> dict:
+    """
+    Convert a form file (PDF or image) into a GUI form configuration.
+
+    For text-based PDFs, extracts text directly with pypdfium2.
+    For scanned PDFs or images, renders pages/image to base64 and
+    uses a VLM to recognise form fields before sending to the LLM.
+
+    Args:
+        file_path: Path to the uploaded file (PDF, JPG, or PNG).
+        llm_model: Name/ID of the LLM preset to use.
+        is_scanned: Whether the PDF is a scanned image (requires VLM).
+        vlm_model: Name/ID of the VLM preset (required when is_scanned).
+
+    Returns:
+        Dict containing title, submit_label, components, and layout.
+    """
+    from app.services.llm_service import llm_service
+    from app.services.pdf_service import pdf_service
+    import pypdfium2 as pdfium
+
+    extracted_text = ""
+
+    if is_scanned and vlm_model:
+        # -----------------------------------------------------------
+        # Scanned / image path: VLM per page or per image
+        # -----------------------------------------------------------
+        from app.services.vision_service import vision_service
+        import asyncio
+        import base64
+
+        images_b64 = []
+        file_lower = file_path.lower()
+
+        if file_lower.endswith((".jpg", ".jpeg", ".png")):
+            # Single image file — encode directly
+            with open(file_path, "rb") as img_file:
+                images_b64 = [
+                    base64.b64encode(img_file.read()).decode("utf-8")
+                ]
+            print(
+                f"[convert_pdf_to_form] Image mode: "
+                f"1 image, VLM={vlm_model}"
+            )
+        else:
+            # PDF — render pages to images
+            images_b64 = pdf_service.convert_pdf_to_images(file_path)
+            if not images_b64:
+                images_b64 = []
+            print(
+                f"[convert_pdf_to_form] Scanned PDF mode: "
+                f"{len(images_b64)} pages, VLM={vlm_model}"
+            )
+
+        vlm_prompt = (
+            "You are looking at a page from a paper/PDF form. "
+            "List EVERY form field visible on this page. "
+            "For each field state: the label, the expected input type "
+            "(text, number, email, date, checkbox, dropdown, etc.), "
+            "and any options if visible. "
+            "Format as a numbered list. Be exhaustive."
+        )
+
+        page_descriptions = []
+        for i, img_b64 in enumerate(images_b64):
+            try:
+                print(f"[convert_pdf_to_form] Calling VLM for Page {i + 1} (model: {vlm_model})...")
+                desc = await asyncio.wait_for(
+                    vision_service.analyze(
+                        image_data=img_b64,
+                        prompt=vlm_prompt,
+                        model_name=vlm_model
+                    ),
+                    timeout=600.0  # Increased to 10m for thinking models
+                )
+                page_descriptions.append(
+                    f"--- Page {i + 1} ---\n{desc}"
+                )
+                print(
+                    f"[convert_pdf_to_form] Page {i + 1} VLM done "
+                    f"({len(desc)} chars)"
+                )
+            except asyncio.TimeoutError:
+                page_descriptions.append(
+                    f"--- Page {i + 1} ---\n(VLM timed out)"
+                )
+                print(f"[convert_pdf_to_form] Page {i + 1} VLM timeout")
+            except Exception as e:
+                page_descriptions.append(
+                    f"--- Page {i + 1} ---\n(VLM error: {e})"
+                )
+                print(f"[convert_pdf_to_form] Page {i + 1} VLM error: {e}")
+
+        extracted_text = "\n\n".join(page_descriptions)
+
+    else:
+        # -----------------------------------------------------------
+        # Text-based PDF path: extract text directly
+        # -----------------------------------------------------------
+        try:
+            pdf = pdfium.PdfDocument(file_path)
+            pages_text = []
+            for i in range(len(pdf)):
+                page = pdf[i]
+                textpage = page.get_textpage()
+                text = textpage.get_text_range()
+                if text and text.strip():
+                    pages_text.append(
+                        f"--- Page {i + 1} ---\n{text.strip()}"
+                    )
+            extracted_text = "\n\n".join(pages_text)
+            print(
+                f"[convert_pdf_to_form] Text extraction: "
+                f"{len(extracted_text)} chars from {len(pdf)} pages"
+            )
+        except Exception as e:
+            print(f"[convert_pdf_to_form] Text extraction failed: {e}")
+            extracted_text = ""
+
+    if not extracted_text.strip():
+        return {
+            "title": "Converted Form",
+            "submit_label": "Submit",
+            "components": [],
+            "layout": {"rows": 4, "cols": 2},
+            "error": "Could not extract any content from the PDF."
+        }
+
+    # ---------------------------------------------------------------
+    # Feed extracted content to the LLM for form generation
+    # ---------------------------------------------------------------
+    system_prompt = """You are an expert form designer. You analyse the \
+text extracted from a PDF form and reproduce it as a JSON form \
+configuration for a GUI form builder.
+
+AVAILABLE WIDGET TYPES (use these exact type IDs):
+INPUT FIELDS:
+- "text_input", "text_area", "number", "email", "password"
+- "date_picker", "time_picker", "file_picker"
+SELECTION FIELDS:
+- "dropdown" (requires options array)
+- "checkbox_group" (requires options array — for multi-select checkboxes)
+- "radio_group" (requires options array)
+- "toggle" (on/off switch — USE THIS for single yes/no checkboxes)
+
+IMPORTANT: There is NO standalone "checkbox" type! For a single yes/no checkbox
+(e.g. "I agree to the terms"), use "toggle". For multiple related checkboxes
+(e.g. "Select all that apply"), use "checkbox_group" with an options array.
+DISPLAY WIDGETS:
+- "section_header", "divider", "instructional_text", "picture"
+
+WIDGET CONFIG FORMAT:
+{
+  "id": "unique_snake_case_id",
+  "type": "<widget type>",
+  "label": "Label",
+  "placeholder": "Hint",
+  "required": true/false,
+  "validation": { "min_length": N, "max_length": N, "min_value": N, \
+"max_value": N, "pattern": "regex" },
+  "options": [ {"label": "Text", "value": "val"} ],
+  "default": "value",
+  "layout": { "row": 0, "col": 0, "rowSpan": 1, "colSpan": 1 }
+}
+
+OUTPUT FORMAT (raw JSON only, no markdown):
+{
+  "title": "Form Title",
+  "submit_label": "Submit",
+  "components": [ ... ],
+  "layout": { "rows": <total rows>, "cols": 2 }
+}
+
+RULES:
+1. Reproduce every field from the PDF as a widget.
+2. Infer the best widget type from the field label and context.
+3. Use section_header to group related fields as in the original PDF.
+4. Lay out on a 2-column grid; full-width headers span 2 cols.
+5. Mark logically essential fields as required.
+6. NEVER use type "checkbox". Use "toggle" for single yes/no and "checkbox_group" for multi-select.
+7. Raw JSON only — no markdown fences, no commentary."""
+
+    user_prompt = (
+        "Convert the following PDF form content into a form configuration."
+        "\n\nEXTRACTED CONTENT:\n\n" + extracted_text[:12000]
+    )
+
+    response = await llm_service.chat_completion(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        model=llm_model,
+        temperature=0.5,
+        json_mode=True
+    )
+
+    # Parse the LLM response
+    cleaned = llm_service._extract_json(response)
+
+    try:
+        result = json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        print(
+            f"[convert_pdf_to_form] JSON parse failed: {cleaned[:300]}"
+        )
+        result = {
+            "title": "Converted Form",
+            "submit_label": "Submit",
+            "components": [],
+            "layout": {"rows": 4, "cols": 2}
+        }
+
+    # Ensure required keys
+    result.setdefault("title", "Converted Form")
+    result.setdefault("submit_label", "Submit")
+    result.setdefault("components", [])
+    result.setdefault("layout", {"rows": 4, "cols": 2})
+
+    return result
+
+
 def _extract_input_schema_from_pipeline(pipeline: List[dict]) -> dict:
     """
     Extract input schema from pipeline by finding {{ input.x }} references.
