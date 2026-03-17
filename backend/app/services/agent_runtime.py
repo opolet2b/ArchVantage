@@ -49,6 +49,7 @@ class ExecutionStep:
         self.output_data = {}
         self.status = "running"
         self.error = None
+        self.captured_schema = None
     
     def complete(self, output: Any, error: Optional[str] = None):
         self.completed_at = datetime.utcnow()
@@ -207,19 +208,24 @@ class AgentRuntime:
                 step_id = step.get('id') or f"step_{i}"
                 if 'id' not in step: step['id'] = step_id
 
+                # Normalize 'primitive' to 'type' if present (used in automated definitions)
+                if 'primitive' in step and 'type' not in step:
+                    step['type'] = step['primitive']
+
                 # SKIP DISABLED STEPS
                 # Check explicit 'enabled' flag (default True)
                 if step.get('enabled') is False:
                      print(f"[RUNTIME] Skipping disabled step: {step_id}")
                      continue
 
-                # Map Studio 'config' to Primitive 'params'
-                if 'config' in step:
-                    config = step.get('config', {})
-                    params = step.get('params', {})
-                    
-                    # Merge config into params, allowing params to override config
-                    merged_params = {**config, **params}
+                # Map Studio 'config'/'inputs' to Primitive 'params'
+                config = step.get('config', {})
+                params = step.get('params', {})
+                inputs = step.get('inputs', {})
+                
+                if config or params or inputs:
+                    # Merge all potential parameter sources
+                    merged_params = {**config, **inputs, **params}
                     
                     step_type = step.get('type', '').lower()
                     print(f"[RUNTIME DEBUG] Processing step: {step_type}, Config Instructions: {config.get('additionalInstructions')}, Params Instructions: {params.get('instruction')}")
@@ -274,6 +280,7 @@ class AgentRuntime:
                             merged_params["rendering_type_id"] = merged_params["renderingType"]
 
                     step['params'] = merged_params
+                    print(f"[RUNTIME DEBUG] Step '{step_id}' params resolved: {list(merged_params.keys())}")
                 
                 # Handle Formatter Steps - Convert to DOCUMENT_CONVERTER
                 step_type_raw = step.get('type', '').lower()
@@ -378,42 +385,80 @@ class AgentRuntime:
     
     def _get_next_node(self, current_node: str, result: PrimitiveResult, state: AgentState) -> Optional[str]:
         """Determine the next node based on edges and result."""
-        # 1. Explicit override from Primitive (e.g. Loop End jumping back)
-        if result.next_node:
-            print(f"[RUNTIME] Logic Jump: {current_node} -> {result.next_node}")
-            return result.next_node
-        
-        # 2. Get all outgoing edges
+        # 1. Get all outgoing edges
         edges = self.edges.get(current_node, [])
         if not edges:
             return None
-        
-        # 3. Handle Logical Branching (e.g. Loop Start -> Body vs Done)
+
+        # 2. Extract logical branch if available
         logical_branch = None
         if isinstance(result.output, dict):
             logical_branch = result.output.get("logical_branch")
-            
-        if logical_branch:
-            print(f"[RUNTIME] Following logical branch: '{logical_branch}'")
-            for edge in edges:
-                # Check if edge matches the branch via sourceHandle
-                edge_handle = edge.get("sourceHandle")
-                if edge_handle == logical_branch:
-                    return edge.get("target")
-                    
-            print(f"[RUNTIME WARNING] No edge found for logical branch '{logical_branch}' from {current_node}")
         
-        # 4. Standard Conditional / Default Logic
+        # Fallback for handle names as jump targets
+        if not logical_branch and result.next_node in ["then", "else", "done", "body", "loop", "true", "false", "default"]:
+            logical_branch = result.next_node
+
+        # 3. Handle Logical Branching via sourceHandle with synonyms and casing normalization
+        if logical_branch:
+            lb_lower = str(logical_branch).lower()
+            
+            # Map synonyms
+            synonyms = {
+                "then": ["then", "true", "yes", "success"],
+                "else": ["else", "false", "no", "failure"],
+                "true": ["then", "true", "yes"],
+                "false": ["else", "false", "no"]
+            }
+            possible_matches = synonyms.get(lb_lower, [lb_lower])
+            
+            print(f"[RUNTIME] Logic Result: '{logical_branch}' (Lower: '{lb_lower}', Looking for: {possible_matches})")
+            
+            # Diagnostic: Print all available handles
+            available_handles = [e.get("sourceHandle") for e in edges if e.get("sourceHandle")]
+            print(f"[RUNTIME DEBUG] Available outgoing handles from {current_node}: {available_handles}")
+
+            for edge in edges:
+                handle = edge.get("sourceHandle")
+                if not handle: continue
+                
+                h_lower = str(handle).lower()
+                # Check direct match OR synonym match
+                if h_lower == lb_lower or h_lower in possible_matches:
+                    print(f"[RUNTIME] Found matching edge handle '{handle}' -> {edge.get('target')}")
+                    return edge.get("target")
+            
+            print(f"[RUNTIME WARNING] Logic result '{logical_branch}' had no matching edge handle in {available_handles}.")
+
+        # 4. Explicit override from Primitive (Literal Node ID Jumps)
+        if result.next_node and not logical_branch:
+            print(f"[RUNTIME] Manual Jump: {current_node} -> {result.next_node}")
+            return result.next_node
+        
+        # 5. Conditional or Default Traversal
+        default_edge = None
         for edge in edges:
             condition = edge.get('condition')
-            
-            # Strict mode: If logical_branch was set, ONLY follow matching handles?
-            if logical_branch and edge.get("sourceHandle") and edge.get("sourceHandle") != logical_branch:
-                continue
+            handle = edge.get('sourceHandle')
+
+            # Skip handles that don't match our logic result
+            if logical_branch and handle:
+                lb_lower = str(logical_branch).lower()
+                h_lower = str(handle).lower()
+                
+                synonyms = {
+                    "then": ["then", "true", "yes", "success"],
+                    "else": ["else", "false", "no", "failure"],
+                    "true": ["then", "true", "yes"],
+                    "false": ["else", "false", "no"]
+                }
+                possible_matches = synonyms.get(lb_lower, [lb_lower])
+                
+                if h_lower != lb_lower and h_lower not in possible_matches:
+                    continue
 
             if condition:
                 try:
-                    # Create safe eval context
                     eval_ctx = {
                         "result": result.output if result else {}, 
                         "variables": state.get("variables", {}),
@@ -423,11 +468,13 @@ class AgentRuntime:
                         print(f"[RUNTIME] Condition matched: '{condition}' -> {edge.get('target')}")
                         return edge.get("target")
                 except Exception as e:
-                    print(f"[RUNTIME] Condition evaluation failed for '{condition}': {e}")
-                pass
-            else:
-                 # Unconditional edge (Default)
-                 return edge.get("target")
+                    print(f"[RUNTIME] Condition error '{condition}': {e}")
+            elif not handle:
+                default_edge = edge.get("target")
+
+        if default_edge:
+            print(f"[RUNTIME] Taking default unconditional path -> {default_edge}")
+            return default_edge
         
         return None
     
@@ -469,9 +516,10 @@ class AgentRuntime:
         
         # Execute primitive
         try:
-            print(f"[RUNTIME DEBUG] Calling primitive {node_type}...")
             result = await primitive.execute(params, state)
-            print(f"[RUNTIME DEBUG] Primitive {node_type} returned. Success: {result.success}")
+            print(f"[RUNTIME DEBUG] Primitive {node_type} execution finished. Success: {result.success}")
+            if not result.success:
+                print(f"[RUNTIME DEBUG] Primitive Error: {result.error}")
             
             # Capture schema if successful
             if result.success:
@@ -714,25 +762,38 @@ class AgentRuntime:
             
             # Log Node Result
             try:
-                print(f"[RUNTIME DEBUG] Logging execution (output type: {type(result.output)})...")
-                _log_execution(f"NODE END: {current_node}", {
-                    "success": result.success,
-                    "output_preview": "Log skipped for safety", # str(result.output)[:500] if result.success else None,
-                    "error": result.error
-                })
-                print(f"[RUNTIME DEBUG] Execution logged.")
+                print(f"[RUNTIME DEBUG] Node {current_node} completed. Success: {result.success}")
             except Exception as e:
                 print(f"[RUNTIME DEBUG] Logging failed: {e}")
             
             # Update state with output
-            print(f"[RUNTIME DEBUG] Updating variables from output keys: {list(result.output.keys()) if isinstance(result.output, dict) else 'Not Dict'}")
+            is_dict = isinstance(result.output, dict)
+            log_msg = f"[RUNTIME DEBUG] Updating variables from output keys: "
+            if is_dict:
+                log_msg += f"{list(result.output.keys())}"
+            else:
+                log_msg += f"Not Dict (Type: {type(result.output).__name__})"
+                if not result.success:
+                    log_msg += f" | FAILED: {result.error or 'Unknown Error'}"
+            
+            print(log_msg)
+
             if result.success and result.output is not None:
                 state["variables"][current_node] = result.output
-                if isinstance(result.output, dict):
+                if is_dict:
                     for key, value in result.output.items():
                         if not key.startswith('_'):
-                            # print(f"[RUNTIME DEBUG] Setting variable {key}...")
                             state["variables"][key] = value
+                            # Yield variable update log
+                            val_str = str(value)
+                            if len(val_str) > 100:
+                                val_str = val_str[:100] + "..."
+                            yield {
+                                "type": "log",
+                                "level": "debug",
+                                "message": f"Variable set: {key} = {val_str}",
+                                "timestamp": datetime.utcnow().isoformat()
+                            }
                 state["current_output"] = result.output
             print(f"[RUNTIME DEBUG] Variables updated.")
             
@@ -762,42 +823,74 @@ class AgentRuntime:
                     subprocess_histories = [] # Capture sub-histories for visualization
                     
                     for idx, item in enumerate(items):
-                         # Prepare Sub-State
-                         # Inherit variables from parent
-                         sub_inputs = state["variables"].copy() 
-                         sub_inputs[iterator_var] = item
-                         sub_inputs[index_var] = idx
+                        # Prepare Sub-State
+                        # Inherit variables from parent
+                        # Inject iteration variables
+                        sub_inputs = state["variables"].copy() 
+                        sub_inputs[iterator_var] = item
+                        sub_inputs["item"] = item # Default fallback
+                        sub_inputs[index_var] = idx
+                        sub_inputs["index"] = idx # Default fallback
+                        
+                        # Preparing iteration log
+                        yield {
+                            "type": "log",
+                            "level": "info",
+                            "message": f"-> Processing item {idx+1}/{len(items)}...",
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+
+                        # Create temporary Blueprint for sub-runtime
+                        sub_blueprint = {"graph": subprocess_def}
+                        
+                        # Instantiate Sub-Runtime
+                        # We use the same DB session
+                        sub_runtime = AgentRuntime(sub_blueprint, self.db)
+                        
+                        # Execute recursively
+                        # We use execute() to await completion (blocking the parent step)
+                        sub_res = await sub_runtime.execute(sub_inputs)
+                        
+                        # Collect outputs
+                        item_out = sub_res.get("outputs", {})
+
+                        # CAPTURE NEW VARIABLES from sub-state
+                        # sub_res["execution_state"] is usually the variables map directly.
+                        harvested_vars = {}
+                        final_vars = sub_res.get("execution_state") or {}
+                        if isinstance(final_vars, dict) and "variables" in final_vars:
+                            final_vars = final_vars["variables"]
+
+                        if isinstance(final_vars, dict):
+                            for k, v in final_vars.items():
+                                if k.startswith("_"): continue
+                                # If it's a new variable OR it changed from the initial sub_input
+                                if k not in sub_inputs or v != sub_inputs.get(k):
+                                    harvested_vars[k] = v
+                        
+                        if harvested_vars:
+                            harvested_keys = list(harvested_vars.keys())
+                            print(f"[RUNTIME] VARIABLE HARVESTED (Item {idx}): {harvested_keys}")
+                            # Also log via UI if enabled
+                            _log_execution(f"VARIABLE HARVESTED (Item {idx})", {
+                                "keys": harvested_keys,
+                                "values_preview": {k: str(v)[:100] for k, v in harvested_vars.items()}
+                            })
+                        
+                        # Use harvested vars for iteration results
+                        iteration_out = item_out.copy() if isinstance(item_out, dict) else {}
+                        iteration_out.update(harvested_vars)
+                        
+                        subprocess_results.append(iteration_out)
+                        
+                        # --- VARIABLE PROPAGATION ---
+                        # Merge harvested variables back to the parent state
+                        for k, v in harvested_vars.items():
+                            state["variables"][k] = v
                          
-                         # Create temporary Blueprint for sub-runtime
-                         sub_blueprint = {"graph": subprocess_def}
-                         
-                         # Instantiate Sub-Runtime
-                         # We use the same DB session
-                         sub_runtime = AgentRuntime(sub_blueprint, self.db)
-                         
-                         # Execute recursively
-                         # We use execute() to await completion (blocking the parent step)
-                         sub_res = await sub_runtime.execute(sub_inputs)
-                         
-                         # Collect outputs
-                         item_out = sub_res.get("outputs", {})
-                         
-                         # DEBUG: Force capture of all new variables if outputs is empty
-                         if not item_out and sub_res.get("execution_state"):
-                             print(f"[RUNTIME DEBUG] Sub-process outputs empty. Attempting to harvest new variables manually.")
-                             final_vars = sub_res.get("execution_state", {})
-                             item_out = {
-                                 k: v for k, v in final_vars.items() 
-                                 if k not in sub_inputs and not k.startswith("_")
-                             }
-                             print(f"[RUNTIME DEBUG] Harvested: {list(item_out.keys())}")
-                         
-                         print(f"[RUNTIME DEBUG] Loop Iteration {idx} Outputs: {list(item_out.keys())}")
-                         subprocess_results.append(item_out)
-                         
-                         # Collect History
-                         item_history = sub_res.get("full_state", {}).get("history", [])
-                         subprocess_histories.append(item_history)
+                        # Collect History
+                        item_history = sub_res.get("full_state", {}).get("history", [])
+                        subprocess_histories.append(item_history)
                          
                     # Update Parent State with Aggregated Results
                     state["variables"][target_output_var] = subprocess_results

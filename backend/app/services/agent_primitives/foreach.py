@@ -73,36 +73,47 @@ class ForEachPrimitive(BasePrimitive):
             steps = params.get("steps")
             output_var = params.get("output_variable", "foreach_results")
             
+            self._log_debug(f"Executing with items_var='{items_var}', iterator='{iterator_var}'", state)
+
             # If steps provided instead of graph, wrap it
             if not subprocess_graph and steps:
                 subprocess_graph = {"steps": steps}
+                self._log_debug(f"Converted {len(steps)} steps to subprocess_graph", state)
             
-            # Get the list from state variables
-            # Get the list from state variables
-            variables = state.get("variables", {})
-            try:
-                items = self._get_nested_value(variables, items_var)
-            except KeyError:
-                print(f"[ForEach] WARNING: Key '{items_var}' not found. Defaulting to empty list.")
-                items = []
+            # Resolve items from template or variable name
+            items = self.resolve_variables(items_var, state)
+            if not isinstance(items, list):
+                # Fallback: maybe it's just a raw variable name (with or without {{ }})
+                clean_var = str(items_var).strip("{} ").strip()
+                variables = state.get("variables", {})
+                try:
+                    items = self._get_nested_value(variables, clean_var)
+                except (KeyError, TypeError):
+                    items = []
+            
+            self._log_debug(f"Resolved items: {len(items) if isinstance(items, list) else 'N/A'}", state)
             
             results: List[Any] = []
             
             # Ensure items is valid
             if items is None:
-                 print(f"[ForEach] WARNING: Items list '{items_var}' is None. Defaulting to empty list.")
+                 self._log_debug(f"WARNING: Items list '{items_var}' is None. Defaulting to empty list.", state)
                  items = []
 
             if not isinstance(items, list):
                  # Try to force list?
                  if isinstance(items, dict):
                       items = [items]
+                      self._log_debug("Wrapped single dict item into list", state)
                  else:
-                      print(f"[ForEach] WARNING: '{items_var}' is {type(items)}, not list. Wrapping.")
+                      self._log_debug(f"WARNING: '{items_var}' is {type(items)}, not list. Wrapping.", state)
                       items = [items]
+
+            self._log_debug(f"Final items count for iteration: {len(items)}", state)
 
             # If there's a subprocess graph, we need the runtime to execute it
             if subprocess_graph:
+                self._log_debug("Subprocess graph detected. Handing off to runtime.", state)
                 return PrimitiveResult(
                     success=True,
                     output={
@@ -115,12 +126,14 @@ class ForEachPrimitive(BasePrimitive):
                 )
             
             # Simple manual enumeration (if no subgraph)
+            self._log_debug("No subprocess graph. Performing manual enumeration.", state)
             for idx, item in enumerate(items):
                 results.append({
                     iterator_var: item,
                     index_var: idx
                 })
             
+            self._log_debug(f"Manual enumeration complete. {len(results)} results.", state)
             return PrimitiveResult(
                 success=True,
                 output={
@@ -131,7 +144,7 @@ class ForEachPrimitive(BasePrimitive):
 
         except Exception as e:
             # Fallback for critical failure
-            print(f"[ForEach] CRITICAL FAILURE: {e}")
+            self._log_debug(f"CRITICAL FAILURE: {e}", state)
             return PrimitiveResult(
                 success=False,
                 error=f"ForEach failed: {str(e)}"

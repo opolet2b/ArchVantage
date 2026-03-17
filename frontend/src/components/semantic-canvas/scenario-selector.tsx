@@ -82,7 +82,7 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl w-[90vw] h-[80vh] flex flex-col p-0 overflow-hidden shadow-2xl border-slate-200 dark:border-slate-800">
+            <DialogContent className="max-w-7xl min-w-[900px] w-[95vw] h-fit max-h-[85vh] flex flex-col p-0 overflow-hidden shadow-2xl border-slate-200 dark:border-slate-800">
                 <DialogHeader className="p-6 pb-4 shrink-0 border-b bg-white dark:bg-slate-900">
                     <DialogTitle className="flex items-center gap-2 text-xl font-bold tracking-tight">
                         <Layers className="w-5 h-5 text-primary" />
@@ -94,9 +94,9 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-hidden flex flex-row p-0 min-h-0 bg-slate-50/30 dark:bg-slate-900/10">
+                <div className="flex-1 overflow-hidden flex flex-row p-0 bg-slate-50/30 dark:bg-slate-900/10">
                     {/* List */}
-                    <div className="w-[320px] shrink-0 border-r bg-white dark:bg-slate-900/50 flex flex-col min-h-0">
+                    <div className="w-80 shrink-0 border-r bg-white dark:bg-slate-900/50 flex flex-col">
                         <div className="px-4 py-3 bg-slate-50/50 dark:bg-slate-800/50 border-b flex justify-between items-center shrink-0">
                             <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 dark:text-slate-500">Available Scenarios</span>
                             <Badge variant="outline" className="text-[10px] font-bold bg-white dark:bg-slate-700 shadow-sm border-slate-200 dark:border-slate-800">
@@ -148,9 +148,8 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                     </div>
 
                     {/* Preview / Details */}
-                    <div className="flex-1 flex flex-col min-h-0 bg-white dark:bg-slate-900">
-                        <ScrollArea className="flex-1">
-                            <div className="p-8 h-full">
+                    <div className="flex-1 flex flex-col bg-white dark:bg-slate-900 overflow-y-auto overflow-x-hidden border-l">
+                        <div className="p-8">
                         {selectedId ? (
                             (() => {
                                 const selected = scenarios.find(s => s.id === selectedId);
@@ -159,19 +158,19 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                     <div className="h-full flex flex-col gap-4">
                                         <div className="flex items-center gap-4">
                                             <div
-                                                className="w-16 h-16 rounded-lg flex items-center justify-center text-white text-3xl shadow-md"
+                                                className="w-16 h-16 rounded-lg flex items-center justify-center text-white text-3xl shadow-md shrink-0"
                                                 style={{ backgroundColor: selected.theme_color || "#3b82f6" }}
                                             >
                                                 {selected.name[0]}
                                             </div>
-                                            <div>
-                                                <h2 className="text-2xl font-bold">{selected.name}</h2>
-                                                <p className="text-muted-foreground">{selected.description}</p>
+                                            <div className="min-w-0">
+                                                <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50">{selected.name}</h2>
+                                                <p className="text-slate-500 dark:text-slate-400 font-medium">{selected.description}</p>
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-4 mt-4">
-                                            <Card>
+                                        <div className="flex flex-wrap gap-4 mt-8 items-start">
+                                            <Card className="min-w-[300px] flex-1 shadow-sm border-slate-200 dark:border-slate-800">
                                                 <CardHeader className="pb-2">
                                                     <CardTitle className="text-sm font-medium">Content Types (Domains)</CardTitle>
                                                 </CardHeader>
@@ -187,7 +186,7 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                             </Card>
 
                                             {selected.configuration.ui_overrides?.toolbar_config?.tools && selected.configuration.ui_overrides.toolbar_config.tools.length > 0 && (
-                                                <Card>
+                                                <Card className="min-w-[300px] flex-1 shadow-sm border-slate-200 dark:border-slate-800">
                                                     <CardHeader className="pb-2">
                                                         <CardTitle className="text-sm font-medium">Scenario Toolbox</CardTitle>
                                                     </CardHeader>
@@ -208,17 +207,16 @@ export function ScenarioSelector({ open, onOpenChange, onSelect }: ScenarioSelec
                                 );
                             })()
                         ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4 opacity-50">
+                            <div className="h-64 flex flex-col items-center justify-center text-muted-foreground gap-4 opacity-50">
                                 <Layers className="w-12 h-12 stroke-[1px]" />
                                 <span className="text-sm font-medium">Select a scenario to view details</span>
                             </div>
                         )}
                         </div>
-                        </ScrollArea>
                     </div>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="px-6 py-4 border-t bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                     <Button onClick={handleConfirm} disabled={!selectedId}>
                         Use This Scenario <ArrowRight className="w-4 h-4 ml-2" />

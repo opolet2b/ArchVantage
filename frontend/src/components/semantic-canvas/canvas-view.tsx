@@ -952,15 +952,51 @@ function CanvasViewInner() {
                             });
                             // --- GEOMETRY CALCULATION END ---
 
-                            if (hitZone) {
-                                dropZoneId = hitZone.id;
-                                shouldIconify = true; // Only iconify if we actually HIT a zone
-                                console.log(`[CanvasView] Hit Drop Zone: ${dropZoneId}`);
-                                // Trigger visual feedback immediately
-                                useCanvasStore.getState().flashDropZone(dropZoneId);
+                            // Hit check logic
+                            let currentDropZoneId: string | undefined = undefined;
+                            let isInsideDomainBounds = rx >= 0 && rx <= domainW && ry >= 0 && ry <= domainH;
+                            
+                            console.log(`[CanvasView] Hit detection: domain=${targetDomainId}, rx=${rx.toFixed(1)}, ry=${ry.toFixed(1)}, inside=${isInsideDomainBounds}`);
+
+                            if (isInsideDomainBounds) {
+                                // Iterate drop zones to find hit
+                                for (const zone of availableZones) {
+                                    const colIndex = availableZones.indexOf(zone) % cols;
+                                    const rowIndex = Math.floor(availableZones.indexOf(zone) / cols);
+
+                                    const zx = PADDING_X + (colIndex * (cellW + GAP));
+                                    const zy = PADDING_TOP + (rowIndex * (cellH + GAP));
+                                    const zw = cellW;
+                                    const zh = cellH;
+
+                                    // Debug individual zone geometry
+                                    console.log(`[CanvasView] Zone ${zone.id} Check: [${zx.toFixed(1)}, ${zy.toFixed(1)}, ${zw.toFixed(1)}, ${zh.toFixed(1)}] vs Hit[${rx.toFixed(1)}, ${ry.toFixed(1)}]`);
+
+                                    const hit = (
+                                        rx >= zx &&
+                                        rx <= zx + zw &&
+                                        ry >= zy &&
+                                        ry <= zy + zh
+                                    );
+
+                                    if (hit) {
+                                        currentDropZoneId = zone.id;
+                                        console.log(`[CanvasView] HIT Drop Zone: ${zone.label || zone.id} at relative ({${rx.toFixed(1)}, ${ry.toFixed(1)}})`);
+                                        break;
+                                    }
+                                }
+
+                                if (currentDropZoneId) {
+                                    dropZoneId = currentDropZoneId;
+                                    shouldIconify = true; // Only iconify if we actually HIT a zone
+                                    useCanvasStore.getState().flashDropZone(dropZoneId);
+                                } else {
+                                    console.log(`[CanvasView] Debug Drop: No zone hit in domain ${targetDomainId}`);
+                                }
                             } else {
-                                console.log("[CanvasView] Debug Drop: No zone hit");
+                                console.log("[CanvasView] Debug Drop: Not inside domain bounds");
                             }
+                            // --- GEOMETRY CALCULATION END ---
                         }
                     }
 
@@ -978,6 +1014,7 @@ function CanvasViewInner() {
                 });
 
                 // 3. Atomic Batch Update
+                console.log("[CanvasView] Drag end update payload:", updates);
                 await updateThings(updates);
 
                 // 4. Trigger Layout Engine for affected domains

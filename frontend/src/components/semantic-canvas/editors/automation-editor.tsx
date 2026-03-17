@@ -438,18 +438,50 @@ const PRIMITIVES = [
     { value: "CANVAS_SET_PROPERTY", label: "Set Color/Title", icon: "🎨" },
     { value: "CANVAS_CREATE_LINK", label: "Create Link", icon: "🔗" },
     { value: "CANVAS_BATCH_LINK", label: "Batch Link", icon: "⛓️" },
+    { value: "LOGIC_SET_VARIABLE", label: "Set Variable", icon: "📍" },
 ];
 
 const CONTEXT_VARIABLES = [
-    { value: "{{ thing_id }}", label: "Thing ID", description: "The UUID of the dropped item" },
-    { value: "{{ thing_content }}", label: "Thing Content", description: "The full text or JSON data" },
-    { value: "{{ thing_name }}", label: "Thing Name", description: "The title or name of the item" },
-    { value: "{{ thing_type }}", label: "Thing Type", description: "e.g. text, image, document" },
-    { value: "{{ drop_zone_id }}", label: "Drop Zone ID", description: "ID of the zone where item was dropped" },
-    { value: "{{ source_domain_id }}", label: "Source Domain ID", description: "ID of the domain where event occurred" },
-    { value: "{{ domain_content }}", label: "Domain Content (Context)", description: "Text summary of all things in the source domain" },
-    { value: "{{ domain_items }}", label: "Domain Items (JSON)", description: "Full JSON list of all things in the source domain" },
+    { value: "{{ thing_id }}", label: "Current Item ID", description: "The UUID of the dropped item", category: "Trigger" },
+    { value: "{{ thing_content }}", label: "Current Item Content", description: "The full text or JSON data", category: "Trigger" },
+    { value: "{{ thing_name }}", label: "Current Item Name", description: "The title or name of the item", category: "Trigger" },
+    { value: "{{ thing_type }}", label: "Current Item Type", description: "e.g. text, image, document", category: "Trigger" },
+    { value: "{{ drop_zone_id }}", label: "Dropped in Zone", description: "ID of the zone where item was dropped", category: "Trigger" },
+    { value: "{{ source_domain_id }}", label: "Source Domain", description: "ID of the domain where event occurred", category: "Trigger" },
+    { value: "{{ domain_content }}", label: "Domain Snapshot", description: "Text summary of all things in the source domain", category: "Context" },
+    { value: "{{ query_results.things }}", label: "Found List", description: "List of found item objects", category: "Query" },
+    { value: "{{ query_results.thing_ids }}", label: "Found IDs", description: "List of IDs of all found items", category: "Query" },
+    { value: "{{ query_results.combined_content }}", label: "Combined Text", description: "Concatenated content of all found items", category: "Query" },
+    { value: "{{ item }}", label: "Loop Item (item)", description: "shorthand for current loop item", category: "Loop" },
+    { value: "{{ variables.YOUR_FLAG }}", label: "Workflow Flag", description: "Reference a custom flag set via 'Set Variable'", category: "Custom" },
 ];
+
+function SmartValueDisplay({ value, className = "" }: { value: string, className?: string }) {
+    if (!value || typeof value !== 'string') return null;
+    const parts = value.split(/(\{\{.*?\}\})/g);
+    return (
+        <div className={`p-1.5 rounded bg-muted/30 border border-dashed flex flex-wrap gap-1.5 min-h-[24px] ${className}`}>
+            {parts.map((p, i) => {
+                if (p.startsWith("{{") && p.endsWith("}}")) {
+                    const raw = p.slice(2, -2).trim();
+                    const isCustom = raw.startsWith("variables.") || raw.startsWith("inputs.");
+                    const info = CONTEXT_VARIABLES.find(v => v.value.includes(raw)) || { label: raw };
+                    
+                    return (
+                        <span key={i} className={`inline-flex items-center px-1.5 py-0.5 rounded-full border text-[9px] font-bold shadow-sm ${
+                            isCustom ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-primary/10 text-primary border-primary/20"
+                        }`}>
+                            {isCustom ? <Zap className="w-2.5 h-2.5 mr-1 opacity-70" /> : <Hash className="w-2.5 h-2.5 mr-1 opacity-70" />} 
+                            {info.label}
+                        </span>
+                    );
+                }
+                if (!p.trim()) return null;
+                return <span key={i} className="text-[10px] text-muted-foreground/80 py-0.5">{p}</span>;
+            })}
+        </div>
+    );
+}
 
 // --- Helper for inserting text at cursor or appending ---
 function insertText(current: string, toInsert: string, inputRef?: React.RefObject<HTMLTextAreaElement | HTMLInputElement>) {
@@ -461,7 +493,10 @@ function insertText(current: string, toInsert: string, inputRef?: React.RefObjec
     return current + (current ? " " : "") + toInsert;
 }
 
-function ContextVariableSelector({ onInsert, label = "Insert Variable" }: { onInsert: (v: string) => void, label?: string }) {
+function ContextVariableSelector({ onInsert, label = "Insert Variable", availableVariables = [] }: { onInsert: (v: string) => void, label?: string, availableVariables?: { value: string, label: string, category: string, description?: string }[] }) {
+    const allVars = [...CONTEXT_VARIABLES, ...availableVariables];
+    const categories = Array.from(new Set(allVars.map(v => v.category)));
+
     return (
         <Select value="" onValueChange={onInsert}>
             <SelectTrigger className="h-7 text-[10px] w-auto gap-2 bg-muted/50 border-dashed min-w-[120px]">
@@ -469,14 +504,20 @@ function ContextVariableSelector({ onInsert, label = "Insert Variable" }: { onIn
                 <SelectValue placeholder={label} />
             </SelectTrigger>
             <SelectContent>
-                <div className="px-2 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/20">
-                    Standard Context
-                </div>
-                {CONTEXT_VARIABLES.map(v => (
-                    <SelectItem key={v.value} value={v.value} className="text-xs">
-                        <span className="font-mono text-primary font-semibold mr-2">{v.value}</span>
-                        <span className="text-muted-foreground scale-90">{v.label}</span>
-                    </SelectItem>
+                {categories.map(cat => (
+                    <React.Fragment key={cat}>
+                        <div className="px-2 py-1.5 text-[10px] text-muted-foreground font-semibold uppercase tracking-wider bg-muted/20">
+                            {cat} Variables
+                        </div>
+                        {allVars.filter(v => v.category === cat).map(v => (
+                            <SelectItem key={v.value} value={v.value}>
+                                <div className="flex flex-col gap-0.5 py-0.5">
+                                    <span className="font-medium">{v.label}</span>
+                                    {v.description && <span className="text-[9px] opacity-60 leading-tight">{(v as any).description}</span>}
+                                </div>
+                            </SelectItem>
+                        ))}
+                    </React.Fragment>
                 ))}
             </SelectContent>
         </Select>
@@ -656,7 +697,8 @@ function WorkflowBuilder({
     linkTypes,
     selectedModel,
     canvases = [],
-    isRoot = false
+    isRoot = false,
+    parentVariables = []
 }: {
     steps: any[],
     onChange: (s: any[]) => void,
@@ -664,7 +706,8 @@ function WorkflowBuilder({
     linkTypes: any[],
     selectedModel: string,
     canvases?: any[],
-    isRoot?: boolean
+    isRoot?: boolean,
+    parentVariables?: { value: string, label: string, category: string, description?: string }[]
 }) {
     // ... addStep ... (Keep existing implementation)
     const addStep = (primitive: string) => {
@@ -682,8 +725,11 @@ function WorkflowBuilder({
             newStep.inputs = { id: "{{thing_id}}", color: "#ff0000" };
         } else if (primitive === "LOGIC_IF_ELSE") {
             newStep.inputs = {
-                condition: "Is this item relevant to Project X?",
+                condition: "Is this item relevant?",
                 context: "{{thing_content}}",
+                mode: "standard",
+                items: "{{query_results.things}}",
+                iterator_var: "item",
                 then_steps: [],
                 else_steps: []
             };
@@ -729,6 +775,7 @@ function WorkflowBuilder({
                                 linkTypes={linkTypes}
                                 selectedModel={selectedModel}
                                 canvases={canvases}
+                                parentVariables={parentVariables}
                             />
                         </WorkflowPopup>
                     </div>
@@ -785,13 +832,14 @@ function WorkflowBuilder({
 
                             {step.primitive === "LLM_GENERATION" && (
                                 <div className="space-y-3">
-                                    <div className="space-y-1.5">
+                                    <div className="space-y-1.5 text-left">
                                         <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Context Content</Label>
 
                                         <div className="flex gap-2 mb-1">
                                             <ContextVariableSelector
                                                 onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + " " + val } })}
                                                 label="Add Variable"
+                                                availableVariables={parentVariables}
                                             />
                                             <SpecificReferencePicker
                                                 domains={domains}
@@ -838,46 +886,125 @@ function WorkflowBuilder({
 
                             {step.primitive === "LOGIC_IF_ELSE" && (
                                 <div className="space-y-4">
-                                    <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
-                                        <div className="space-y-1.5">
-                                            <Label className="text-[10px] font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
-                                                <Sparkles className="w-3 h-3" /> Branch Condition
-                                            </Label>
-                                            <Input
-                                                className="h-8 text-xs"
-                                                value={step.inputs.condition}
-                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, condition: e.target.value } })}
-                                                placeholder="e.g. Is this a valid recipe?"
-                                            />
+                                    <div className="bg-muted/30 p-4 rounded-lg border border-dashed space-y-4 shadow-inner">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+                                                    <Target className="w-3.5 h-3.5 text-primary" />
+                                                </div>
+                                                <Label className="text-[11px] font-bold text-foreground uppercase tracking-tight">Structured Comparison</Label>
+                                            </div>
+                                            <div className="flex items-center gap-2 bg-background/50 px-2 py-1 rounded border">
+                                                <Label className="text-[10px] text-muted-foreground font-medium uppercase">Iterative Branch</Label>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateStep(idx, { inputs: { ...step.inputs, mode: step.inputs.mode === "iterative" ? "standard" : "iterative" } })}
+                                                    className={`w-8 h-4 rounded-full relative transition-colors ${step.inputs.mode === "iterative" ? "bg-primary" : "bg-muted"}`}
+                                                >
+                                                    <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all ${step.inputs.mode === "iterative" ? "left-4.5" : "left-0.5"}`} />
+                                                </button>
+                                            </div>
                                         </div>
 
-                                        <div className="space-y-1.5">
-                                            <div className="flex justify-between items-center">
-                                                <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Context to Evaluate</Label>
-                                                <div className="flex gap-1">
-                                                    <ContextVariableSelector
-                                                        onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + " " + val } })}
-                                                        label="Add Var"
+                                        {step.inputs.mode === "iterative" && (
+                                            <div className="grid grid-cols-2 gap-3 items-end p-3 rounded-md bg-primary/5 border border-primary/10 animate-in slide-in-from-top-2 duration-300">
+                                                <div className="space-y-1.5 text-left">
+                                                    <Label className="text-[10px] font-bold text-primary uppercase flex items-center gap-1">
+                                                        <Repeat className="w-3 h-3" /> List to Iterate
+                                                    </Label>
+                                                    <div className="flex gap-1">
+                                                        <Input
+                                                            className="h-8 text-xs font-mono"
+                                                            value={step.inputs.items || ""}
+                                                            onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, items: e.target.value } })}
+                                                            placeholder="{{query_results.things}}"
+                                                        />
+                                                        <ContextVariableSelector
+                                                            onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, items: (step.inputs.items || "") + val } })}
+                                                            label="Pick"
+                                                            availableVariables={parentVariables}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1.5 text-left">
+                                                    <Label className="text-[10px] font-bold text-primary uppercase">Item Alias</Label>
+                                                    <Input
+                                                        className="h-8 text-xs font-mono font-bold text-primary"
+                                                        value={step.inputs.iterator_var || "item"}
+                                                        onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, iterator_var: e.target.value } })}
                                                     />
-                                                    <SpecificReferencePicker
-                                                        domains={domains}
-                                                        onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + " " + val } })}
+                                                    <p className="text-[9px] text-muted-foreground italic mt-0.5">Use in children as <b>{`{{${step.inputs.iterator_var || 'item'}}}`}</b></p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* THREE-STEP COMPARISON LOGIC */}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
+                                            {/* CHECK (Subject) */}
+                                            <div className="space-y-1.5 text-left">
+                                                <Label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-1.5">
+                                                    1. Check
+                                                </Label>
+                                                <div className="flex gap-1 group">
+                                                    <Input
+                                                        className="h-8 text-xs font-mono"
+                                                        value={step.inputs.context || ""}
+                                                        onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, context: e.target.value } })}
+                                                        placeholder="Item property..."
+                                                    />
+                                                    <ContextVariableSelector
+                                                        onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, context: (step.inputs.context || "") + val } })}
+                                                        label="Var"
+                                                        availableVariables={parentVariables}
                                                     />
                                                 </div>
                                             </div>
-                                            <Textarea
-                                                className="h-16 text-xs font-mono"
-                                                value={step.inputs.context || "{{thing_content}}"}
-                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, context: e.target.value } })}
-                                            />
+
+                                            {/* CONDITION (Operator) */}
+                                            <div className="space-y-1.5 text-left">
+                                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">2. Condition</Label>
+                                                <Input
+                                                    className="h-8 text-xs font-medium border-primary/20 shadow-sm"
+                                                    value={step.inputs.condition}
+                                                    onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, condition: e.target.value } })}
+                                                    placeholder="is a relevant job for"
+                                                />
+                                            </div>
+
+                                            {/* AGAINST (Value) */}
+                                            <div className="space-y-1.5 text-left">
+                                                <Label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-1.5">
+                                                    3. Against
+                                                </Label>
+                                                <div className="flex gap-1">
+                                                    <Input
+                                                        className="h-8 text-xs font-mono"
+                                                        value={step.inputs.compare_value || ""}
+                                                        onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, compare_value: e.target.value } })}
+                                                        placeholder="Target value..."
+                                                    />
+                                                    <ContextVariableSelector
+                                                        onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, compare_value: (step.inputs.compare_value || "") + val } })}
+                                                        label="Var"
+                                                        availableVariables={parentVariables}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-primary/5 p-2 rounded border border-primary/10 text-[10px] text-muted-foreground/80 italic leading-tight flex items-center gap-2">
+                                            <Zap className="w-3 h-3 text-primary" />
+                                            <span>AI will evaluate if <b>{step.inputs.context || "(Check Value)"}</b> {step.inputs.condition || "(Condition)"} <b>{step.inputs.compare_value || "(Target Value)"}</b>.</span>
                                         </div>
                                     </div>
+                                    
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-green-600 uppercase">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-green-600" /> If True
+                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-green-600 uppercase transition-all duration-300">
+                                                <div className="w-2 h-2 rounded-full bg-green-600 shadow-[0_0_8px_rgba(22,163,74,0.5)] animate-pulse" /> 
+                                                If Evaluates to TRUE
                                             </div>
-                                            <div className="border-l-2 border-green-200 pl-3 py-1">
+                                            <div className="border-l-2 border-green-200/50 pl-3 py-1 bg-green-50/10 rounded-r-md">
                                                 <WorkflowBuilder
                                                     steps={step.inputs.then_steps || []}
                                                     onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, then_steps: s } })}
@@ -885,14 +1012,18 @@ function WorkflowBuilder({
                                                     linkTypes={linkTypes}
                                                     selectedModel={selectedModel}
                                                     canvases={canvases}
+                                                    parentVariables={[...parentVariables, 
+                                                        ...(step.inputs.mode === "iterative" ? [{ value: `{{${step.inputs.iterator_var || 'item'}}}`, label: `Loop Item (${step.inputs.iterator_var || 'item'})`, category: "Iteration" }] : [])
+                                                    ]}
                                                 />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
                                             <div className="flex items-center gap-1.5 text-[10px] font-bold text-red-600 uppercase">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-red-600" /> If False
+                                                <div className="w-2 h-2 rounded-full bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.5)]" /> 
+                                                If Evaluates to FALSE
                                             </div>
-                                            <div className="border-l-2 border-red-200 pl-3 py-1">
+                                            <div className="border-l-2 border-red-200/50 pl-3 py-1 bg-red-50/10 rounded-r-md">
                                                 <WorkflowBuilder
                                                     steps={step.inputs.else_steps || []}
                                                     onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, else_steps: s } })}
@@ -900,6 +1031,9 @@ function WorkflowBuilder({
                                                     linkTypes={linkTypes}
                                                     selectedModel={selectedModel}
                                                     canvases={canvases}
+                                                    parentVariables={[...parentVariables, 
+                                                        ...(step.inputs.mode === "iterative" ? [{ value: `{{${step.inputs.iterator_var || 'item'}}}`, label: `Loop Item (${step.inputs.iterator_var || 'item'})`, category: "Iteration" }] : [])
+                                                    ]}
                                                 />
                                             </div>
                                         </div>
@@ -939,35 +1073,41 @@ function WorkflowBuilder({
                             )}
 
                             {step.primitive === "CANVAS_CREATE_LINK" && (
-                                <div className="space-y-2">
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div className="col-span-2">
-                                            <Label className="text-[10px]">Source Item (Link Origin)</Label>
+                                <div className="space-y-3">
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px]">Source Item (Link Origin)</Label>
+                                        <div className="flex gap-2">
                                             <Input
-                                                className="h-7 text-xs"
+                                                className="h-7 text-xs flex-1 font-mono"
                                                 value={step.inputs.source_id}
                                                 placeholder="e.g. {{thing_id}}"
                                                 onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, source_id: e.target.value } })}
                                             />
+                                            <ContextVariableSelector
+                                                onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, source_id: (step.inputs.source_id || "") + val } })}
+                                                availableVariables={parentVariables}
+                                            />
                                         </div>
-                                        <div>
-                                            <Label className="text-[10px]">Target Item (Link Destination)</Label>
+                                        <SmartValueDisplay value={step.inputs.source_id} />
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px]">Target Item (Link Destination)</Label>
+                                        <div className="flex gap-2">
                                             <Input
-                                                className="h-7 text-xs"
+                                                className="h-7 text-xs flex-1 font-mono"
                                                 value={step.inputs.target_id}
                                                 placeholder="e.g. {{query_results[0].id}}"
                                                 onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, target_id: e.target.value } })}
                                             />
-                                        </div>
-                                        <div>
-                                            <Label className="text-[10px]">Link Label</Label>
-                                            <Input
-                                                className="h-7 text-xs"
-                                                value={step.inputs.label}
-                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, label: e.target.value } })}
+                                            <ContextVariableSelector
+                                                onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, target_id: (step.inputs.target_id || "") + val } })}
+                                                availableVariables={parentVariables}
                                             />
                                         </div>
+                                        <SmartValueDisplay value={step.inputs.target_id} />
                                     </div>
+
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
                                             <Label className="text-[10px]">Relationship Type</Label>
@@ -984,12 +1124,21 @@ function WorkflowBuilder({
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div className="col-span-1">
-                                            <Label className="text-[10px]">Description (Mandatory)</Label>
+                                        <div>
+                                            <Label className="text-[10px]">Link Label</Label>
+                                            <Input
+                                                className="h-7 text-xs"
+                                                value={step.inputs.label}
+                                                placeholder="e.g. mentions"
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, label: e.target.value } })}
+                                            />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <Label className="text-[10px]">Relationship Description (Mandatory)</Label>
                                             <Input
                                                 className="h-7 text-xs"
                                                 value={step.inputs.description}
-                                                placeholder="Link reason..."
+                                                placeholder="Explain link reasoning..."
                                                 onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, description: e.target.value } })}
                                             />
                                         </div>
@@ -1063,29 +1212,33 @@ function WorkflowBuilder({
                                         <Label className="text-[10px]">Source Item (Link Origin)</Label>
                                         <div className="flex gap-2">
                                             <Input
-                                                className="h-7 text-xs flex-1"
+                                                className="h-7 text-xs flex-1 font-mono"
                                                 value={step.inputs.source_id}
                                                 placeholder="e.g. {{thing_id}}"
                                                 onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, source_id: e.target.value } })}
                                             />
                                             <ContextVariableSelector
                                                 onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, source_id: (step.inputs.source_id || "") + val } })}
+                                                availableVariables={parentVariables}
                                             />
                                         </div>
+                                        <SmartValueDisplay value={step.inputs.source_id} />
                                     </div>
                                     <div className="space-y-1">
                                         <Label className="text-[10px]">Target Items (to link)</Label>
                                         <div className="flex gap-2">
                                             <Input
-                                                className="h-7 text-xs flex-1"
+                                                className="h-7 text-xs flex-1 font-mono"
                                                 value={step.inputs.target_ids}
                                                 placeholder="e.g. {{query_results.thing_ids}}"
                                                 onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, target_ids: e.target.value } })}
                                             />
                                             <ContextVariableSelector
                                                 onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, target_ids: (step.inputs.target_ids || "") + val } })}
+                                                availableVariables={parentVariables}
                                             />
                                         </div>
+                                        <SmartValueDisplay value={step.inputs.target_ids} />
                                     </div>
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
@@ -1119,28 +1272,121 @@ function WorkflowBuilder({
                                     </div>
                                 </div>
                             )}
+                            
+                            {step.primitive === "LOGIC_SET_VARIABLE" && (
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Define Variables / Flags</Label>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            className="h-6 text-[10px] gap-1 px-2"
+                                            onClick={() => {
+                                                const current = step.inputs.variables || {};
+                                                updateStep(idx, { inputs: { ...step.inputs, variables: { ...current, "": "" } } });
+                                            }}
+                                        >
+                                            <Plus className="w-3 h-3" /> Add Variable
+                                        </Button>
+                                    </div>
+                                    
+                                    <div className="space-y-2">
+                                        {Object.entries(step.inputs.variables || {}).map(([key, val], vIdx) => (
+                                            <div key={vIdx} className="flex gap-2 items-start animate-in slide-in-from-left-2 duration-200">
+                                                <div className="flex-1 space-y-1">
+                                                    <Input 
+                                                        className="h-7 text-[10px] font-bold" 
+                                                        placeholder="Variable Name (e.g. is_found)" 
+                                                        value={key}
+                                                        onChange={(e) => {
+                                                            const next = { ...step.inputs.variables };
+                                                            const newKey = e.target.value;
+                                                            if (newKey !== key) {
+                                                                next[newKey] = next[key];
+                                                                delete next[key];
+                                                                updateStep(idx, { inputs: { ...step.inputs, variables: next } });
+                                                            }
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div className="flex-[2] space-y-1">
+                                                    <div className="flex gap-1">
+                                                        <Input 
+                                                            className="h-7 text-[10px] flex-1 font-mono" 
+                                                            placeholder="Value or {{template}}" 
+                                                            value={val as string}
+                                                            onChange={(e) => {
+                                                                const next = { ...step.inputs.variables };
+                                                                next[key] = e.target.value;
+                                                                updateStep(idx, { inputs: { ...step.inputs, variables: next } });
+                                                            }}
+                                                        />
+                                                        <ContextVariableSelector
+                                                            onInsert={(v) => {
+                                                                const next = { ...step.inputs.variables };
+                                                                next[key] = (next[key] || "") + v;
+                                                                updateStep(idx, { inputs: { ...step.inputs, variables: next } });
+                                                            }}
+                                                            label="Var"
+                                                            availableVariables={parentVariables}
+                                                        />
+                                                    </div>
+                                                    <SmartValueDisplay value={val as string} />
+                                                </div>
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    className="h-7 w-7 text-muted-foreground hover:text-red-500"
+                                                    onClick={() => {
+                                                        const next = { ...step.inputs.variables };
+                                                        delete next[key];
+                                                        updateStep(idx, { inputs: { ...step.inputs, variables: next } });
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </Button>
+                                            </div>
+                                        ))}
+                                        
+                                        {(!step.inputs.variables || Object.keys(step.inputs.variables).length === 0) && (
+                                            <div className="text-center py-4 border border-dashed rounded bg-muted/20">
+                                                <p className="text-[10px] text-muted-foreground italic">No variables set yet. Flags are useful for conditional logic later in the workflow.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                             {step.primitive === "FOREACH" && (
                                 <div className="space-y-4">
                                     <div className="bg-muted/30 p-3 rounded-md border border-dashed space-y-3">
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-1.5">
+                                            <div className="space-y-1.5 text-left">
                                                 <Label className="text-[10px] font-semibold text-muted-foreground uppercase">List to Iterate</Label>
-                                                <Input
-                                                    className="h-8 text-xs font-mono"
-                                                    value={step.inputs.items}
-                                                    onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, items: e.target.value } })}
-                                                    placeholder="e.g. {{query_results.thing_ids}}"
-                                                />
+                                                <div className="flex gap-1">
+                                                    <Input
+                                                        className="h-8 text-xs font-mono"
+                                                        value={step.inputs.items}
+                                                        onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, items: e.target.value } })}
+                                                        placeholder="e.g. {{query_results.thing_ids}}"
+                                                    />
+                                                    <ContextVariableSelector
+                                                        onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, items: (step.inputs.items || "") + val } })}
+                                                        label="Var"
+                                                        availableVariables={parentVariables}
+                                                    />
+                                                </div>
+                                                <SmartValueDisplay value={step.inputs.items} />
                                             </div>
-                                            <div className="space-y-1.5">
+                                            <div className="space-y-1.5 text-left">
                                                 <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Item Alias</Label>
                                                 <Input
-                                                    className="h-8 text-xs font-mono"
+                                                    className="h-8 text-xs font-mono text-primary font-bold"
                                                     value={step.inputs.iterator_var}
                                                     onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, iterator_var: e.target.value } })}
                                                     placeholder="item_id"
                                                 />
+                                                <p className="text-[9px] text-muted-foreground italic mt-0.5">Use in body as <b>{`{{${step.inputs.iterator_var || 'item'}}}`}</b></p>
                                             </div>
                                         </div>
                                     </div>
@@ -1156,6 +1402,7 @@ function WorkflowBuilder({
                                                 linkTypes={linkTypes}
                                                 selectedModel={selectedModel}
                                                 canvases={canvases}
+                                                parentVariables={[...parentVariables, { value: `{{${step.inputs.iterator_var || 'item'}}}`, label: `Loop Item ({{${step.inputs.iterator_var || 'item'}}})`, category: "Iteration" }]}
                                             />
                                         </div>
                                     </div>

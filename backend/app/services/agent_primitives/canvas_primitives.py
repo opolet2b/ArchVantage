@@ -62,8 +62,11 @@ class CanvasSetPropertyPrimitive(BasePrimitive):
             return PrimitiveResult(success=False, error="Parameter 'id' is required.")
         
         # Resolve ID if it's a template
-        if target_id.startswith("{{"):
+        if target_id and isinstance(target_id, str) and target_id.startswith("{{"):
             target_id = self.resolve_variables(target_id, state)
+            
+        # Ensure we have an ID (handle loop items)
+        target_id = self._ensure_id(target_id)
             
         try:
             # Try to find as a Thing first
@@ -153,8 +156,11 @@ class CanvasMovePrimitive(BasePrimitive):
             return PrimitiveResult(success=False, error="Database session not found in state.")
         
         target_id = params.get("id")
-        if target_id and target_id.startswith("{{"):
+        if target_id and isinstance(target_id, str) and target_id.startswith("{{"):
             target_id = self.resolve_variables(target_id, state)
+            
+        # Ensure we have an ID (handle loop items)
+        target_id = self._ensure_id(target_id)
             
         try:
             item = db.query(CanvasThing).filter(CanvasThing.id == target_id).first()
@@ -173,8 +179,11 @@ class CanvasMovePrimitive(BasePrimitive):
             # Update Domain
             if "target_domain_id" in params:
                 target_domain_id = params["target_domain_id"]
-                if target_domain_id and target_domain_id.startswith("{{"):
+                if target_domain_id and isinstance(target_domain_id, str) and target_domain_id.startswith("{{"):
                     target_domain_id = self.resolve_variables(target_domain_id, state)
+                
+                # Ensure we have an ID
+                target_domain_id = self._ensure_id(target_domain_id)
                 
                 if isinstance(item, CanvasThing):
                     item.domain_id = target_domain_id
@@ -240,10 +249,14 @@ class CanvasLinkPrimitive(BasePrimitive):
         source_id = params.get("source_id")
         target_id = params.get("target_id")
         
-        if source_id.startswith("{{"):
+        if isinstance(source_id, str) and source_id.startswith("{{"):
             source_id = self.resolve_variables(source_id, state)
-        if target_id.startswith("{{"):
+        if isinstance(target_id, str) and target_id.startswith("{{"):
             target_id = self.resolve_variables(target_id, state)
+            
+        # Ensure we have IDs (handle loop variables/objects)
+        source_id = self._ensure_id(source_id)
+        target_id = self._ensure_id(target_id)
             
         try:
             # Verify nodes exist
@@ -320,9 +333,14 @@ class CanvasMoveToZonePrimitive(BasePrimitive):
         zone_id = params.get("zone_id")
         
         # Resolve variables
-        if thing_id and thing_id.startswith("{{"): thing_id = self.resolve_variables(thing_id, state)
-        if domain_id and domain_id.startswith("{{"): domain_id = self.resolve_variables(domain_id, state)
-        if zone_id and zone_id.startswith("{{"): zone_id = self.resolve_variables(zone_id, state)
+        if thing_id and isinstance(thing_id, str) and thing_id.startswith("{{"): thing_id = self.resolve_variables(thing_id, state)
+        if domain_id and isinstance(domain_id, str) and domain_id.startswith("{{"): domain_id = self.resolve_variables(domain_id, state)
+        if zone_id and isinstance(zone_id, str) and zone_id.startswith("{{"): zone_id = self.resolve_variables(zone_id, state)
+            
+        # Ensure we have IDs (handle loop variables/objects)
+        thing_id = self._ensure_id(thing_id)
+        domain_id = self._ensure_id(domain_id)
+        zone_id = self._ensure_id(zone_id)
             
         try:
             thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
@@ -609,6 +627,9 @@ class CanvasBatchLinkPrimitive(BasePrimitive):
         if isinstance(target_ids, str) and target_ids.strip().startswith("{{"):
              target_ids = self.resolve_variables(target_ids, state)
 
+        # Ensure source_id is a string ID
+        source_id = self._ensure_id(source_id)
+
         # Robust Parsing: If target_ids is a string (e.g. "['id1', 'id2']"), parse it
         if isinstance(target_ids, str):
             target_ids = target_ids.strip()
@@ -630,6 +651,10 @@ class CanvasBatchLinkPrimitive(BasePrimitive):
         if not isinstance(target_ids, list):
             print(f"[CanvasBatchLink] WARNING: target_ids is not a list after resolution/parsing: {type(target_ids)}")
             target_ids = [target_ids] if target_ids else []
+
+        # Ensure all target_ids are string IDs (handle loop objects in the list)
+        target_ids = [self._ensure_id(tid) for tid in target_ids if tid]
+        target_ids = [tid for tid in target_ids if tid] # Filter out failures
 
         try:
             # Verify source exists

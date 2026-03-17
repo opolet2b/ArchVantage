@@ -36,7 +36,8 @@ from app.services.agent_primitives.logic_primitives import (
     LogicIfElsePrimitive,
     CanvasQueryPrimitive,
     CanvasCreateLinkPrimitive,
-    CanvasQueryThingsPrimitive
+    CanvasQueryThingsPrimitive,
+    LogicSetVariablePrimitive
 )
 from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
 
@@ -74,6 +75,7 @@ PRIMITIVE_REGISTRY = {
     "CANVAS_CREATE_LINK": CanvasCreateLinkPrimitive,
     "CANVAS_QUERY_THINGS": CanvasQueryThingsPrimitive,
     "CANVAS_BATCH_LINK": CanvasBatchLinkPrimitive,
+    "LOGIC_SET_VARIABLE": LogicSetVariablePrimitive,
     # Legacy aliases
     "AGENT": LLMGenerationPrimitive,
     "ANALYZER": LLMGenerationPrimitive,

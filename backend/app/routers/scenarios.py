@@ -198,19 +198,29 @@ def instantiate_scenario(
 
             v_config = definition.get("visual_config") or {}
             
-            # Use index to stagger positions so they aren't all on top of each other
-            offset = created_count * 50
+            # Use grid calculation to avoid stacking nodes on top of each other
+            GRID_COLUMNS = 3
+            X_START = 100
+            Y_START = 100
+            X_OFFSET = 900 # Width 800 + 100 gap
+            Y_OFFSET = 1100 # Height 1000 + 100 gap
             
-            print(f"    + Creating domain at ({100 + offset}, {100 + offset}) with {len(definition.get('drop_zones', []))} drop zones")
+            col = created_count % GRID_COLUMNS
+            row = created_count // GRID_COLUMNS
+            
+            pos_x = X_START + col * X_OFFSET
+            pos_y = Y_START + row * Y_OFFSET
+            
+            print(f"    + Creating domain at ({pos_x}, {pos_y}) with {len(definition.get('drop_zones', []))} drop zones")
             
             new_domain = Domain(
                 canvas_id=new_canvas.id,
                 name=definition.get("name") or definition.get("label") or f"Domain {created_count + 1}",
                 type=def_id,
-                position_x=100 + offset,
-                position_y=100 + offset,
-                width=v_config.get("width", 300),
-                height=v_config.get("height", 400),
+                position_x=pos_x,
+                position_y=pos_y,
+                width=v_config.get("width", 800),
+                height=v_config.get("height", 1000),
                 color=v_config.get("color") or scenario.theme_color or "#3b82f6",
                 visual_config=v_config,
                 metadata_schema=definition.get("metadata_schema") or [],
@@ -249,8 +259,9 @@ def apply_to_canvas(
     config = scenario.configuration
 
     # Update Canvas Config
-    owner_config = canvas.owner_config or {}
-    owner_config.update({
+    # We use dict() to ensure SQLAlchemy detects the change (mutation tracking)
+    new_config = dict(canvas.owner_config or {})
+    new_config.update({
         "scenario_id": scenario.id,
         "theme_color": scenario.theme_color,
         "automations": config.get("automations", []),
@@ -259,7 +270,7 @@ def apply_to_canvas(
         "domain_groups": config.get("domain_groups", []),
         "thing_metadata_schema": config.get("thing_metadata_schema", [])
     })
-    canvas.owner_config = owner_config
+    canvas.owner_config = new_config
     db.add(canvas)
 
     # Provision Default Domains
@@ -290,19 +301,29 @@ def apply_to_canvas(
                 # Safely get visual config
                 v_config = definition.get("visual_config") or {}
                 
-                # Use index to stagger positions
-                offset = created_count * 50
+                # Use grid calculation to avoid stacking nodes
+                GRID_COLUMNS = 3
+                X_START = 100
+                Y_START = 100
+                X_OFFSET = 900 # Width 800 + 100 gap
+                Y_OFFSET = 1100 # Height 1000 + 100 gap
                 
-                print(f"    + Creating domain at ({100 + offset}, {100 + offset}) with {len(definition.get('drop_zones', []))} drop zones")
-
+                col = created_count % GRID_COLUMNS
+                row = created_count // GRID_COLUMNS
+                
+                pos_x = X_START + col * X_OFFSET
+                pos_y = Y_START + row * Y_OFFSET
+                
+                print(f"    + Creating domain at ({pos_x}, {pos_y}) with {len(definition.get('drop_zones', []))} drop zones")
+ 
                 new_domain = Domain(
                     canvas_id=canvas.id,
                     name=definition.get("name") or definition.get("label") or f"Domain {created_count + 1}",
                     type=def_id,
-                    position_x=100 + offset,
-                    position_y=100 + offset,
-                    width=v_config.get("width", 300),
-                    height=v_config.get("height", 400),
+                    position_x=pos_x,
+                    position_y=pos_y,
+                    width=v_config.get("width", 800),
+                    height=v_config.get("height", 1000),
                     color=v_config.get("color") or scenario.theme_color or "#3b82f6",
                     visual_config=v_config,
                     metadata_schema=definition.get("metadata_schema") or [],

@@ -61,8 +61,11 @@ class AutomationService:
         db.refresh(canvas)
             
         if not canvas.owner_config:
-            self._log(f"Event Intake: Canvas {canvas_id} has no owner_config", "DEBUG")
+            self._log(f"Event Intake: Canvas {canvas_id} has no owner_config. Keys: {dir(canvas)}", "DEBUG")
             return results
+            
+        self._log(f"Event Intake: owner_config keys: {list(canvas.owner_config.keys()) if canvas.owner_config else 'None'}", "DEBUG")
+        self._log(f"Event Intake: scenario_id: {canvas.owner_config.get('scenario_id')}", "DEBUG")
             
         automations = canvas.owner_config.get("automations", [])
         
@@ -116,22 +119,65 @@ class AutomationService:
                 payload["thing_content"] = str(thing.content)
                 payload["thing_name"] = getattr(thing, "name", None) or getattr(thing, "title", None) or "Untitled"
                 payload["thing_type"] = thing.type
-                self._log(f"Context: Attached thing '{payload['thing_name']}' ({thing.type})", "DEBUG")
+                payload["domain_id"] = thing.domain_id
+                # Also inject a 'thing' object for more direct structural access in templates
+                payload["thing"] = {
+                    "id": thing.id,
+                    "name": payload["thing_name"],
+                    "type": thing.type,
+                    "domain_id": thing.domain_id,
+                    "content": thing.content
+                }
+                self._log(f"Context: Attached thing '{payload['thing_name']}' ({thing.type}) from domain {thing.domain_id}", "DEBUG")
                 
         self._log(f"Event Intake: '{hook}' on canvas {canvas_id}. Checking {len(automations)} rules.")
         
-        # 2. Match event to automations
+        # 2. Iterate and match
+        self._log(f"--- EVENT INTAKE ---", "INFO")
+        self._log(f"Hook: '{hook}' | Canvas: {canvas_id}", "INFO")
+        self._log(f"Payload Keys: {list(payload.keys())}", "DEBUG")
+        if "is_new_domain" in payload:
+            self._log(f"is_new_domain value: {payload['is_new_domain']} ({type(payload['is_new_domain'])})", "DEBUG")
+        
         for auto in automations:
-            auto_name = auto.get("name", "unnamed")
+            auto_id = auto.get("id", "unnamed")
+            auto_name = auto.get("name") or auto.get("label") or auto_id
             trigger = auto.get("trigger", {})
+            auto_hook = trigger.get("hook")
             
-            # Rule Start
-            self._log(f"Matching Rule '{auto_name}'...", "DEBUG")
+            # Match condition logic
+            is_hook_match = (auto_hook == hook)
             
-            if trigger.get("hook") != hook:
-                self._log(f"  [FAIL] Hook mismatch: rule expected '{trigger.get('hook')}', got '{hook}'", "DEBUG")
+            # BRIDGE LOGIC: treat onDrop as onEntry if is_new_domain is False
+            if not is_hook_match and hook == "onDrop" and auto_hook == "onEntry":
+                is_new = payload.get("is_new_domain")
+                if is_new is False:
+                    is_hook_match = True
+                    self._log(f"  [BRIDGE] Bridged onDrop -> onEntry for rule '{auto_name}'", "DEBUG")
+                else:
+                    self._log(f"  [BRIDGE SKIP] hook={hook}, auto_hook={auto_hook}, is_new={is_new}", "DEBUG")
+
+            # Log every rule check
+            self._log(f"  Rule '{auto_name}': Target={auto_hook}, Current={hook}, Match={is_hook_match}", "DEBUG")
+            
+            if not is_hook_match:
                 continue
                 
+            # Filter logic (e.g. domain, type, zone)
+            # The new logic uses 'filters' key, but the old logic used direct keys in 'trigger'.
+            # To maintain compatibility with _get_match_error, we'll use the _get_match_error.
+            # The provided snippet for filters seems to be a new way of handling filters.
+            # I will use the existing _get_match_error for now, as the instruction implies
+            # adding logs around the existing matching mechanism, not replacing the filter logic itself.
+            # The instruction's new block for filters is a bit ambiguous if it replaces _get_match_error or works with it.
+            # Given the instruction's final lines:
+            # match_err = self._get_match_error(db, trigger, payload)
+            # if match_err:
+            #     self._log(f"  [FAIL] Filter mismatch: {match_err}", "DEBUG")
+            #     continue
+            # self._log(f"  [MATCH] Rule '{auto_name}' triggered.", "INFO")
+            # This suggests _get_match_error is still used.
+            
             # Filter check (e.g. domain_id matching)
             match_err = self._get_match_error(db, trigger, payload)
             if match_err:
@@ -163,6 +209,7 @@ class AutomationService:
                     "blueprint_id": blueprint_id,
                     "execution_id": res.get("execution_id"),
                     "output": res.get("output"),
+                    "steps": res.get("steps"),
                     "final_status": res.get("status")
                 })
             elif action_type == "pipeline" or "steps" in action:
@@ -186,6 +233,7 @@ class AutomationService:
                     "steps_count": len(steps),
                     "execution_id": res.get("execution_id"),
                     "output": res.get("output"),
+                    "steps": res.get("steps"),
                     "final_status": res.get("status")
                 })
         
@@ -205,34 +253,8 @@ class AutomationService:
                     a_name = res.get("automation_name")
                     steps = res.get("steps") or []
                     
-                    # Collect reasoning from ALL steps
-                    automation_reasoning = []
-                    
-                    # Also check the final output just in case
-                    final_output = res.get("output") or {}
-                    if isinstance(final_output, dict):
-                        r = final_output.get("reasoning") or final_output.get("rationale") or final_output.get("explanation")
-                        if r: automation_reasoning.append(r)
-                    
-                    for step in steps:
-                        step_out = step.get("output_data") or {}
-                        # Extraction logic for reasoning/rationale in steps
-                        r = step_out.get("reasoning") or step_out.get("rationale") or step_out.get("explanation")
-                        
-                        if not r:
-                             # Deep search for reasoning-like keys in step output
-                             for k, v in step_out.items():
-                                 if any(x in k.lower() for x in ["reasoning", "rationale", "explanation"]):
-                                     r = v
-                                     break
-                        
-                        if r and r not in automation_reasoning:
-                            # Add condition context if available (LogicIfElse)
-                            cond = step_out.get("condition")
-                            if cond:
-                                automation_reasoning.append(f"Condition '{cond}': {r}")
-                            else:
-                                automation_reasoning.append(r)
+                    # Recursively collect all reasonings
+                    automation_reasoning = self._extract_all_reasonings(steps, res.get("output"))
                     
                     insight_str = f"**{a_name}**"
                     if automation_reasoning:
@@ -256,6 +278,88 @@ class AutomationService:
                     self._log(f"Context: Updated 'ai_insight' for thing {thing_id}", "INFO")
 
         return results
+
+    def _extract_all_reasonings(self, steps: List[Dict], final_output: Optional[Dict] = None) -> List[str]:
+        """
+        Recursively extract all reasoning/explanation strings from execution steps and outputs.
+        Prioritizes chronological order of steps.
+        """
+        all_reasoning = []
+        reasoning_keys = ["reasoning", "rationale", "explanation", "insight", "ai_insight"]
+        
+        # 1. First check each step in history (Chronological order)
+        for step in steps:
+            step_out = step.get("output_data") or {}
+            node_type = step.get("node_type", "")
+            node_label = step.get("node_label", "")
+            
+            # Extraction logic for reasoning/rationale in steps
+            reasoning = None
+            for k, v in step_out.items():
+                if any(x in k.lower() for x in reasoning_keys) and isinstance(v, str) and v.strip():
+                    reasoning = v
+                    break
+            
+            if reasoning:
+                # Add context if it's a known logic step
+                cond = step_out.get("condition")
+                header = f"Step '{node_label}'" if node_label else f"Node {node_type}"
+                extracted = f"{header} (Condition '{cond}'): {reasoning}" if cond else f"{header}: {reasoning}"
+                if extracted not in all_reasoning:
+                     all_reasoning.append(extracted)
+            
+            # Deep check for nested structures within steps (e.g. Iterative Branch results)
+            # LogicIfElse 'iterative' results are in 'results' list
+            if node_type == "LOGIC_IF_ELSE" and "results" in step_out:
+                iter_results = step_out.get("results", [])
+                for ir in iter_results:
+                    if isinstance(ir, dict) and ir.get("reasoning"):
+                        r = ir.get("reasoning")
+                        if r not in all_reasoning:
+                            all_reasoning.append(f"Iteration Loop: {r}")
+                            
+            # Recursive check of step_out itself for any missed reasonings (e.g. nested pipelines)
+            sub_r = self._extract_all_reasonings([], step_out)
+            for r in sub_r:
+                if r not in all_reasoning:
+                    all_reasoning.append(r)
+
+        # 2. Check final output for any additional reasoning (e.g. pipeline-level summary)
+        if final_output and isinstance(final_output, dict):
+            # Check direct keys
+            for k, v in final_output.items():
+                if any(x in k.lower() for x in reasoning_keys) and isinstance(v, str) and v.strip():
+                    if v not in all_reasoning:
+                        # Only add if it doesn't look like a duplicate of the last step's reasoning
+                        # Often final_output['reasoning'] IS just the last step's reasoning.
+                        is_duplicate = False
+                        if all_reasoning:
+                            last_r = all_reasoning[-1]
+                            if v in last_r or last_r in v:
+                                is_duplicate = True
+                        
+                        if not is_duplicate:
+                            all_reasoning.append(v)
+            
+            # Check nested pipeline results (Standard for GenericPipelinePrimitive)
+            pipeline_results = final_output.get("pipeline_results", {})
+            if isinstance(pipeline_results, dict):
+                # Try to sort keys if they are numbers-as-strings to maintain chronological order
+                try:
+                    sorted_keys = sorted(pipeline_results.keys(), key=lambda x: int(x) if x.isdigit() else x)
+                except:
+                    sorted_keys = pipeline_results.keys()
+
+                for step_id in sorted_keys:
+                    step_out = pipeline_results[step_id]
+                    if isinstance(step_out, dict):
+                         # Recursively check this dict
+                         sub_r = self._extract_all_reasonings([], step_out)
+                         for r in sub_r:
+                             if r not in all_reasoning:
+                                 all_reasoning.append(r)
+
+        return all_reasoning
 
     def _get_match_error(self, db: Session, trigger: Dict[str, Any], payload: Dict[str, Any]) -> Optional[str]:
         """
@@ -354,9 +458,9 @@ class AutomationService:
                 canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
                 if canvas and canvas.owner_config:
                     llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
-                    print(f"[AutomationService] Initial retrieval of model from canvas {canvas_id}: {llm_model}")
+                    print(f"[AutomationService] Retrieved model from canvas {canvas_id}: {llm_model}")
             except Exception as e:
-                print(f"[AutomationService] Failed to retrieve canvas model: {e}")
+                print(f"[AutomationService] Failed to retrieve/inject canvas model info: {e}")
             
             # Prepare inputs
             inputs = {
@@ -365,17 +469,9 @@ class AutomationService:
                 "trigger_event": event_payload
             }
             
-            # Inject Canvas Configuration (LLM Model)
-            from app.models.canvas_models import Canvas
-            try:
-                canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
-                if canvas and canvas.owner_config:
-                    llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
-                    if llm_model:
-                        inputs["model"] = llm_model
-                        print(f"[AutomationService] Injected model context: {llm_model} into inputs")
-            except Exception as e:
-                print(f"[AutomationService] Failed to inject canvas config: {e}")
+            if llm_model:
+                inputs["model"] = llm_model
+                print(f"[AutomationService] Injected model context into inputs: {llm_model}")
             
             # Create execution record
             execution = AgentExecution(

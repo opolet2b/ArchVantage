@@ -68,6 +68,51 @@ class BasePrimitive(ABC):
         """
         pass
     
+    def _log_debug(self, message: str, state: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> None:
+        """Helper to log debug information to file, console, and UI."""
+        import os
+        import json
+        from datetime import datetime
+        import asyncio
+        
+        timestamp = datetime.now().isoformat()
+        log_entry = f"[{timestamp}] [{self.name}] {message}"
+        if extra:
+            log_entry += f" | DATA: {json.dumps(extra)}"
+        
+        # 1. Server Console
+        print(log_entry)
+        
+        # 2. Write to debug file
+        try:
+            with open("execution_debug.log", "a", encoding="utf-8") as f:
+                f.write(log_entry + "\n")
+        except:
+            pass
+
+        # 3. Trigger UI callback if available
+        if state and "status_callbacks" in state:
+            callbacks = state["status_callbacks"]
+            if callbacks:
+                try:
+                    # Try to get existing loop or create one if needed (usually exists in main thread)
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                    for cb in callbacks:
+                        if asyncio.iscoroutinefunction(cb):
+                            if loop.is_running():
+                                loop.create_task(cb(log_entry))
+                            else:
+                                loop.run_until_complete(cb(log_entry))
+                        else:
+                            cb(log_entry)
+                except Exception as e:
+                    print(f"[BasePrimitive] Failed to trigger UI callback: {e}")
+
     def resolve_variables(
         self, 
         template: str, 
@@ -89,6 +134,10 @@ class BasePrimitive(ABC):
         """
         import re
         
+        # If already resolved (not a string), return as is
+        if not isinstance(template, str):
+            return template
+
         # Check for full match (exact variable reference) to return raw objects
         full_match = re.match(r'^\s*\{\{([^}]+)\}\}\s*$', template)
         if full_match:
@@ -100,11 +149,35 @@ class BasePrimitive(ABC):
         def replace_var(match):
             var_path = match.group(1).strip()
             val = self._resolve_single_variable(var_path, state)
+            if val is None:
+                variables = state.get("variables", {})
+                available = list(variables.keys())
+                self._log_debug(f"Variable NOT FOUND: '{var_path}'. Available keys: {available}", state)
             return str(val) if val is not None else ""
             
         pattern = r'\{\{([^}]+)\}\}'
         result = re.sub(pattern, replace_var, template)
         return result
+
+    def _ensure_id(self, val: Any) -> Any:
+        """
+        Safely extract an ID from a resolved value.
+        Handles cases where loop items (dictionaries) are passed directly.
+        """
+        if val is None:
+            return None
+            
+        # If it's a list, take the first element (common for query_results)
+        if isinstance(val, list):
+            if not val:
+                return None
+            val = val[0]
+            
+        # If it's a dictionary (like a loop item), extract the 'id' field
+        if isinstance(val, dict):
+            return val.get("id") or val.get("thing_id") or val.get("domain_id")
+            
+        return val
 
     def _resolve_single_variable(self, var_path: str, state: Dict[str, Any]) -> Any:
         """Helper to resolve a single variable path to its value."""
@@ -175,6 +248,9 @@ class BasePrimitive(ABC):
             except Exception:
                 return None
 
+        # Strip path once for all resolution logic
+        var_path = var_path.strip()
+
         # ------------------------------------------------------------------
         # Standard Resolution
         # ------------------------------------------------------------------
@@ -189,6 +265,7 @@ class BasePrimitive(ABC):
             inputs = state.get("inputs", {})
             
             # Extract the first part of the path to check existence
+            # Handle dots or brackets
             first_part = re.split(r'\.|\[', var_path)[0]
             
             if first_part in variables:

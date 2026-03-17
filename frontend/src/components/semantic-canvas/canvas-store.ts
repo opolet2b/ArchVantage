@@ -756,9 +756,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         });
     },
 
-    // Automation Hooks
     emitCanvasEvent: async (hook, payload) => {
         const { canvasId, waitForNodeArrival, refreshThings } = get();
+        if (!canvasId) {
+            console.error("[Store] emitCanvasEvent: Missing canvasId");
+            return;
+        }
+        console.log(`[Store] EMIT EVENT: ${hook}`, JSON.stringify(payload, null, 2));
         const token = getAuthToken();
         if (!token || !canvasId) return;
 
@@ -1476,32 +1480,50 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     // Emit spatial events for each item in batch
                     const update = updatesMap.get(id);
                     const original = things.find(t => t.id === id);
-                    if (update && original && update.domain_id !== undefined && update.domain_id !== original.domain_id) {
-                        const extras = updatesMapExtras.get(id) || {};
-                        if (original.domain_id) {
-                            await get().emitCanvasEvent("onExit", {
-                                thing_id: id,
-                                domain_id: original.domain_id,
-                                ...extras
-                            });
-                        }
-                        if (update.domain_id) {
-                            await get().emitCanvasEvent("onEntry", {
-                                thing_id: id,
-                                domain_id: update.domain_id,
-                                ...extras
-                            });
+                    const extras = updatesMapExtras.get(id) || {};
 
-                            // Explicit onDrop event if we hit a specific zone
-                            if (extras.drop_zone_id) {
-                                await get().emitCanvasEvent("onDrop", {
+                    if (update && original) {
+                        const domainChanged = update.domain_id !== undefined && update.domain_id !== original.domain_id;
+                        
+                        if (domainChanged) {
+                            if (original.domain_id) {
+                                await get().emitCanvasEvent("onExit", {
                                     thing_id: id,
-                                    domain_id: update.domain_id,
-                                    drop_zone_id: extras.drop_zone_id,
+                                    domain_id: original.domain_id,
                                     ...extras
                                 });
                             }
+                            if (update.domain_id) {
+                                await get().emitCanvasEvent("onEntry", {
+                                    thing_id: id,
+                                    domain_id: update.domain_id,
+                                    ...extras
+                                });
+
+                                // Explicit onDrop event if we hit a specific zone AND domain changed
+                                if (extras.drop_zone_id) {
+                                    await get().emitCanvasEvent("onDrop", {
+                                        thing_id: id,
+                                        domain_id: update.domain_id,
+                                        drop_zone_id: extras.drop_zone_id,
+                                        is_new_domain: true, // Flag for bridge logic
+                                        ...extras
+                                    });
+                                }
+                            }
+                        } else if (extras.drop_zone_id) {
+                            console.log(`[Store] Same-domain drop zone hit detected: ${extras.drop_zone_id}`);
+                            // If domain DID NOT change but we have a drop_zone_id, we still trigger onDrop
+                            await get().emitCanvasEvent("onDrop", {
+                                thing_id: id,
+                                domain_id: original.domain_id,
+                                drop_zone_id: extras.drop_zone_id,
+                                is_new_domain: false, // Flag for bridge logic
+                                ...extras
+                            });
                         }
+                    } else {
+                        console.warn(`[Store] Update failed for ${id}: update=${!!update}, original=${!!original}`);
                     }
                 }
             }));

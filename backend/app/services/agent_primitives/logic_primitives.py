@@ -3,6 +3,8 @@ Logic and Cross-Canvas Primitives
 
 Primitives for conditional logic, cross-canvas querying, and linking.
 """
+import re
+import json
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
@@ -11,8 +13,8 @@ from app.services.llm_service import llm_service
 
 class LogicIfElsePrimitive(BasePrimitive):
     """
-    Primitive for conditional branching (If/Then/Else).
-    Evaluates a condition (using LLM or simple logic) and executes a branch of steps.
+    Primitive for conditional logic, evaluating a condition and routing to 'then' or 'else' nodes.
+    Supports simple and iterative modes, using an LLM for natural language condition evaluation.
     """
     
     @property
@@ -21,7 +23,7 @@ class LogicIfElsePrimitive(BasePrimitive):
     
     @property
     def description(self) -> str:
-        return "Evaluates a condition and executes one of two step sequences."
+        return "Evaluates a condition and routes to 'then' or 'else' based on the result."
     
     @property
     def param_schema(self) -> Dict[str, Any]:
@@ -30,11 +32,30 @@ class LogicIfElsePrimitive(BasePrimitive):
             "properties": {
                 "condition": {
                     "type": "string",
-                    "description": "Natural language condition or boolean expression (e.g. 'content contains error')"
+                    "description": "The condition to evaluate (e.g., 'is greater than', 'contains', 'is true')."
                 },
                 "context": {
                     "type": "string",
-                    "description": "Context to evaluate against (e.g. {{thing.content}})"
+                    "description": "The primary value or context to evaluate (e.g., '{{item.status}}', 'The user's input')."
+                },
+                "compare_value": {
+                    "type": "string",
+                    "description": "Optional value to compare against (e.g., 'completed', 'yes')."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["simple", "iterative"],
+                    "default": "simple",
+                    "description": "Evaluation mode: 'simple' for a single condition, 'iterative' for a list of items."
+                },
+                "items": {
+                    "type": "string",
+                    "description": "Required for 'iterative' mode. A JSON string or variable reference to a list of items."
+                },
+                "iterator_var": {
+                    "type": "string",
+                    "default": "item",
+                    "description": "The variable name to use for each item during iterative evaluation."
                 },
                 "then_steps": {
                     "type": "array",
@@ -47,136 +68,193 @@ class LogicIfElsePrimitive(BasePrimitive):
                     "description": "Steps to execute if condition is False"
                 }
             },
-            "required": ["condition"]
+            "required": ["condition", "context"]
         }
-    
-    async def execute(self, params: Dict[str, Any], state: Dict[str, Any]) -> PrimitiveResult:
-        condition = params.get("condition", "")
-        context = params.get("context", "")
-        then_steps = params.get("then_steps", [])
-        else_steps = params.get("else_steps", [])
+
+    async def _evaluate_condition(self, condition: str, context: Any, compare_value: str, state: Dict[str, Any], label: str = "Condition") -> tuple[bool, str]:
+        """Evaluates a condition using the configured LLM."""
+        import json
         
-        # Resolve context if it's a variable
-        if context.startswith("{{") and context.endswith("}}"):
-            context = self.resolve_variables(context, state)
+        # Robustly handle non-string context
+        if isinstance(context, (dict, list)):
+            context_str = json.dumps(context, indent=2)
+        elif context is None:
+            context_str = ""
+        else:
+            context_str = str(context)
+
+        full_statement = condition
+        if compare_value:
+            full_statement = f"Check if context {condition} '{compare_value}'."
+
+        self._log_debug(f"[{label}] Evaluating: '{full_statement}'", state, extra={
+            "subject_preview": context_str[:100],
+            "condition": condition,
+            "against": compare_value
+        })
+
+        # Truncate context for LLM prompt
+        display_context = context_str
+        if len(display_context) > 2000:
+            display_context = display_context[:2000] + "..."
+        
+        if not display_context.strip() or display_context == "{}":
+            # If it's literally matches whitespace (e.g. user had "{{ var }} "), provide a hint
+            if context_str and context_str.isspace():
+                warning_msg = f"Evaluation Caution: Context resolved to whitespace ('{context_str}'). Check if your variable is empty or if you have extra spaces in your template."
+            else:
+                warning_msg = f"Evaluation skipped: Context resolved to empty/placeholder data. Check if your variable names are correct (current variables: {list(state.get('variables', {}).keys())})."
             
-        print(f"[LogicIfElse] Evaluating: '{condition}' on context len={len(context)}")
-        
-        # Evaluate Condition (Using LLM for flexibility)
-        # We use a simple prompt to get a boolean-like 'YES' or 'NO'
-        # Optimziation: If condition is trivial (e.g. check for substring in code), we could do it here.
-        # But for "is valid" or "is compatible", we need LLM.
-        
-        # Simple heuristic: If condition contains "contains", do a simple check? 
-        # No, Stick to LLM for robustness as per "AI Logic".
-        
+            display_context = "[No Context Provided]"
+            if not compare_value:
+                self._log_debug(f"[{label}] WARNING: {warning_msg}", state)
+                return False, warning_msg
+
         prompt = f"""
-        Evaluate the following condition based on the context provided.
+        System: You are an expert AI logic engine. Your task is to evaluate the truth of a logical statement based ON THE PROVIDED CONTEXT.
         
-        Step 1: Briefly explain your reasoning (1-2 sentences).
-        Step 2: Conclude with "VERDICT: TRUE" or "VERDICT: FALSE".
+        ### Context Data:
+        {display_context}
         
-        Condition: {condition}
+        ### Instruction:
+        Evaluate the following statement: "{full_statement}"
         
-        Context:
-        {context[:1500]}...
+        Respond in this EXACT format:
+        REASONING: <A clear, one-sentence explanation of why the statement is True or False, referencing specific details from the context if possible.>
+        VERDICT: <TRUE/FALSE>
         """
         
-        # LogicIfElsePrimitive: use configured LLM from Canvas
         model_name = self.get_llm_config(state)
-        print(f"[LogicIfElse] Using Configured Model: {model_name}")
-
-        # Use simple model for speed
         from app.models.chat import Message
         
-        # --- LOGIC DEBUG LOGGING ---
-        import os
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        log_path = os.path.join(base_dir, "execution_debug.log")
-
-        print("\n" + "!"*50)
-        print(f"[LogicIfElse] EXECUTING! Condition: {condition}")
-        print("!"*50 + "\n")
-        
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                from datetime import datetime
-                f.write(f"\n{'='*60}\n")
-                f.write(f"[{datetime.utcnow().isoformat()}] [LOGIC_IF_ELSE EVALUATION]\n")
-                f.write(f"CONDITION: {condition}\n")
-                f.write(f"CONTEXT SCOPE (Length: {len(context)}):\n")
-                f.write(f"{context}\n")
-                f.write(f"{'-'*30}\n")
-                f.write(f"FULL PROMPT:\n{prompt}\n")
-                f.write(f"{'='*60}\n")
-        except Exception as log_e:
-             print(f"[LogicIfElse] Logging failed: {log_e}")
-        # ---------------------------
-
         decision_text = await llm_service.chat(
             messages=[Message(role="user", content=prompt)],
             model_name=model_name, 
             temperature=0.0
         )
         
-        # Parse result
-        is_true = "VERDICT: TRUE" in decision_text.upper()
+        # Robust Verdict Extraction using regex
+        verdict_match = re.search(r"VERDICT:\s*(TRUE|FALSE)", decision_text, re.IGNORECASE)
+        if verdict_match:
+            is_true = verdict_match.group(1).upper() == "TRUE"
+        else:
+            # Fallback to loose check if exact format missing
+            is_true = "VERDICT: TRUE" in decision_text.upper() or (decision_text.upper().strip().endswith("TRUE") and "VERDICT:" in decision_text.upper())
+            
+        reasoning = ""
+        if "REASONING:" in decision_text.upper():
+            parts = re.split(r"VERDICT:", decision_text, flags=re.IGNORECASE)
+            reasoning_part = parts[0]
+            if "REASONING:" in reasoning_part.upper():
+                reasoning = reasoning_part.split("REASONING:")[1].strip()
         
-        # Extract Reasoning (everything before VERDICT)
-        reasoning = decision_text.split("VERDICT:")[0].strip()
+        self._log_debug(f"[{label}] Result: {is_true} | Reasoning: {reasoning[:200]}...", state, extra={"reasoning": reasoning})
         
-        print(f"[LogicIfElse] 🧠 Reasoning: {reasoning}")
-        print(f"[LogicIfElse] 🎯 Result: {is_true}")
+        return is_true, reasoning
+
+    async def execute(self, params: Dict[str, Any], state: Dict[str, Any]) -> PrimitiveResult:
+        mode = params.get("mode", "simple")
+        condition = params.get("condition", "")
+        context_template = params.get("context", "")
+        compare_value_template = params.get("compare_value", "")
+        then_steps = params.get("then_steps", [])
+        else_steps = params.get("else_steps", [])
         
-        # --- LOGIC RESULT LOGGING ---
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"\n[{datetime.utcnow().isoformat()}] [LOGIC_IF_ELSE RESULT]\n")
-                f.write(f"RAW RESPONSE:\n{decision_text}\n")
-                f.write(f"{'-'*30}\n")
-                f.write(f"PARSED REASONING: {reasoning}\n")
-                f.write(f"FINAL VERDICT: {'TRUE' if is_true else 'FALSE'}\n")
-                f.write(f"{'='*60}\n")
-        except Exception as log_e:
-             print(f"[LogicIfElse] Result logging failed: {log_e}")
-        # ----------------------------
+        # Extract label for better logging
+        node_label = params.get("_node_label") or "Condition"
+        variables = state.get("variables", {})
+        self._log_debug(f"[{node_label}] Params: {list(params.keys())}", state)
+        self._log_debug(f"[{node_label}] Available Variables: {list(variables.keys())}", state)
+        self._log_debug(f"[{node_label}] Mode: {mode}", state)
         
-        steps_to_run = then_steps if is_true else else_steps
-        
-        if not steps_to_run:
+        if mode == "iterative":
+            items_raw = params.get("items", "[]")
+            iterator_var = params.get("iterator_var", "item")
+            
+            # Resolve items
+            items = self.resolve_variables(items_raw, state)
+            if isinstance(items, str):
+                import json
+                try: items = json.loads(items)
+                except: items = []
+            elif not isinstance(items, list):
+                items = []
+
+            self._log_debug(f"[{node_label}] Resolving {len(items)} items for iteration.", state)
+
+            results = []
+            for item in items:
+                # Inject current item into state variables
+                if "variables" not in state: state["variables"] = {}
+                state["variables"][iterator_var] = item
+                state["variables"]["item"] = item # Default fallback
+                
+                # Resolve context and compare_value for this specific item
+                context = self.resolve_variables(context_template, state)
+                compare_value = self.resolve_variables(compare_value_template, state)
+                
+                # Evaluate
+                is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, state, label=node_label)
+                
+                # Execute branch
+                steps_to_run = then_steps if is_true else else_steps
+                branch_name = "TRUE (then)" if is_true else "FALSE (else)"
+                num_steps = len(steps_to_run) if steps_to_run else 0
+                self._log_debug(f"[{node_label}] (Iterative) Executing branch: {branch_name} ({num_steps} internal steps)", state)
+
+                branch_output = None
+                if steps_to_run:
+                    from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
+                    pipeline_runner = GenericPipelinePrimitive()
+                    res = await pipeline_runner.execute({"steps": steps_to_run}, state)
+                    branch_output = res.output if res.success else {"error": res.error}
+
+                results.append({
+                    "item_id": item.get("id") if isinstance(item, dict) else item,
+                    "is_true": is_true,
+                    "reasoning": reasoning,
+                    "output": branch_output
+                })
+
             return PrimitiveResult(
                 success=True, 
                 output={
-                    "branch": "true" if is_true else "false", 
-                    "reasoning": reasoning,
-                    "condition": condition,
-                    "executed_steps": 0
+                    "mode": "iterative",
+                    "results": results,
+                    "ai_insight": "\n".join([f"Item {r.get('item_id')}: {r.get('reasoning')}" for r in results])
                 }
             )
+        else:
+            # Simple Mode
+            context = self.resolve_variables(context_template, state)
+            compare_value = self.resolve_variables(compare_value_template, state)
             
-        # Execute Steps
-        # We need to leverage GenericPipelinePrimitive to avoid code duplication
-        # But we can't easily import it due to circular deps if it was in the same folder?
-        # Actually it is in the same folder.
-        from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
-        
-        pipeline_runner = GenericPipelinePrimitive()
-        
-        # We reuse the same state
-        result = await pipeline_runner.execute({"steps": steps_to_run}, state)
-        
-        if not result.success:
-            return result
+            # Evaluate
+            is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, state, label=node_label)
             
-        return PrimitiveResult(
-            success=True, 
-            output={
-                "branch": "true" if is_true else "false", 
-                "reasoning": reasoning,
-                "condition": condition,
-                "pipeline_output": result.output
-            }
-        )
+            # Execute branch
+            steps_to_run = then_steps if is_true else else_steps
+            branch_name = "TRUE (then)" if is_true else "FALSE (else)"
+            num_steps = len(steps_to_run) if steps_to_run else 0
+            self._log_debug(f"[{node_label}] Executing branch: {branch_name} ({num_steps} internal steps)", state)
+            
+            branch_output = None
+            if steps_to_run:
+                from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
+                pipeline_runner = GenericPipelinePrimitive()
+                res = await pipeline_runner.execute({"steps": steps_to_run}, state)
+                branch_output = res.output if res.success else {"error": res.error}
+            
+            return PrimitiveResult(
+                success=True,
+                output={
+                    "is_true": is_true,
+                    "reasoning": reasoning,
+                    "logical_branch": "then" if is_true else "else",
+                    "output": branch_output,
+                    "ai_insight": reasoning
+                }
+            )
 
 class CanvasQueryPrimitive(BasePrimitive):
     """
@@ -273,14 +351,41 @@ class CanvasCreateLinkPrimitive(BasePrimitive):
         target_id = params.get("target_id")
         
         # Resolve variables
-        if source_id.startswith("{{"): source_id = self.resolve_variables(source_id, state)
-        if target_id.startswith("{{"): target_id = self.resolve_variables(target_id, state)
+        if source_id and isinstance(source_id, str) and source_id.startswith("{{"):
+            source_id = self.resolve_variables(source_id, state)
+        if target_id and isinstance(target_id, str) and target_id.startswith("{{"):
+            target_id = self.resolve_variables(target_id, state)
+            
+        # Ensure we have IDs (handle loop variables/objects)
+        source_id = self._ensure_id(source_id)
+        target_id = self._ensure_id(target_id)
+            
+        # The logic below is now partially redundant but kept for safety with other list types
+        if isinstance(source_id, list):
+            if len(source_id) > 0:
+                self._log_debug(f"WARNING: source_id resolved to a list of {len(source_id)} items. Using the first one.", state)
+                source_id = source_id[0]
+            else:
+                source_id = None
+                
+        if isinstance(target_id, list):
+            if len(target_id) > 0:
+                self._log_debug(f"WARNING: target_id resolved to a list of {len(target_id)} items. Using the first one.", state)
+                target_id = target_id[0]
+            else:
+                target_id = None
+        
+        # Final safety check for dicts (in case list unwrapping returned a dict)
+        source_id = self._ensure_id(source_id)
+        target_id = self._ensure_id(target_id)
+        
+        canvas_id = state.get("canvas_id") or state.get("variables", {}).get("canvas_id")
         
         # Create Link
         new_link = CanvasLink(
             source_id=source_id,
             target_id=target_id,
-            canvas_id=state.get("canvas_id"), # Assume link is created on CURRENT canvas
+            canvas_id=canvas_id, # Assume link is created on CURRENT canvas
             label=params.get("label"),
             type=params.get("type", "related"),
             description=params.get("description")
@@ -354,9 +459,14 @@ class CanvasQueryThingsPrimitive(BasePrimitive):
         domain_filter_id = params.get("domain_id")
         actual_domain_id = None
         
+        self._log_debug(f"Querying things on canvas '{canvas_id}' with domain_id='{domain_filter_id}'", state)
+
         if domain_filter_id:
-            if domain_filter_id.startswith("{{"):
+            if isinstance(domain_filter_id, str) and domain_filter_id.startswith("{{"):
                 domain_filter_id = self.resolve_variables(domain_filter_id, state)
+            
+            # Ensure we have an ID (handle loop items)
+            domain_filter_id = self._ensure_id(domain_filter_id)
             
             # Check if it's an ID
             d = db.query(Domain).filter(Domain.id == domain_filter_id).first()
@@ -370,6 +480,9 @@ class CanvasQueryThingsPrimitive(BasePrimitive):
                 ).first()
                 if d:
                     actual_domain_id = d.id
+                    self._log_debug(f"Resolved domain type '{domain_filter_id}' to ID '{actual_domain_id}'", state)
+                else:
+                    self._log_debug(f"WARNING: Domain '{domain_filter_id}' not found by ID or Type.", state)
         
         # 2. Build Query
         from sqlalchemy import or_, cast, String
@@ -393,6 +506,8 @@ class CanvasQueryThingsPrimitive(BasePrimitive):
         # 3. Limit and Execute
         limit = params.get("limit", 10)
         things = query_obj.limit(limit).all()
+        
+        self._log_debug(f"Database query found {len(things)} potential matches (limit: {limit})", state)
         
         # 4. Criteria Filtering in memory (complex JSON paths are better handled here or via LLM)
         # However, for performance and simplicity, we do a basic check if criteria provided.
@@ -448,3 +563,54 @@ class CanvasQueryThingsPrimitive(BasePrimitive):
                 "combined_content": combined_content.strip()
             }
         })
+
+class LogicSetVariablePrimitive(BasePrimitive):
+    """
+    Primitive for setting custom variables in the workflow state.
+    Simply returns its inputs as output, which the pipeline runner will merge into state.
+    """
+    
+    @property
+    def name(self) -> str:
+        return "LOGIC_SET_VARIABLE"
+    
+    @property
+    def description(self) -> str:
+        return "Sets one or more variables in the workflow state."
+    
+    @property
+    def param_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "variables": {
+                    "type": "object",
+                    "description": "Key-value pairs of variables to set. Values can be templates like {{item.id}}"
+                }
+            },
+            "required": ["variables"]
+        }
+    
+    async def execute(self, params: Dict[str, Any], state: Dict[str, Any]) -> PrimitiveResult:
+        variables_to_set = params.get("variables", {})
+        
+        resolved_vars = {}
+        for k, v in variables_to_set.items():
+            if isinstance(v, str) and "{{" in v:
+                resolved_vars[k] = self.resolve_variables(v, state)
+            else:
+                resolved_vars[k] = v
+                
+        self._log_debug(f"Setting {len(resolved_vars)} variables", state, extra={"keys": list(resolved_vars.keys())})
+        
+        # Log individual variables for better trace
+        for k, v in resolved_vars.items():
+            val_str = str(v)
+            if len(val_str) > 100:
+                val_str = val_str[:100] + "..."
+            self._log_debug(f"Variable Resolved: {k} = {val_str}", state)
+            print(f"[RUNTIME] Variable Set: {k} = {val_str}")
+        
+        # We return the resolved variables as output.
+        # The GenericPipelinePrimitive (and ESM) will merge this into state["variables"].
+        return PrimitiveResult(success=True, output=resolved_vars)
