@@ -50,6 +50,7 @@ class ExecutionStep:
         self.status = "running"
         self.error = None
         self.captured_schema = None
+        self.sub_steps = []
     
     def complete(self, output: Any, error: Optional[str] = None):
         self.completed_at = datetime.utcnow()
@@ -70,6 +71,7 @@ class ExecutionStep:
             "input_data": self.input_data,
             "output_data": self.output_data,
             "captured_schema": getattr(self, 'captured_schema', None),
+            "sub_steps": self.sub_steps,
             "error": self.error
         }
 
@@ -531,6 +533,8 @@ class AgentRuntime:
                     print(f"[RUNTIME WARNING] Failed to infer schema for node {node_id}: {e}")
 
             print(f"[RUNTIME DEBUG] Calling step.complete...")
+            if hasattr(result, "steps") and result.steps:
+                step.sub_steps = result.steps
             step.complete(result.output, result.error if not result.success else None)
             print(f"[RUNTIME DEBUG] step.complete done. Returning result.")
             return result
@@ -821,6 +825,7 @@ class AgentRuntime:
                     
                     subprocess_results = []
                     subprocess_histories = [] # Capture sub-histories for visualization
+                    realization_required = False # Track if any iteration requires realization
                     
                     for idx, item in enumerate(items):
                         # Prepare Sub-State
@@ -888,9 +893,15 @@ class AgentRuntime:
                         for k, v in harvested_vars.items():
                             state["variables"][k] = v
                          
-                        # Collect History
-                        item_history = sub_res.get("full_state", {}).get("history", [])
+                        # Collect History/Steps from sub-execution
+                        item_history = sub_res.get("steps", [])
                         subprocess_histories.append(item_history)
+
+                        # CHECK FOR REALIZATION in any step of this iteration
+                        for step_data in item_history:
+                            if step_data.get("output_data", {}).get("realization_required"):
+                                realization_required = True
+                                break
                          
                     # Update Parent State with Aggregated Results
                     state["variables"][target_output_var] = subprocess_results
@@ -899,6 +910,11 @@ class AgentRuntime:
                     state["current_output"] = result.output 
                     result.output[target_output_var] = subprocess_results
                     result.output["_foreach_subhistories"] = subprocess_histories
+                    
+                    # Propagate realization flag if any iteration required it
+                    if realization_required:
+                        result.output["realization_required"] = True
+                        print(f"[RUNTIME] ForEach detected realization requirement. Propagated to parent.")
                     
                     print(f"[RUNTIME] ForEach Complete. Aggregated {len(subprocess_results)} results into '{target_output_var}'.")
 

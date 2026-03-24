@@ -17,6 +17,16 @@ class AutomationService:
     Service to handle spatial automations triggered by canvas events.
     """
     
+    _event_locks: Dict[str, Any] = {} # In-memory lock registry: {(thing_id, hook): asyncio.Lock}
+
+    def _get_lock(self, thing_id: str, hook: str) -> Any:
+        """Get or create an asyncio Lock for a specific (thing, hook) pair."""
+        import asyncio
+        key = f"{thing_id}:{hook}"
+        if key not in self._event_locks:
+            self._event_locks[key] = asyncio.Lock()
+        return self._event_locks[key]
+
     def _log(self, message: str, level: str = "INFO"):
         """Write a formatted log entry to backend/automations.log"""
         try:
@@ -48,6 +58,24 @@ class AutomationService:
     ) -> List[Dict[str, Any]]:
         """
         Process a canvas event and trigger matching automations.
+        """
+        thing_id = payload.get("thing_id")
+        if thing_id:
+            async with self._get_lock(str(thing_id), hook):
+                return await self._handle_canvas_event_internal(db, canvas_id, hook, payload, user_id)
+        else:
+            return await self._handle_canvas_event_internal(db, canvas_id, hook, payload, user_id)
+
+    async def _handle_canvas_event_internal(
+        self, 
+        db: Session, 
+        canvas_id: str, 
+        hook: str, 
+        payload: Dict[str, Any],
+        user_id: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Internal implementation of event handling.
         """
         results = []
         
@@ -270,59 +298,73 @@ class AutomationService:
                     insights.append(insight_str)
                 
                 if insights:
-                    system_meta["ai_insight"] = "\n\n".join(insights)
+                    from datetime import datetime
+                    new_insight_text = "\n\n".join(insights)
+                    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                    header = f"### {timestamp}\n"
+                    
+                    existing_insight = system_meta.get("ai_insight", "")
+                    if existing_insight:
+                        # Prepend new insight with a separator
+                        system_meta["ai_insight"] = f"{header}{new_insight_text}\n\n---\n\n{existing_insight}"
+                    else:
+                        system_meta["ai_insight"] = f"{header}{new_insight_text}"
+                        
                     content["system_metadata"] = system_meta
                     thing.content = content
                     flag_modified(thing, "content")
                     db.commit()
-                    self._log(f"Context: Updated 'ai_insight' for thing {thing_id}", "INFO")
+                    self._log(f"Context: Updated persistent 'ai_insight' for thing {thing_id}", "INFO")
 
         return results
 
     def _extract_all_reasonings(self, steps: List[Dict], final_output: Optional[Dict] = None) -> List[str]:
         """
         Recursively extract all reasoning/explanation strings from execution steps and outputs.
-        Prioritizes chronological order of steps.
+        Prioritizes chronological order of steps and recursively follows sub_steps.
         """
         all_reasoning = []
         reasoning_keys = ["reasoning", "rationale", "explanation", "insight", "ai_insight"]
         
-        # 1. First check each step in history (Chronological order)
-        for step in steps:
-            step_out = step.get("output_data") or {}
-            node_type = step.get("node_type", "")
-            node_label = step.get("node_label", "")
-            
-            # Extraction logic for reasoning/rationale in steps
-            reasoning = None
-            for k, v in step_out.items():
-                if any(x in k.lower() for x in reasoning_keys) and isinstance(v, str) and v.strip():
-                    reasoning = v
-                    break
-            
-            if reasoning:
-                # Add context if it's a known logic step
-                cond = step_out.get("condition")
-                header = f"Step '{node_label}'" if node_label else f"Node {node_type}"
-                extracted = f"{header} (Condition '{cond}'): {reasoning}" if cond else f"{header}: {reasoning}"
-                if extracted not in all_reasoning:
-                     all_reasoning.append(extracted)
-            
-            # Deep check for nested structures within steps (e.g. Iterative Branch results)
-            # LogicIfElse 'iterative' results are in 'results' list
-            if node_type == "LOGIC_IF_ELSE" and "results" in step_out:
-                iter_results = step_out.get("results", [])
-                for ir in iter_results:
-                    if isinstance(ir, dict) and ir.get("reasoning"):
-                        r = ir.get("reasoning")
-                        if r not in all_reasoning:
-                            all_reasoning.append(f"Iteration Loop: {r}")
-                            
-            # Recursive check of step_out itself for any missed reasonings (e.g. nested pipelines)
-            sub_r = self._extract_all_reasonings([], step_out)
-            for r in sub_r:
-                if r not in all_reasoning:
-                    all_reasoning.append(r)
+        def process_step_list(step_list: List[Dict], prefix: str = ""):
+            for step in step_list:
+                node_type = step.get("node_type", "")
+                node_label = step.get("node_label", "")
+                step_out = step.get("output_data") or {}
+                
+                # 1. Extraction logic for reasoning/rationale in this specific step
+                reasoning = None
+                for k, v in step_out.items():
+                    if any(x in k.lower() for x in reasoning_keys) and isinstance(v, str) and v.strip():
+                        reasoning = v
+                        break
+                
+                if reasoning:
+                    cond = step_out.get("condition")
+                    header = f"{prefix}Step '{node_label}'" if node_label else f"{prefix}Node {node_type}"
+                    extracted = f"{header} (Condition '{cond}'): {reasoning}" if cond else f"{header}: {reasoning}"
+                    if extracted not in all_reasoning:
+                         all_reasoning.append(extracted)
+                
+                # 2. Iterative Branch results (Legacy support)
+                if node_type == "LOGIC_IF_ELSE" and "results" in step_out:
+                    iter_results = step_out.get("results", [])
+                    for ir in iter_results:
+                        if isinstance(ir, dict) and ir.get("reasoning"):
+                            r = ir.get("reasoning")
+                            if r not in all_reasoning:
+                                all_reasoning.append(f"{prefix}Iteration Loop: {r}")
+
+                # 3. GENERIC RECURSION: Follow sub_steps if they exist
+                sub_steps = step.get("sub_steps")
+                if isinstance(sub_steps, list) and sub_steps:
+                    process_step_list(sub_steps, prefix=f"{prefix}> ")
+
+        # Process main steps
+        if steps:
+            process_step_list(steps)
+
+        # 4. Check final output for any additional reasoning (e.g. pipeline-level summary)
 
         # 2. Check final output for any additional reasoning (e.g. pipeline-level summary)
         if final_output and isinstance(final_output, dict):

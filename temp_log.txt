@@ -1,0 +1,100 @@
+﻿[2026-03-24T13:15:39.631157] [INFO] Hook: 'onEntry' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:15:39.631703] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'drop_zone_id', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:15:39.632219] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onEntry, Match=True
+[2026-03-24T13:15:39.633211] [DEBUG]   [PASS] Filter 'domain_id' matched domain type/name for d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:15:39.633722] [INFO]   [MATCH] Rule 'New Automation' triggered.
+[2026-03-24T13:15:39.634414] [INFO]   [ACTION] Executing dynamic pipeline (3 steps) for 'New Automation'
+[2026-03-24T13:15:39.634985] [DEBUG]   [DEBUG] Step 0 type: <class 'dict'>, Content: {'id': 'agxtpe', 'primitive': 'CANVAS_QUERY_THINGS', 'inputs': {'domain_id': 'domain_1770050863974', 'thing_type': 'all', 'query': '', 'criteria': '{}', 'limit': 10}}
+[2026-03-24T13:20:39.647131] [DEBUG] Event Intake: owner_config keys: ['model', 'vision_model', 'scenario_id', 'theme_color', 'automations', 'ui_overrides', 'domain_definitions', 'domain_groups', 'thing_metadata_schema']
+[2026-03-24T13:20:39.647775] [DEBUG] Event Intake: scenario_id: cc954344-ce79-463e-b4b1-2ddbb0565a16
+[2026-03-24T13:20:39.649013] [DEBUG] Event Intake: Using 1 dynamic automations from Scenario Job Offers (cc954344-ce79-463e-b4b1-2ddbb0565a16)
+[2026-03-24T13:20:39.649854] [DEBUG] Loaded 1 automations. First rule name: New Automation
+[2026-03-24T13:20:39.650940] [DEBUG] Context: Attached thing 'Human Resources Assistant CV.pdf' (ThingType.DOCUMENT) from domain d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:20:39.651273] [INFO] Event Intake: 'onDrop' on canvas 309f4b26-84f4-4120-bb08-d27de4e7a7fb. Checking 1 rules.
+[2026-03-24T13:20:39.651700] [INFO] --- EVENT INTAKE ---
+[2026-03-24T13:20:39.652333] [INFO] Hook: 'onDrop' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:20:39.652994] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'drop_zone_id', 'is_new_domain', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:20:39.653569] [DEBUG] is_new_domain value: True (<class 'bool'>)
+[2026-03-24T13:20:39.653906] [DEBUG]   [BRIDGE SKIP] hook=onDrop, auto_hook=onEntry, is_new=True
+[2026-03-24T13:20:39.654338] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onDrop, Match=False
+[2026-03-24T13:20:39.868267] [INFO]   [PIPELINE] Step complete: EXECUTE_PIPELINE
+[2026-03-24T13:20:39.888639] [INFO]   [RESULT] Pipeline result: SUCCESS
+[2026-03-24T13:20:39.901350] [INFO] Context: Updated persistent 'ai_insight' for thing a16f2888-6c60-4e32-9fed-46e03be6d534
+[2026-03-24T13:20:57.876212] [DEBUG] Event Intake: owner_config keys: ['model', 'vision_model', 'scenario_id', 'theme_color', 'automations', 'ui_overrides', 'domain_definitions', 'domain_groups', 'thing_metadata_schema']
+[2026-03-24T13:20:57.876977] [DEBUG] Event Intake: scenario_id: cc954344-ce79-463e-b4b1-2ddbb0565a16
+[2026-03-24T13:20:57.880062] [DEBUG] Event Intake: Using 1 dynamic automations from Scenario Job Offers (cc954344-ce79-463e-b4b1-2ddbb0565a16)
+[2026-03-24T13:20:57.881047] [DEBUG] Loaded 1 automations. First rule name: New Automation
+[2026-03-24T13:20:57.882567] [DEBUG] Context: Attached thing 'Human Resources Assistant CV.pdf' (ThingType.DOCUMENT) from domain d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:20:57.883559] [INFO] Event Intake: 'onExit' on canvas 309f4b26-84f4-4120-bb08-d27de4e7a7fb. Checking 1 rules.
+[2026-03-24T13:20:57.884156] [INFO] --- EVENT INTAKE ---
+[2026-03-24T13:20:57.884736] [INFO] Hook: 'onExit' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:20:57.885459] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:20:57.886275] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onExit, Match=False
+[2026-03-24T13:21:04.058529] [DEBUG] Event Intake: owner_config keys: ['model', 'vision_model', 'scenario_id', 'theme_color', 'automations', 'ui_overrides', 'domain_definitions', 'domain_groups', 'thing_metadata_schema']
+[2026-03-24T13:21:04.059544] [DEBUG] Event Intake: scenario_id: cc954344-ce79-463e-b4b1-2ddbb0565a16
+[2026-03-24T13:21:04.061189] [DEBUG] Event Intake: Using 1 dynamic automations from Scenario Job Offers (cc954344-ce79-463e-b4b1-2ddbb0565a16)
+[2026-03-24T13:21:04.061773] [DEBUG] Loaded 1 automations. First rule name: New Automation
+[2026-03-24T13:21:04.063293] [DEBUG] Context: Attached thing 'Human Resources Assistant CV.pdf' (ThingType.DOCUMENT) from domain d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:21:04.063653] [INFO] Event Intake: 'onEntry' on canvas 309f4b26-84f4-4120-bb08-d27de4e7a7fb. Checking 1 rules.
+[2026-03-24T13:21:04.064028] [INFO] --- EVENT INTAKE ---
+[2026-03-24T13:21:04.064621] [INFO] Hook: 'onEntry' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:21:04.065110] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'drop_zone_id', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:21:04.065569] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onEntry, Match=True
+[2026-03-24T13:21:04.067129] [DEBUG]   [PASS] Filter 'domain_id' matched domain type/name for d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:21:04.067673] [INFO]   [MATCH] Rule 'New Automation' triggered.
+[2026-03-24T13:21:04.068085] [INFO]   [ACTION] Executing dynamic pipeline (3 steps) for 'New Automation'
+[2026-03-24T13:21:04.068545] [DEBUG]   [DEBUG] Step 0 type: <class 'dict'>, Content: {'id': 'agxtpe', 'primitive': 'CANVAS_QUERY_THINGS', 'inputs': {'domain_id': 'domain_1770050863974', 'thing_type': 'all', 'query': '', 'criteria': '{}', 'limit': 10}}
+[2026-03-24T13:26:04.077292] [DEBUG] Event Intake: owner_config keys: ['model', 'vision_model', 'scenario_id', 'theme_color', 'automations', 'ui_overrides', 'domain_definitions', 'domain_groups', 'thing_metadata_schema']
+[2026-03-24T13:26:04.077874] [DEBUG] Event Intake: scenario_id: cc954344-ce79-463e-b4b1-2ddbb0565a16
+[2026-03-24T13:26:04.079481] [DEBUG] Event Intake: Using 1 dynamic automations from Scenario Job Offers (cc954344-ce79-463e-b4b1-2ddbb0565a16)
+[2026-03-24T13:26:04.080047] [DEBUG] Loaded 1 automations. First rule name: New Automation
+[2026-03-24T13:26:04.081341] [DEBUG] Context: Attached thing 'Human Resources Assistant CV.pdf' (ThingType.DOCUMENT) from domain d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:26:04.081696] [INFO] Event Intake: 'onDrop' on canvas 309f4b26-84f4-4120-bb08-d27de4e7a7fb. Checking 1 rules.
+[2026-03-24T13:26:04.082020] [INFO] --- EVENT INTAKE ---
+[2026-03-24T13:26:04.082384] [INFO] Hook: 'onDrop' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:26:04.083105] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'drop_zone_id', 'is_new_domain', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:26:04.083611] [DEBUG] is_new_domain value: True (<class 'bool'>)
+[2026-03-24T13:26:04.083972] [DEBUG]   [BRIDGE SKIP] hook=onDrop, auto_hook=onEntry, is_new=True
+[2026-03-24T13:26:04.084356] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onDrop, Match=False
+[2026-03-24T13:26:34.310167] [INFO]   [PIPELINE] Step complete: EXECUTE_PIPELINE
+[2026-03-24T13:26:34.341935] [INFO]   [RESULT] Pipeline result: SUCCESS
+[2026-03-24T13:26:34.357390] [INFO] Context: Updated persistent 'ai_insight' for thing a16f2888-6c60-4e32-9fed-46e03be6d534
+[2026-03-24T13:46:34.017044] [DEBUG] Event Intake: owner_config keys: ['model', 'vision_model', 'scenario_id', 'theme_color', 'automations', 'ui_overrides', 'domain_definitions', 'domain_groups', 'thing_metadata_schema']
+[2026-03-24T13:46:34.017593] [DEBUG] Event Intake: scenario_id: cc954344-ce79-463e-b4b1-2ddbb0565a16
+[2026-03-24T13:46:34.027454] [DEBUG] Event Intake: Using 1 dynamic automations from Scenario Job Offers (cc954344-ce79-463e-b4b1-2ddbb0565a16)
+[2026-03-24T13:46:34.028693] [DEBUG] Loaded 1 automations. First rule name: New Automation
+[2026-03-24T13:46:34.031284] [DEBUG] Context: Attached thing 'Human Resources Assistant CV.pdf' (ThingType.DOCUMENT) from domain d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:46:34.031841] [INFO] Event Intake: 'onExit' on canvas 309f4b26-84f4-4120-bb08-d27de4e7a7fb. Checking 1 rules.
+[2026-03-24T13:46:34.032903] [INFO] --- EVENT INTAKE ---
+[2026-03-24T13:46:34.033763] [INFO] Hook: 'onExit' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:46:34.034364] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:46:34.035297] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onExit, Match=False
+[2026-03-24T13:46:36.565190] [DEBUG] Event Intake: owner_config keys: ['model', 'vision_model', 'scenario_id', 'theme_color', 'automations', 'ui_overrides', 'domain_definitions', 'domain_groups', 'thing_metadata_schema']
+[2026-03-24T13:46:36.566044] [DEBUG] Event Intake: scenario_id: cc954344-ce79-463e-b4b1-2ddbb0565a16
+[2026-03-24T13:46:36.568634] [DEBUG] Event Intake: Using 1 dynamic automations from Scenario Job Offers (cc954344-ce79-463e-b4b1-2ddbb0565a16)
+[2026-03-24T13:46:36.569692] [DEBUG] Loaded 1 automations. First rule name: New Automation
+[2026-03-24T13:46:36.572576] [DEBUG] Context: Attached thing 'Human Resources Assistant CV.pdf' (ThingType.DOCUMENT) from domain d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:46:36.573523] [INFO] Event Intake: 'onEntry' on canvas 309f4b26-84f4-4120-bb08-d27de4e7a7fb. Checking 1 rules.
+[2026-03-24T13:46:36.574188] [INFO] --- EVENT INTAKE ---
+[2026-03-24T13:46:36.574828] [INFO] Hook: 'onEntry' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:46:36.575868] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'drop_zone_id', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:46:36.576538] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onEntry, Match=True
+[2026-03-24T13:46:36.580894] [DEBUG]   [PASS] Filter 'domain_id' matched domain type/name for d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:46:36.581418] [INFO]   [MATCH] Rule 'New Automation' triggered.
+[2026-03-24T13:46:36.582192] [INFO]   [ACTION] Executing dynamic pipeline (3 steps) for 'New Automation'
+[2026-03-24T13:46:36.582877] [DEBUG]   [DEBUG] Step 0 type: <class 'dict'>, Content: {'id': 'agxtpe', 'primitive': 'CANVAS_QUERY_THINGS', 'inputs': {'domain_id': 'domain_1770050863974', 'thing_type': 'all', 'query': '', 'criteria': '{}', 'limit': 10}}
+[2026-03-24T13:49:07.822933] [INFO]   [PIPELINE] Step complete: EXECUTE_PIPELINE
+[2026-03-24T13:49:07.839988] [INFO]   [RESULT] Pipeline result: SUCCESS
+[2026-03-24T13:49:07.850852] [INFO] Context: Updated persistent 'ai_insight' for thing a16f2888-6c60-4e32-9fed-46e03be6d534
+[2026-03-24T13:49:10.763139] [DEBUG] Event Intake: owner_config keys: ['model', 'vision_model', 'scenario_id', 'theme_color', 'automations', 'ui_overrides', 'domain_definitions', 'domain_groups', 'thing_metadata_schema']
+[2026-03-24T13:49:10.764331] [DEBUG] Event Intake: scenario_id: cc954344-ce79-463e-b4b1-2ddbb0565a16
+[2026-03-24T13:49:10.766022] [DEBUG] Event Intake: Using 1 dynamic automations from Scenario Job Offers (cc954344-ce79-463e-b4b1-2ddbb0565a16)
+[2026-03-24T13:49:10.766915] [DEBUG] Loaded 1 automations. First rule name: New Automation
+[2026-03-24T13:49:10.768960] [DEBUG] Context: Attached thing 'Human Resources Assistant CV.pdf' (ThingType.DOCUMENT) from domain d3a1e6d1-ff1e-416b-9eff-cf2a49b0771d
+[2026-03-24T13:49:10.769731] [INFO] Event Intake: 'onDrop' on canvas 309f4b26-84f4-4120-bb08-d27de4e7a7fb. Checking 1 rules.
+[2026-03-24T13:49:10.770385] [INFO] --- EVENT INTAKE ---
+[2026-03-24T13:49:10.771102] [INFO] Hook: 'onDrop' | Canvas: 309f4b26-84f4-4120-bb08-d27de4e7a7fb
+[2026-03-24T13:49:10.771697] [DEBUG] Payload Keys: ['thing_id', 'domain_id', 'drop_zone_id', 'is_new_domain', 'thing_content', 'thing_name', 'thing_type', 'thing']
+[2026-03-24T13:49:10.772335] [DEBUG] is_new_domain value: True (<class 'bool'>)
+[2026-03-24T13:49:10.773272] [DEBUG]   [BRIDGE SKIP] hook=onDrop, auto_hook=onEntry, is_new=True
+[2026-03-24T13:49:10.774686] [DEBUG]   Rule 'New Automation': Target=onEntry, Current=onDrop, Match=False

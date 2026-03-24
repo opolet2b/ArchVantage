@@ -183,44 +183,75 @@ class LogicIfElsePrimitive(BasePrimitive):
             self._log_debug(f"[{node_label}] Resolving {len(items)} items for iteration.", state)
 
             results = []
-            for item in items:
-                # Inject current item into state variables
-                if "variables" not in state: state["variables"] = {}
-                state["variables"][iterator_var] = item
-                state["variables"]["item"] = item # Default fallback
+            all_harvested_vars = {}
+            parent_variables = state.get("variables", {}).copy()
+
+            for idx, item in enumerate(items):
+                # Prepare isolated sub-inputs for this iteration
+                sub_inputs = parent_variables.copy()
+                sub_inputs[iterator_var] = item
+                sub_inputs["item"] = item # Default fallback
+                sub_inputs["index"] = idx
                 
-                # Resolve context and compare_value for this specific item
-                context = self.resolve_variables(context_template, state)
-                compare_value = self.resolve_variables(compare_value_template, state)
+                # We need a sub-state for the pipeline runner to avoid direct mutation of parent state
+                sub_state = state.copy()
+                sub_state["variables"] = sub_inputs
+                
+                # Resolve context and compare_value for this specific item using sub-state
+                context = self.resolve_variables(context_template, sub_state)
+                compare_value = self.resolve_variables(compare_value_template, sub_state)
                 
                 # Evaluate
-                is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, state, label=node_label)
+                is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, sub_state, label=node_label)
                 
                 # Execute branch
                 steps_to_run = then_steps if is_true else else_steps
                 branch_name = "TRUE (then)" if is_true else "FALSE (else)"
                 num_steps = len(steps_to_run) if steps_to_run else 0
-                self._log_debug(f"[{node_label}] (Iterative) Executing branch: {branch_name} ({num_steps} internal steps)", state)
+                self._log_debug(f"[{node_label}] (Iterative) Item {idx}: Executing branch: {branch_name} ({num_steps} internal steps)", state)
 
                 branch_output = None
                 if steps_to_run:
                     from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
                     pipeline_runner = GenericPipelinePrimitive()
-                    res = await pipeline_runner.execute({"steps": steps_to_run}, state)
+                    res = await pipeline_runner.execute({"steps": steps_to_run}, sub_state)
                     branch_output = res.output if res.success else {"error": res.error}
+
+                    # Harvest variables from the sub-state
+                    final_vars = sub_state.get("variables", {})
+                    harvested_vars = {}
+                    for k, v in final_vars.items():
+                        if k.startswith("_"): continue
+                        if k not in sub_inputs or v != sub_inputs.get(k):
+                            harvested_vars[k] = v
+                    
+                    if harvested_vars:
+                         self._log_debug(f"[{node_label}] (Item {idx}) VARIABLE HARVESTED: {list(harvested_vars.keys())}", state)
+                         all_harvested_vars.update(harvested_vars)
 
                 results.append({
                     "item_id": item.get("id") if isinstance(item, dict) else item,
                     "is_true": is_true,
                     "reasoning": reasoning,
-                    "output": branch_output
+                    "output": branch_output,
+                    "realization_required": isinstance(branch_output, dict) and branch_output.get("realization_required", False)
                 })
+
+            # Merge all harvested variables back to the parent state after the loop
+            if all_harvested_vars:
+                if "variables" not in state: state["variables"] = {}
+                state["variables"].update(all_harvested_vars)
+                self._log_debug(f"[{node_label}] Global propagation of {len(all_harvested_vars)} variables from iterations.", state)
+
+            # Check if any iteration required realization
+            realization_required = any(r.get("realization_required") for r in results)
 
             return PrimitiveResult(
                 success=True, 
                 output={
                     "mode": "iterative",
                     "results": results,
+                    "realization_required": realization_required,
                     "ai_insight": "\n".join([f"Item {r.get('item_id')}: {r.get('reasoning')}" for r in results])
                 }
             )
@@ -245,6 +276,9 @@ class LogicIfElsePrimitive(BasePrimitive):
                 res = await pipeline_runner.execute({"steps": steps_to_run}, state)
                 branch_output = res.output if res.success else {"error": res.error}
             
+            # Propagate realization flag if internal branch required it
+            realization_required = isinstance(branch_output, dict) and branch_output.get("realization_required", False)
+            
             return PrimitiveResult(
                 success=True,
                 output={
@@ -252,6 +286,7 @@ class LogicIfElsePrimitive(BasePrimitive):
                     "reasoning": reasoning,
                     "logical_branch": "then" if is_true else "else",
                     "output": branch_output,
+                    "realization_required": realization_required,
                     "ai_insight": reasoning
                 }
             )

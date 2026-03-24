@@ -116,31 +116,31 @@ class GenericPipelinePrimitive(BasePrimitive):
                             # Collect outputs
                             item_out = sub_res.get("outputs", {})
 
-                        # CAPTURE NEW VARIABLES from sub-state
-                        # sub_res["execution_state"] is usually the variables map directly.
-                        harvested_vars = {}
-                        final_vars = sub_res.get("execution_state") or {}
-                        if isinstance(final_vars, dict) and "variables" in final_vars:
-                            final_vars = final_vars["variables"]
+                            # CAPTURE NEW VARIABLES from sub-state
+                            # sub_res["execution_state"] is usually the variables map directly.
+                            harvested_vars = {}
+                            final_vars = sub_res.get("execution_state") or {}
+                            if isinstance(final_vars, dict) and "variables" in final_vars:
+                                final_vars = final_vars["variables"]
 
-                        if isinstance(final_vars, dict):
-                            for k, v in final_vars.items():
-                                    if k.startswith("_"): continue
-                                    # If it's a new variable OR it changed from the initial sub_input
-                                    if k not in sub_inputs or v != sub_inputs.get(k):
-                                        harvested_vars[k] = v
-                            
-                            # Use harvested vars for iteration results
-                            iteration_out = item_out.copy() if isinstance(item_out, dict) else {}
-                            iteration_out.update(harvested_vars)
-                            
-                            subprocess_results.append(iteration_out)
-                            
-                            # --- VARIABLE PROPAGATION ---
-                            # Merge harvested variables back to the parent state
-                            if harvested_vars:
-                                self._log_debug(f"[{node_label}] (Item {idx}) VARIABLE HARVESTED: {list(harvested_vars.keys())}", state)
-                                all_harvested_vars.update(harvested_vars)
+                            if isinstance(final_vars, dict):
+                                for k, v in final_vars.items():
+                                        if k.startswith("_"): continue
+                                        # If it's a new variable OR it changed from the initial sub_input
+                                        if k not in sub_inputs or v != sub_inputs.get(k):
+                                            harvested_vars[k] = v
+                                
+                                # Use harvested vars for iteration results
+                                iteration_out = item_out.copy() if isinstance(item_out, dict) else {}
+                                iteration_out.update(harvested_vars)
+                                
+                                subprocess_results.append(iteration_out)
+                                
+                                # --- VARIABLE PROPAGATION ---
+                                # Merge harvested variables back to the parent state
+                                if harvested_vars:
+                                    self._log_debug(f"[{node_label}] (Item {idx}) VARIABLE HARVESTED: {list(harvested_vars.keys())}", state)
+                                    all_harvested_vars.update(harvested_vars)
 
                         # --- FINAL VARIABLE PROPAGATION ---
                         # Merge all harvested variables back to the parent state after the loop
@@ -174,4 +174,17 @@ class GenericPipelinePrimitive(BasePrimitive):
                     self._log_debug(f"Database session rolled back after exception at [{node_label}]", state)
                 return PrimitiveResult(success=False, error=f"Exception at step {i} ({primitive_name}): {str(e)}")
                 
-        return PrimitiveResult(success=True, output={"pipeline_results": results})
+        # Check if any step required visual realization
+        realization_required = False
+        for step_res in results.values():
+            if isinstance(step_res, dict) and step_res.get("realization_required"):
+                realization_required = True
+                break
+                
+        return PrimitiveResult(
+            success=True, 
+            output={
+                "pipeline_results": results,
+                "realization_required": realization_required
+            }
+        )

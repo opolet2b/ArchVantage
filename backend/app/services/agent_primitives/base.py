@@ -17,6 +17,7 @@ class PrimitiveResult(BaseModel):
     output: Any = None
     error: Optional[str] = None
     next_node: Optional[str] = None  # For conditional branching
+    steps: Optional[List[Dict]] = None
 
 
 class BasePrimitive(ABC):
