@@ -64,7 +64,8 @@ class StructuredTemplatePrimitive(BasePrimitive):
                 output={
                     "content": generated_content,
                     "markdown": generated_content, # Alias
-                    "_raw": generated_content
+                    "_raw": generated_content,
+                    "reasoning": "\n\n".join(self._aggregated_reasoning) if hasattr(self, "_aggregated_reasoning") and self._aggregated_reasoning else None
                 }
             )
         except Exception as e:
@@ -107,6 +108,10 @@ class StructuredTemplatePrimitive(BasePrimitive):
                 
                 if assign_to:
                     print(f"[StructuredTemplatePrimitive] Executing ASSIGN for variable '{assign_to}'")
+                    # Initialize reasoning if not present in recursive scope
+                    if not hasattr(self, '_aggregated_reasoning'):
+                        self._aggregated_reasoning = []
+
                     system_prompt = (
                         "You are a precise data extraction assistant.\n"
                         "Extract information from the provided context according to the instruction.\n"
@@ -124,9 +129,19 @@ class StructuredTemplatePrimitive(BasePrimitive):
                             Message(role="system", content=system_prompt),
                             Message(role="user", content=user_prompt)
                         ]
-                        # Use the service's chat with response_format
-                        result_str = await self.llm_service.chat(messages, response_format={"type": "json_object"})
+                        # Use the service's chat with response_format and preserve thinking
+                        import re
+                        result_str_raw = await self.llm_service.chat(messages, response_format={"type": "json_object"}, strip_think=False)
                         
+                        # Extract thinking
+                        think_match = re.search(r"<think>(.*?)</think>", result_str_raw, flags=re.DOTALL | re.IGNORECASE)
+                        if think_match:
+                            trace = think_match.group(1).strip()
+                            self._aggregated_reasoning.append(f"### Assignment: {assign_to}\n{trace}")
+                            result_str = re.sub(r"<think>.*?</think>", "", result_str_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+                        else:
+                            result_str = result_str_raw
+
                         clean_response = result_str.strip()
                         if clean_response.startswith("```json"):
                             clean_response = clean_response[7:]

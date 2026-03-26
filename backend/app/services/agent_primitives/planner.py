@@ -110,12 +110,24 @@ Generate the Research Plan JSON.
         
         try:
             print(f"[PLANNER] Generating plan...")
-            response_text = await llm_service.chat(
+            # Use the service's chat with strip_think=False to capture reasoning
+            import re
+            response_text_raw = await llm_service.chat(
                 messages=messages,
                 model_name="gpt-4o", # Use smart model for planning
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                strip_think=False
             )
             
+            # Extract thinking
+            think_match = re.search(r"<think>(.*?)</think>", response_text_raw, flags=re.DOTALL | re.IGNORECASE)
+            reasoning = None
+            if think_match:
+                reasoning = think_match.group(1).strip()
+                response_text = re.sub(r"<think>.*?</think>", "", response_text_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            else:
+                response_text = response_text_raw
+
             plan_data = json.loads(response_text)
             sections = plan_data.get("sections", [])
             
@@ -140,6 +152,14 @@ Generate the Research Plan JSON.
             
             if not sections:
                 return PrimitiveResult(success=False, error="Planner generated no sections.")
+            
+            return PrimitiveResult(
+                success=True,
+                output={
+                    target_var: sections,
+                    "reasoning": reasoning
+                }
+            )
             
         except Exception as e:
             return PrimitiveResult(success=False, error=f"Planner failed: {e}")

@@ -401,6 +401,40 @@ class TextTemplatePrimitive(BasePrimitive):
             print(f"[TextTemplate] Using Model: {llm_model}")
             output_var = params.get("output_variable", "generated_markdown")
             
+            # Initialize reasoning collection
+            aggregated_reasoning = []
+            
+            def add_reasoning(label, trace):
+                if trace:
+                    aggregated_reasoning.append(f"### {label}\n{trace}")
+                    
+            def extract_and_clean(raw_text):
+                trace = None
+                think_match = re.search(r"<think>(.*?)</think>", raw_text, flags=re.DOTALL | re.IGNORECASE)
+                if think_match:
+                    trace = think_match.group(1).strip()
+                    clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
+                else:
+                    clean_text = raw_text
+                return clean_text, trace
+            
+            # Initialize reasoning collection
+            aggregated_reasoning = []
+            
+            def add_reasoning(label, trace):
+                if trace:
+                    aggregated_reasoning.append(f"### {label}\n{trace}")
+                    
+            def extract_and_clean(raw_text):
+                trace = None
+                think_match = re.search(r"<think>(.*?)</think>", raw_text, flags=re.DOTALL | re.IGNORECASE)
+                if think_match:
+                    trace = think_match.group(1).strip()
+                    clean_text = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL | re.IGNORECASE).strip()
+                else:
+                    clean_text = raw_text
+                return clean_text, trace
+            
             # Auto-detect input if source_text is empty
             if not source_text_raw or not source_text_raw.strip():
                 # Try common input field names from JSON_MAPPING
@@ -746,7 +780,8 @@ Specific Instructions:
                     chat_kwargs = {
                         "messages": messages, 
                         "model_name": llm_model,
-                        "temperature": 0.7
+                        "temperature": 0.7,
+                        "strip_think": False
                     }
                     
                     # Pass status callbacks if available
@@ -765,7 +800,10 @@ Specific Instructions:
                                     cb(msg)
                             except: pass
 
-                    response_text = await llm_service.chat(**chat_kwargs)
+                    response_text_raw = await llm_service.chat(**chat_kwargs)
+                    clean_text, trace = extract_and_clean(response_text_raw)
+                    add_reasoning("Strict Generation", trace)
+                    response_text = clean_text
                     
                     end_time = time.time()
                     duration = end_time - start_time
@@ -858,7 +896,8 @@ Specific Instructions:
                         output={
                             output_var: content_str, 
                             "visualizer_output": viz_output_data, 
-                            "_raw": content_str 
+                            "_raw": content_str,
+                            "reasoning": "\n\n".join(aggregated_reasoning) if aggregated_reasoning else None
                         }
                     )
                 except Exception as e:
@@ -908,7 +947,14 @@ Specific Instructions:
                             Message(role="system", content=assign_system_prompt),
                             Message(role="user", content=assign_user_prompt)
                         ]
-                        result_str = await llm_service.chat(assign_messages, model_name=llm_model, response_format={"type": "json_object"})
+                        result_str_raw = await llm_service.chat(
+                            assign_messages, 
+                            model_name=llm_model, 
+                            response_format={"type": "json_object"},
+                            strip_think=False
+                        )
+                        result_str, trace = extract_and_clean(result_str_raw)
+                        add_reasoning(f"Assignment: {assign_to}", trace)
                         
                         import json
                         clean_response = result_str.strip()
@@ -1003,7 +1049,7 @@ Rules:
                 # 3a. Summarize Source Text in Chunks
                 # We need to reduce source_text to something manageable.
                 # Pass token_limit to helper. Use formatted_source for better splitting safety.
-                summarized_context = await self._summarize_in_chunks(formatted_source, llm_model, token_limit)
+                summarized_context = await self._summarize_in_chunks(formatted_source, llm_model, token_limit, reasoning_callback=add_reasoning)
                 
                 print(f"[TextTemplate] Chunked processing complete. Reduced context to {len(summarized_context)} chars.")
                 
@@ -1031,7 +1077,9 @@ Rules:
                      print(f"Logging failed: {log_e}")
                 # ---------------------
                 
-                filled_body = await llm_service.chat(messages, model_name=llm_model)
+                filled_body_raw = await llm_service.chat(messages, model_name=llm_model, strip_think=False)
+                filled_body, trace = extract_and_clean(filled_body_raw)
+                add_reasoning("Final Generation", trace)
                 
             else:
                 # 3b. Direct Execution
@@ -1052,28 +1100,11 @@ Rules:
                      print(f"Logging failed: {log_e}")
                 # ---------------------
                 
-                filled_body = await llm_service.chat(messages, model_name=llm_model)
+                filled_body_raw = await llm_service.chat(messages, model_name=llm_model, strip_think=False)
+                filled_body, trace = extract_and_clean(filled_body_raw)
+                add_reasoning("Final Generation", trace)
             
-            # Strip any reasoning/thinking tags from LLM response
-            # Some LLMs include <think>...</think> blocks for reasoning
-            raw_response = filled_body
-            print(f"[TextTemplate] Raw LLM Output (Len: {len(raw_response)}): {raw_response[:500]}...")
-            
-            filled_body = re.sub(r'<think>.*?</think>', '', filled_body, flags=re.DOTALL | re.IGNORECASE).strip()
-            
-            # FALLBACK: If stripping resulted in empty content but we had content, the regex might have been too aggressive
-            # or the model put the answer inside the think block? OR valid answer was lost.
-            if not filled_body and raw_response:
-                print(f"[TextTemplate] WARNING: Content empty after <think> strip. Raw length was {len(raw_response)}.")
-                # Try to salvage: often models might malform tags like <think> ... (no closing)
-                # For now, let's fallback to raw response if it's short, or a specific message
-                if len(raw_response) < 50:
-                     filled_body = raw_response # Just give back what we have
-                else:
-                     # If it was all thinking, maybe we treat it as the answer? 
-                     # Or maybe the greedy regex swallowed everything?
-                     print("[TextTemplate] Restoring raw response as fallback.")
-                     filled_body = raw_response
+            # Reassembly already uses filled_body which is cleaned
             
             # Step 4: Reassemble - prepend frontmatter if it exists
             if frontmatter:
@@ -1093,7 +1124,8 @@ Rules:
                     "status": status,
                     "frontmatter": frontmatter,
                     "filled_body": filled_body,
-                    "_raw": generated_markdown
+                    "_raw": generated_markdown,
+                    "reasoning": "\n\n".join(aggregated_reasoning) if aggregated_reasoning else None
                 }
             )
             
@@ -1103,7 +1135,7 @@ Rules:
                 error=f"Markdown generation failed: {str(e)}"
             )
     
-    async def _summarize_in_chunks(self, text: str, model_name: str, token_limit: int = 4096) -> str:
+    async def _summarize_in_chunks(self, text: str, model_name: str, token_limit: int = 4096, reasoning_callback=None) -> str:
         """
         Split text into chunks and summarize each to reduce context side.
         """
@@ -1129,7 +1161,20 @@ Rules:
                     Message(role="system", content="You are a precise summarizer."),
                     Message(role="user", content=prompt)
                 ]
-                summary = await llm_service.chat(messages, model_name=model_name)
+                summary_raw = await llm_service.chat(messages, model_name=model_name, strip_think=False)
+                
+                # Manual extraction for chunks
+                trace = None
+                think_match = re.search(r"<think>(.*?)</think>", summary_raw, flags=re.DOTALL | re.IGNORECASE)
+                if think_match:
+                    trace = think_match.group(1).strip()
+                    summary = re.sub(r"<think>.*?</think>", "", summary_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+                else:
+                    summary = summary_raw
+                
+                if reasoning_callback and trace:
+                    reasoning_callback(f"Chunk {i+1} Summary", trace)
+                    
                 summaries.append(summary)
             except Exception as e:
                 print(f"[TextTemplate] Error summarizing chunk {i}: {e}")

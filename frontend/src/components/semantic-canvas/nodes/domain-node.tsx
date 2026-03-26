@@ -215,7 +215,7 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
 
             {/* Main Container Wrapper - No Opacity ensures child elements like Label are fully visible */}
             <div
-                className="w-full h-full relative"
+                className="w-full h-full relative group"
                 onContextMenu={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -487,27 +487,39 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    className={cn(
+                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                        selected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                    )}
                     style={{ zIndex: 50 }}
                 />
                 <Handle
                     type="source"
                     position={Position.Right}
-                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    className={cn(
+                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                        selected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                    )}
                     style={{ zIndex: 50 }}
                 />
                 <Handle
                     type="target"
                     id="top"
                     position={Position.Top}
-                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    className={cn(
+                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                        selected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                    )}
                     style={{ zIndex: 50 }}
                 />
                 <Handle
                     type="source"
                     id="bottom"
                     position={Position.Bottom}
-                    className="!w-3 !h-3 !bg-orange-500 border-2 border-white dark:border-slate-950 opacity-0 hover:opacity-100 transition-opacity"
+                    className={cn(
+                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                        selected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                    )}
                     style={{ zIndex: 50 }}
                 />
             </div>

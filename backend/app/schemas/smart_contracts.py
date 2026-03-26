@@ -60,6 +60,7 @@ class AnalysisResults(BaseModel):
     sections: List[AnalyzedSection]
     raw_data_points: Dict[str, Any] = Field(default_factory=dict)
     formatted_output: Optional[str] = Field(None, description="Use this for requested specific formats like Markdown tables, code blocks, or matrices.")
+    reasoning: Optional[str] = Field(None, description="AI reasoning/thinking trace")
 
 class AgentOutput(BaseModel):
     analysis_results: AnalysisResults

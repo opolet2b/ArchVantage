@@ -599,22 +599,62 @@ export function InspectorPanel() {
 
                                     const renderMarkdown = (text: string) => {
                                         if (typeof text !== 'string') return String(text);
-                                        const lines = text.split('\n');
-                                        return lines.map((line, i) => {
-                                            const isBullet = line.trim().startsWith('-');
-                                            const cleanLine = isBullet ? line.trim().substring(1).trim() : line;
-                                            const parts = cleanLine.split(/(\*\*.*?\*\*)/g);
-                                            const formattedLine = parts.map((part, pi) => {
-                                                if (part.startsWith('**') && part.endsWith('**')) {
-                                                    return <strong key={pi} className="text-purple-700 dark:text-purple-300 font-semibold">{part.slice(2, -2)}</strong>;
+                                        
+                                        // Handle <think> tags specifically by splitting blocks
+                                        const blocks = text.split(/(<think>[\s\S]*?<\/think>)/g);
+                                        
+                                        return blocks.map((block, bi) => {
+                                            if (block.startsWith('<think>') && block.endsWith('</think>')) {
+                                                const thought = block.slice(7, -8).trim();
+                                                if (!thought) return null;
+                                                return (
+                                                    <div key={bi} className="my-2 p-2 bg-slate-100/30 dark:bg-slate-800/30 border-l-2 border-purple-300 dark:border-purple-700 rounded-r-md text-[10px] italic text-muted-foreground leading-snug">
+                                                        <div className="font-bold text-[8px] uppercase mb-1 opacity-50 flex items-center gap-1">
+                                                            <Sparkles className="w-2 h-2" />
+                                                            Thinking Process
+                                                        </div>
+                                                        {thought.split('\n').map((line, li) => (
+                                                            <div key={li} className="min-h-[0.5rem]">{line}</div>
+                                                        ))}
+                                                    </div>
+                                                );
+                                            }
+
+                                            const lines = block.split('\n');
+                                            return lines.map((line, i) => {
+                                                const trimmed = line.trim();
+                                                if (!trimmed && i < lines.length - 1) return <div key={`${bi}-${i}`} className="h-1" />;
+                                                
+                                                const isBullet = trimmed.startsWith('-');
+                                                const isHeader = trimmed.startsWith('#');
+                                                
+                                                let cleanLine = line;
+                                                let className = "mb-1 text-[11px] leading-relaxed";
+                                                
+                                                if (isBullet) {
+                                                    cleanLine = trimmed.substring(1).trim();
+                                                    className = cn(className, "pl-4 relative before:content-['•'] before:absolute before:left-0 before:text-purple-400");
+                                                } else if (isHeader) {
+                                                    const level = (trimmed.match(/^#+/) || ['#'])[0].length;
+                                                    cleanLine = trimmed.replace(/^#+\s*/, '');
+                                                    className = cn(className, "font-bold text-purple-900 dark:text-purple-100 mt-2 mb-1", 
+                                                        level === 1 ? "text-sm" : "text-[12px]");
                                                 }
-                                                return part;
+
+                                                const parts = cleanLine.split(/(\*\*.*?\*\*)/g);
+                                                const formattedLine = parts.map((part, pi) => {
+                                                    if (part.startsWith('**') && part.endsWith('**')) {
+                                                        return <strong key={pi} className="text-purple-700 dark:text-purple-300 font-semibold">{part.slice(2, -2)}</strong>;
+                                                    }
+                                                    return part;
+                                                });
+                                                
+                                                return (
+                                                    <div key={`${bi}-${i}`} className={className}>
+                                                        {formattedLine}
+                                                    </div>
+                                                );
                                             });
-                                            return (
-                                                <div key={i} className={cn("mb-1 text-[11px] leading-relaxed", isBullet && "pl-4 relative before:content-['•'] before:absolute before:left-0 before:text-purple-400")}>
-                                                    {formattedLine}
-                                                </div>
-                                            );
                                         });
                                     };
 

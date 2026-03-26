@@ -88,17 +88,33 @@ Audit this report.
         
         try:
             print(f"[AUDITOR] Auditing document (Len: {len(doc_content)})...")
-            response = await llm_service.chat(
+            # Use the service's chat with strip_think=False to capture reasoning
+            import re
+            response_raw = await llm_service.chat(
                 messages=messages, 
                 model_name="gpt-4o",
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                strip_think=False
             )
+            
+            # Extract thinking
+            think_match = re.search(r"<think>(.*?)</think>", response_raw, flags=re.DOTALL | re.IGNORECASE)
+            reasoning = None
+            if think_match:
+                reasoning = think_match.group(1).strip()
+                response = re.sub(r"<think>.*?</think>", "", response_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            else:
+                response = response_raw
+            
             result = json.loads(response)
             print(f"[AUDITOR] Result: {result.get('status')}")
             
             return PrimitiveResult(
                 success=True,
-                output={target_var: result}
+                output={
+                    target_var: result,
+                    "reasoning": reasoning
+                }
             )
         except Exception as e:
             return PrimitiveResult(success=False, error=f"Auditor failed: {e}")

@@ -451,7 +451,8 @@ Schema:
                         call_kwargs1 = {
                             "messages": messages, 
                             "model_name": model,
-                            "response_format": {"type": "json_object"}
+                            "response_format": {"type": "json_object"},
+                            "strip_think": False # Preserve thinking trace for extraction
                         }
                         
                         # Pass status callbacks if available
@@ -459,7 +460,18 @@ Schema:
                         if status_callbacks:
                             call_kwargs1["callbacks"] = status_callbacks
 
-                        response_text = await llm_service.chat(**call_kwargs1)
+                        raw_response = await llm_service.chat(**call_kwargs1)
+                        
+                        # Extract thinking trace if present
+                        import re
+                        reasoning_trace = None
+                        think_match = re.search(r"<think>(.*?)</think>", raw_response, flags=re.DOTALL)
+                        if think_match:
+                            reasoning_trace = think_match.group(1).strip()
+                            # Strip from main response
+                            response_text = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL).strip()
+                        else:
+                            response_text = raw_response
                         
                         print(f"[LLM_PRIM] Raw LLM Response: {response_text}")
                         
@@ -532,6 +544,11 @@ Schema:
                                             print(f"[LLM_PRIM] Unwrap detected. Found 'analysis_results' inside '{key}'")
                                             agent_output_data = agent_output_data[key]
                                             break
+                            
+                            # Inject reasoning if extracted from <think> tags
+                            if reasoning_trace and "analysis_results" in agent_output_data:
+                                if isinstance(agent_output_data["analysis_results"], dict):
+                                    agent_output_data["analysis_results"]["reasoning"] = reasoning_trace
                             
                             AgentOutput(**agent_output_data)
                             
@@ -651,6 +668,7 @@ Schema:
                             "text": final_content_str, # Standard Key for SmartTemplate
                             "generated_markdown": final_content_str, # Standard Key for SmartTemplate
                             "agent_output": agent_output_data, # The Full Data Object
+                            "reasoning": reasoning_trace, # Capture for AI Trace UI
                             "_raw": agent_output_data # Consistency
                         }
                     )
@@ -678,12 +696,23 @@ Schema:
             # Prepare fallback call kwargs
             call_kwargs2 = {
                 "messages": messages,
-                "model_name": model
+                "model_name": model,
+                "strip_think": False # Preserve for manual extraction
             }
             if "status_callbacks" in state:
                 call_kwargs2["callbacks"] = state["status_callbacks"]
 
-            response = await llm_service.chat(**call_kwargs2)
+            raw_response = await llm_service.chat(**call_kwargs2)
+            
+            # Extract thinking trace
+            import re
+            reasoning_trace = None
+            think_match = re.search(r"<think>(.*?)</think>", raw_response, flags=re.DOTALL)
+            if think_match:
+                reasoning_trace = think_match.group(1).strip()
+                response = re.sub(r"<think>.*?</think>", "", raw_response, flags=re.DOTALL).strip()
+            else:
+                response = raw_response
             
             # Fallback for empty results
             final_response = response
@@ -697,6 +726,7 @@ Schema:
                     output_var: final_response,
                     "generated_markdown": final_response,
                     "text": final_response,  # Added for aggregator template compatibility
+                    "reasoning": reasoning_trace, # Capture for AI Trace UI
                     "_raw": response
                 }
             )

@@ -64,6 +64,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
             linked_ids.add(target_id)
             
         # 2a. Domain Context
+        domain_item_ids = set()
         if convo_node.domain_id:
             debug_log.append(f"Conversation is in domain: {convo_node.domain_id}")
             def get_descendant_domain_ids(root_id):
@@ -79,6 +80,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 CanvasThing.id != convo_node.id
             ).all()
             for t in domain_things:
+                domain_item_ids.add(t.id)
                 linked_ids.add(t.id)
 
         # 2b. Linked Domains Context
@@ -101,6 +103,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                  
                  debug_log.append(f"Added {len(domain_children)} items from linked domain {domain.name}")
                  for child in domain_children:
+                     domain_item_ids.add(child.id) # Treat linked domain items as "domain items"
                      linked_ids.add(child.id)
 
         # 3. Global Fallback
@@ -111,6 +114,7 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 CanvasThing.id != convo_node.id
             ).all()
             for t in all_things:
+                domain_item_ids.add(t.id) # In global fallback, everything is a domain item
                 linked_ids.add(t.id)
 
         if linked_ids:
@@ -195,9 +199,23 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
 
 
             # C. Generate Context Manifest
-            manifest_text = "You have access to the following context items:\n"
-            for node in linked_nodes:
-                 manifest_text += f"- {node.title} ({node.type})\n"
+            manifest_text = "CURRENT ACTIVITY INVENTORY (Authorized items in scope):\n"
+            
+            domain_nodes = [n for n in linked_nodes if n.id in domain_item_ids]
+            external_nodes = [n for n in linked_nodes if n.id not in domain_item_ids]
+
+            if domain_nodes:
+                manifest_text += "ITEMS CURRENTLY IN DOMAIN:\n"
+                for node in sorted(domain_nodes, key=lambda x: x.title or ""):
+                     manifest_text += f"- {node.title} (Type: {node.type}, ID: {node.id})\n"
+            
+            if external_nodes:
+                manifest_text += "\nEXTERNAL LINKED REFERENCES (Linked but NOT part of the current domain):\n"
+                for node in sorted(external_nodes, key=lambda x: x.title or ""):
+                     manifest_text += f"- {node.title} (Type: {node.type}, ID: {node.id})\n"
+
+            if not linked_nodes:
+                manifest_text += "(No items currently in scope)\n"
 
             # D. Inject Graph Relationships
             if linked_ids:
@@ -450,16 +468,23 @@ async def chat_endpoint(
         )
         
         # Construct the "Query" for synthesis
-        # We include the conversation history context for the synthesizer
+        # We include the conversation history context and the active manifest
         history_summary = ""
         if len(final_messages) > 1:
             prev_msgs = final_messages[:-1]
-            history_summary = "Conversation history:\n" + "\n".join([f"{m.role}: {m.content[:200]}..." for m in prev_msgs[-5:]])
+            history_summary = "CONVERSATION HISTORY (May contain references to items no longer in scope):\n" + "\n".join([f"{m.role}: {m.content[:200]}..." for m in prev_msgs[-5:]])
+        
+        manifest_text = ctx_result.get("manifest_text") if request.conversation_id else ""
         
         full_query = (
             f"{history_summary}\n\n"
-            f"User Question: {last_msg}\n\n"
-            f"IMPORTANT: You MUST cite the sources used in your answer. "
+            f"{manifest_text}\n\n"
+            f"USER QUESTION: {last_msg}\n\n"
+            f"CRITICAL CONTEXT INSTRUCTION: Over the course of a conversation, items may be added or removed from the domain. "
+            f"The 'CURRENT ACTIVITY INVENTORY' above represents the authoritative list of items currently in the conversation's scope. "
+            f"If the user asks about 'how many' items there are, or refers to 'these items', ONLY consider those in the CURRENT ACTIVITY INVENTORY. "
+            f"Items mentioned in the CONVERSATION HISTORY but MISSING from the CURRENT ACTIVITY INVENTORY should be treated as having been removed from the context. "
+            f"\n\nIMPORTANT: You MUST cite the sources used in your answer. "
             f"Use inline citations in the format 【Source Name】 (e.g., 【Slide 7】 or 【E-Government Strategy】) as shown in the context blocks. "
             f"Place these markers immediately after the sentences or facts they support."
         )

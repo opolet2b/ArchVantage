@@ -173,7 +173,7 @@ class LLMService:
                 converted.append(SystemMessage(content=msg.content))
         return converted
 
-    async def chat(self, messages: List[Message], model_name: str = "gpt-3.5-turbo", **kwargs) -> str:
+    async def chat(self, messages: List[Message], model_name: str = "gpt-3.5-turbo", strip_think: bool = True, **kwargs) -> str:
         try:
             llm, resolved_name = self._get_model(model_name)
             
@@ -243,7 +243,7 @@ class LLMService:
                 # Post-processing: Remove <think> tags (Reasoning Models)
                 import re
                 content = response.content
-                if "<think>" in content:
+                if strip_think and "<think>" in content:
                     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
                 
                 print(f"[LLMService] DEBUG: llm.ainvoke returned. Content len: {len(content) if content else 0}")

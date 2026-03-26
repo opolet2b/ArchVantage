@@ -385,7 +385,8 @@ MODE: SEMANTIC ANALYSIS
             
             call_kwargs = {
                 "messages": messages,
-                "model_name": model
+                "model_name": model,
+                "strip_think": False # Preserve for manual extraction
             }
             
             # Extract callbacks from state if available
@@ -407,7 +408,17 @@ MODE: SEMANTIC ANALYSIS
             print(f"[EXTRACTOR] calling LLM at {start_time}. Payload size: {payload_size/1024:.2f} KB")
             
             print(f"[EXTRACTOR] DEBUG: Invoking llm_service.chat()...")
-            response_text = await llm_service.chat(**call_kwargs)
+            response_text_raw = await llm_service.chat(**call_kwargs)
+            
+            # Extract thinking trace
+            reasoning_trace = None
+            think_match = re.search(r"<think>(.*?)</think>", response_text_raw, flags=re.DOTALL)
+            if think_match:
+                reasoning_trace = think_match.group(1).strip()
+                response_text = re.sub(r"<think>.*?</think>", "", response_text_raw, flags=re.DOTALL).strip()
+            else:
+                response_text = response_text_raw
+            
             print(f"[EXTRACTOR] DEBUG: llm_service.chat() RETURNED. Length: {len(response_text)}")
             
             end_time = time.time()
@@ -556,7 +567,13 @@ MODE: SEMANTIC ANALYSIS
                 state["variables"]["extractor_output"] = extracted_data
                 
                 print(f"[EXTRACTOR] DEBUG: Success! Returning PrimitiveResult.")
-                return PrimitiveResult(success=True, output=extracted_data)
+                return PrimitiveResult(
+                    success=True, 
+                    output={
+                        **extracted_data,
+                        "reasoning": reasoning_trace # Capture for AI Trace UI
+                    }
+                )
             except Exception as e:
                 # --- LAST DITCH FALLBACK ---
                 # If everything fails, don't crash the pipeline. 
@@ -619,11 +636,20 @@ Your task is to EXTRACT precise, relevant content from the provided text based o
             
             try:
                 # Call LLM (Standard Text Mode)
-                response_text = await llm_service.chat(
+                response_text_raw = await llm_service.chat(
                     messages=messages,
-                    model_name=model
-                    # No response_format="json_object"
+                    model_name=model,
+                    strip_think=False
                 )
+                
+                # Extract thinking trace
+                reasoning_trace = None
+                think_match = re.search(r"<think>(.*?)</think>", response_text_raw, flags=re.DOTALL)
+                if think_match:
+                    reasoning_trace = think_match.group(1).strip()
+                    response_text = re.sub(r"<think>.*?</think>", "", response_text_raw, flags=re.DOTALL).strip()
+                else:
+                    response_text = response_text_raw
                 
                 # Store result
                 if "variables" not in state:
@@ -642,7 +668,10 @@ Your task is to EXTRACT precise, relevant content from the provided text based o
                 # Also set as current output implicitly via result
                 return PrimitiveResult(
                     success=True,
-                    output=final_output
+                    output={
+                        "text": final_output,
+                        "reasoning": reasoning_trace
+                    }
                 )
                 
             except Exception as e:
@@ -689,11 +718,21 @@ Schema:
         
         # 3. Call LLM
         try:
-            response_text = await llm_service.chat(
+            response_text_raw = await llm_service.chat(
                 messages=messages,
                 model_name=model,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                strip_think=False
             )
+            
+            # Extract thinking trace
+            reasoning_trace = None
+            think_match = re.search(r"<think>(.*?)</think>", response_text_raw, flags=re.DOTALL)
+            if think_match:
+                reasoning_trace = think_match.group(1).strip()
+                response_text = re.sub(r"<think>.*?</think>", "", response_text_raw, flags=re.DOTALL).strip()
+            else:
+                response_text = response_text_raw
             
             # 4. Parse result
             try:
@@ -717,7 +756,10 @@ Schema:
             
             return PrimitiveResult(
                 success=True,
-                output=extracted_data
+                output={
+                    **extracted_data,
+                    "reasoning": reasoning_trace
+                }
             )
             
         except Exception as e:

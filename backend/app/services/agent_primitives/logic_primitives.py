@@ -127,11 +127,22 @@ class LogicIfElsePrimitive(BasePrimitive):
         model_name = self.get_llm_config(state)
         from app.models.chat import Message
         
-        decision_text = await llm_service.chat(
+        import re
+        decision_text_raw = await llm_service.chat(
             messages=[Message(role="user", content=prompt)],
             model_name=model_name, 
-            temperature=0.0
+            temperature=0.0,
+            strip_think=False
         )
+        
+        # Extract thinking
+        think_match = re.search(r"<think>(.*?)</think>", decision_text_raw, flags=re.DOTALL | re.IGNORECASE)
+        think_trace = ""
+        if think_match:
+            think_trace = think_match.group(1).strip()
+            decision_text = re.sub(r"<think>.*?</think>", "", decision_text_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+        else:
+            decision_text = decision_text_raw
         
         # Robust Verdict Extraction using regex
         verdict_match = re.search(r"VERDICT:\s*(TRUE|FALSE)", decision_text, re.IGNORECASE)
@@ -150,7 +161,12 @@ class LogicIfElsePrimitive(BasePrimitive):
         
         self._log_debug(f"[{label}] Result: {is_true} | Reasoning: {reasoning[:200]}...", state, extra={"reasoning": reasoning})
         
-        return is_true, reasoning
+        # Combine reasoning and thinking trace
+        full_reasoning = reasoning
+        if think_trace:
+            full_reasoning = f"{reasoning}\n\n<think>\n{think_trace}\n</think>"
+            
+        return is_true, full_reasoning
 
     async def execute(self, params: Dict[str, Any], state: Dict[str, Any]) -> PrimitiveResult:
         mode = params.get("mode", "simple")

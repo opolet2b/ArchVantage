@@ -146,7 +146,18 @@ class LLMDecisionPrimitive(BasePrimitive):
                 ]
             
             # Call LLM
-            response = await llm_service.chat(messages, model_name=model)
+            # Use the service's chat with strip_think=False to capture reasoning
+            import re
+            response_raw = await llm_service.chat(messages, model_name=model, strip_think=False)
+            
+            # Extract thinking
+            think_match = re.search(r"<think>(.*?)</think>", response_raw, flags=re.DOTALL | re.IGNORECASE)
+            reasoning = None
+            if think_match:
+                reasoning = think_match.group(1).strip()
+                response = re.sub(r"<think>.*?</think>", "", response_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            else:
+                response = response_raw
             
             # Handle routing if enabled
             next_node = None
@@ -162,7 +173,7 @@ class LLMDecisionPrimitive(BasePrimitive):
                 success=True,
                 output={
                     output_var: response,
-                    "reasoning": response,
+                    "reasoning": reasoning,
                     "_raw": response
                 },
                 next_node=next_node

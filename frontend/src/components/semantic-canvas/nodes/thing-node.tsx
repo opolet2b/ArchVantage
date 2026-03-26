@@ -2401,12 +2401,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className={cn("!w-3 !h-3", colorTheme.handleColor)}
+                    className={cn("!w-4 !h-4", colorTheme.handleColor)}
                 />
                 <Handle
                     type="source"
                     position={Position.Right}
-                    className={cn("!w-3 !h-3", colorTheme.handleColor)}
+                    className={cn("!w-4 !h-4", colorTheme.handleColor)}
                 />
 
                 {/* Title Label - Static below icon */}
@@ -2431,7 +2431,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     if (zoomLevel === "domain") {
         // Massive Icon Level (20x larger than standard 16px)
         return (
-            <div className="flex flex-col items-center gap-10 p-12 whitespace-nowrap">
+            <div className="flex flex-col items-center gap-10 p-12 whitespace-nowrap group">
                 <div
                     className={cn(
                         "w-80 h-80 rounded-3xl flex items-center justify-center",
@@ -2455,8 +2455,22 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     </div>
                 </div>
 
-                <Handle type="target" position={Position.Left} className="opacity-0" />
-                <Handle type="source" position={Position.Right} className="opacity-0" />
+                <Handle
+                    type="target"
+                    position={Position.Left}
+                    className={cn(
+                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                        isSelected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                    )}
+                />
+                <Handle
+                    type="source"
+                    position={Position.Right}
+                    className={cn(
+                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                        isSelected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                    )}
+                />
             </div>
         );
     }
@@ -3040,12 +3054,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}
+                    className={cn("!w-4 !h-4 z-50", colorTheme.handleColor)}
                 />
                 <Handle
                     type="source"
                     position={Position.Right}
-                    className={cn("!w-3 !h-3 z-50", colorTheme.handleColor)}
+                    className={cn("!w-4 !h-4 z-50", colorTheme.handleColor)}
                 />
 
                 {/* Automation Processing Overlay */}

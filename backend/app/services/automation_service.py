@@ -322,40 +322,68 @@ class AutomationService:
         """
         Recursively extract all reasoning/explanation strings from execution steps and outputs.
         Prioritizes chronological order of steps and recursively follows sub_steps.
+        Perform a deep search for reasoning keys and <think> tags in any string.
         """
         all_reasoning = []
-        reasoning_keys = ["reasoning", "rationale", "explanation", "insight", "ai_insight"]
+        reasoning_keys = ["reasoning", "rationale", "explanation", "insight", "ai_insight", "thought", "thinking"]
         
+        def deep_search_reasoning(data: Any) -> List[str]:
+            found = []
+            if isinstance(data, dict):
+                # 1. Check for explicit reasoning keys
+                for k, v in data.items():
+                    if any(x in k.lower() for x in reasoning_keys) and isinstance(v, str) and v.strip():
+                        if v not in found:
+                            found.append(v)
+                
+                # 2. Recurse into nested dicts/lists
+                for v in data.values():
+                    found.extend(deep_search_reasoning(v))
+            
+            elif isinstance(data, list):
+                for item in data:
+                    found.extend(deep_search_reasoning(item))
+            
+            elif isinstance(data, str):
+                # 3. Look for <think> tags even if not in a known key
+                if "<think>" in data and "</think>" in data:
+                    # Extract the think content
+                    import re
+                    matches = re.findall(r"<think>([\s\S]*?)</think>", data, re.IGNORECASE)
+                    for m in matches:
+                        if m.strip() and m.strip() not in found:
+                            found.append(m.strip())
+            
+            return found
+
         def process_step_list(step_list: List[Dict], prefix: str = ""):
             for step in step_list:
                 node_type = step.get("node_type", "")
                 node_label = step.get("node_label", "")
                 step_out = step.get("output_data") or {}
                 
-                # 1. Extraction logic for reasoning/rationale in this specific step
-                reasoning = None
-                for k, v in step_out.items():
-                    if any(x in k.lower() for x in reasoning_keys) and isinstance(v, str) and v.strip():
-                        reasoning = v
-                        break
+                # Deep search for reasoning in this step
+                step_reasonings = deep_search_reasoning(step_out)
                 
-                if reasoning:
+                for r in step_reasonings:
                     cond = step_out.get("condition")
                     header = f"{prefix}Step '{node_label}'" if node_label else f"{prefix}Node {node_type}"
-                    extracted = f"{header} (Condition '{cond}'): {reasoning}" if cond else f"{header}: {reasoning}"
+                    # If the reasoning already contains <think>, we strip it here because 
+                    # the UI handler in inspector-panel.tsx expects raw content in ai_insight 
+                    # or it will double-tag it. Actually, wait.
+                    # The UI expecting <think> tags is GOOD. 
+                    
+                    # Ensure the reasoning is wrapped in <think> if it's not already, 
+                    # so the UI can style it as a thinking block.
+                    formatted_r = r
+                    if "<think>" not in r.lower():
+                        formatted_r = f"<think>{r}</think>"
+                    
+                    extracted = f"{header} (Condition '{cond}'):\n{formatted_r}" if cond else f"{header}:\n{formatted_r}"
                     if extracted not in all_reasoning:
                          all_reasoning.append(extracted)
                 
-                # 2. Iterative Branch results (Legacy support)
-                if node_type == "LOGIC_IF_ELSE" and "results" in step_out:
-                    iter_results = step_out.get("results", [])
-                    for ir in iter_results:
-                        if isinstance(ir, dict) and ir.get("reasoning"):
-                            r = ir.get("reasoning")
-                            if r not in all_reasoning:
-                                all_reasoning.append(f"{prefix}Iteration Loop: {r}")
-
-                # 3. GENERIC RECURSION: Follow sub_steps if they exist
+                # GENERIC RECURSION: Follow sub_steps if they exist
                 sub_steps = step.get("sub_steps")
                 if isinstance(sub_steps, list) and sub_steps:
                     process_step_list(sub_steps, prefix=f"{prefix}> ")
@@ -364,29 +392,24 @@ class AutomationService:
         if steps:
             process_step_list(steps)
 
-        # 4. Check final output for any additional reasoning (e.g. pipeline-level summary)
-
-        # 2. Check final output for any additional reasoning (e.g. pipeline-level summary)
+        # Process final output
         if final_output and isinstance(final_output, dict):
-            # Check direct keys
-            for k, v in final_output.items():
-                if any(x in k.lower() for x in reasoning_keys) and isinstance(v, str) and v.strip():
-                    if v not in all_reasoning:
-                        # Only add if it doesn't look like a duplicate of the last step's reasoning
-                        # Often final_output['reasoning'] IS just the last step's reasoning.
-                        is_duplicate = False
-                        if all_reasoning:
-                            last_r = all_reasoning[-1]
-                            if v in last_r or last_r in v:
-                                is_duplicate = True
-                        
-                        if not is_duplicate:
-                            all_reasoning.append(v)
+            final_reasonings = deep_search_reasoning(final_output)
+            for r in final_reasonings:
+                if r not in all_reasoning:
+                    # Check for duplicates from steps
+                    is_duplicate = False
+                    for existing in all_reasoning:
+                        if r in existing:
+                            is_duplicate = True
+                            break
+                    if not is_duplicate:
+                        formatted_r = r if "<think>" in r.lower() else f"<think>{r}</think>"
+                        all_reasoning.append(formatted_r)
             
             # Check nested pipeline results (Standard for GenericPipelinePrimitive)
             pipeline_results = final_output.get("pipeline_results", {})
             if isinstance(pipeline_results, dict):
-                # Try to sort keys if they are numbers-as-strings to maintain chronological order
                 try:
                     sorted_keys = sorted(pipeline_results.keys(), key=lambda x: int(x) if x.isdigit() else x)
                 except:
@@ -395,11 +418,11 @@ class AutomationService:
                 for step_id in sorted_keys:
                     step_out = pipeline_results[step_id]
                     if isinstance(step_out, dict):
-                         # Recursively check this dict
-                         sub_r = self._extract_all_reasonings([], step_out)
-                         for r in sub_r:
+                         sub_results = deep_search_reasoning(step_out)
+                         for r in sub_results:
                              if r not in all_reasoning:
-                                 all_reasoning.append(r)
+                                 formatted_r = r if "<think>" in r.lower() else f"<think>{r}</think>"
+                                 all_reasoning.append(formatted_r)
 
         return all_reasoning
 

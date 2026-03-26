@@ -91,12 +91,26 @@ Rewrite and Improve.
         
         try:
             print(f"[REFINER] Refining document...")
-            response = await llm_service.chat(messages=messages, model_name="gpt-4o")
+            # Use the service's chat with strip_think=False to capture reasoning
+            import re
+            response_raw = await llm_service.chat(messages=messages, model_name="gpt-4o", strip_think=False)
+            
+            # Extract thinking
+            think_match = re.search(r"<think>(.*?)</think>", response_raw, flags=re.DOTALL | re.IGNORECASE)
+            reasoning = None
+            if think_match:
+                reasoning = think_match.group(1).strip()
+                response = re.sub(r"<think>.*?</think>", "", response_raw, flags=re.DOTALL | re.IGNORECASE).strip()
+            else:
+                response = response_raw
             print(f"[REFINER] Refinement complete (Len: {len(response)})")
             
             return PrimitiveResult(
                 success=True,
-                output={target_var: response}
+                output={
+                    target_var: response,
+                    "reasoning": reasoning
+                }
             )
         except Exception as e:
             return PrimitiveResult(success=False, error=f"Refiner failed: {e}")
