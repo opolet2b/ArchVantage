@@ -22,6 +22,8 @@ interface Preset {
     model_api_key?: string
     is_vision?: boolean
     is_embedding?: boolean
+    is_speech?: boolean
+    is_browser_native?: boolean
     context_window?: number
     sort?: "price" | "throughput" | "latency"
 }
@@ -37,12 +39,15 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [modelKey, setModelKey] = useState("")
     const [isVision, setIsVision] = useState(false)
     const [isEmbedding, setIsEmbedding] = useState(false)
+    const [isSpeech, setIsSpeech] = useState(false)
+    const [isBrowserNative, setIsBrowserNative] = useState(false)
     const [isSequential, setIsSequential] = useState(false)
     const [contextWindow, setContextWindow] = useState(4096)
 
     const [defaultLLM, setDefaultLLM] = useState("")
     const [defaultVision, setDefaultVision] = useState("")
     const [defaultEmbedding, setDefaultEmbedding] = useState("")
+    const [defaultSpeech, setDefaultSpeech] = useState("")
 
     // Reset DB Logic
     const [showResetDialog, setShowResetDialog] = useState(false)
@@ -52,14 +57,19 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [availableModels, setAvailableModels] = useState<string[]>([])
     const [presets, setPresets] = useState<Preset[]>([])
     const [selectedPreset, setSelectedPreset] = useState("")
+    const [defaultsLoaded, setDefaultsLoaded] = useState(false)
 
 
     const [loading, setLoading] = useState(false)
     const [saving, setSaving] = useState(false)
 
     useEffect(() => {
-        fetchPresets()
-        fetchDefaults()
+        const init = async () => {
+            await fetchPresets()
+            await fetchDefaults()
+            setDefaultsLoaded(true)
+        }
+        init()
     }, [])
 
     useEffect(() => {
@@ -85,6 +95,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             setDefaultLLM(data.default_llm || "")
             setDefaultVision(data.default_vision || "")
             setDefaultEmbedding(data.default_embedding || "")
+            setDefaultSpeech(data.default_speech || "")
         } catch (error) {
             console.error("Failed to fetch defaults", error)
         }
@@ -128,6 +139,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             }
             setIsVision(!!preset.is_vision)
             setIsEmbedding(!!preset.is_embedding)
+            setIsSpeech(!!(preset as any).is_speech)
+            setIsBrowserNative(!!(preset as any).is_browser_native)
             setIsSequential(!!(preset as any).is_sequential)
             setContextWindow(preset.context_window || 4096)
         }
@@ -151,6 +164,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 model_api_key: type === "remote" ? modelKey : undefined,
                 is_vision: isVision,
                 is_embedding: isEmbedding,
+                is_speech: isSpeech,
+                is_browser_native: isSpeech && type === "local" ? isBrowserNative : false,
                 is_sequential: type === "local" ? isSequential : false,
                 context_window: contextWindow
             }
@@ -210,15 +225,17 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
         }
     }
 
-    const handleSetDefault = async (type: "llm" | "vision", value: string) => {
+    const handleSetDefault = async (type: "llm" | "vision" | "speech", value: string) => {
         try {
             // Optimistic update
             if (type === "llm") setDefaultLLM(value)
-            else setDefaultVision(value)
-
+            else if (type === "vision") setDefaultVision(value)
+            else setDefaultSpeech(value)
+ 
             const payload = {
                 default_llm: type === "llm" ? value : defaultLLM,
-                default_vision: type === "vision" ? value : defaultVision
+                default_vision: type === "vision" ? value : defaultVision,
+                default_speech: type === "speech" ? value : defaultSpeech
             }
 
             const res = await fetch(`${API_URL}/config/defaults`, {
@@ -253,6 +270,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 default_llm: defaultLLM,
                 default_vision: defaultVision,
                 default_embedding: value,
+                default_speech: defaultSpeech,
                 reset_db: resetDb
             }
 
@@ -301,42 +319,63 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Default LLM (Chat)</label>
-                                <select
-                                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    value={defaultLLM}
-                                    onChange={(e) => handleSetDefault("llm", e.target.value)}
-                                >
-                                    <option value="">Select a default...</option>
-                                    {presets.filter(p => !p.is_embedding).map((p) => (
-                                        <option key={p.name} value={p.name}>{p.name}</option>
-                                    ))}
-                                </select>
+                                {defaultsLoaded && (
+                                    <select
+                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        value={defaultLLM}
+                                        onChange={(e) => handleSetDefault("llm", e.target.value)}
+                                    >
+                                        <option value="">Select a default...</option>
+                                        {presets.filter(p => !p.is_embedding && !p.is_speech).map((p) => (
+                                            <option key={p.name} value={p.name}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Default Vision Model</label>
-                                <select
-                                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    value={defaultVision}
-                                    onChange={(e) => handleSetDefault("vision", e.target.value)}
-                                >
-                                    <option value="">Select a default...</option>
-                                    {presets.filter(p => p.is_vision).map((p) => (
-                                        <option key={p.name} value={p.name}>{p.name}</option>
-                                    ))}
-                                </select>
+                                {defaultsLoaded && (
+                                    <select
+                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        value={defaultVision}
+                                        onChange={(e) => handleSetDefault("vision", e.target.value)}
+                                    >
+                                        <option value="">Select a default...</option>
+                                        {presets.filter(p => p.is_vision).map((p) => (
+                                            <option key={p.name} value={p.name}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Default Embedding Model</label>
-                                <select
-                                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    value={defaultEmbedding}
-                                    onChange={(e) => handleSetDefaultEmbedding(e.target.value)}
-                                >
-                                    <option value="">Select a default...</option>
-                                    {presets.filter(p => p.is_embedding).map((p) => (
-                                        <option key={p.name} value={p.name}>{p.name}</option>
-                                    ))}
-                                </select>
+                                {defaultsLoaded && (
+                                    <select
+                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        value={defaultEmbedding}
+                                        onChange={(e) => handleSetDefaultEmbedding(e.target.value)}
+                                    >
+                                        <option value="">Select a default...</option>
+                                        {presets.filter(p => p.is_embedding).map((p) => (
+                                            <option key={p.name} value={p.name}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">Default Speech-to-Text</label>
+                                {defaultsLoaded && (
+                                    <select
+                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        value={defaultSpeech}
+                                        onChange={(e) => handleSetDefault("speech", e.target.value)}
+                                    >
+                                        <option value="">Select a default...</option>
+                                        {presets.filter(p => p.is_speech).map((p) => (
+                                            <option key={p.name} value={p.name}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -415,6 +454,22 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                                 >
                                     Embedding Model
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 border p-4 rounded-md flex-1">
+                            <Checkbox
+                                id="isSpeech"
+                                checked={isSpeech}
+                                onCheckedChange={(c) => setIsSpeech(!!c)}
+                            />
+                            <div className="grid gap-1.5 leading-none">
+                                <label
+                                    htmlFor="isSpeech"
+                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                >
+                                    Speech Model
                                 </label>
                             </div>
                         </div>
@@ -500,6 +555,24 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                     Run sequentially - generally faster/safer for local LLMs
                                 </label>
                             </div>
+
+                            {isSpeech && (
+                                <div className="flex items-center space-x-2 pt-2">
+                                    <input
+                                        type="checkbox"
+                                        id="isBrowserNative"
+                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        checked={isBrowserNative}
+                                        onChange={(e) => setIsBrowserNative(e.target.checked)}
+                                    />
+                                    <label
+                                        htmlFor="isBrowserNative"
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                        Browser native (Only for STT)
+                                    </label>
+                                </div>
+                            )}
                         </div>
                     )}
 

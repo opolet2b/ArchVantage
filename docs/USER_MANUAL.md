@@ -1,4 +1,4 @@
-# Semantic Workbench User Manual
+A# Semantic Workbench User Manual
 
 Welcome to the **Semantic Workbench**, a powerful environment for intelligent investigation, knowledge management, and AI-assisted analysis. This manual will guide you through all features of the application.
 

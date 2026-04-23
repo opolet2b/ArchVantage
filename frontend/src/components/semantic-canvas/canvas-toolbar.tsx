@@ -47,10 +47,13 @@ import domToImage from "dom-to-image-more";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ModelPreset {
+    id?: number | string;
     name: string;
     type: "local" | "remote";
     model_name?: string;
     is_vision?: boolean;
+    is_speech?: boolean;
+    is_browser_native?: boolean;
 }
 
 export const CanvasToolbar = React.memo(function CanvasToolbar() {
@@ -59,6 +62,8 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     // Selectors to minimize re-renders
     const selectedModel = useCanvasStore((s) => s.selectedModel);
     const visionModel = useCanvasStore((s) => s.visionModel);
+    const selectedSttModel = useCanvasStore((s) => s.selectedSttModel);
+    const sttProfiles = useCanvasStore((s) => s.sttProfiles);
     const selectionMode = useCanvasStore((s) => s.selectionMode);
     const showLinks = useCanvasStore((s) => s.showLinks);
     const semanticZoomEnabled = useCanvasStore((s) => s.semanticZoomEnabled);
@@ -73,6 +78,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     // Actions
     const setSelectedModel = useCanvasStore((s) => s.setSelectedModel);
     const setVisionModel = useCanvasStore((s) => s.setVisionModel);
+    const setSelectedSttModel = useCanvasStore((s) => s.setSelectedSttModel);
     const setSelectionMode = useCanvasStore((s) => s.setSelectionMode);
     const toggleShowLinks = useCanvasStore((s) => s.toggleShowLinks);
     const setSemanticZoomEnabled = useCanvasStore((s) => s.setSemanticZoomEnabled);
@@ -99,6 +105,164 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const [kbs, setKbs] = React.useState<any[]>([]);
     const [isLoadingKbs, setIsLoadingKbs] = React.useState(true);
 
+    // -- STT Dictation Logic --
+    const [isDictating, setIsDictating] = React.useState(false);
+    const [isProcessingStt, setIsProcessingStt] = React.useState(false);
+    const recognitionRef = React.useRef<any>(null);
+    const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+    const audioChunksRef = React.useRef<Blob[]>([]);
+
+    const stopDictation = React.useCallback(() => {
+        setIsDictating(false);
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+            mediaRecorderRef.current.stop();
+        }
+    }, []);
+
+    const processTranscribedText = async (text: string) => {
+        if (!text.trim()) return;
+        const state = useCanvasStore.getState();
+        const selectedIds = state.selectedThingIds;
+        
+        if (selectedIds.length === 1) {
+            const thingId = selectedIds[0];
+            const thing = state.things.find(t => t.id === thingId);
+            if (thing && thing.type === "text") {
+                const currentText = typeof thing.content?.text === 'string' ? thing.content.text : '';
+                await state.updateThing(thingId, {
+                    content: { ...thing.content, text: currentText + (currentText.length > 0 && !currentText.endsWith(' ') ? ' ' : '') + text }
+                });
+                return;
+            }
+        }
+
+        // Add a new text thing if nothing selected or wrong type selected
+        const vp = state.viewport;
+        const centerPos = {
+            x: -vp.x / vp.zoom + window.innerWidth / (2 * vp.zoom) - 100,
+            y: -vp.y / vp.zoom + window.innerHeight / (2 * vp.zoom) - 100
+        };
+        await state.addThing("text", { text }, centerPos);
+    };
+
+    const handleToggleGlobalDictation = async () => {
+        if (isDictating) {
+            stopDictation();
+            return;
+        }
+
+        const state = useCanvasStore.getState();
+        const activeSttId = state.selectedSttModel;
+        const activeProfile = models.find((p: any) => p.name === activeSttId);
+
+        if (!activeProfile) {
+            toast({ title: "No STT Profile", description: "Select an STT engine from the top panel.", variant: "destructive" });
+            return;
+        }
+
+        if ((activeProfile as any).provider_type === "BROWSER" || (activeProfile as any).is_browser_native) {
+            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                toast({ title: "Not Supported", description: "Browser native dictation not supported in this browser.", variant: "destructive" });
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false; 
+            recognition.interimResults = false;
+            
+            recognition.onresult = (event: any) => {
+                let finalTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                    }
+                }
+                if (finalTranscript) {
+                    processTranscribedText(finalTranscript);
+                }
+            };
+
+            recognition.onerror = (event: any) => {
+                console.error("Speech recognition error", event.error);
+                if (event.error !== "no-speech") stopDictation();
+            };
+
+            recognition.onend = () => { setIsDictating(false); };
+
+            recognitionRef.current = recognition;
+            recognition.start();
+            setIsDictating(true);
+            toast({ title: "Dictation Started", description: "Speak now. Native recording active." });
+
+        } else {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                mediaRecorderRef.current = mediaRecorder;
+                audioChunksRef.current = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) audioChunksRef.current.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(track => track.stop());
+                    if (audioChunksRef.current.length === 0) return;
+
+                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                    audioChunksRef.current = [];
+                    setIsProcessingStt(true);
+
+                    try {
+                        const token = localStorage.getItem("token");
+                        const formData = new FormData();
+                        formData.append("file", audioBlob, "dictation.webm");
+                        
+                        let configId = (activeProfile as any).id?.toString();
+                        if (!configId) {
+                            const pId = models.find(m => m.name === activeProfile.name);
+                            configId = (pId as any)?.id?.toString() || activeProfile.name;
+                        }
+                        formData.append("config_id", configId);
+
+                        const res = await fetch(`${API_URL}/stt/transcribe`, {
+                            method: "POST",
+                            headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                            body: formData
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.text) processTranscribedText(data.text);
+                        } else {
+                            toast({ title: "Transcription Failed", description: await res.text(), variant: "destructive" });
+                        }
+                    } catch (error) {
+                        console.error("STT transcribing error", error);
+                        toast({ title: "Transcription Error", description: "Failed to reach server.", variant: "destructive" });
+                    } finally {
+                        setIsProcessingStt(false);
+                    }
+                };
+
+                mediaRecorder.start();
+                setIsDictating(true);
+                toast({ title: "Recording Started", description: "Speak now. Click microphone again to transcribe." });
+            } catch (err) {
+                console.error("Mic access denied", err);
+                toast({ title: "Microphone Error", description: "Please allow mic permissions.", variant: "destructive" });
+            }
+        }
+    };
+
+    React.useEffect(() => {
+        return () => { stopDictation(); };
+    }, [stopDictation]);
+
     React.useEffect(() => {
         const fetchModels = async () => {
             try {
@@ -118,11 +282,13 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
 
                     let defaultLlmName: string | null = null;
                     let defaultVisionName: string | null = null;
+                    let defaultSttName: string | null = null;
 
                     if (defaultsRes.ok) {
                         const defaults = await defaultsRes.json();
                         defaultLlmName = defaults.default_llm;
                         defaultVisionName = defaults.default_vision;
+                        defaultSttName = defaults.default_speech;
                     }
 
                     if (!selectedModel) {
@@ -143,9 +309,20 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             }
                         }
                     }
+
+                    if (!selectedSttModel) {
+                        if (defaultSttName && presetList.some(p => p.name === defaultSttName)) {
+                            setSelectedSttModel(defaultSttName);
+                        } else {
+                            const defaultStt = presetList.find(p => (p as any).is_speech);
+                            if (defaultStt) {
+                                setSelectedSttModel(defaultStt.name);
+                            }
+                        }
+                    }
                 }
 
-                if (kbsRes.ok) {
+                if (kbsRes && kbsRes.ok) {
                     const kbData = await kbsRes.json();
                     setKbs(kbData);
                 }
@@ -157,7 +334,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
             }
         };
         fetchModels();
-    }, [selectedModel, visionModel, setSelectedModel, setVisionModel]);
+    }, [selectedModel, visionModel, selectedSttModel, setSelectedModel, setVisionModel, setSelectedSttModel]);
 
     const handleCaptureThumbnail = async () => {
         const containerNode = document.querySelector(".react-flow") as HTMLElement;
@@ -293,6 +470,41 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                     )}
                 </div>
 
+                {/* STT Selector */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
+                    <LucideIcons.Mic className="h-4 w-4" />
+                    <span>STT:</span>
+                    {isLoadingModels ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Select
+                            value={selectedSttModel || ""}
+                            onValueChange={(value) => setSelectedSttModel(value)}
+                        >
+                            <SelectTrigger className="w-[180px] h-8 text-sm">
+                                <SelectValue placeholder="Select dictation engine..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {models.filter(m => (m as any).is_speech).map((model) => (
+                                    <SelectItem key={model.name} value={model.name}>
+                                        <div className="flex items-center gap-2">
+                                            <span>{model.name}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                                ({(model as any).is_browser_native ? "Browser" : model.type})
+                                            </span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                                {models.filter(m => (m as any).is_speech).length === 0 && (
+                                    <div className="p-2 text-xs text-muted-foreground">
+                                        No STT profiles configured
+                                    </div>
+                                )}
+                            </SelectContent>
+                        </Select>
+                    )}
+                </div>
+
                 <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
                     <LucideIcons.Database className="h-4 w-4" />
                     <span>Knowledge Base:</span>
@@ -335,6 +547,16 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                 <div className="flex items-center gap-1 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-md border">
                     {showStandardTools && (
                         <>
+                            <Button
+                                variant={isDictating ? "destructive" : "ghost"}
+                                size="sm"
+                                className={cn("h-8 w-8 p-0", isDictating && "animate-pulse")}
+                                onClick={handleToggleGlobalDictation}
+                                title={isDictating ? "Stop Dictating" : "Global Dictation (STT)"}
+                                disabled={isProcessingStt}
+                            >
+                                {isProcessingStt ? <Loader2 className="h-4 w-4 animate-spin" /> : <LucideIcons.Mic className="h-4 w-4" />}
+                            </Button>
                             <Button
                                 variant={selectionMode === "hand" ? "secondary" : "ghost"}
                                 size="sm"

@@ -19,12 +19,13 @@ from app.models.agent_blueprint import AgentBlueprint, AgentNode, AgentEdge, Age
 from app.models.template import Template, TemplateFolder, TemplatePermission
 from app.models.tools import Tool, Category as ToolCategory, ToolPermission, MCPServer, MCPServerPermission
 from app.models.knowledge_graph import KnowledgeBaseConfig
+from app.models.stt_models import SttConfig, STTProviderType
 
 from app.routers import (
     chat, workflow, rag, knowledge, research, config, conversation,
     agents, auth, users, roles, oauth, tools, mcp_servers,
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
-    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology
+    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology, stt
 )
 from app.services.debug_service import debug_service
 from app.services.watcher_service import watcher_service
@@ -114,6 +115,7 @@ app.include_router(layout_router.router, prefix="/api/v1", tags=["layout"])
 app.include_router(scenarios.router, prefix="/api/v1", tags=["scenarios"])
 app.include_router(ai.router, prefix="/api/v1", tags=["ai"])
 app.include_router(ontology.router, prefix="/api/v1", tags=["ontology"])
+app.include_router(stt.router, prefix="/api/v1/stt", tags=["stt"])
 
 @app.get("/")
 def read_root():

@@ -375,7 +375,11 @@ interface CanvasState {
     visionModel: string | null;
     setVisionModel: (model: string | null) => void;
 
-
+    // Selected model for STT operations
+    selectedSttModel: string | null;
+    setSelectedSttModel: (model: string | null) => void;
+    sttProfiles: any[];
+    setSttProfiles: (profiles: any[]) => void;
 
     setViewport: (viewport: Viewport) => void;
 
@@ -665,6 +669,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Selected model for vision operations
     visionModel: null,
     setVisionModel: (model) => set({ visionModel: model }),
+
+    // Selected model for STT operations
+    selectedSttModel: null,
+    setSelectedSttModel: (model) => set({ selectedSttModel: model }),
+    sttProfiles: [],
+    setSttProfiles: (profiles) => set({ sttProfiles: profiles }),
 
     // Processing State (Visual Feedback)
     processingThings: {},

@@ -506,33 +506,11 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b bg-white dark:bg-slate-900">
                 <div className="flex items-center gap-4">
-                    <div className="space-y-1">
-                        <Label htmlFor="form-title" className="text-xs text-muted-foreground">
-                            Form Title
-                        </Label>
-                        <Input
-                            id="form-title-input"
-                            value={formTitle}
-                            onChange={(e) => {
-                                setFormTitle(e.target.value)
-                                setIsDirty(true)
-                            }}
-                            className="h-8 w-64"
-                        />
-                    </div>
-                    <div className="space-y-1">
-                        <Label htmlFor="submit-label" className="text-xs text-muted-foreground">
-                            Submit Button Label
-                        </Label>
-                        <Input
-                            id="submit-label"
-                            value={submitLabel}
-                            onChange={(e) => {
-                                setSubmitLabel(e.target.value)
-                                setIsDirty(true)
-                            }}
-                            className="h-8 w-36"
-                        />
+                    <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
+                            <FileInput className="h-4 w-4" />
+                        </div>
+                        <h2 className="text-sm font-semibold">Form Builder</h2>
                     </div>
                 </div>
                 <div className="flex gap-2 items-center">
@@ -611,6 +589,40 @@ export function FormBuilder({ initialConfig, onSave, onDirtyChange }: FormBuilde
                             canMerge={canMerge}
                             canSplit={canSplit}
                         />
+                    </div>
+                    
+                    {/* Form Identity Panel */}
+                    <div className="flex items-center gap-6 p-3 px-6 border-b bg-slate-50/50 dark:bg-slate-900/30">
+                        <div className="flex flex-col gap-1">
+                            <Label htmlFor="form-title-main" className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground/70">
+                                Form Title
+                            </Label>
+                            <Input
+                                id="form-title-main"
+                                value={formTitle}
+                                onChange={(e) => {
+                                    setFormTitle(e.target.value)
+                                    setIsDirty(true)
+                                }}
+                                className="h-9 w-72 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-sm focus-visible:ring-blue-500"
+                                placeholder="Enter form title..."
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                            <Label htmlFor="submit-label-main" className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground/70">
+                                Submit Button Label
+                            </Label>
+                            <Input
+                                id="submit-label-main"
+                                value={submitLabel}
+                                onChange={(e) => {
+                                    setSubmitLabel(e.target.value)
+                                    setIsDirty(true)
+                                }}
+                                className="h-9 w-48 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-sm focus-visible:ring-blue-500"
+                                placeholder="Submit"
+                            />
+                        </div>
                     </div>
                     <div id="form-canvas" className="flex-1 overflow-auto">
                         <GridCanvas

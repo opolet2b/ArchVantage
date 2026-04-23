@@ -157,7 +157,15 @@ class CallToolPrimitive(BasePrimitive):
                 # Check if this is a GUI tool
                 if hasattr(tool, 'tool_type') and tool.tool_type == 'gui':
                     config = tool.configuration or {}
-                    gui_schema = config.get("gui_schema", {})
+                    
+                    # Try to get gui_schema from the nested key, or use the configuration itself 
+                    # if it contains components at the top level
+                    gui_schema = config.get("gui_schema")
+                    if gui_schema is None:
+                        if "components" in config or "widgets" in config:
+                            gui_schema = config
+                        else:
+                            gui_schema = {}
                     
                     # GUI tools require user interaction
                     tool_name = params.get("tool_name", tool.name or "GUI Tool")

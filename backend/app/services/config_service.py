@@ -108,6 +108,19 @@ class ConfigService:
         config["default_embedding_preset_name"] = preset_name
         self.save_config(config)
 
+    def get_default_speech_preset(self) -> Optional[Dict[str, Any]]:
+        config = self.get_config()
+        preset_name = config.get("default_speech_preset_name")
+        if not preset_name:
+             return None
+        presets = config.get("presets", [])
+        return next((p for p in presets if p["name"] == preset_name), None)
+
+    def set_default_speech_preset(self, preset_name: str):
+        config = self.get_config()
+        config["default_speech_preset_name"] = preset_name
+        self.save_config(config)
+
     # Deprecated but kept for compatibility during refactor
     def get_active_preset(self) -> Optional[Dict[str, Any]]:
         return self.get_default_llm_preset()
@@ -132,6 +145,8 @@ class ConfigService:
                 config["default_vision_preset_name"] = None
             if config.get("default_embedding_preset_name") == preset_name:
                  config["default_embedding_preset_name"] = None
+            if config.get("default_speech_preset_name") == preset_name:
+                 config["default_speech_preset_name"] = None
                 
             self.save_config(config)
             return True

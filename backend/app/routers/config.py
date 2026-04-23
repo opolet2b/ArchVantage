@@ -18,6 +18,8 @@ class ConfigRequest(BaseModel):
     model_api_key: Optional[str] = None
     is_vision: Optional[bool] = False
     is_embedding: Optional[bool] = False # New flag for embedding models
+    is_speech: Optional[bool] = False # New flag for STT models
+    is_browser_native: Optional[bool] = False # Flag for browser native stt
     is_sequential: Optional[bool] = False # New flag for local models
     context_window: Optional[int] = 4096 # Default context window
 
@@ -62,6 +64,7 @@ class DefaultsRequest(BaseModel):
     default_llm: Optional[str] = None
     default_vision: Optional[str] = None
     default_embedding: Optional[str] = None
+    default_speech: Optional[str] = None
     reset_db: bool = False
 
 @router.get("/config/defaults")
@@ -70,10 +73,12 @@ def get_defaults():
     llm_preset = config_service.get_default_llm_preset()
     vision_preset = config_service.get_default_vision_preset()
     embedding_preset = config_service.get_default_embedding_preset()
+    speech_preset = config_service.get_default_speech_preset()
     return {
         "default_llm": llm_preset["name"] if llm_preset else None,
         "default_vision": vision_preset["name"] if vision_preset else None,
-        "default_embedding": embedding_preset["name"] if embedding_preset else None
+        "default_embedding": embedding_preset["name"] if embedding_preset else None,
+        "default_speech": speech_preset["name"] if speech_preset else None
     }
 
 @router.post("/config/defaults")
@@ -82,6 +87,8 @@ def set_defaults(request: DefaultsRequest):
         config_service.set_default_llm_preset(request.default_llm)
     if request.default_vision:
         config_service.set_default_vision_preset(request.default_vision)
+    if request.default_speech:
+        config_service.set_default_speech_preset(request.default_speech)
     
     if request.default_embedding:
         # Save default preference

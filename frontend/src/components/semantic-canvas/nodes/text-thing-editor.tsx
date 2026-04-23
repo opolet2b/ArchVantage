@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { Pencil, Save, Minimize2, Maximize2, X, Loader2, Layout } from "lucide-react";
+import { Pencil, Save, Minimize2, Maximize2, X, Loader2, Layout, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { API_URL } from "@/lib/utils";
 
 import {
     Dialog,
@@ -55,6 +56,13 @@ export function TextThingEditor({
     const [isSaving, setIsSaving] = React.useState(false);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
     const { toast } = useToast();
+
+    // STT State
+    const [isDictating, setIsDictating] = React.useState(false);
+    const [isProcessingStt, setIsProcessingStt] = React.useState(false);
+    const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
+    const audioChunksRef = React.useRef<Blob[]>([]);
+    const recognitionRef = React.useRef<any>(null);
 
     // Initialize content when opened
     React.useEffect(() => {
@@ -114,6 +122,144 @@ export function TextThingEditor({
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [isOpen, isTrulyFullscreen, setIsTrulyFullscreen, onClose]);
+
+    // -- STT Dictation Logic --
+    const stopDictation = React.useCallback(async () => {
+        setIsDictating(false);
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+            mediaRecorderRef.current.stop();
+            // processing happens in onstop
+        }
+    }, []);
+
+    const handleToggleDictation = async () => {
+        if (isDictating) {
+            stopDictation();
+            return;
+        }
+
+        const state = useCanvasStore.getState();
+        const activeSttId = state.selectedSttModel;
+        const activeProfile = state.sttProfiles?.find((p: any) => p.id.toString() === activeSttId);
+
+        if (!activeProfile) {
+            toast({ title: "No STT Profile", description: "Select an STT engine from the top panel.", variant: "destructive" });
+            return;
+        }
+
+        if (activeProfile.provider_type === "BROWSER") {
+            // Use Web Speech API
+            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                toast({ title: "Not Supported", description: "Browser native dictation not supported in this browser.", variant: "destructive" });
+                return;
+            }
+
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            
+            recognition.onresult = (event: any) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript + ' ';
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+
+                if (finalTranscript) {
+                    setEditedContent(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + finalTranscript);
+                }
+            };
+
+            recognition.onerror = (event: any) => {
+                console.error("Speech recognition error", event.error);
+                if (event.error !== "no-speech") {
+                    stopDictation();
+                }
+            };
+
+            recognition.onend = () => {
+                setIsDictating(false);
+            };
+
+            recognitionRef.current = recognition;
+            recognition.start();
+            setIsDictating(true);
+            toast({ title: "Dictation Started", description: "Browser native recording active." });
+
+        } else {
+            // REMOTE / LOCAL Chunked Streaming
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                mediaRecorderRef.current = mediaRecorder;
+                audioChunksRef.current = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunksRef.current.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(track => track.stop());
+                    if (audioChunksRef.current.length === 0) return;
+
+                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                    audioChunksRef.current = [];
+                    setIsProcessingStt(true);
+
+                    try {
+                        const token = localStorage.getItem("token");
+                        const formData = new FormData();
+                        formData.append("file", audioBlob, "dictation.webm");
+                        formData.append("config_id", activeProfile.id.toString());
+
+                        const res = await fetch(`${API_URL}/stt/transcribe`, {
+                            method: "POST",
+                            headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                            body: formData
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.text) {
+                                setEditedContent(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + data.text);
+                            }
+                        } else {
+                            toast({ title: "Transcription Failed", description: await res.text(), variant: "destructive" });
+                        }
+                    } catch (error) {
+                        console.error("STT transcribing error", error);
+                        toast({ title: "Transcription Error", description: "Failed to reach server.", variant: "destructive" });
+                    } finally {
+                        setIsProcessingStt(false);
+                    }
+                };
+
+                mediaRecorder.start(1000); // chunk every 1 second just in case we implement real live streams later, currently we wait for stop
+                setIsDictating(true);
+                toast({ title: "Recording Started", description: "Speak now. Click stop to transcribe." });
+
+            } catch (err) {
+                console.error("Mic access denied", err);
+                toast({ title: "Microphone Error", description: "Please allow mic permissions.", variant: "destructive" });
+            }
+        }
+    };
+
+    // Cleanup on unmount
+    React.useEffect(() => {
+        return () => { stopDictation(); };
+    }, [stopDictation]);
 
     const handleInternalSave = async () => {
         setIsSaving(true);
@@ -297,6 +443,22 @@ export function TextThingEditor({
 
     const commonActions = (
         <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+                variant={isDictating || isProcessingStt ? "destructive" : "outline"}
+                size="sm"
+                onClick={handleToggleDictation}
+                disabled={isProcessingStt}
+                className="h-8 px-3 gap-2 w-32"
+                title="Toggle Dictation"
+            >
+                {isProcessingStt ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Processing</>
+                ) : isDictating ? (
+                    <><Square className="h-4 w-4 fill-current" /> Stop</>
+                ) : (
+                    <><Mic className="h-4 w-4" /> Dictate</>
+                )}
+            </Button>
             <Button variant="outline" size="sm" onClick={onClose} className="h-8 px-3">
                 {inline ? "Close" : "Cancel"}
             </Button>
