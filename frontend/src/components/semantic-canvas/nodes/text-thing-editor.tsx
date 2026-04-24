@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Pencil, Save, Minimize2, Maximize2, X, Loader2, Layout, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { API_URL } from "@/lib/utils";
+import { API_URL, cn } from "@/lib/utils";
 
 import {
     Dialog,
@@ -37,24 +37,27 @@ interface TextThingEditorProps {
     isTrulyFullscreen?: boolean;
     setIsTrulyFullscreen?: (val: boolean) => void;
     inline?: boolean;
+    onDictationStateChange?: (state: { isDictating: boolean; isProcessingStt: boolean }) => void;
 }
 
 /**
  * Text Editor component that can be used as a Dialog, Fullscreen Portal, or Inline.
  */
-export function TextThingEditor({
+export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
     thing,
     isOpen = true,
     onClose,
     onSave,
     isTrulyFullscreen = false,
     setIsTrulyFullscreen,
-    inline = false
-}: TextThingEditorProps) {
+    inline = false,
+    onDictationStateChange
+}, ref) => {
     const [editedContent, setEditedContent] = React.useState("");
     const [editorMode, setEditorMode] = React.useState<"wysiwyg" | "markdown">("markdown");
     const [isSaving, setIsSaving] = React.useState(false);
     const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+    const wysiwygRef = React.useRef<any>(null);
     const { toast } = useToast();
 
     // STT State
@@ -63,6 +66,26 @@ export function TextThingEditor({
     const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
     const audioChunksRef = React.useRef<Blob[]>([]);
     const recognitionRef = React.useRef<any>(null);
+
+    // Notify parent of dictation state
+    React.useEffect(() => {
+        onDictationStateChange?.({ isDictating, isProcessingStt });
+    }, [isDictating, isProcessingStt, onDictationStateChange]);
+
+    // Expose methods to parent
+    React.useImperativeHandle(ref, () => ({
+        handleToggleDictation: () => {
+            // Ensure focus before starting
+            if (editorMode === 'markdown') {
+                textareaRef.current?.focus();
+            } else {
+                wysiwygRef.current?.focus();
+            }
+            handleToggleDictation();
+        },
+        isDictating,
+        isProcessingStt
+    }), [isDictating, isProcessingStt, editorMode]);
 
     // Initialize content when opened
     React.useEffect(() => {
@@ -123,7 +146,8 @@ export function TextThingEditor({
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [isOpen, isTrulyFullscreen, setIsTrulyFullscreen, onClose]);
 
-    // -- STT Dictation Logic --
+    const savedSelectionRef = React.useRef<{ start: number, end: number } | null>(null);
+
     const stopDictation = React.useCallback(async () => {
         setIsDictating(false);
         if (recognitionRef.current) {
@@ -135,22 +159,157 @@ export function TextThingEditor({
         }
     }, []);
 
-    const handleToggleDictation = async () => {
-        if (isDictating) {
-            stopDictation();
-            return;
+    const insertTextAtCursor = React.useCallback((text: string) => {
+        console.log("[STT] insertTextAtCursor called with text:", text);
+        console.log("[STT] current editorMode:", editorMode);
+        
+        if (editorMode === 'markdown') {
+            const textarea = textareaRef.current;
+            if (!textarea) {
+                console.warn("[STT] textareaRef is null, appending to content");
+                setEditedContent(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + text);
+                return;
+            }
+
+            // Capture selection. If focus was lost, selection usually stays at last position.
+            let start = textarea.selectionStart;
+            let end = textarea.selectionEnd;
+            console.log(`[STT] Markdown selection: ${start} to ${end}`);
+            
+            // Fallback to saved selection if current is at 0 and we have a saved one
+            if (start === 0 && end === 0 && savedSelectionRef.current) {
+                start = savedSelectionRef.current.start;
+                end = savedSelectionRef.current.end;
+                console.log(`[STT] Using fallback saved selection: ${start} to ${end}`);
+            }
+
+            const currentValue = textarea.value;
+            
+            // Check if we should add a leading space
+            const prefix = currentValue.substring(0, start);
+            const needsSpace = prefix.length > 0 && !prefix.endsWith(' ') && !prefix.endsWith('\n') && !text.startsWith(' ');
+            const space = needsSpace ? ' ' : '';
+            
+            const newValue = currentValue.substring(0, start) + space + text + currentValue.substring(end);
+
+            console.log("[STT] Updating editedContent...");
+            setEditedContent(newValue);
+
+            // Restore focus and move cursor to end of inserted text
+            setTimeout(() => {
+                if (textareaRef.current) {
+                    textareaRef.current.focus();
+                    const newPos = start + space.length + text.length;
+                    textareaRef.current.setSelectionRange(newPos, newPos);
+                    // Update saved selection for next chunk
+                    savedSelectionRef.current = { start: newPos, end: newPos };
+                    console.log("[STT] Focus restored and selection updated to:", newPos);
+                }
+            }, 10);
+        } else {
+            // WYSIWYG
+            console.log("[STT] Attempting WYSIWYG insertion via ref...");
+            if (wysiwygRef.current?.insertContent) {
+                wysiwygRef.current.insertContent(text);
+                console.log("[STT] WYSIWYG insertion command sent.");
+            } else {
+                console.error("[STT] wysiwygRef.current.insertContent is not defined!");
+            }
+        }
+    }, [editorMode]);
+
+    const handleRemoteDictation = async (activeProfile: any) => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            mediaRecorderRef.current = mediaRecorder;
+            audioChunksRef.current = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                stream.getTracks().forEach(track => track.stop());
+                if (audioChunksRef.current.length === 0) return;
+
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                audioChunksRef.current = [];
+                setIsProcessingStt(true);
+
+                try {
+                    const token = localStorage.getItem("token");
+                    const formData = new FormData();
+                    formData.append("file", audioBlob, "dictation.webm");
+                    formData.append("config_id", activeProfile.id.toString());
+
+                    const res = await fetch(`${API_URL}/stt/transcribe`, {
+                        method: "POST",
+                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                        body: formData
+                    });
+
+                    if (res.ok) {
+                        const data = await res.json();
+                        console.log("[STT] Remote transcription response received:", data);
+                        if (data.text) {
+                            toast({ title: "Dictation Result", description: `Transcribed: "${data.text}"` });
+                            insertTextAtCursor(data.text);
+                        }
+                    } else {
+                        toast({ title: "Transcription Failed", description: await res.text(), variant: "destructive" });
+                    }
+                } catch (error) {
+                    console.error("[STT] Remote transcribing error", error);
+                    toast({ title: "Transcription Error", description: "Failed to reach server.", variant: "destructive" });
+                } finally {
+                    setIsProcessingStt(false);
+                }
+            };
+
+            mediaRecorder.start();
+            setIsDictating(true);
+            toast({ title: "Recording Started", description: "Remote engine active. Speak now, then click stop." });
+        } catch (err: any) {
+            console.error("[STT] Mic access denied", err);
+            toast({ title: "Microphone Error", description: `Please allow mic permissions. ${err.message}`, variant: "destructive" });
+        }
+    };
+
+    const isProcessingToggleRef = React.useRef(false);
+
+    const handleToggleDictation = () => {
+        if (isProcessingToggleRef.current) return;
+        isProcessingToggleRef.current = true;
+        
+        try {
+            if (isDictating) {
+                stopDictation(); // Removed await to keep it synchronous
+                return;
+            }
+
+        // Capture selection before starting
+        if (editorMode === 'markdown' && textareaRef.current) {
+            savedSelectionRef.current = {
+                start: textareaRef.current.selectionStart,
+                end: textareaRef.current.selectionEnd
+            };
         }
 
         const state = useCanvasStore.getState();
         const activeSttId = state.selectedSttModel;
-        const activeProfile = state.sttProfiles?.find((p: any) => p.id.toString() === activeSttId);
+        const activeProfile = state.sttProfiles?.find((p: any) => p.id?.toString() === activeSttId || p.name === activeSttId);
+
+        console.log(`[STT] handleToggleDictation. Engine: ${activeSttId || "None"}. Profiles count: ${state.sttProfiles?.length || 0}`);
 
         if (!activeProfile) {
-            toast({ title: "No STT Profile", description: "Select an STT engine from the top panel.", variant: "destructive" });
+            toast({ title: "No STT Profile", description: "Select an STT engine from the Canvas Settings (gear icon in the top panel).", variant: "destructive" });
             return;
         }
 
-        if (activeProfile.provider_type === "BROWSER") {
+        if ((activeProfile as any).provider_type === "BROWSER" || (activeProfile as any).is_browser_native) {
             // Use Web Speech API
             const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
             if (!SpeechRecognition) {
@@ -159,106 +318,76 @@ export function TextThingEditor({
             }
 
             const recognition = new SpeechRecognition();
-            recognition.continuous = true;
+            recognition.lang = (activeProfile as any).language_code || 'en-US';
+            recognition.continuous = true; // Back to true for stability
             recognition.interimResults = true;
             
+            recognition.onstart = () => console.log("[STT] Recognition started");
+            recognition.onend = () => {
+                console.log("[STT] Recognition ended");
+                setIsDictating(false);
+            };
+            recognition.onaudiostart = () => console.log("[STT] Audio capture started");
+            recognition.onaudioend = () => console.log("[STT] Audio capture ended");
+            recognition.onsoundstart = () => console.log("[STT] Sound detected");
+            recognition.onsoundend = () => console.log("[STT] Sound ended");
+            recognition.onspeechstart = () => console.log("[STT] Speech started");
+            recognition.onspeechend = () => console.log("[STT] Speech ended");
+            recognition.onnomatch = () => console.warn("[STT] No match found");
+            
             recognition.onresult = (event: any) => {
+                console.log("[STT] Native onresult event received. results length:", event.results.length);
                 let interimTranscript = '';
                 let finalTranscript = '';
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    const transcript = event.results[i][0].transcript;
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript + ' ';
+                        finalTranscript += transcript + ' ';
                     } else {
-                        interimTranscript += event.results[i][0].transcript;
+                        interimTranscript += transcript;
                     }
                 }
 
+                if (interimTranscript) {
+                    console.log("[STT] Native interim transcript:", interimTranscript);
+                }
+
                 if (finalTranscript) {
-                    setEditedContent(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + finalTranscript);
+                    console.log("[STT] Native final transcript:", finalTranscript);
+                    toast({ title: "Dictation Result", description: `Transcribed: "${finalTranscript}"` });
+                    insertTextAtCursor(finalTranscript);
                 }
             };
 
             recognition.onerror = (event: any) => {
-                console.error("Speech recognition error", event.error);
+                console.error("[STT] Speech recognition error", event.error);
                 if (event.error !== "no-speech") {
+                    toast({ title: "Dictation Error", description: `Error: ${event.error}`, variant: "destructive" });
                     stopDictation();
                 }
-            };
-
-            recognition.onend = () => {
-                setIsDictating(false);
             };
 
             recognitionRef.current = recognition;
             recognition.start();
             setIsDictating(true);
-            toast({ title: "Dictation Started", description: "Browser native recording active." });
+            toast({ title: "Dictation Started", description: "Browser native recording active. Speak now." });
 
         } else {
-            // REMOTE / LOCAL Chunked Streaming
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                mediaRecorderRef.current = mediaRecorder;
-                audioChunksRef.current = [];
-
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        audioChunksRef.current.push(event.data);
-                    }
-                };
-
-                mediaRecorder.onstop = async () => {
-                    stream.getTracks().forEach(track => track.stop());
-                    if (audioChunksRef.current.length === 0) return;
-
-                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                    audioChunksRef.current = [];
-                    setIsProcessingStt(true);
-
-                    try {
-                        const token = localStorage.getItem("token");
-                        const formData = new FormData();
-                        formData.append("file", audioBlob, "dictation.webm");
-                        formData.append("config_id", activeProfile.id.toString());
-
-                        const res = await fetch(`${API_URL}/stt/transcribe`, {
-                            method: "POST",
-                            headers: token ? { "Authorization": `Bearer ${token}` } : {},
-                            body: formData
-                        });
-
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (data.text) {
-                                setEditedContent(prev => prev + (prev.endsWith(' ') || prev.length === 0 ? '' : ' ') + data.text);
-                            }
-                        } else {
-                            toast({ title: "Transcription Failed", description: await res.text(), variant: "destructive" });
-                        }
-                    } catch (error) {
-                        console.error("STT transcribing error", error);
-                        toast({ title: "Transcription Error", description: "Failed to reach server.", variant: "destructive" });
-                    } finally {
-                        setIsProcessingStt(false);
-                    }
-                };
-
-                mediaRecorder.start(1000); // chunk every 1 second just in case we implement real live streams later, currently we wait for stop
-                setIsDictating(true);
-                toast({ title: "Recording Started", description: "Speak now. Click stop to transcribe." });
-
-            } catch (err) {
-                console.error("Mic access denied", err);
-                toast({ title: "Microphone Error", description: "Please allow mic permissions.", variant: "destructive" });
-            }
+            // REMOTE - this part still needs to be async but it's handled via a separate function
+            handleRemoteDictation(activeProfile);
         }
-    };
+    } finally {
+        isProcessingToggleRef.current = false;
+    }
+};
 
     // Cleanup on unmount
     React.useEffect(() => {
-        return () => { stopDictation(); };
+        return () => { 
+            console.log("[STT] TextThingEditor unmounting, stopping dictation...");
+            stopDictation(); 
+        };
     }, [stopDictation]);
 
     const handleInternalSave = async () => {
@@ -373,6 +502,7 @@ export function TextThingEditor({
             ) : (
                 <div className="flex-1 min-h-0 overflow-hidden bg-slate-50/30 dark:bg-slate-900/10 p-0 border-t border-slate-200 dark:border-slate-800">
                     <WysiwygEditor
+                        ref={wysiwygRef}
                         content={editedContent}
                         onChange={setEditedContent}
                         onSave={handleInternalSave}
@@ -442,25 +572,48 @@ export function TextThingEditor({
     );
 
     const commonActions = (
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1.5">
             <Button
-                variant={isDictating || isProcessingStt ? "destructive" : "outline"}
-                size="sm"
-                onClick={handleToggleDictation}
-                disabled={isProcessingStt}
-                className="h-8 px-3 gap-2 w-32"
-                title="Toggle Dictation"
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleDictation();
+                }}
+                className={cn(
+                    "h-8 w-8 transition-all duration-300",
+                    isDictating ? "text-red-500 bg-red-50 dark:bg-red-950/30 animate-pulse scale-110" : "text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
+                )}
+                title={isDictating ? "Stop Dictation" : "Start Dictation"}
             >
                 {isProcessingStt ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Processing</>
-                ) : isDictating ? (
-                    <><Square className="h-4 w-4 fill-current" /> Stop</>
+                    <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                    <><Mic className="h-4 w-4" /> Dictate</>
+                    <Mic className={cn("h-4 w-4", isDictating && "fill-current")} />
                 )}
             </Button>
-            <Button variant="outline" size="sm" onClick={onClose} className="h-8 px-3">
-                {inline ? "Close" : "Cancel"}
+
+            {!inline && (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleInternalSave}
+                    disabled={isSaving}
+                    className="h-8 w-8 text-slate-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
+                    title="Save & Close"
+                >
+                    {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                </Button>
+            )}
+            
+            <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                className="h-8 w-8 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
+                title={inline ? "Close" : "Cancel & Close"}
+            >
+                <X className="h-4 w-4" />
             </Button>
         </div>
     );
@@ -585,4 +738,5 @@ export function TextThingEditor({
             </DialogContent>
         </Dialog>
     );
-}
+});
+

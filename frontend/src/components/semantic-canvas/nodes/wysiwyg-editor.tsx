@@ -46,7 +46,7 @@ interface WysiwygEditorProps {
     onSave?: () => void;
 }
 
-export function WysiwygEditor({ content, onChange, className, onSave }: WysiwygEditorProps) {
+export const WysiwygEditor = React.forwardRef<any, WysiwygEditorProps>(({ content, onChange, className, onSave }, ref) => {
     const editor = useEditor({
         extensions: [
             StarterKit,
@@ -82,6 +82,20 @@ export function WysiwygEditor({ content, onChange, className, onSave }: WysiwygE
         },
     });
 
+    // Expose methods to parent
+    React.useImperativeHandle(ref, () => ({
+        insertContent: (text: string) => {
+            if (editor) {
+                editor.chain().focus().insertContent(text).run();
+            }
+        },
+        focus: () => {
+            if (editor) {
+                editor.commands.focus();
+            }
+        }
+    }), [editor]);
+
     // Set initial content as markdown
     React.useEffect(() => {
         if (editor && content) {
@@ -97,6 +111,7 @@ export function WysiwygEditor({ content, onChange, className, onSave }: WysiwygE
     if (!editor) {
         return null;
     }
+
 
     const addImage = () => {
         const url = window.prompt('URL');
@@ -301,4 +316,5 @@ export function WysiwygEditor({ content, onChange, className, onSave }: WysiwygE
             </div>
         </div>
     );
-}
+});
+

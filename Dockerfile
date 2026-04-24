@@ -1,17 +1,20 @@
 # ==========================================
 # Stage 1: Build Frontend
 # ==========================================
-FROM node:20-alpine AS frontend-builder
+FROM node:20-bookworm AS frontend-builder
 WORKDIR /app/frontend
 
-# Install dependencies (use ci for reproducible builds if lockfile exists)
+# Install dependencies
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 
 # Copy source code
 COPY frontend/ ./
 
-# Build Next.js app (standalone mode configured in next.config.ts)
+# Build Next.js app (standalone mode)
+# Explicitly disable Turbopack if it was somehow triggered
+ENV NEXT_TURBOPACK=0
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build
 
 # ==========================================

@@ -43,6 +43,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [isBrowserNative, setIsBrowserNative] = useState(false)
     const [isSequential, setIsSequential] = useState(false)
     const [contextWindow, setContextWindow] = useState(4096)
+    const [languageCode, setLanguageCode] = useState("en")
 
     const [defaultLLM, setDefaultLLM] = useState("")
     const [defaultVision, setDefaultVision] = useState("")
@@ -143,6 +144,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             setIsBrowserNative(!!(preset as any).is_browser_native)
             setIsSequential(!!(preset as any).is_sequential)
             setContextWindow(preset.context_window || 4096)
+            setLanguageCode((preset as any).language_code || "en")
         }
     }
 
@@ -167,7 +169,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 is_speech: isSpeech,
                 is_browser_native: isSpeech && type === "local" ? isBrowserNative : false,
                 is_sequential: type === "local" ? isSequential : false,
-                context_window: contextWindow
+                context_window: contextWindow,
+                language_code: languageCode
             }
 
             const res = await fetch(`${API_URL}/config/presets`, {
@@ -557,20 +560,49 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                             </div>
 
                             {isSpeech && (
-                                <div className="flex items-center space-x-2 pt-2">
-                                    <input
-                                        type="checkbox"
-                                        id="isBrowserNative"
-                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                        checked={isBrowserNative}
-                                        onChange={(e) => setIsBrowserNative(e.target.checked)}
-                                    />
-                                    <label
-                                        htmlFor="isBrowserNative"
-                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                    >
-                                        Browser native (Only for STT)
-                                    </label>
+                                <div className="space-y-4 pt-4 border-t">
+                                    <div className="flex items-center space-x-2">
+                                        <input
+                                            type="checkbox"
+                                            id="isBrowserNative"
+                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                            checked={isBrowserNative}
+                                            onChange={(e) => setIsBrowserNative(e.target.checked)}
+                                        />
+                                        <label
+                                            htmlFor="isBrowserNative"
+                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                        >
+                                            Browser native (Only for STT)
+                                        </label>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium flex items-center gap-2">
+                                            Recognition Language
+                                            <HelpTooltip contentPath="settings/stt_language" />
+                                        </label>
+                                        <select
+                                            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                            value={languageCode}
+                                            onChange={(e) => setLanguageCode(e.target.value)}
+                                        >
+                                            <option value="en">English (en)</option>
+                                            <option value="fr">French (fr)</option>
+                                            <option value="de">German (de)</option>
+                                            <option value="es">Spanish (es)</option>
+                                            <option value="it">Italian (it)</option>
+                                            <option value="pt">Portuguese (pt)</option>
+                                            <option value="nl">Dutch (nl)</option>
+                                            <option value="ru">Russian (ru)</option>
+                                            <option value="zh">Chinese (zh)</option>
+                                            <option value="ja">Japanese (ja)</option>
+                                            <option value="ko">Korean (ko)</option>
+                                            {!isBrowserNative && <option value="Auto-detect">Auto-detect (Whisper only)</option>}
+                                        </select>
+                                        <p className="text-xs text-muted-foreground">
+                                            ISO 639-1 code. For browser native, use codes like 'en-US' or 'fr-FR' if 'en'/'fr' fails.
+                                        </p>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -639,6 +671,36 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                     onChange={(e) => setModelKey(e.target.value)}
                                 />
                             </div>
+
+                            {isSpeech && (
+                                <div className="space-y-2 border-t pt-4">
+                                    <label className="text-sm font-medium flex items-center gap-2">
+                                        Recognition Language
+                                        <HelpTooltip contentPath="settings/stt_language" />
+                                    </label>
+                                    <select
+                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                        value={languageCode}
+                                        onChange={(e) => setLanguageCode(e.target.value)}
+                                    >
+                                        <option value="en">English (en)</option>
+                                        <option value="fr">French (fr)</option>
+                                        <option value="de">German (de)</option>
+                                        <option value="es">Spanish (es)</option>
+                                        <option value="it">Italian (it)</option>
+                                        <option value="pt">Portuguese (pt)</option>
+                                        <option value="nl">Dutch (nl)</option>
+                                        <option value="ru">Russian (ru)</option>
+                                        <option value="zh">Chinese (zh)</option>
+                                        <option value="ja">Japanese (ja)</option>
+                                        <option value="ko">Korean (ko)</option>
+                                        <option value="Auto-detect">Auto-detect</option>
+                                    </select>
+                                    <p className="text-xs text-muted-foreground">
+                                        Passing a language code improves Whisper accuracy and speed.
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     )}
 

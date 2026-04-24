@@ -13,10 +13,11 @@ import { DatabaseSettingsTab } from "@/components/settings/database-settings-tab
 import { StylingSettingsTab } from "@/components/settings/styling-settings-tab"
 import { QueryingSettingsTab } from "@/components/settings/querying-settings-tab"
 import { MaintenanceTab } from "@/components/settings/maintenance-tab"
+import { TtsConfigTab } from "@/components/settings/tts-config"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit } from "lucide-react"
+import { Users, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit, Volume2 } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -71,6 +72,14 @@ export default function SettingsPage() {
                         >
                             <Palette className="h-4 w-4" />
                             Styling
+                        </Button>
+                        <Button
+                            variant={activeTab === "tts" ? "secondary" : "ghost"}
+                            className="justify-start gap-2"
+                            onClick={() => handleTabChange("tts")}
+                        >
+                            <Volume2 className="h-4 w-4" />
+                            Text-To-Speech
                         </Button>
                         <Button
                             variant={activeTab === "rag" ? "secondary" : "ghost"}
@@ -168,6 +177,7 @@ export default function SettingsPage() {
                     <main className="flex-1">
                         {activeTab === "model" && <ModelConfig />}
                         {activeTab === "styling" && <StylingSettingsTab />}
+                        {activeTab === "tts" && <TtsConfigTab />}
                         {activeTab === "rag" && <RagSettingsTab />}
                         {activeTab === "querying" && <QueryingSettingsTab />}
                         {activeTab === "debug" && <DebugSettingsTab />}

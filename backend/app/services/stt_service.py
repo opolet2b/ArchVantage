@@ -1,31 +1,30 @@
 import io
 import httpx
 from abc import ABC, abstractmethod
-from typing import Optional
-from app.models.stt_models import SttConfig, STTProviderType
+from typing import Optional, Dict, Any
 
 class STTProviderInterface(ABC):
     @abstractmethod
-    async def transcribe(self, audio_data: bytes, filename: str, config: SttConfig) -> str:
+    async def transcribe(self, audio_data: bytes, filename: str, config: Dict[str, Any]) -> str:
         """Transcribe audio blob and return text result."""
         pass
 
 class OpenRouterSTTProvider(STTProviderInterface):
-    async def transcribe(self, audio_data: bytes, filename: str, config: SttConfig) -> str:
-        endpoint = config.api_endpoint or "https://api.openai.com/v1/audio/transcriptions"
+    async def transcribe(self, audio_data: bytes, filename: str, config: Dict[str, Any]) -> str:
+        endpoint = config.get("api_endpoint") or "https://api.openai.com/v1/audio/transcriptions"
         if endpoint and not endpoint.endswith("/audio/transcriptions") and not endpoint.endswith("/transcriptions"):
             endpoint = endpoint.rstrip("/") + "/audio/transcriptions"
             
-        api_key = config.api_key
-        model_id = config.model_id or "openai/whisper-large-v3"
+        api_key = config.get("api_key")
+        model_id = config.get("model_id") or "openai/whisper-large-v3"
         
         headers = {
-            "Authorization": f"Bearer {api_key}"
+            "Authorization": f"Bearer {api_key}",
+            "HTTP-Referer": "https://semantic-canvas.ai",
+            "X-Title": "Semantic Canvas"
         }
         
-        # OpenRouter/OpenAI API expects multipart/form-data for files
         files = {
-            # We must specify the filename and mime type. The frontend sends webm.
             "file": (filename, audio_data, "audio/webm")
         }
         
@@ -34,15 +33,17 @@ class OpenRouterSTTProvider(STTProviderInterface):
             "response_format": "json"
         }
         
-        if config.language_code and config.language_code != "Auto-detect":
-            # Just take the first part of locale like 'en' from 'en-US'
-            data["language"] = config.language_code.split('-')[0]
+        lang = config.get("language_code")
+        if lang and lang != "Auto-detect":
+            data["language"] = lang.split('-')[0]
             
-        if config.temperature:
-            data["temperature"] = config.temperature
+        temp = config.get("temperature")
+        if temp:
+            data["temperature"] = temp
             
-        if config.prompt:
-            data["prompt"] = config.prompt
+        prompt = config.get("prompt")
+        if prompt:
+            data["prompt"] = prompt
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -65,25 +66,29 @@ class OpenRouterSTTProvider(STTProviderInterface):
             return result.get("text", "")
 
 class LocalWhisperSTTProvider(STTProviderInterface):
-    async def transcribe(self, audio_data: bytes, filename: str, config: SttConfig) -> str:
-        endpoint = config.api_endpoint
+    async def transcribe(self, audio_data: bytes, filename: str, config: Dict[str, Any]) -> str:
+        endpoint = config.get("api_endpoint")
         if not endpoint:
             raise ValueError("Local STT requires an endpoint URL")
             
         if endpoint and not endpoint.endswith("/audio/transcriptions") and not endpoint.endswith("/transcriptions"):
             endpoint = endpoint.rstrip("/") + "/audio/transcriptions"
             
-        # For simplicity, assuming local provider mimics OpenAI's Whisper API interface
         files = {
             "file": (filename, audio_data, "audio/webm")
         }
         data = {
-            "model": config.model_id or "whisper-1",
+            "model": config.get("model_id") or "whisper-1",
         }
         
+        lang = config.get("language_code")
+        if lang and lang != "Auto-detect":
+            data["language"] = lang.split('-')[0]
+        
         headers = {}
-        if config.api_key:
-            headers["Authorization"] = f"Bearer {config.api_key}"
+        api_key = config.get("api_key")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
             
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -99,15 +104,15 @@ class LocalWhisperSTTProvider(STTProviderInterface):
 class STTService:
     def __init__(self):
         self.providers = {
-            STTProviderType.REMOTE: OpenRouterSTTProvider(),
-            STTProviderType.LOCAL: LocalWhisperSTTProvider()
-            # BROWSER is handled client-side
+            "remote": OpenRouterSTTProvider(),
+            "local": LocalWhisperSTTProvider()
         }
 
-    async def transcribe_audio(self, audio_data: bytes, filename: str, config: SttConfig) -> str:
-        provider = self.providers.get(config.provider_type)
+    async def transcribe_audio(self, audio_data: bytes, filename: str, config: Dict[str, Any]) -> str:
+        provider_type = config.get("provider_type", "remote")
+        provider = self.providers.get(provider_type)
         if not provider:
-            raise ValueError(f"STT feature is not natively supported server-side for provider: {config.provider_type}")
+            raise ValueError(f"STT feature is not natively supported server-side for provider: {provider_type}")
             
         return await provider.transcribe(audio_data, filename, config)
 

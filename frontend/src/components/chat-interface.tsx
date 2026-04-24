@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import * as React from "react"
 import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink } from "lucide-react"
@@ -24,6 +24,7 @@ import { FormRenderer } from "@/components/tools/form-builder/form-renderer"
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
 import { useCanvasStore } from "@/components/semantic-canvas/canvas-store"
 import { useViewMode } from "@/lib/view-mode-context"
+import { speechService } from "@/lib/speech-service"
 
 /**
  * Chat message type.
@@ -843,6 +844,24 @@ export function ChatInterface() {
                                                     ) : (
                                                         <Copy className="h-3 w-3" />
                                                     )}
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                                    onClick={() => speechService.speak(message.content)}
+                                                    title="Read aloud"
+                                                >
+                                                    <Volume2 className="h-3 w-3" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                                    onClick={() => speechService.download(message.content)}
+                                                    title="Download audio"
+                                                >
+                                                    <Download className="h-3 w-3" />
                                                 </Button>
                                             </div>
                                         )}

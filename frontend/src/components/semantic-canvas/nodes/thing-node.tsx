@@ -48,7 +48,9 @@ import {
     ChevronRight,
     Layout,
     Cloud,
-    Info
+    Info,
+    Volume2,
+    Mic
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -127,6 +129,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { speechService } from "@/lib/speech-service";
 
 // ... (Existing icons/themes code unchanged) ...
 
@@ -573,6 +576,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // This button serves as a manual trigger to re-sync ensures or potentially fetch deep content if we implemented lazy loading.
     // For now, it provides visual feedback.
     const [isRefreshingNodes, setIsRefreshingNodes] = React.useState(false);
+    const [isDictating, setIsDictating] = React.useState(false);
+    const [isProcessingStt, setIsProcessingStt] = React.useState(false);
+    const editorRef = React.useRef<any>(null);
     const handleRefreshNodes = async (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsRefreshingNodes(true);
@@ -645,6 +651,25 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // Title Editing State
     const [isEditingTitle, setIsEditingTitle] = React.useState(false);
     const [titleInputValue, setTitleInputValue] = React.useState("");
+    const [isSpeaking, setIsSpeaking] = React.useState(false);
+
+    const handleSpeak = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isSpeaking) return;
+
+        const textToSpeak = typeof currentThing.content.text === "string" ? currentThing.content.text :
+            typeof currentThing.content.content === "string" ? currentThing.content.content :
+                currentThing.title || "Nothing to speak";
+
+        setIsSpeaking(true);
+        try {
+            await speechService.speak(textToSpeak);
+        } catch (error) {
+            console.error("TTS error", error);
+        } finally {
+            setIsSpeaking(false);
+        }
+    };
 
     // Update local title state when thing updates
     React.useEffect(() => {
@@ -2778,6 +2803,52 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 <Copy className="h-4 w-4 text-slate-400 hover:text-blue-500" />
                             </button>
 
+                            {/* Loudspeaker (TTS) Button */}
+                            <button
+                                onClick={handleSpeak}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                className={cn(
+                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                    isSpeaking ? "text-blue-500 animate-pulse" : "text-slate-400 hover:text-blue-500"
+                                )}
+                                title="Read aloud (TTS)"
+                                disabled={isSpeaking}
+                            >
+                                {isSpeaking ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Volume2 className="h-4 w-4" />
+                                )}
+                            </button>
+                            
+                            {/* Dictation (STT) Button - Only visible in Edit Mode */}
+                            {(thing.type === "text" || thing.type === "agent_result") && isEditingContent && (
+                                <button
+                                    tabIndex={-1}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!editorRef.current) {
+                                            console.error("[STT] Editor reference not found for node:", thing.id);
+                                            toast({ title: "Editor Error", description: "Editor reference not found. Is the editor open?", variant: "destructive" });
+                                            return;
+                                        }
+                                        console.log("[STT] Dictation button clicked on node:", thing.id);
+                                        editorRef.current.handleToggleDictation();
+                                    }}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                        isDictating ? "text-red-500 animate-pulse" : "text-slate-400 hover:text-red-500"
+                                    )}
+                                    title={isDictating ? "Stop Dictating" : "Dictate into node"}
+                                >
+                                    {isProcessingStt ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Mic className="h-4 w-4" />
+                                    )}
+                                </button>
+                            )}
+
                             {/* Refresh Transclusions Button (Text Node) */}
                             {(thing.type === "text" || thing.type === "agent_result") && (
                                 <button
@@ -3357,6 +3428,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
             {/* Refined Isolated Text Editor */}
             <TextThingEditor
+                ref={editorRef}
                 thing={thing}
                 isOpen={isEditingContent && dockedThingId !== thing.id}
                 isTrulyFullscreen={isTrulyFullscreen}
@@ -3366,6 +3438,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     setIsTrulyFullscreen(false);
                 }}
                 onSave={handleContentSave}
+                onDictationStateChange={(state) => {
+                    setIsDictating(state.isDictating);
+                    setIsProcessingStt(state.isProcessingStt);
+                }}
             />
 
             {/* Full Screen Portal */}

@@ -17,4 +17,6 @@ services:
       - HOSTNAME=0.0.0.0
       - DATABASE_URL=sqlite:///./db/sql_app.db
       - NEXT_PUBLIC_API_URL=/api/v1
+      - ARCADEDB_HOST=http://host.docker.internal:2480
+      - OLLAMA_HOST=http://host.docker.internal:11434
     restart: unless-stopped

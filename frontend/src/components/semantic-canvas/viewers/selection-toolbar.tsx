@@ -20,9 +20,12 @@ import {
     Scan, // Add Scan icon for Transclusion
     Copy,
     Link,
+    Volume2,
+    Download
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCanvasStore } from "../canvas-store";
+import { speechService } from "@/lib/speech-service";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -438,6 +441,47 @@ export function SelectionToolbar({
                                 <TooltipContent>Link to another node</TooltipContent>
                             </Tooltip>
                         )}
+
+                        {/* TTS Actions */}
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        speechService.speak(fragment.content || "");
+                                    }}
+                                >
+                                    <Volume2 className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Read aloud</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        speechService.download(fragment.content || "");
+                                    }}
+                                >
+                                    <Download className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Download audio</TooltipContent>
+                        </Tooltip>
 
                         {/* Close */}
                         <Tooltip>

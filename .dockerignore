@@ -27,5 +27,9 @@ build
 dist
 .vscode
 .agent
-.gitignore
-.dockerignore
+backend/db/
+backend/data/
+backend/data_storage/
+backend/chroma_db/
+**/*.db
+**/*.sqlite3
