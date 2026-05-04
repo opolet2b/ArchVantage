@@ -220,6 +220,7 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
 
     const handleRemoteDictation = async (activeProfile: any) => {
         try {
+            console.log(`[STT] Starting remote dictation with profile: ${activeProfile.name}`, activeProfile);
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
             mediaRecorderRef.current = mediaRecorder;
@@ -243,7 +244,9 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
                     const token = localStorage.getItem("token");
                     const formData = new FormData();
                     formData.append("file", audioBlob, "dictation.webm");
-                    formData.append("config_id", activeProfile.id.toString());
+                    // Ensure config_id is passed as string, handle missing id by falling back to name
+                    const configId = activeProfile.id?.toString() || activeProfile.name || "default";
+                    formData.append("config_id", configId);
 
                     const res = await fetch(`${API_URL}/stt/transcribe`, {
                         method: "POST",
@@ -259,7 +262,9 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
                             insertTextAtCursor(data.text);
                         }
                     } else {
-                        toast({ title: "Transcription Failed", description: await res.text(), variant: "destructive" });
+                        const errorText = await res.text();
+                        console.error("[STT] Remote transcription failed:", errorText);
+                        toast({ title: "Transcription Failed", description: errorText, variant: "destructive" });
                     }
                 } catch (error) {
                     console.error("[STT] Remote transcribing error", error);
@@ -271,7 +276,10 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
 
             mediaRecorder.start();
             setIsDictating(true);
-            toast({ title: "Recording Started", description: "Remote engine active. Speak now, then click stop." });
+            toast({ 
+                title: "Recording Started", 
+                description: `Remote engine active (${activeProfile.name}). Speak now, then click stop.` 
+            });
         } catch (err: any) {
             console.error("[STT] Mic access denied", err);
             toast({ title: "Microphone Error", description: `Please allow mic permissions. ${err.message}`, variant: "destructive" });
@@ -371,7 +379,10 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
             recognitionRef.current = recognition;
             recognition.start();
             setIsDictating(true);
-            toast({ title: "Dictation Started", description: "Browser native recording active. Speak now." });
+            toast({ 
+                title: "Dictation Started", 
+                description: `Browser native recording active (${activeProfile.name}). Speak now.` 
+            });
 
         } else {
             // REMOTE - this part still needs to be async but it's handled via a separate function

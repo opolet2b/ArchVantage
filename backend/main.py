@@ -19,6 +19,7 @@ from app.models.agent_blueprint import AgentBlueprint, AgentNode, AgentEdge, Age
 from app.models.template import Template, TemplateFolder, TemplatePermission
 from app.models.tools import Tool, Category as ToolCategory, ToolPermission, MCPServer, MCPServerPermission
 from app.models.knowledge_graph import KnowledgeBaseConfig
+from app.models.stt import STTConfig
 
 from app.routers import (
     chat, workflow, rag, knowledge, research, config, conversation,

@@ -498,7 +498,7 @@ function CanvasViewInner() {
             },
             draggable: true,
             selectable: true,
-            zIndex: domain.z_index ?? -1, // Use stored z_index (always <= -1)
+            zIndex: (domain.z_index ?? -1) + (depth * 0.01), // Hierarchy-aware Z-index (children on top of parents)
             style: {
                 width: domain.width || 300,
                 height: domain.height || 200,

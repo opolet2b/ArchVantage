@@ -7,7 +7,7 @@
 "use client";
 
 import * as React from "react";
-import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, Bot, Sparkles, User, Layers, Wand2 } from "lucide-react";
+import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, Bot, Sparkles, User, Layers, Wand2, Mic } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCanvasStore } from "./canvas-store";
 import { cn, API_URL } from "@/lib/utils";
@@ -114,10 +114,11 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                 const token = localStorage.getItem("token");
                 const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
 
-                const [presetsRes, defaultsRes, kbsRes] = await Promise.all([
+                const [presetsRes, defaultsRes, kbsRes, sttConfigsRes] = await Promise.all([
                     fetch(`${API_URL}/config/presets`, { headers }),
                     fetch(`${API_URL}/config/defaults`, { headers }),
-                    fetch(`${API_URL}/knowledge/kb`, { headers })
+                    fetch(`${API_URL}/knowledge/kb`, { headers }),
+                    fetch(`${API_URL}/stt/configs`, { headers })
                 ]);
 
                 if (presetsRes.ok) {
@@ -127,13 +128,11 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
 
                     let defaultLlmName: string | null = null;
                     let defaultVisionName: string | null = null;
-                    let defaultSttName: string | null = null;
 
                     if (defaultsRes.ok) {
                         const defaults = await defaultsRes.json();
                         defaultLlmName = defaults.default_llm;
                         defaultVisionName = defaults.default_vision;
-                        defaultSttName = defaults.default_speech;
                     }
 
                     if (!selectedModel) {
@@ -154,19 +153,20 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             }
                         }
                     }
+                }
 
-                    // Handle STT Profiles
-                    const sttList = presetList.filter(p => (p as any).is_speech);
+                // Handle STT Profiles from dedicated endpoint
+                if (sttConfigsRes && sttConfigsRes.ok) {
+                    const sttList = await sttConfigsRes.json();
                     setSttProfiles(sttList);
 
                     if (!selectedSttModel) {
-                        if (defaultSttName && sttList.some(p => p.name === defaultSttName)) {
-                            setSelectedSttModel(defaultSttName);
+                        const defaultStt = sttList.find((p: any) => p.is_default);
+                        if (defaultStt) {
+                            setSelectedSttModel(defaultStt.id?.toString() || defaultStt.name);
                         } else if (sttList.length > 0) {
-                            // If we have an ID, we should use it. 
-                            // In transcribe.py it looks for name or id.
                             const firstStt = sttList[0];
-                            setSelectedSttModel((firstStt as any).id?.toString() || firstStt.name);
+                            setSelectedSttModel(firstStt.id?.toString() || firstStt.name);
                         }
                     }
                 }
@@ -295,7 +295,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                                 updateCanvasSettings({ vision_model: value });
                             }}
                         >
-                            <SelectTrigger className="w-[200px] h-8 text-sm">
+                            <SelectTrigger className="w-[180px] h-8 text-sm">
                                 <SelectValue placeholder="Select vision model..." />
                             </SelectTrigger>
                             <SelectContent>
@@ -312,6 +312,43 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                                 {models.filter(m => m.is_vision).length === 0 && (
                                     <div className="p-2 text-xs text-muted-foreground">
                                         No vision models configured
+                                    </div>
+                                )}
+                            </SelectContent>
+                        </Select>
+                    )}
+                </div>
+
+                <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
+                    <Mic className="h-4 w-4" />
+                    <span>Voice:</span>
+                    {isLoadingModels ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Select
+                            value={selectedSttModel || ""}
+                            onValueChange={(value) => {
+                                setSelectedSttModel(value);
+                                updateCanvasSettings({ speech_model: value });
+                            }}
+                        >
+                            <SelectTrigger className="w-[180px] h-8 text-sm">
+                                <SelectValue placeholder="Select voice engine..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {sttProfiles.map((profile: any) => (
+                                    <SelectItem key={profile.id?.toString() || profile.name} value={profile.id?.toString() || profile.name}>
+                                        <div className="flex items-center gap-2">
+                                            <span>{profile.name}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                                ({profile.is_browser_native ? "Native" : (profile.provider_type || (profile.type === 'remote' ? 'Remote' : 'Local'))})
+                                            </span>
+                                        </div>
+                                    </SelectItem>
+                                ))}
+                                {sttProfiles.length === 0 && (
+                                    <div className="p-2 text-xs text-muted-foreground">
+                                        No voice models configured
                                     </div>
                                 )}
                             </SelectContent>

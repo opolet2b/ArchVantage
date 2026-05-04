@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Save, Loader2, Trash2, Mic } from "lucide-react"
 import { API_URL } from "@/lib/utils"
 import { Checkbox } from "@/components/ui/checkbox"
+import { HelpTooltip } from "@/components/ui/help-tooltip"
 
 interface SttConfig {
     id?: number
@@ -13,6 +14,8 @@ interface SttConfig {
     model_id?: string
     api_url?: string
     api_key?: string
+    api_protocol: "OPENAI" | "RAW"
+    language_code: string
     is_default: boolean
 }
 
@@ -28,6 +31,8 @@ export function SttSettingsTab() {
     const [modelId, setModelId] = useState("")
     const [apiUrl, setApiUrl] = useState("")
     const [apiKey, setApiKey] = useState("")
+    const [apiProtocol, setApiProtocol] = useState<"OPENAI" | "RAW">("OPENAI")
+    const [languageCode, setLanguageCode] = useState("en")
     const [isDefault, setIsDefault] = useState(false)
 
     useEffect(() => {
@@ -58,6 +63,8 @@ export function SttSettingsTab() {
         setModelId("")
         setApiUrl("")
         setApiKey("")
+        setApiProtocol("OPENAI")
+        setLanguageCode("en")
         setIsDefault(false)
     }
 
@@ -68,6 +75,8 @@ export function SttSettingsTab() {
         setModelId(config.model_id || "")
         setApiUrl(config.api_url || "")
         setApiKey(config.api_key || "")
+        setApiProtocol(config.api_protocol || "OPENAI")
+        setLanguageCode(config.language_code || "en")
         setIsDefault(config.is_default)
     }
 
@@ -85,6 +94,8 @@ export function SttSettingsTab() {
                 model_id: modelId || undefined,
                 api_url: apiUrl || undefined,
                 api_key: apiKey || undefined,
+                api_protocol: apiProtocol,
+                language_code: languageCode,
                 is_default: isDefault
             }
 
@@ -146,12 +157,52 @@ export function SttSettingsTab() {
         }
     }
 
+    const [testing, setTesting] = useState(false)
+    const handleTestConnection = async () => {
+        if (!apiUrl && providerType !== "BROWSER") {
+            alert("Please provide an API URL to test")
+            return
+        }
+        
+        setTesting(true)
+        try {
+            const token = localStorage.getItem("token")
+            const headers: HeadersInit = {
+                "Content-Type": "application/json",
+                ...(token ? { "Authorization": `Bearer ${token}` } : {})
+            }
+            
+            const res = await fetch(`${API_URL}/stt/test-connection`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    api_url: apiUrl,
+                    api_protocol: apiProtocol,
+                    api_key: apiKey
+                })
+            })
+            
+            const data = await res.json()
+            if (data.status === "success") {
+                alert(`Connection Success: ${data.message}`)
+            } else {
+                alert(`Connection Failed: ${data.message}`)
+            }
+        } catch (error) {
+            console.error("Test connection error", error)
+            alert("Error testing connection")
+        } finally {
+            setTesting(false)
+        }
+    }
+
     return (
         <div className="w-full space-y-6">
             <div className="flex flex-col gap-1">
                 <h3 className="text-lg font-semibold flex items-center gap-2">
                     <Mic className="h-5 w-5 text-blue-500" />
                     Speech-to-Text Profiles
+                    <HelpTooltip contentPath="settings/stt_config" />
                 </h3>
                 <p className="text-sm text-muted-foreground">Configure dictation engines (Browser, Local Whisper, Remote API).</p>
             </div>
@@ -206,7 +257,10 @@ export function SttSettingsTab() {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Provider Type</label>
+                            <label className="text-sm font-medium flex items-center gap-2">
+                                Provider Type
+                                <HelpTooltip contentPath="settings/model_type" />
+                            </label>
                             <select
                                 className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                                 value={providerType}
@@ -220,6 +274,20 @@ export function SttSettingsTab() {
 
                         {providerType !== "BROWSER" && (
                             <>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">API Protocol</label>
+                                    <select
+                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                        value={apiProtocol}
+                                        onChange={e => setApiProtocol(e.target.value as any)}
+                                    >
+                                        <option value="OPENAI">OpenAI Compatible (Most common)</option>
+                                        <option value="RAW">Raw / Legacy (Direct URL)</option>
+                                    </select>
+                                    <p className="text-[10px] text-muted-foreground italic">
+                                        Choose "OpenAI Compatible" for OpenRouter, Ollama, and modern Whisper servers.
+                                    </p>
+                                </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Model ID</label>
                                     <Input placeholder="e.g. whisper-1" value={modelId} onChange={e => setModelId(e.target.value)} />
@@ -235,6 +303,31 @@ export function SttSettingsTab() {
                                 </div>
                             </>
                         )}
+ 
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium flex items-center gap-2">
+                                Recognition Language
+                                <HelpTooltip contentPath="settings/stt_language" />
+                            </label>
+                            <select
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                                value={languageCode}
+                                onChange={e => setLanguageCode(e.target.value)}
+                            >
+                                <option value="en">English (en)</option>
+                                <option value="fr">French (fr)</option>
+                                <option value="de">German (de)</option>
+                                <option value="es">Spanish (es)</option>
+                                <option value="it">Italian (it)</option>
+                                <option value="pt">Portuguese (pt)</option>
+                                <option value="nl">Dutch (nl)</option>
+                                <option value="ru">Russian (ru)</option>
+                                <option value="zh">Chinese (zh)</option>
+                                <option value="ja">Japanese (ja)</option>
+                                <option value="ko">Korean (ko)</option>
+                                {providerType !== "BROWSER" && <option value="Auto-detect">Auto-detect (Whisper only)</option>}
+                            </select>
+                        </div>
 
                         <div className="flex items-center space-x-2 pt-2 pb-2">
                             <Checkbox id="isDefault" checked={isDefault} onCheckedChange={c => setIsDefault(!!c)} />
@@ -243,11 +336,23 @@ export function SttSettingsTab() {
                             </label>
                         </div>
 
-                        <div className="flex gap-4">
+                        <div className="flex gap-2">
                             <Button onClick={handleSave} disabled={saving} className="flex-1 h-9">
                                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                                 {id ? "Update Profile" : "Add Profile"}
                             </Button>
+                            
+                            {providerType !== "BROWSER" && (
+                                <Button 
+                                    variant="outline" 
+                                    onClick={handleTestConnection} 
+                                    disabled={testing} 
+                                    className="h-9 border-blue-200 dark:border-blue-900 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                                >
+                                    {testing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : "Test Connection"}
+                                </Button>
+                            )}
+                            
                             {id && (
                                 <Button variant="outline" onClick={resetForm} disabled={saving} className="h-9">
                                     Cancel

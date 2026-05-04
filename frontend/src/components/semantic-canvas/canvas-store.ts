@@ -1117,9 +1117,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
         if (candidates.length === 0) return null;
 
-        // Sort by Z-Index descending (Top Most first)
-        // Note: Domains usually have negative Z, but logic holds: higher is closer to 0 (top)
-        candidates.sort((a, b) => b.z_index - a.z_index);
+        // Sort by Z-Index descending (Top Most first), then by Depth descending (Innermost first)
+        candidates.sort((a, b) => {
+            if (b.z_index !== a.z_index) return b.z_index - a.z_index;
+            return get().getHierarchyDepth(b.id) - get().getHierarchyDepth(a.id);
+        });
 
         return candidates[0].id;
     },
@@ -1784,6 +1786,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // Check if a position is inside any domain, return domain ID or null
     checkThingInDomain: (thingId, x, y) => {
         const { domains } = get();
+        const containingDomains: Array<{ id: string; depth: number; z_index: number }> = [];
+
         for (const domain of domains) {
             if (
                 x >= domain.position_x &&
@@ -1791,10 +1795,23 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 y >= domain.position_y - 40 &&
                 y <= domain.position_y + (domain.height || 200)
             ) {
-                return domain.id;
+                containingDomains.push({
+                    id: domain.id,
+                    depth: get().getHierarchyDepth(domain.id),
+                    z_index: domain.z_index
+                });
             }
         }
-        return null;
+
+        if (containingDomains.length === 0) return null;
+
+        // Sort by Z-Index descending, then Depth descending (Innermost first)
+        containingDomains.sort((a, b) => {
+            if (b.z_index !== a.z_index) return b.z_index - a.z_index;
+            return b.depth - a.depth;
+        });
+
+        return containingDomains[0].id;
     },
 
     // Check if a domain is inside another domain, return parent domain ID or null

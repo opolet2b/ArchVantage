@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Settings, FolderOpen, Mic } from "lucide-react";
+import { Settings, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -90,42 +90,6 @@ export function CanvasSettingsDialog() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="stt-engine" className="text-right">
-                            Dictation Engine
-                        </Label>
-                        <div className="col-span-3">
-                            <Select
-                                value={selectedSttModel || ""}
-                                onValueChange={(value) => setSelectedSttModel(value)}
-                            >
-                                <SelectTrigger id="stt-engine" className="w-full h-8 text-sm">
-                                    <SelectValue placeholder="Select dictation engine..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {sttProfiles.map((profile: any) => (
-                                        <SelectItem key={profile.id || profile.name} value={profile.id?.toString() || profile.name}>
-                                            <div className="flex items-center gap-2">
-                                                <Mic className="h-3 w-3" />
-                                                <span>{profile.name}</span>
-                                                <span className="text-xs text-muted-foreground">
-                                                    ({profile.is_browser_native ? "Browser" : profile.provider_type})
-                                                </span>
-                                            </div>
-                                        </SelectItem>
-                                    ))}
-                                    {sttProfiles.length === 0 && (
-                                        <div className="p-2 text-xs text-muted-foreground text-center">
-                                            No STT profiles found. Check settings.
-                                        </div>
-                                    )}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="col-start-2 col-span-3 text-[10px] text-muted-foreground">
-                            Default speech-to-text engine used for node dictation.
-                        </div>
-                    </div>
                 </div>
 
                 <DialogFooter>

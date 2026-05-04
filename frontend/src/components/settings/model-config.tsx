@@ -3,11 +3,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
-import { Save, Loader2, RotateCcw, Sparkles, Trash2, AlertTriangle, FileText, Settings2 } from "lucide-react"
+import { Save, Loader2, RotateCcw, Sparkles, Trash2, AlertTriangle } from "lucide-react"
 import { API_URL } from "@/lib/utils"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
 import { Checkbox } from "@/components/ui/checkbox"
-import { useCanvasStore } from "../semantic-canvas/canvas-store"
 
 interface ModelConfigProps {
     onSave?: () => void
@@ -22,8 +21,6 @@ interface Preset {
     model_api_key?: string
     is_vision?: boolean
     is_embedding?: boolean
-    is_speech?: boolean
-    is_browser_native?: boolean
     context_window?: number
     sort?: "price" | "throughput" | "latency"
 }
@@ -39,16 +36,12 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     const [modelKey, setModelKey] = useState("")
     const [isVision, setIsVision] = useState(false)
     const [isEmbedding, setIsEmbedding] = useState(false)
-    const [isSpeech, setIsSpeech] = useState(false)
-    const [isBrowserNative, setIsBrowserNative] = useState(false)
     const [isSequential, setIsSequential] = useState(false)
     const [contextWindow, setContextWindow] = useState(4096)
-    const [languageCode, setLanguageCode] = useState("en")
 
     const [defaultLLM, setDefaultLLM] = useState("")
     const [defaultVision, setDefaultVision] = useState("")
     const [defaultEmbedding, setDefaultEmbedding] = useState("")
-    const [defaultSpeech, setDefaultSpeech] = useState("")
 
     // Reset DB Logic
     const [showResetDialog, setShowResetDialog] = useState(false)
@@ -96,7 +89,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             setDefaultLLM(data.default_llm || "")
             setDefaultVision(data.default_vision || "")
             setDefaultEmbedding(data.default_embedding || "")
-            setDefaultSpeech(data.default_speech || "")
         } catch (error) {
             console.error("Failed to fetch defaults", error)
         }
@@ -140,11 +132,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             }
             setIsVision(!!preset.is_vision)
             setIsEmbedding(!!preset.is_embedding)
-            setIsSpeech(!!(preset as any).is_speech)
-            setIsBrowserNative(!!(preset as any).is_browser_native)
             setIsSequential(!!(preset as any).is_sequential)
             setContextWindow(preset.context_window || 4096)
-            setLanguageCode((preset as any).language_code || "en")
         }
     }
 
@@ -166,11 +155,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 model_api_key: type === "remote" ? modelKey : undefined,
                 is_vision: isVision,
                 is_embedding: isEmbedding,
-                is_speech: isSpeech,
-                is_browser_native: isSpeech && type === "local" ? isBrowserNative : false,
                 is_sequential: type === "local" ? isSequential : false,
-                context_window: contextWindow,
-                language_code: languageCode
+                context_window: contextWindow
             }
 
             const res = await fetch(`${API_URL}/config/presets`, {
@@ -228,17 +214,16 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
         }
     }
 
-    const handleSetDefault = async (type: "llm" | "vision" | "speech", value: string) => {
+    const handleSetDefault = async (type: "llm" | "vision", value: string) => {
         try {
             // Optimistic update
             if (type === "llm") setDefaultLLM(value)
             else if (type === "vision") setDefaultVision(value)
-            else setDefaultSpeech(value)
  
             const payload = {
                 default_llm: type === "llm" ? value : defaultLLM,
                 default_vision: type === "vision" ? value : defaultVision,
-                default_speech: type === "speech" ? value : defaultSpeech
+                default_embedding: defaultEmbedding
             }
 
             const res = await fetch(`${API_URL}/config/defaults`, {
@@ -273,7 +258,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 default_llm: defaultLLM,
                 default_vision: defaultVision,
                 default_embedding: value,
-                default_speech: defaultSpeech,
                 reset_db: resetDb
             }
 
@@ -310,9 +294,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 </CardHeader>
                 <CardContent className="space-y-6">
 
-
-
-
                     {/* Global Defaults Section */}
                     <div className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg border space-y-4">
                         <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -329,7 +310,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                         onChange={(e) => handleSetDefault("llm", e.target.value)}
                                     >
                                         <option value="">Select a default...</option>
-                                        {presets.filter(p => !p.is_embedding && !p.is_speech).map((p) => (
+                                        {presets.filter(p => !p.is_embedding).map((p) => (
                                             <option key={p.name} value={p.name}>{p.name}</option>
                                         ))}
                                     </select>
@@ -365,29 +346,8 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                     </select>
                                 )}
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Default Speech-to-Text</label>
-                                {defaultsLoaded && (
-                                    <select
-                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                        value={defaultSpeech}
-                                        onChange={(e) => handleSetDefault("speech", e.target.value)}
-                                    >
-                                        <option value="">Select a default...</option>
-                                        {presets.filter(p => p.is_speech).map((p) => (
-                                            <option key={p.name} value={p.name}>{p.name}</option>
-                                        ))}
-                                    </select>
-                                )}
-                            </div>
                         </div>
                     </div>
-
-
-
-
-
-
 
                     <div className="relative">
                         <div className="absolute inset-0 flex items-center">
@@ -460,22 +420,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                 </label>
                             </div>
                         </div>
-
-                        <div className="flex items-center space-x-2 border p-4 rounded-md flex-1">
-                            <Checkbox
-                                id="isSpeech"
-                                checked={isSpeech}
-                                onCheckedChange={(c) => setIsSpeech(!!c)}
-                            />
-                            <div className="grid gap-1.5 leading-none">
-                                <label
-                                    htmlFor="isSpeech"
-                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                >
-                                    Speech Model
-                                </label>
-                            </div>
-                        </div>
                     </div>
 
                     <div className="space-y-2">
@@ -544,12 +488,10 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                             </p>
 
                             <div className="flex items-center space-x-2 pt-2">
-                                <input
-                                    type="checkbox"
+                                <Checkbox
                                     id="isSequential"
-                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                                     checked={isSequential}
-                                    onChange={(e) => setIsSequential(e.target.checked)}
+                                    onCheckedChange={(c) => setIsSequential(!!c)}
                                 />
                                 <label
                                     htmlFor="isSequential"
@@ -558,53 +500,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                     Run sequentially - generally faster/safer for local LLMs
                                 </label>
                             </div>
-
-                            {isSpeech && (
-                                <div className="space-y-4 pt-4 border-t">
-                                    <div className="flex items-center space-x-2">
-                                        <input
-                                            type="checkbox"
-                                            id="isBrowserNative"
-                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                            checked={isBrowserNative}
-                                            onChange={(e) => setIsBrowserNative(e.target.checked)}
-                                        />
-                                        <label
-                                            htmlFor="isBrowserNative"
-                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                        >
-                                            Browser native (Only for STT)
-                                        </label>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium flex items-center gap-2">
-                                            Recognition Language
-                                            <HelpTooltip contentPath="settings/stt_language" />
-                                        </label>
-                                        <select
-                                            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                            value={languageCode}
-                                            onChange={(e) => setLanguageCode(e.target.value)}
-                                        >
-                                            <option value="en">English (en)</option>
-                                            <option value="fr">French (fr)</option>
-                                            <option value="de">German (de)</option>
-                                            <option value="es">Spanish (es)</option>
-                                            <option value="it">Italian (it)</option>
-                                            <option value="pt">Portuguese (pt)</option>
-                                            <option value="nl">Dutch (nl)</option>
-                                            <option value="ru">Russian (ru)</option>
-                                            <option value="zh">Chinese (zh)</option>
-                                            <option value="ja">Japanese (ja)</option>
-                                            <option value="ko">Korean (ko)</option>
-                                            {!isBrowserNative && <option value="Auto-detect">Auto-detect (Whisper only)</option>}
-                                        </select>
-                                        <p className="text-xs text-muted-foreground">
-                                            ISO 639-1 code. For browser native, use codes like 'en-US' or 'fr-FR' if 'en'/'fr' fails.
-                                        </p>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     )}
 
@@ -646,9 +541,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                     <option value="throughput">Throughput (Fastest)</option>
                                     <option value="latency">Latency (Lowest Ping)</option>
                                 </select>
-                                <p className="text-xs text-muted-foreground">
-                                    For OpenRouter/Aggregators: prioritizes providers based on this logic.
-                                </p>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium flex items-center gap-2">
@@ -671,36 +563,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                                     onChange={(e) => setModelKey(e.target.value)}
                                 />
                             </div>
-
-                            {isSpeech && (
-                                <div className="space-y-2 border-t pt-4">
-                                    <label className="text-sm font-medium flex items-center gap-2">
-                                        Recognition Language
-                                        <HelpTooltip contentPath="settings/stt_language" />
-                                    </label>
-                                    <select
-                                        className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                        value={languageCode}
-                                        onChange={(e) => setLanguageCode(e.target.value)}
-                                    >
-                                        <option value="en">English (en)</option>
-                                        <option value="fr">French (fr)</option>
-                                        <option value="de">German (de)</option>
-                                        <option value="es">Spanish (es)</option>
-                                        <option value="it">Italian (it)</option>
-                                        <option value="pt">Portuguese (pt)</option>
-                                        <option value="nl">Dutch (nl)</option>
-                                        <option value="ru">Russian (ru)</option>
-                                        <option value="zh">Chinese (zh)</option>
-                                        <option value="ja">Japanese (ja)</option>
-                                        <option value="ko">Korean (ko)</option>
-                                        <option value="Auto-detect">Auto-detect</option>
-                                    </select>
-                                    <p className="text-xs text-muted-foreground">
-                                        Passing a language code improves Whisper accuracy and speed.
-                                    </p>
-                                </div>
-                            )}
                         </div>
                     )}
 
@@ -710,7 +572,6 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                             Save Configuration
                         </Button>
 
-                        {/* Show Delete button only if editing an existing preset */}
                         {presets.some(p => p.name === name) && (
                             <Button
                                 onClick={handleDelete}
@@ -726,52 +587,49 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 </CardContent>
             </Card>
 
-            {/* Custom Modal Overlay for Reset Confirmation */}
-            {
-                showResetDialog && (
-                    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-                        <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-                            <div className="flex gap-4 mb-4">
-                                <div className="p-2 bg-yellow-100 dark:bg-yellow-900 rounded-full h-10 w-10 flex-shrink-0 flex items-center justify-center">
-                                    <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                                </div>
-                                <div>
-                                    <h3 className="text-lg font-semibold">Embedding Model Changed</h3>
-                                    <p className="text-sm text-muted-foreground mt-1">
-                                        Changing the embedding model usually requires re-indexing your entire database to ensure search results are accurate.
+            {showResetDialog && (
+                <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+                        <div className="flex gap-4 mb-4">
+                            <div className="p-2 bg-yellow-100 dark:bg-yellow-900 rounded-full h-10 w-10 flex-shrink-0 flex items-center justify-center">
+                                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-semibold">Embedding Model Changed</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                    Changing the embedding model usually requires re-indexing your entire database to ensure search results are accurate.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="my-4 p-4 border rounded-md bg-slate-50 dark:bg-slate-950">
+                            <div className="flex items-start space-x-3">
+                                <Checkbox
+                                    id="resetDb"
+                                    checked={resetDbChecked}
+                                    onCheckedChange={(c) => setResetDbChecked(!!c)}
+                                />
+                                <div className="grid gap-1.5 leading-none">
+                                    <label
+                                        htmlFor="resetDb"
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                        Reset & Re-index Database
+                                    </label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Uncheck ONLY if you are certain the new model is compatible with existing vectors.
                                     </p>
                                 </div>
                             </div>
+                        </div>
 
-                            <div className="my-4 p-4 border rounded-md bg-slate-50 dark:bg-slate-950">
-                                <div className="flex items-start space-x-3">
-                                    <Checkbox
-                                        id="resetDb"
-                                        checked={resetDbChecked}
-                                        onCheckedChange={(c) => setResetDbChecked(!!c)}
-                                    />
-                                    <div className="grid gap-1.5 leading-none">
-                                        <label
-                                            htmlFor="resetDb"
-                                            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                        >
-                                            Reset & Re-index Database
-                                        </label>
-                                        <p className="text-xs text-muted-foreground">
-                                            Uncheck ONLY if you are certain the new model is compatible with existing vectors (e.g. same model, different provider).
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end gap-2">
-                                <Button variant="outline" onClick={() => setShowResetDialog(false)}>Cancel</Button>
-                                <Button onClick={() => executeSaveDefaultEmbedding(resetDbChecked)}>Confirm & Save</Button>
-                            </div>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setShowResetDialog(false)}>Cancel</Button>
+                            <Button onClick={() => executeSaveDefaultEmbedding(resetDbChecked)}>Confirm & Save</Button>
                         </div>
                     </div>
-                )
-            }
+                </div>
+            )}
         </div >
     )
 }
