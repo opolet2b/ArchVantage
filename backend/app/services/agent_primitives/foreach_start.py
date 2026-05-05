@@ -74,38 +74,41 @@ class ForEachStartPrimitive(BasePrimitive):
             variables = state.get("variables", {})
             
             # 2. Resolve Items List (Robust Multi-Stage Resolution)
-            # We try different strategies to find the list variable the user specified
             items = None
-            print(f"[FOREACH_START] Attempting resolution for: '{items_ref}'")
+            print(f"\n[DEBUG FOREACH] Target Ref: '{items_ref}'")
+            print(f"[DEBUG FOREACH] Available Variables: {list(variables.keys())}")
+            
             try:
-                # Strategy 1: Standard template resolution (handles {{inputs.list}})
+                # Strategy 1: Standard template resolution
                 items = self.resolve_variables(items_ref, state)
-                print(f"[FOREACH_START] Strategy 1 (Template) result type: {type(items)}")
+                print(f"[DEBUG FOREACH] Strategy 1 (Template) Result: {str(items)[:100]}")
                 
-                # If Strategy 1 returned the same string, it means it didn't find any {{ }} braces
-                # or the braces didn't resolve to anything.
                 if isinstance(items, str) and items == items_ref:
-                    # Strategy 2: Raw path resolution (handles "inputs.list" or "node_id.field")
-                    clean_ref = items_ref.strip()
-                    if clean_ref.startswith("{{") and clean_ref.endswith("}}"):
-                        clean_ref = clean_ref[2:-2].strip()
-                    
-                    print(f"[FOREACH_START] Strategy 2 (Path) attempting for: '{clean_ref}'")
+                    # Strategy 2: Raw path resolution
+                    clean_ref = items_ref.strip("{} ")
+                    print(f"[DEBUG FOREACH] Strategy 2 (Path) attempting: '{clean_ref}'")
                     resolved_raw = self._resolve_single_variable(clean_ref, state)
                     if resolved_raw is not None:
                         items = resolved_raw
-                        print(f"[FOREACH_START] Strategy 2 success. Type: {type(items)}")
+                        print(f"[DEBUG FOREACH] Strategy 2 Success. Type: {type(items)}")
                 
-                # Strategy 3: Direct variables fallback
                 if items is None or (isinstance(items, str) and items == items_ref):
-                    print(f"[FOREACH_START] Strategy 3 (Direct) fallback for: '{items_ref}'")
+                    print(f"[DEBUG FOREACH] Strategy 3 (Direct) fallback for: '{items_ref}'")
                     items = variables.get(items_ref)
-                    if items is not None:
-                        print(f"[FOREACH_START] Strategy 3 success. Type: {type(items)}")
-                
+            
             except Exception as e:
-                print(f"[FOREACH_START] ERROR during resolution of '{items_ref}': {e}")
+                print(f"[DEBUG FOREACH] ERROR: {e}")
                 items = []
+
+            # Final check
+            if items is None:
+                print("[DEBUG FOREACH] Final Result: None -> defaulting to []")
+                items = []
+            elif not isinstance(items, list):
+                print(f"[DEBUG FOREACH] Final Result: {type(items)} -> wrapping in list")
+                items = [items]
+            else:
+                print(f"[DEBUG FOREACH] Final Result: List with {len(items)} items.")
 
             # Log final resolution state
             debug_msg = f"[FOREACH_START] RESOLUTION for '{items_ref}': "
@@ -132,35 +135,34 @@ class ForEachStartPrimitive(BasePrimitive):
             except:
                 pass
                 
-            # 3. Determine Loop State
-            # We store loop state in a special internal variable to track progress
-            # Key collision avoidance: Use node ID? 
-            # Ideally we need the node_id of THIS node.
-            # But params doesn't give us node_id easily unless we pass it? 
-            # We can use a combination of variable names or rely on the fact 
-            # that we re-enter this node.
-            
-            # Let's use a convention: _loop_state_{iterator_var} 
-            # Or better, just check if index_var exists and if we received a "CONTINUE" signal?
-            # Issue: If we just check index_var, we might be restarting a loop that wasn't cleaned up?
-            # Safe bet: Look for a specific "signal" that the END node set.
-            
+            # 3. Handle Table Data (Array of Arrays with Headers)
+            # If the input looks like a table [ [h1, h2], [v1, v2] ], convert rows to dicts
+            is_table = False
+            headers = []
+            if len(items) > 1 and all(isinstance(i, list) for i in items[:2]):
+                is_table = True
+                headers = [str(h).strip() for h in items[0]]
+                # Slice items to skip header row for iteration
+                items = items[1:]
+                print(f"[DEBUG FOREACH] Detected table input with {len(headers)} columns. Converting {len(items)} rows to objects.")
+
             loop_state_key = f"_loop_state_{iterator_var}_{index_var}"
             current_index = variables.get(loop_state_key, -1)
-            
-            # Logic:
-            # If we are called, we increment the index.
-            # EXCEPT: If this is the *very first* time?
-            # Implementation detail: The END node points back here.
-            # So every time we are called, we simply take the Next item.
-            # If current_index is -1 (not set), start at 0.
-            
             next_index = current_index + 1
             
             # 4. Check Termination
             if next_index < len(items):
                 # CONTINUE
-                current_item = items[next_index]
+                current_raw_item = items[next_index]
+                
+                # If it was a table, convert this row to a dictionary using headers
+                if is_table and isinstance(current_raw_item, list):
+                    current_item = {}
+                    for i, header in enumerate(headers):
+                        if i < len(current_raw_item):
+                            current_item[header] = current_raw_item[i]
+                else:
+                    current_item = current_raw_item
                 
                 # Update State
                 output_vars = {
@@ -171,7 +173,11 @@ class ForEachStartPrimitive(BasePrimitive):
                 
                 # If start of loop, also init the results array
                 if next_index == 0:
+                     print(f"[DEBUG FOREACH_START] Initializing new list for variable '{results_var}' at index 0")
                      output_vars[results_var] = []
+                else:
+                     existing_results = variables.get(results_var, [])
+                     print(f"[DEBUG FOREACH_START] Iteration {next_index}. Variable '{results_var}' count: {len(existing_results)}")
                 
                 return PrimitiveResult(
                     success=True,

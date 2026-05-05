@@ -12,8 +12,9 @@ class Settings:
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     # Database Configuration
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./db/sql_app.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'db', 'sql_app.db')}")
     CHROMA_DB_DIR: str = os.path.join(BASE_DIR, "chroma_db")
+    DATA_STORAGE_DIR: str = os.path.join(BASE_DIR, "data_storage")
 
     # ArcadeDB Configuration
     ARCADEDB_HOST: str = os.getenv("ARCADEDB_HOST", "http://localhost:2480")

@@ -13,6 +13,8 @@ import {
     Layout,
     Palette,
     Server,
+    Bot,
+    Wand2,
     ChevronLeft,
     ChevronRight
 } from "lucide-react";
@@ -40,6 +42,7 @@ export type ToolType =
     | "conversation"
     | "import_conversation"
     | "mcp_tool"
+    | "agent_tool"
     | "archimate_tool";
 
 export interface CanvasTool {
@@ -114,7 +117,12 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         icon: <Import className="h-4 w-4" />,
         description: "Import ArchiMate XML"
     },
-
+    {
+        id: "agent_tool",
+        name: "Agent Blueprint",
+        icon: <Bot className="h-4 w-4" />,
+        description: "Connect & execute an Agent"
+    },
 ];
 
 const PRESET_COLORS = [
@@ -150,7 +158,10 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     domain: "#e0e7ff",
 
     // MCP - Orange/Amber
-    mcp_tool: "#ffedd5"
+    mcp_tool: "#ffedd5",
+
+    // Agent - Violet
+    agent_tool: "#f5f3ff",
 };
 
 

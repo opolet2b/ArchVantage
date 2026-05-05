@@ -25,6 +25,8 @@ import {
     AlertCircle,
     Trash2,
     Sparkles,
+    Plus,
+    Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1262,14 +1264,21 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
 
                         <div className="space-y-4">
                             <div className="space-y-2">
-                                <Label className="text-sm font-semibold">Accumulate into Results (Optional)</Label>
-                                <Input
+                                <Label className="text-sm font-semibold flex items-center gap-2">
+                                    Accumulate into Results (Optional)
+                                    <VariablePicker 
+                                        nodeId={selectedNode?.id} 
+                                        onSelect={(path) => handleParamChange("collect_value", ((params.collect_value as string) || "") + `{{${path}}}`)} 
+                                    />
+                                </Label>
+                                <Textarea
                                     placeholder="{{llm.output}}"
                                     value={(params.collect_value as string) || ""}
                                     onChange={(e) => handleParamChange("collect_value", e.target.value)}
+                                    className="min-h-[80px] font-mono text-xs"
                                 />
-                                <p className="text-[11px] text-muted-foreground">
-                                    Specify which value from inside the loop to add to the final list.
+                                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                    Specify the value or JSON template to add to the results list.
                                 </p>
                             </div>
 
@@ -1487,29 +1496,38 @@ interface InputField {
 function StartNodeInspector() {
     const inputsSchema = useBuilderStore((state) => state.inputsSchema);
     const setInputsSchema = useBuilderStore((state) => state.setInputsSchema);
+    const [activeTab, setActiveTab] = useState<"visual" | "json">("visual");
 
     // Parse current schema into editable fields
-    const [fields, setFields] = useState<InputField[]>(() => {
+    const [fields, setFields] = useState<InputField[]>([]);
+
+    useEffect(() => {
         const schema = inputsSchema as any;
         const properties = schema?.properties || {};
         const required = schema?.required || [];
 
-        return Object.entries(properties).map(([name, prop]: [string, any]) => ({
+        const parsedFields = Object.entries(properties).map(([name, prop]: [string, any]) => ({
             name,
             type: prop?.type || "string",
             required: required.includes(name),
             description: prop?.description || ""
         }));
-    });
+        setFields(parsedFields);
+    }, [inputsSchema]);
 
     const [newFieldName, setNewFieldName] = useState("");
     const [newFieldType, setNewFieldType] = useState("string");
     const [newFieldRequired, setNewFieldRequired] = useState(false);
+    const [newFieldDesc, setNewFieldDesc] = useState("");
 
     // Sync fields to inputsSchema
     const updateSchema = (updatedFields: InputField[]) => {
         if (updatedFields.length === 0) {
-            setInputsSchema({});
+            setInputsSchema({
+                type: "object",
+                properties: {},
+                required: []
+            });
             return;
         }
 
@@ -1529,7 +1547,7 @@ function StartNodeInspector() {
         setInputsSchema({
             type: "object",
             properties,
-            ...(required.length > 0 ? { required } : {})
+            required
         });
     };
 
@@ -1540,7 +1558,8 @@ function StartNodeInspector() {
         const newField: InputField = {
             name: newFieldName.trim(),
             type: newFieldType,
-            required: newFieldRequired
+            required: newFieldRequired,
+            description: newFieldDesc.trim()
         };
 
         const updatedFields = [...fields, newField];
@@ -1550,6 +1569,7 @@ function StartNodeInspector() {
         setNewFieldName("");
         setNewFieldType("string");
         setNewFieldRequired(false);
+        setNewFieldDesc("");
     };
 
     const handleRemoveField = (name: string) => {
@@ -1566,108 +1586,171 @@ function StartNodeInspector() {
         updateSchema(updatedFields);
     };
 
+    const handleUpdateFieldDesc = (name: string, desc: string) => {
+        const updatedFields = fields.map(f =>
+            f.name === name ? { ...f, description: desc } : f
+        );
+        setFields(updatedFields);
+        updateSchema(updatedFields);
+    };
+
     return (
         <div className="space-y-4">
             <div>
-                <Label className="text-sm font-medium">Agent Input Parameters</Label>
-                <p className="text-xs text-muted-foreground mt-1">
-                    Define the inputs users provide when running this agent.
-                    Leave empty if no inputs are needed (optional).
+                <Label className="text-sm font-bold flex items-center gap-2">
+                    <Brain className="h-4 w-4 text-purple-600" />
+                    Agent Input Schema
+                </Label>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                    Define the strict interface for this agent. These fields will be exposed as <code className="text-[10px] bg-slate-100 dark:bg-slate-800 px-1 rounded">{"{{inputs.VARIABLE}}"}</code>.
                 </p>
             </div>
 
-            {/* Existing Fields */}
-            {fields.length > 0 && (
-                <div className="space-y-2">
-                    {fields.map(field => (
-                        <div
-                            key={field.name}
-                            className="flex items-center gap-2 p-2 rounded border bg-slate-50 dark:bg-slate-800/50"
-                        >
-                            <div className="flex-1 min-w-0">
-                                <div className="font-mono text-sm truncate">{field.name}</div>
-                                <div className="flex gap-2 text-xs text-muted-foreground">
-                                    <span className="bg-slate-200 dark:bg-slate-700 px-1 rounded">
-                                        {field.type}
-                                    </span>
-                                    {field.required && (
-                                        <span className="text-red-500">required</span>
-                                    )}
+            <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg gap-1">
+                <Button 
+                    variant={activeTab === "visual" ? "secondary" : "ghost"} 
+                    size="sm" 
+                    className="flex-1 h-7 text-[10px] font-bold"
+                    onClick={() => setActiveTab("visual")}
+                >
+                    Visual Builder
+                </Button>
+                <Button 
+                    variant={activeTab === "json" ? "secondary" : "ghost"} 
+                    size="sm" 
+                    className="flex-1 h-7 text-[10px] font-bold"
+                    onClick={() => setActiveTab("json")}
+                >
+                    Raw JSON
+                </Button>
+            </div>
+
+            {activeTab === "visual" ? (
+                <>
+                    {/* Existing Fields */}
+                    <div className="space-y-2">
+                        {fields.map(field => (
+                            <div
+                                key={field.name}
+                                className="group p-3 rounded-xl border bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-all space-y-2"
+                            >
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <div className="font-bold text-xs truncate bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md">
+                                            {field.name}
+                                        </div>
+                                        <Badge variant="outline" className="text-[10px] px-1.5 h-5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 border-purple-100">
+                                            {field.type}
+                                        </Badge>
+                                        {field.required && (
+                                            <span className="text-[10px] font-bold text-rose-500 uppercase tracking-tighter">Required</span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6"
+                                            onClick={() => handleToggleRequired(field.name)}
+                                            title={field.required ? "Make optional" : "Make required"}
+                                        >
+                                            {field.required ? <Check className="h-3 w-3 text-green-600" /> : <Sparkles className="h-3 w-3" />}
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                            onClick={() => handleRemoveField(field.name)}
+                                        >
+                                            <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                    </div>
                                 </div>
+                                <Input 
+                                    className="h-7 text-[10px] bg-slate-50 dark:bg-slate-950 border-none italic"
+                                    placeholder="Add description for this parameter..."
+                                    value={field.description || ""}
+                                    onChange={(e) => handleUpdateFieldDesc(field.name, e.target.value)}
+                                />
                             </div>
+                        ))}
+                    </div>
+
+                    {/* Add New Field */}
+                    <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-4 bg-slate-50/50 dark:bg-slate-900/30">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Field Name</Label>
+                                <Input
+                                    className="h-9 text-xs bg-white dark:bg-slate-900"
+                                    placeholder="e.g. customer_id"
+                                    value={newFieldName}
+                                    onChange={(e) => setNewFieldName(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && handleAddField()}
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-[10px] font-bold text-slate-500 uppercase">Type</Label>
+                                <select
+                                    className="w-full h-9 text-xs rounded-md border bg-white dark:bg-slate-900 px-2"
+                                    value={newFieldType}
+                                    onChange={(e) => setNewFieldType(e.target.value)}
+                                >
+                                    <option value="string">String</option>
+                                    <option value="number">Number</option>
+                                    <option value="boolean">Boolean</option>
+                                    <option value="array">Array</option>
+                                    <option value="object">Object</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-slate-500 uppercase">Description (Optional)</Label>
+                            <Input
+                                className="h-9 text-xs bg-white dark:bg-slate-900"
+                                placeholder="Explain what this input is for..."
+                                value={newFieldDesc}
+                                onChange={(e) => setNewFieldDesc(e.target.value)}
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                            <label className="flex items-center gap-2 text-xs font-medium cursor-pointer group">
+                                <input
+                                    type="checkbox"
+                                    checked={newFieldRequired}
+                                    onChange={(e) => setNewFieldRequired(e.target.checked)}
+                                    className="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                                />
+                                <span className="group-hover:text-purple-600 transition-colors">Mark as Required</span>
+                            </label>
                             <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6"
-                                onClick={() => handleToggleRequired(field.name)}
-                                title={field.required ? "Make optional" : "Make required"}
+                                size="sm"
+                                className="h-8 px-4 bg-purple-600 hover:bg-purple-700 text-xs font-bold gap-2"
+                                onClick={handleAddField}
+                                disabled={!newFieldName.trim()}
                             >
-                                {field.required ? "★" : "☆"}
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-red-500 hover:text-red-700"
-                                onClick={() => handleRemoveField(field.name)}
-                            >
-                                <Trash2 className="h-3 w-3" />
+                                <Plus className="h-3.5 w-3.5" /> Add Field
                             </Button>
                         </div>
-                    ))}
+                    </div>
+                </>
+            ) : (
+                <div className="space-y-3">
+                    <JsonEditor 
+                        value={inputsSchema}
+                        onChange={(val) => setInputsSchema(val as Record<string, unknown>)}
+                        minHeight="min-h-[400px]"
+                    />
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30 rounded-lg">
+                        <p className="text-[10px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                            <strong>⚠️ Advanced:</strong> Standard JSON Schema (draft-07) is supported. 
+                            The canvas tool will use the <code>properties</code> key to build the mapping UI.
+                        </p>
+                    </div>
                 </div>
             )}
-
-            {/* Add New Field */}
-            <div className="border rounded-md p-3 space-y-3 bg-white dark:bg-slate-900">
-                <Label className="text-xs font-medium">Add Input Field</Label>
-
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">Field Name</Label>
-                        <Input
-                            className="h-8 text-xs"
-                            placeholder="e.g. email"
-                            value={newFieldName}
-                            onChange={(e) => setNewFieldName(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && handleAddField()}
-                        />
-                    </div>
-                    <div className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">Type</Label>
-                        <select
-                            className="w-full h-8 text-xs rounded-md border bg-background px-2"
-                            value={newFieldType}
-                            onChange={(e) => setNewFieldType(e.target.value)}
-                        >
-                            <option value="string">String</option>
-                            <option value="number">Number</option>
-                            <option value="boolean">Boolean</option>
-                            <option value="array">Array</option>
-                            <option value="object">Object</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 text-xs cursor-pointer">
-                        <input
-                            type="checkbox"
-                            checked={newFieldRequired}
-                            onChange={(e) => setNewFieldRequired(e.target.checked)}
-                            className="h-4 w-4 rounded border"
-                        />
-                        Required
-                    </label>
-                    <Button
-                        size="sm"
-                        className="h-7"
-                        onClick={handleAddField}
-                        disabled={!newFieldName.trim()}
-                    >
-                        Add Field
-                    </Button>
-                </div>
-            </div>
         </div>
     );
 }

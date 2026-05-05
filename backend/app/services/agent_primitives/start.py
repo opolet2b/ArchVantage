@@ -66,6 +66,6 @@ class StartPrimitive(BasePrimitive):
         
         return PrimitiveResult(
             success=True,
-            output={"_started": True, **inputs},
+            output={"_started": True, "inputs": inputs, **inputs},
             error=None
         )

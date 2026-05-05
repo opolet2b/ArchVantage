@@ -54,15 +54,21 @@ class ForEachEndPrimitive(BasePrimitive):
             collect_value_tpl = params.get("collect_value")
             results_var = params.get("results_var", "results")
             
+            print(f"[DEBUG FOREACH_END] Start Node ID: {start_node_id}")
+            
             # 1. Collect Result
             if collect_value_tpl:
                 value = self.resolve_variables(collect_value_tpl, state)
+                print(f"[DEBUG FOREACH_END] Collected value: {str(value)[:50]}...")
                 
                 # Append to list
                 variables = state.get("variables", {})
                 current_results = variables.get(results_var, [])
                 if not isinstance(current_results, list):
                     current_results = []
+                
+                print(f"[DEBUG FOREACH_END] Results variable: '{results_var}'")
+                print(f"[DEBUG FOREACH_END] Results count BEFORE append: {len(current_results)}")
                 
                 # Prevent Circular Reference
                 # If the value being collected IS the results list itself, or contains it.
@@ -72,6 +78,7 @@ class ForEachEndPrimitive(BasePrimitive):
                      value = list(current_results) 
                 
                 current_results.append(value)
+                print(f"[DEBUG FOREACH_END] Results count AFTER append: {len(current_results)}")
                 
                 # Update state
                 # Note: PrimitiveResult output updates variables.
@@ -83,6 +90,7 @@ class ForEachEndPrimitive(BasePrimitive):
 
             # 2. Loop Back
             # We explicitly tell runtime to go to start_node_id
+            print(f"[DEBUG FOREACH_END] JUMPING BACK TO: {start_node_id}")
             
             return PrimitiveResult(
                 success=True,

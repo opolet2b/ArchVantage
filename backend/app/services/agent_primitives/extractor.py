@@ -101,12 +101,47 @@ class ExtractorPrimitive(BasePrimitive):
         extraction_mode = "semantic" # Default initialization to prevent UnboundLocalError
 
         # 3. Resolve Source Text
-        source_text = params.get("source_text")
+        source_text_param = params.get("source_text")
+        source_text = None
+        
+        if source_text_param:
+            # Smart resolution: handle templates or direct variable names
+            if isinstance(source_text_param, str):
+                resolved = self.resolve_variables(
+                    source_text_param if "{{" in source_text_param else f"{{{{{source_text_param}}}}}", 
+                    state
+                )
+                # If resolution returned something useful (not just the input string), use it
+                if resolved is not None and resolved != source_text_param:
+                    source_text = resolved
+                else:
+                    source_text = source_text_param
+            else:
+                source_text = source_text_param
+
+        # If source_text resolved to a list (e.g. from document rows), convert to markdown table
+        if isinstance(source_text, list) and len(source_text) > 0:
+            print(f"[EXTRACTOR] Source text resolved to list with {len(source_text)} items. Converting to table...")
+            try:
+                import pandas as pd
+                if all(isinstance(r, list) for r in source_text[:2]):
+                     # It's a list of lists (table)
+                     header = source_text[0]
+                     rows = source_text[1:]
+                     df = pd.DataFrame(rows, columns=header)
+                     source_text = df.to_markdown(index=False)
+                else:
+                     # Simple list
+                     source_text = "\n".join([str(i) for i in source_text])
+            except Exception as e:
+                print(f"[EXTRACTOR] Table conversion failed: {e}")
+                source_text = str(source_text)
         
         # Debug Log
         try:
             with open("execution_debug.log", "a", encoding="utf-8") as f:
-                f.write(f"\n[EXTRACTOR DEBUG] Initial source_text from params: '{str(source_text)[:50]}...'\n")
+                preview = str(source_text)[:50] if source_text else "None"
+                f.write(f"\n[EXTRACTOR DEBUG] Resolved source_text: '{preview}...'\n")
         except: pass
 
         if not source_text:

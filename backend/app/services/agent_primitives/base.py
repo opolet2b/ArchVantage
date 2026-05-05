@@ -158,6 +158,18 @@ class BasePrimitive(ABC):
             
         pattern = r'\{\{([^}]+)\}\}'
         result = re.sub(pattern, replace_var, template)
+        
+        # --- AUTO-UNWRAP JSON STRINGS ---
+        # If the final rendered string looks like JSON, parse it into an object
+        if isinstance(result, str):
+            trimmed = result.strip()
+            if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
+                try:
+                    import json
+                    return json.loads(trimmed)
+                except:
+                    pass # Not valid JSON or partial template, return as string
+                    
         return result
 
     def _ensure_id(self, val: Any) -> Any:
@@ -277,7 +289,8 @@ class BasePrimitive(ABC):
                 root = variables # Default to variables root
 
         try:
-            val = self._get_nested_value(root, var_path)
+            db = state.get("db")
+            val = self._get_nested_value(root, var_path, db=db)
             
             # --- AUTO-UNWRAP JSON STRINGS ---
             # If the resolved value is a string that looks like JSON, parse it.
@@ -308,58 +321,113 @@ class BasePrimitive(ABC):
             for source in [state.get("inputs", {}), state.get("variables", {})]:
                 found = self._find_key_recursive(source, var_path)
                 if found is not None:
+                    # SMART NODE RESOLUTION:
+                    # If the found value is a UUID, check if it's a CanvasThing and return its content
+                    if isinstance(found, str) and len(found) == 36 and "-" in found:
+                        db = state.get("db")
+                        if db:
+                            try:
+                                from app.models.canvas_models import CanvasThing, ThingType
+                                t = db.query(CanvasThing).filter(CanvasThing.id == found).first()
+                                if t:
+                                    # Return content for documents/tables, text for text nodes
+                                    t_type = t.type.value if hasattr(t.type, "value") else str(t.type)
+                                    if t_type == "text":
+                                        return t.content.get("text", "")
+                                    elif t_type in ["document", "table"]:
+                                        # Return rows if they exist (for ForEach)
+                                        if "rows" in t.content:
+                                            return t.content["rows"]
+                                        return t.content
+                                    return t.content
+                            except: pass
                     return found
         
         return None
     
-    def _get_nested_value(self, data: Dict, path: str) -> Any:
+    def _get_nested_value(self, data: Any, path: str, db: Any = None) -> Any:
         """
-        Get a value from nested data using dot notation.
-        
-        Supports:
-        - Recursive JSON parsing: if an intermediate value is a string, it parses it to continue traversal.
-        - Simple paths: "name"
-        - Nested paths: "user.name"
-        - Array access: "items[0]"
-        - Secret access: "secrets.API_KEY"
-        - Fuzzy key matching: handles underscore/dash mismatches in node IDs
+        Resolve a nested value from a data structure using a dot-separated path.
+        Example: "user.profile.name" or "items[0].id"
         """
-        parts = re.split(r'\.|(?=\[)', path)
-        parts = [p for p in parts if p]
+        import re
+        # Split by dots or brackets
+        parts = re.split(r'\.|\[|\]', path)
+        parts = [p for p in parts if p] # Remove empty parts from brackets
         
         current = data
         for part in parts:
+            if current is None:
+                return None
+            
             # --- RECURSIVE JSON PARSING ---
             # If current is a string (e.g. from an HTTP response), try to parse it 
-            # so we can continue traversing into it.
             if isinstance(current, str):
                 trimmed = current.strip()
                 if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
                     try:
+                        import json
                         current = json.loads(trimmed)
                     except:
-                        pass # Not valid JSON, keep as string (traversal will fail below)
-
-            # Handle bracket notation: ['key'] or [0]
-            bracket_match = re.match(r'\[([^\]]+)\]', part)
-            if bracket_match:
-                key = bracket_match.group(1).strip("\"'")
-                if isinstance(current, dict):
-                    current = self._fuzzy_dict_get(current, key)
-                elif isinstance(current, list) and key.isdigit():
-                    current = current[int(key)]
+                        pass # Not valid JSON, keep as string
+            
+            # Handle List Indexing
+            if part.isdigit() and isinstance(current, list):
+                idx = int(part)
+                if 0 <= idx < len(current):
+                    current = current[idx]
                 else:
-                    raise KeyError(f"Cannot access '{key}' in {type(current)}")
+                    return None
+            
+            # Handle Dictionary Access (Fuzzy)
+            elif isinstance(current, dict):
+                current = self._fuzzy_dict_get(current, part)
+            
+            # --- NODE PROPERTY RESOLUTION ---
+            # If current is a string (UUID) and we have more parts, try to fetch the Thing
+            elif isinstance(current, str) and len(current) == 36 and "-" in current:
+                 # It's likely a UUID, try to fetch its property from DB
+                 if db:
+                     try:
+                         from app.models.canvas_models import CanvasThing
+                         t = db.query(CanvasThing).filter(CanvasThing.id == current).first()
+                         if t:
+                             # Try to get property from thing's content or metadata
+                             current = self._fuzzy_dict_get(t.content, part) or \
+                                       self._fuzzy_dict_get(t.custom_metadata, part) or \
+                                       self._fuzzy_dict_get(t.technical_metadata, part)
+                     except:
+                         return None
             else:
-                # Regular dot notation
-                if isinstance(current, dict):
-                    current = self._fuzzy_dict_get(current, part)
-                elif isinstance(current, list) and part.isdigit():
-                    current = current[int(part)]
-                else:
-                    raise KeyError(f"Cannot access '{part}' in {type(current)}")
-        
+                # If we have more parts but current is a primitive, we can't go deeper
+                return None
+                
         return current
+
+    def _fuzzy_dict_get(self, data: Dict, key: str) -> Any:
+        """
+        Get a value from a dictionary with robust fuzzy key matching.
+        Handles casing, underscores, dashes, and spaces.
+        """
+        import re
+        
+        # 1. Direct match first (fastest)
+        if key in data:
+            return data[key]
+        
+        # 2. Normalize and Search
+        # Normalize: lowercase, remove all separators ( _ - . [space] )
+        def normalize(s):
+            if not isinstance(s, str): return str(s).lower()
+            return re.sub(r'[\s_\-\.]', '', s).lower()
+        
+        target = normalize(key)
+        for k, v in data.items():
+            if normalize(k) == target:
+                return v
+        
+        # 3. No match
+        return None
 
     def _find_key_recursive(self, obj: Any, target_key: str) -> Any:
         """
@@ -388,6 +456,7 @@ class BasePrimitive(ABC):
             trimmed = obj.strip()
             if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
                 try:
+                    import json
                     parsed = json.loads(trimmed)
                     return self._find_key_recursive(parsed, target_key)
                 except:
@@ -395,34 +464,6 @@ class BasePrimitive(ABC):
         
         return None
     
-    def _fuzzy_dict_get(self, data: Dict, key: str) -> Any:
-        """
-        Get a value from a dictionary with fuzzy key matching.
-        
-        Handles cases where the key uses underscores but the dict key uses
-        dashes (or vice versa), which is common with node IDs.
-        """
-        import re
-        
-        # 1. Direct match first (fast path)
-        if key in data:
-            return data[key]
-        
-        # 2. Fuzzy match: normalize both and compare
-        # This handles call_tool_ID vs call-tool-ID vs call_tool-ID
-        if not key: return None
-        normalized_key = re.sub(r'[_\-]', '', str(key)).lower()
-        
-        for dict_key in data.keys():
-            # Skip non-string keys to avoid TypeError in regex
-            if not isinstance(dict_key, str):
-                continue
-                
-            if re.sub(r'[_\-]', '', dict_key).lower() == normalized_key:
-                return data[dict_key]
-        
-        # 3. No match found
-
     def get_llm_config(self, state: Dict[str, Any], params: Dict[str, Any] = None) -> str:
         """
         Get the configured LLM model name with fallback logic.

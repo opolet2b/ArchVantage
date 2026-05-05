@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink } from "lucide-react"
+import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink, Volume2, Download } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 

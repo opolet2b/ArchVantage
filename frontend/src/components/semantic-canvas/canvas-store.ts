@@ -30,6 +30,7 @@ export type ThingType =
     | "url"
     | "slideshow"
     | "mcp_tool"
+    | "agent_tool"
     | "archimate_tool"
     | "archimate_element";
 

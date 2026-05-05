@@ -16,12 +16,13 @@ from typing import Optional
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.asset_models import Asset
 
 
 # Configuration
-# Store files in 'data_storage' directory within the backend
-STORAGE_ROOT = Path("data_storage")
+# Use absolute path from settings for data storage
+STORAGE_ROOT = Path(settings.DATA_STORAGE_DIR)
 
 
 class AssetService:

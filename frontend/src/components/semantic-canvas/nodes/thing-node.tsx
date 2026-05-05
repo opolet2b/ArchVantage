@@ -76,7 +76,8 @@ import {
     Fragment,
     RegionFragment,
     VectorizationPreviewDialog,
-    MarkdownToolbar
+    MarkdownToolbar,
+    AgentToolViewer
 } from "../viewers";
 
 // Registry for Dynamic Component Rendering
@@ -90,6 +91,7 @@ const COMPONENT_REGISTRY: Record<string, React.ComponentType<any>> = {
     "ConversationViewer": ConversationViewer,
     "TextViewer": TextViewer,
     "recharts": ChartViewer,
+    "AgentToolViewer": AgentToolViewer,
 };
 // SlideshowNode handles its own viewer logic or imports locally? 
 // No, SlideshowViewer was used in render? 
@@ -1666,6 +1668,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             case "mcp_tool":
                 return <MCPToolViewer thing={thing} />;
 
+            case "agent_tool":
+                return <AgentToolViewer thing={thing} />;
+
             case "archimate_tool":
                 return <ArchiMateToolViewer thing={thing} />;
 
@@ -1674,8 +1679,97 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
             case "text":
             case "agent_result": // Treat agent results as text, utilizing markdown viewer if applicable
-                let rawVal = cleanContent || content.text || content.content || "";
-                if (typeof rawVal === 'object') {
+                let rawVal = cleanContent || content.result || content.outputs || content.text || content.content;
+                if (!rawVal && type === "agent_result") rawVal = content;
+                if (!rawVal) rawVal = "";
+                
+                // Smart extraction for agent results that might use generic keys like "final result" or "output"
+                if (type === "agent_result") {
+                    // 1. Initial key extraction if it's a wrapper object
+                    if (typeof rawVal === 'object' && rawVal !== null && !Array.isArray(rawVal)) {
+                        const resultKeys = Object.keys(rawVal).filter(k => 
+                            !k.startsWith('_') && k !== 'status' && k !== 'agent_id' && k !== 'execution_id'
+                        );
+                        if (resultKeys.length === 1) {
+                            rawVal = rawVal[resultKeys[0]];
+                        } else if (resultKeys.length > 1) {
+                            const primary = resultKeys.find(k => k.toLowerCase().includes('result')) || 
+                                          resultKeys.find(k => k.toLowerCase().includes('output'));
+                            if (primary) rawVal = rawVal[primary];
+                        }
+                    }
+
+                    // 2. Smart string parsing (handling JSON or Python-style single quotes)
+                    if (typeof rawVal === 'string' && (rawVal.trim().startsWith('[') || rawVal.trim().startsWith('{'))) {
+                        const trimmed = rawVal.trim();
+                        try {
+                            rawVal = JSON.parse(trimmed);
+                        } catch (e) {
+                            try {
+                                // Structural parse: ONLY replace quotes that are part of JSON syntax
+                                let cleaned = trimmed
+                                    .replace(/{\s*'/g, '{"')
+                                    .replace(/'\s*:/g, '":')
+                                    .replace(/:\s*'/g, ':"')
+                                    .replace(/'\s*,/g, '",')
+                                    .replace(/,\s*'/g, ',"')
+                                    .replace(/\[\s*'/g, '["')
+                                    .replace(/'\s*\]/g, '"]')
+                                    .replace(/'\s*}/g, '"}')
+                                    .replace(/None/g, 'null')
+                                    .replace(/True/g, 'true')
+                                    .replace(/False/g, 'false');
+                                    
+                                rawVal = JSON.parse(cleaned);
+                            } catch (e2) {
+                                // Fallback: just use the raw string
+                            }
+                        }
+                    }
+
+                    // 3. Final Table Detection & Extraction (Recursive)
+                    const findTable = (obj: any): any => {
+                        if (Array.isArray(obj) && obj.length > 0 && typeof obj[0] === 'object') return obj;
+                        if (typeof obj === 'object' && obj !== null) {
+                            for (const k of Object.keys(obj)) {
+                                if (k.startsWith('_')) continue;
+                                const found = findTable(obj[k]);
+                                if (found) return found;
+                            }
+                        }
+                        return null;
+                    };
+
+                    const tableCandidate = findTable(rawVal);
+                    if (tableCandidate) {
+                        rawVal = tableCandidate;
+                    }
+                }
+
+                // Table Detection & Interactive Rendering
+                if (Array.isArray(rawVal) && rawVal.length > 0 && typeof rawVal[0] === 'object' && rawVal[0] !== null) {
+                    const keys = Object.keys(rawVal[0]);
+                    const tableData = [
+                        keys,
+                        ...rawVal.map((row: any) => keys.map(k => row[k]))
+                    ];
+
+                    return (
+                        <div className="flex flex-col h-full overflow-hidden">
+                            <div className="flex-1 min-h-[300px] border rounded-xl bg-white dark:bg-slate-900 shadow-inner overflow-hidden">
+                                <SpreadsheetViewer 
+                                    content="" 
+                                    initialData={tableData}
+                                    className="h-full"
+                                    selectionEnabled={true}
+                                />
+                            </div>
+                        </div>
+                    );
+                }
+                }
+
+                if (typeof rawVal === 'object' && rawVal !== null) {
                     rawVal = JSON.stringify(rawVal, null, 2);
                 }
                 const textVal = String(rawVal);

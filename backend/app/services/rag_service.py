@@ -1110,6 +1110,21 @@ class RAGService:
             print(f"[RAGService] Error checking ingestion status for {file_path}: {e}")
             return False
 
+    def delete_by_source(self, source_path: str):
+        """Delete all embeddings associated with a specific source path."""
+        self.initialize()
+        if not self._initialized:
+             self.initialize()
+        try:
+            if self.chroma_collection:
+                print(f"[RAGService] Deleting all embeddings for source: {source_path}")
+                self.chroma_collection.delete(where={"source": source_path})
+                return True
+            return False
+        except Exception as e:
+            print(f"[RAGService] Error deleting by source {source_path}: {e}")
+            return False
+
     def clear_database_cache(self):
         """Force a VACUUM on the underlying SQLite database to reclaim space."""
         import sqlite3

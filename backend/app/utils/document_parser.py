@@ -103,8 +103,16 @@ class DocumentParser:
             # Read all sheets into a dictionary of DataFrames
             excel_data = pd.read_excel(filepath, sheet_name=None)
             for sheet_name, df in excel_data.items():
-                text += f"\n--- Sheet: {sheet_name} ---\n"
-                text += df.to_string(index=False) + "\n"
+                if df.empty:
+                    continue
+                text += f"\n### Sheet: {sheet_name}\n"
+                # Convert to markdown for better LLM readability
+                try:
+                    text += df.to_markdown(index=False) + "\n"
+                except Exception:
+                    # Fallback to to_string if to_markdown fails (e.g. missing tabulate)
+                    text += df.to_string(index=False) + "\n"
+                
                 if len(text) > char_limit:
                     break
             return text[:char_limit]

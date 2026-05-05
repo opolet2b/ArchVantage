@@ -212,6 +212,23 @@ class ExecutionStatus(str, Enum):
     WAITING_FOR_INPUT = "waiting_for_input"
 
 
+class ExecutionLogLevel(str, Enum):
+    """Level of an execution log message."""
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class ExecutionLog(BaseModel):
+    """A single log entry from agent execution."""
+    level: ExecutionLogLevel
+    message: str
+    timestamp: datetime
+    node_id: Optional[str] = None
+    node_label: Optional[str] = None
+
+
 class ExecutionStep(BaseModel):
     """A single step in the execution trace."""
     node_id: str
@@ -230,6 +247,7 @@ class BlueprintExecuteResponse(BaseModel):
     status: ExecutionStatus
     outputs: Dict[str, Any] = Field(default_factory=dict)
     steps: List[ExecutionStep] = Field(default_factory=list)
+    logs: List[ExecutionLog] = Field(default_factory=list)
     error_message: Optional[str] = None
     started_at: datetime
     completed_at: Optional[datetime] = None
@@ -321,3 +339,36 @@ class LLMDecisionParams(BaseModel):
 class EndNodeParams(BaseModel):
     """Parameters for END primitive."""
     output_template: Dict[str, Any] = Field(default_factory=dict, description="Template for final output JSON")
+
+
+# -----------------------------------------------------------------------------
+# Mapping Schemas (For Canvas Integration)
+# -----------------------------------------------------------------------------
+
+class SourceNode(BaseModel):
+    """Represents a source node (Thing) on the canvas for mapping."""
+    id: str
+    type: str  # e.g. "text", "table", "database"
+    title: Optional[str] = None
+    content_summary: Optional[str] = None  # Brief text or schema description
+    schema_info: Optional[Dict[str, Any]] = None  # If structured data
+
+
+class MappingRequest(BaseModel):
+    """Request to suggest mappings from source nodes to a tool/agent schema."""
+    tool_schema: Dict[str, Any]
+    source_nodes: List[SourceNode]
+    tool_name: Optional[str] = None
+
+
+class MappingSuggestion(BaseModel):
+    """A single suggested mapping for a tool argument."""
+    source_id: str
+    field_selector: Optional[str] = None  # e.g. "columns.email" or just None for full content
+    confidence: float
+    reasoning: str
+
+
+class MappingResponse(BaseModel):
+    """Response containing suggested mappings for all tool arguments."""
+    mappings: Dict[str, MappingSuggestion]  # key is argument name

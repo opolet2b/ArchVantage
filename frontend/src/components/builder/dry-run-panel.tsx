@@ -219,11 +219,36 @@ export function DryRunPanel() {
                             <div className="space-y-6">
                                 <div className="space-y-4">
                                     <Label>Start Inputs (JSON)</Label>
+                                    
+                                    {/* Structural Warning */}
+                                    {(() => {
+                                        const schemaType = (inputsSchema as any)?.type || "object";
+                                        const isArrayInput = Array.isArray(testInputs);
+                                        
+                                        if (schemaType === "object" && isArrayInput) {
+                                            return (
+                                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-[11px] text-amber-800 space-y-2 animate-in fade-in slide-in-from-top-1">
+                                                    <div className="flex items-center gap-2 font-bold uppercase">
+                                                        <AlertCircle className="w-4 h-4" /> Structural Mismatch
+                                                    </div>
+                                                    <p>
+                                                        Your schema expects an <b>Object</b>, but you provided an <b>Array</b>. 
+                                                        The agent needs a variable name to store this list.
+                                                    </p>
+                                                    <div className="bg-white/50 p-2 rounded font-mono text-[10px] border border-amber-100">
+                                                        {`{ "batch": [...] }`}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+
                                     <div className="relative">
                                         <Textarea
                                             className={cn(
                                                 "font-mono text-xs min-h-[150px]",
-                                                jsonError && "border-red-500 focus-visible:ring-red-500"
+                                                (jsonError || (Array.isArray(testInputs) && (inputsSchema as any)?.type !== "array")) && "border-amber-500 focus-visible:ring-amber-500"
                                             )}
                                             defaultValue={JSON.stringify(testInputs, null, 2)}
                                             onChange={handleJsonChange}
@@ -238,7 +263,7 @@ export function DryRunPanel() {
                                 </div>
                                 <Button
                                     onClick={handleStart}
-                                    disabled={isExecuting || !!jsonError}
+                                    disabled={isExecuting || !!jsonError || (Array.isArray(testInputs) && (inputsSchema as any)?.type === "object")}
                                     className="w-full"
                                 >
                                     {isExecuting ? (

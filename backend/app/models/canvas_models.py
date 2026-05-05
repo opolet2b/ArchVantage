@@ -54,6 +54,7 @@ class ThingType(str, Enum):
     DATABASE = "database"
     TABLE = "table"
     AGENT_RESULT = "agent_result"
+    AGENT_TOOL = "agent_tool"
     URL = "url"
     SLIDESHOW = "slideshow"
     MCP_TOOL = "mcp_tool"

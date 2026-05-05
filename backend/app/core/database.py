@@ -3,15 +3,17 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
 
+from app.core.config import settings
+
 # Create db directory for database (separate from data/ for RAG files)
-if not os.path.exists("db"):
-    os.makedirs("db")
+db_dir = os.path.join(settings.BASE_DIR, "db")
+if not os.path.exists(db_dir):
+    os.makedirs(db_dir)
 
 # Create data directory for uploads and RAG files
-if not os.path.exists("data"):
-    os.makedirs("data")
-
-from app.core.config import settings
+data_dir = os.path.join(settings.BASE_DIR, "data")
+if not os.path.exists(data_dir):
+    os.makedirs(data_dir)
 
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
 

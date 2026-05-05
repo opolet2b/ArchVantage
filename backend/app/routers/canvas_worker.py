@@ -483,7 +483,7 @@ async def handle_async_vectorization(
                             flag_modified(thing, "content")
                             db.commit()
                             print(f"[CanvasWorker] DB sync complete.")
-                            
+                        
                     except Exception as e:
                         print(f"[CanvasWorker] Error during AI Slide Analysis: {e}")
                 else:
@@ -727,11 +727,36 @@ async def handle_async_vectorization(
                     print(f"[CanvasWorker] Saving extracted text to Thing {thing_id} ({len(result['full_text'])} chars)...")
                     new_content = dict(thing.content)
                     new_content["text_content"] = result["full_text"]
+                    
+                    # Save structured data if available (Excel/CSV)
+                    if result.get("structured_data"):
+                        print(f"[CanvasWorker] Saving structured data to Thing {thing_id}")
+                        sd = result["structured_data"]
+                        new_content["rows"] = sd.get("rows")
+                        new_content["columns"] = sd.get("columns")
+                    
                     thing.content = new_content
                     
                     from sqlalchemy.orm.attributes import flag_modified
                     flag_modified(thing, "content")
                     db.commit()
+            elif result.get("status") == "no_content":
+                print(f"[CanvasWorker] Warning: No content extracted for {thing_id}")
+                new_content = dict(thing.content)
+                new_content["text_content"] = "No text content could be extracted from this document."
+                thing.content = new_content
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "content")
+                db.commit()
+            else:
+                error_msg = result.get("error", "Unknown error during ingestion")
+                print(f"[CanvasWorker] Ingestion Error for {thing_id}: {error_msg}")
+                new_content = dict(thing.content)
+                new_content["text_content"] = f"ERROR: {error_msg}"
+                thing.content = new_content
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(thing, "content")
+                db.commit()
 
             # Generate Zoom Summaries for Document (Standard Text Mode)
             print(f"[CanvasWorker] Generating Zoom Summaries for Document...")

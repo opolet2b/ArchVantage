@@ -41,6 +41,7 @@ import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport, DomainDef
 import { LinkTypeDialog } from "./link-type-dialog";
 import { DomainSelector } from "./domain-selector";
 import { MCPToolConfigDialog, MCPToolConfig } from "./mcp-tool-config-dialog";
+import { AgentToolConfigDialog, AgentToolConfig } from "./agent-tool-config-dialog";
 import { layoutService } from "./services/layout-service";
 import { checkZoneLayoutFit } from "@/lib/layout-engine";
 import { cn, API_URL } from "@/lib/utils";
@@ -1225,6 +1226,24 @@ function CanvasViewInner() {
     const onConnect = React.useCallback(
         (connection: Connection) => {
             if (connection.source && connection.target) {
+                // Check if target is an agent tool
+                const targetThing = things.find(t => t.id === connection.target);
+                if (targetThing?.type === "agent_tool") {
+                    // 1. Create a data flow link (visual)
+                    addLink(
+                        connection.source,
+                        connection.target,
+                        "related",
+                        "Data Input",
+                        "Input data for agent"
+                    );
+
+                    // 2. Open mapping dialog for this specific agent
+                    setEditingAgentId(connection.target);
+                    setShowAgentToolDialog(true);
+                    return;
+                }
+
                 setPendingConnection({
                     source: connection.source,
                     target: connection.target,
@@ -1233,7 +1252,7 @@ function CanvasViewInner() {
                 setLinkDialogOpen(true);
             }
         },
-        []
+        [things, addLink]
     );
 
     // Handle link creation with selected type
@@ -1651,6 +1670,10 @@ function CanvasViewInner() {
                 case "mcp_tool":
                     setPendingDropPos(position);
                     setShowMCPToolDialog(true);
+                    break;
+                case "agent_tool":
+                    setPendingDropPos(position);
+                    setShowAgentToolDialog(true);
                     break;
                 case "archimate_tool":
                     await addThing(
@@ -2280,6 +2303,7 @@ function CanvasViewInner() {
     const [showConversationDialog, setShowConversationDialog] = React.useState(false);
     const [showImageSlidesDialog, setShowImageSlidesDialog] = React.useState(false);
     const [showMCPToolDialog, setShowMCPToolDialog] = React.useState(false);
+    const [showAgentToolDialog, setShowAgentToolDialog] = React.useState(false);
 
     // Track dragging state for smooth animations
     const [isDraggingNode, setIsDraggingNode] = React.useState(false);
@@ -2287,6 +2311,7 @@ function CanvasViewInner() {
     // Track drop position for dialog-based creation
     const [pendingDropPos, setPendingDropPos] = React.useState<{ x: number, y: number } | null>(null);
     const [pendingCanvasId, setPendingCanvasId] = React.useState<string | null>(null);
+    const [editingAgentId, setEditingAgentId] = React.useState<string | null>(null);
 
     // Form states
     const [textContent, setTextContent] = React.useState("");
@@ -2320,6 +2345,52 @@ function CanvasViewInner() {
             undefined // transientExtras
         );
         setShowMCPToolDialog(false);
+        setPendingDropPos(null);
+        setPendingCanvasId(null);
+    };
+
+    // Agent Tool Creation/Update Handler
+    const handleAddAgentTool = async (config: AgentToolConfig) => {
+        if (editingAgentId) {
+            // Update existing agent node with new mappings/arguments
+            const agent = things.find(t => t.id === editingAgentId);
+            if (agent) {
+                await updateThing(editingAgentId, {
+                    title: config.blueprint_name,
+                    content: {
+                        ...agent.content,
+                        blueprint_id: config.blueprint_id,
+                        blueprint_name: config.blueprint_name,
+                        arguments: config.arguments,
+                        argument_mappings: config.argument_mappings,
+                        inputSchema: config.inputSchema,
+                        status: "ready"
+                    }
+                });
+            }
+            setEditingAgentId(null);
+        } else {
+            // Create new agent node
+            await addThing(
+                "agent_tool",
+                {
+                    blueprint_id: config.blueprint_id,
+                    blueprint_name: config.blueprint_name,
+                    arguments: config.arguments,
+                    argument_mappings: config.argument_mappings,
+                    inputSchema: config.inputSchema,
+                    status: "ready"
+                },
+                pendingDropPos || getCenterPosition(),
+                400, // width
+                300, // height
+                config.blueprint_name, // title
+                undefined, // color
+                undefined, // scrapeOptions
+                undefined // transientExtras
+            );
+        }
+        setShowAgentToolDialog(false);
         setPendingDropPos(null);
         setPendingCanvasId(null);
     };
@@ -2913,6 +2984,20 @@ function CanvasViewInner() {
                                 mode={editingLink ? "edit" : "create"}
                                 availableLinkTypes={activeScenario?.configuration?.link_types || []}
                                 keepStandardLinks={activeScenario?.configuration?.keep_standard_links ?? false}
+                            />
+
+                            <AgentToolConfigDialog
+                                open={showAgentToolDialog}
+                                onOpenChange={(open) => {
+                                    setShowAgentToolDialog(open);
+                                    if (!open) setEditingAgentId(null);
+                                }}
+                                onConfirm={handleAddAgentTool}
+                                sourceNodes={things}
+                                links={links}
+                                existingConfig={editingAgentId ? { ...things.find(t => t.id === editingAgentId)?.content, id: editingAgentId } : undefined}
+                                mode={editingAgentId ? "mapping" : "create"}
+                                showMapping={!!editingAgentId}
                             />
 
                             <CanvasContextMenu

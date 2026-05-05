@@ -72,8 +72,11 @@ async def execute_agent_blueprint(
     
     # Execute
     print("\n" + "="*50)
-    print(f"  [AGENT BUILDER] EXECUTION START")
-    print(f"  Selected Configuration: {request.model}")
+    print(f"  [AGENT EXECUTION] STARTING")
+    print(f"  Blueprint ID: {blueprint_id}")
+    print(f"  Blueprint Name: {blueprint.name}")
+    print(f"  Model: {request.model}")
+    print(f"  Inputs Received: {json.dumps(request.inputs, indent=2)}")
     print("="*50 + "\n")
     
     result = await execute_blueprint(db, blueprint_id, inputs, model=request.model)
@@ -84,7 +87,8 @@ async def execute_agent_blueprint(
         status=ExecutionStatus(result.get("status", "failed")),
         outputs=result.get("outputs", {}),
         execution_state=result.get("execution_state", {}),
-        steps=[],  # Simplified - full steps in stream mode
+        steps=result.get("steps", []),
+        logs=result.get("logs", []),
         error_message=result.get("error"),
         started_at=result.get("started_at"),
         completed_at=result.get("completed_at")
@@ -137,9 +141,9 @@ async def execute_agent_blueprint_step(
     
     # Execute with steps_limit=1 (original approach)
     print("\n" + "="*50)
-    print(f"  [AGENT BUILDER] DRY RUN START (Step 1)")
-    print(f"  Selected Configuration: {request.model}")
+    print(f"  [AGENT EXECUTION] DRY RUN (STEP 1)")
     print(f"  Blueprint ID: {blueprint_id}")
+    print(f"  Inputs Received: {json.dumps(request.inputs, indent=2)}")
     print("="*50 + "\n")
     
     result = await execute_blueprint(db, blueprint_id, inputs, steps_limit=1, model=request.model)
@@ -151,6 +155,7 @@ async def execute_agent_blueprint_step(
         outputs=result.get("outputs", {}),
         execution_state=result.get("execution_state", {}),
         steps=result.get("steps", []),
+        logs=result.get("logs", []),
         error_message=result.get("error"),
         started_at=result.get("started_at"),
         completed_at=result.get("completed_at"),
@@ -195,62 +200,30 @@ async def execute_agent_blueprint_stream(
     
     async def event_generator():
         """Generate execution events as NDJSON."""
-        # Send start event
-        yield json.dumps({
-            "type": "start",
-            "blueprint_id": blueprint_id,
-            "inputs": request.inputs
-        }) + "\n"
-        
         try:
-            # Create runtime
             print("\n" + "="*50)
-            print(f"  [AGENT BUILDER] STREAMING EXECUTION START")
-            print(f"  Selected Configuration: {request.model}")
+            print(f"  [AGENT] REAL-TIME STREAMING START")
             print(f"  Blueprint ID: {blueprint_id}")
+            print(f"  Configuration: {request.model}")
             print("="*50 + "\n")
+            
             runtime = AgentRuntime(blueprint, db, model_override=request.model)
             
-            # Execute and yield steps
-            result = await runtime.execute(inputs)
-            
-            # Send step events
-            for step in result.get("steps", []):
-                yield json.dumps({
-                    "type": "step",
-                    **step
-                }) + "\n"
-                await asyncio.sleep(0.01)  # Small delay for streaming
-            
-            # Send completion event - include GUI fields for waiting_for_input
-            completion_event = {
-                "type": "complete",
-                "status": result.get("status"),
-                "outputs": result.get("outputs", {}),
-                "execution_state": result.get("execution_state", {}),
-                "error": result.get("error"),
-                "duration_ms": result.get("duration_ms")
-            }
-            
-            # Add GUI tool fields if waiting for input
-            if result.get("status") == "waiting_for_input":
-                completion_event["gui_schema"] = result.get("gui_schema", {})
-                completion_event["initial_values"] = result.get("initial_values", {})
-                completion_event["tool_name"] = result.get("tool_name", "GUI Tool")
-                completion_event["description"] = result.get("description", "")
-                completion_event["waiting_node"] = result.get("waiting_node")
-            
-            yield json.dumps(completion_event) + "\n"
-            
+            # Execute and yield events directly from runtime
+            async for event in runtime.execute_stream(inputs):
+                yield f"data: {json.dumps(event)}\n\n"
+                # Small sleep to prevent event flooding
+                await asyncio.sleep(0.01)
+                
         except Exception as e:
-            yield json.dumps({
-                "type": "error",
-                "message": str(e)
-            }) + "\n"
+            import traceback
+            print(f"[STREAM ERROR] {e}")
+            traceback.print_exc()
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     return StreamingResponse(
         event_generator(),
-        media_type="application/x-ndjson"
+        media_type="text/event-stream"
     )
 
 
@@ -405,6 +378,7 @@ async def resume_execution_step(
             outputs=result.get("outputs", {}),
             execution_state=result.get("execution_state", {}),
             steps=result.get("steps", []),
+            logs=result.get("logs", []),
             error_message=result.get("error"),
             started_at=result.get("started_at"),
             completed_at=result.get("completed_at"),

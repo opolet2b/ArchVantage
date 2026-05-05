@@ -11,15 +11,20 @@ import uuid
 
 from app.core.database import get_db
 from app.schemas.agent_schemas import (
-    BlueprintCreate, BlueprintUpdate, BlueprintResponse, BlueprintListItem,
     BlueprintGenerateRequest, BlueprintGenerateResponse, SecretCreate, SecretResponse,
-    PromptOptimizeRequest, PromptOptimizeResponse
+    PromptOptimizeRequest, PromptOptimizeResponse,
+    MappingRequest, MappingResponse, MappingSuggestion,
+    BlueprintListItem, BlueprintCreate, BlueprintResponse, BlueprintUpdate,
+    AgentGraph
 )
-from app.models.agent_blueprint import AgentBlueprint, AgentNode, AgentEdge
 from app.routers.auth import get_current_active_user, get_current_admin_user
 from app.models.user import User
 from app.services.agent_architect import agent_architect
 from app.services.agent_secret_manager import secret_manager
+from app.models.agent_blueprint import AgentBlueprint, AgentNode, AgentEdge, AgentSecret
+from app.services.schema_discovery import get_incoming_schemas, get_outgoing_schemas
+from app.services.llm_service import llm_service
+from app.models.chat import Message
 
 
 router = APIRouter()
@@ -164,6 +169,106 @@ async def create_blueprint(
     return db_blueprint
 
 
+@router.post("/agent-blueprints/suggest-mappings", response_model=MappingResponse)
+async def suggest_mappings(
+    request: MappingRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Analyze source nodes and agent input schema to suggest argument mappings.
+    Identical logic to MCP suggest-mappings but adapted for Agent Blueprints.
+    """
+    import json
+    
+    # 1. Prepare Context Description
+    sources_desc = []
+    for node in request.source_nodes:
+        schema_str = json.dumps(node.schema_info) if node.schema_info else "Raw Text/Unstructured"
+        sources_desc.append(f"Node ID: {node.id}\nType: {node.type}\nTitle: {node.title}\nSummary: {node.content_summary}\nSchema: {schema_str}")
+    
+    sources_text = "\n\n".join(sources_desc)
+    tool_schema_text = json.dumps(request.tool_schema, indent=2)
+
+    # 2. Construct Prompt
+    system_prompt = """You are an expert Data Architect and Mapping Specialist.
+Your task is to precisely map data from "Source Nodes" (available on a canvas) to the "Input Schema" of an Agent Blueprint.
+
+CORE PRINCIPLES:
+1. SEMANTIC MATCHING: Look for meaning, not just exact words. If an input is "customer_feedback" and a node contains "user comments", they should be mapped.
+2. TYPE COMPATIBILITY: Prioritize structured nodes for objects/arrays, and text nodes for strings.
+3. TABLE PRECISION: For table nodes, ALWAYS try to map specific columns to individual inputs if the names or descriptions match. Use "field_selector".
+4. CONTENT ANALYSIS: Deeply analyze the "content_summary" provided for each node. This contains the actual data (or samples of it).
+5. PROACTIVE MAPPING: If a node is the only linked source, and the agent has a primary text input, map them even with low confidence if no better match exists.
+6. MANDATORY FIELDS: Focus heavily on finding matches for properties marked as "required" in the schema.
+
+OUTPUT SCHEMA:
+Return a JSON object where:
+- Keys are exactly the property names from the Blueprint Input Schema.
+- Values are objects with:
+  - "source_id": (string) The ID of the Source Node.
+  - "field_selector": (string|null) The specific column/field name if mapping from a table.
+  - "confidence": (float) 0.0 to 1.0.
+  - "reasoning": (string) Brief justification of the semantic match.
+
+If you are reasonably sure about a match (>0.4 confidence), include it.
+"""
+
+    user_prompt = f"""
+TARGET AGENT: {request.tool_name or "Unknown"}
+BLUEPRINT INPUT SCHEMA:
+{tool_schema_text}
+
+AVAILABLE SOURCE NODES (CONTEXT):
+{sources_text}
+
+Analyze the requirements and generate the optimal JSON mapping.
+"""
+
+    # 3. Call LLM
+    print("\n" + "!"*50)
+    print(f"  [MAPPING AI] REQUEST START")
+    print(f"  Target Tool: {request.tool_name}")
+    print(f"  Sources Count: {len(request.source_nodes)}")
+    print(f"  System Prompt Length: {len(system_prompt)}")
+    print(f"  User Prompt Length: {len(user_prompt)}")
+    print("!"*50 + "\n")
+
+    messages = [
+        Message(role="system", content=system_prompt),
+        Message(role="user", content=user_prompt)
+    ]
+
+    try:
+        # Call LLM with JSON mode
+        response_text = await llm_service.chat(messages, model_name="default", response_format={"type": "json_object"})
+        
+        print("\n" + "!"*50)
+        print(f"  [MAPPING AI] RESPONSE RECEIVED")
+        print(f"  Raw Response: {response_text}")
+        print("!"*50 + "\n")
+
+        # Parse result
+        mappings_raw = json.loads(response_text)
+        
+        # Validate/Clean structure
+        final_mappings = {}
+        for arg, suggestion in mappings_raw.items():
+            if "source_id" in suggestion:
+                final_mappings[arg] = MappingSuggestion(
+                    source_id=suggestion["source_id"],
+                    field_selector=suggestion.get("field_selector"),
+                    confidence=suggestion.get("confidence", 0.5),
+                    reasoning=suggestion.get("reasoning", "AI Suggested")
+                )
+        
+        return MappingResponse(mappings=final_mappings)
+
+    except Exception as e:
+        print(f"Agent Mapping Error: {e}")
+        # Return empty on failure
+        return MappingResponse(mappings={})
+
+
 @router.get("/agent-blueprints/{blueprint_id}", response_model=BlueprintResponse)
 async def get_blueprint(
     blueprint_id: str,
@@ -282,7 +387,6 @@ async def generate_blueprint(
             )
         
         # Convert to response model
-        from app.schemas.agent_schemas import AgentGraph
         from datetime import datetime
         
         blueprint_response = BlueprintResponse(
@@ -365,7 +469,6 @@ async def list_secrets(
     current_user: User = Depends(get_current_active_user)
 ):
     """List secrets for a blueprint (values are never returned)."""
-    from app.models.agent_blueprint import AgentSecret
     
     blueprint = db.query(AgentBlueprint).filter(
         AgentBlueprint.id == blueprint_id
@@ -404,7 +507,6 @@ async def create_secret(
     
     secret_manager.save_secret(db, blueprint_id, secret.key_name, secret.value)
     
-    from app.models.agent_blueprint import AgentSecret
     saved = db.query(AgentSecret).filter(
         AgentSecret.blueprint_id == blueprint_id,
         AgentSecret.key_name == secret.key_name
@@ -455,10 +557,6 @@ async def get_node_schemas(
     
     Used by the JSON_MAPPING Inspector to show available fields.
     """
-    from app.services.schema_discovery import (
-        get_incoming_schemas,
-        get_outgoing_schemas
-    )
     
     blueprint = db.query(AgentBlueprint).filter(
         AgentBlueprint.id == blueprint_id
@@ -498,4 +596,6 @@ async def get_node_schemas(
         "outgoing": outgoing,
         "discovery_errors": discovery_errors
     }
+
+
 

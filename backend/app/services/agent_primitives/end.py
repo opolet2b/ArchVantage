@@ -41,8 +41,11 @@ class EndPrimitive(BasePrimitive):
                 "output_variables": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of variable names to include in final output. "
-                                   "If empty, all variables are included."
+                    "description": "Legacy: List of variable names to include."
+                },
+                "output_template": {
+                    "type": "object",
+                    "description": "Mapping of keys to variable paths (e.g. { 'processed_items': '{{results}}' })"
                 }
             },
             "additionalProperties": False

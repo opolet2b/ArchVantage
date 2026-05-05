@@ -571,7 +571,8 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                         edges: get().edges.map(e => ({
                             source: e.source,
                             target: e.target
-                        }))
+                        })),
+                        inputs_schema: get().inputsSchema
                     };
 
                     // ==== DEBUG: Log canvas context being sent ====
@@ -580,6 +581,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                     console.log("Canvas context:", canvasContext);
                     console.log("Nodes:", canvasContext.nodes.map(n => `${n.id} (${n.type})`));
                     console.log("Edges:", canvasContext.edges.map(e => `${e.source} → ${e.target}`));
+                    console.log("Inputs Schema:", canvasContext.inputs_schema);
                     console.groupEnd();
 
                     const res = await fetch(`${API_URL}/agent-blueprints/generate`, {

@@ -46,7 +46,7 @@ Each component on the canvas is one of these primitive types:
 2. **Analyze the user's request** - understand the desired workflow logic
 3. **Wire components together** - create edges connecting components in the right order
 4. **Add START/END nodes** if not present on canvas
-5. **Configure node parameters** including the START `inputs_schema` and END `output_template` to match user intentions
+5. **Configure node parameters** including the START `inputs_schema` and END `output_template` to match user intentions. If an `inputs_schema` is already provided in the context, RESPECT it and use its properties for any required variables.
 6. **Position nodes** with y increasing by ~100 for each step
 
 ## Input Schema Definition (IMPORTANT!)
@@ -456,8 +456,14 @@ class AgentArchitect:
         
         nodes = canvas_context.get("nodes", [])
         edges = canvas_context.get("edges", [])
+        inputs_schema = canvas_context.get("inputs_schema", {})
         
         lines = [f"Found {len(nodes)} component(s) on the canvas:"]
+
+        if inputs_schema and inputs_schema.get("properties"):
+            lines.append("\n### Current Agent Input Schema (Strict):")
+            lines.append(json.dumps(inputs_schema, indent=2))
+            lines.append("\nUSE THESE properties in your node parameters as {{inputs.PROPERTY_NAME}}.")
         
         for i, node in enumerate(nodes, 1):
             node_type = node.get("type", "UNKNOWN")

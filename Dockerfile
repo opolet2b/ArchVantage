@@ -68,7 +68,8 @@ WORKDIR /app
 # We use a dummy file as a placeholder to ensure the COPY doesn't fail
 RUN mkdir -p /app/seed_data
 RUN touch /app/seed_data/.placeholder
-COPY .gitignore docker_pack* /app/seed_data/
+# Copy Seed Data (from docker_pack created by scripts/prepare_docker_pack.py)
+COPY docker_pack/ /app/seed_data/
 
 # Copy Configs
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf

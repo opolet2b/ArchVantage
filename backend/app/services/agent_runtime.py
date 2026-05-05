@@ -9,6 +9,7 @@ from datetime import datetime
 import uuid
 import asyncio
 import time
+import json
 
 # LangGraph imports - will be installed via requirements
 try:
@@ -58,8 +59,8 @@ class ExecutionStep:
         self.status = "failed" if error else "completed"
         self.error = error
     
-    def to_dict(self) -> Dict:
-        return {
+    def to_dict(self, sanitizer=None) -> Dict:
+        data = {
             "node_id": self.node_id,
             "node_type": self.node_type,
             "node_label": self.node_label,
@@ -74,6 +75,10 @@ class ExecutionStep:
             "sub_steps": self.sub_steps,
             "error": self.error
         }
+        
+        if sanitizer:
+            return sanitizer(data)
+        return data
 
 
 class AgentRuntime:
@@ -387,9 +392,13 @@ class AgentRuntime:
     
     def _get_next_node(self, current_node: str, result: PrimitiveResult, state: AgentState) -> Optional[str]:
         """Determine the next node based on edges and result."""
+        print(f"[RUNTIME] Determining NEXT NODE from '{current_node}'...")
         # 1. Get all outgoing edges
         edges = self.edges.get(current_node, [])
+        print(f"[RUNTIME DEBUG] Found {len(edges)} outgoing edges for '{current_node}'.")
+        
         if not edges:
+            print(f"[RUNTIME] No outgoing edges from '{current_node}'. Execution will stop.")
             return None
 
         # 2. Extract logical branch if available
@@ -513,7 +522,8 @@ class AgentRuntime:
         
         # Create execution step with label for display
         step = ExecutionStep(node_id, node_type, node_label)
-        step.input_data = {"params": params, "variables": state.get("variables", {})}
+        # Snapshot variables to avoid reference bloat in the trace
+        step.input_data = {"params": params, "variables": dict(state.get("variables", {}))}
         self.steps.append(step)
         
         # Execute primitive
@@ -546,580 +556,342 @@ class AgentRuntime:
     async def execute_stream(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None):
         """
         Execute the agent workflow as a stream of events.
-        
-        Yields:
-            Dict: execution events
         """
         started_at = datetime.utcnow()
+        state = {}
         
-        # Initialize or Resume state
-        if initial_state:
-            state = initial_state
-            state["db"] = self.db
-            if "inputs" not in state: state["inputs"] = inputs
-            current_node = state.get("current_node")
-            if not current_node:
+        try:
+            # 1. Initialize State
+            if initial_state:
+                print(f"[RUNTIME] Resuming with initial_state. Keys: {list(initial_state.keys())}")
+                state = initial_state
+                state["db"] = self.db
+                if "inputs" not in state: state["inputs"] = inputs
+                current_node = state.get("current_node")
+                print(f"[RUNTIME] Resumed current_node: {current_node}")
+                
+                if not current_node:
+                    print("[RUNTIME] No current_node in state, falling back to START.")
+                    current_node = self._get_start_node()
+            else:
+                state = {
+                    "inputs": inputs,
+                    "variables": dict(inputs),
+                    "secrets": {},
+                    "history": [],
+                    "current_node": None,
+                    "current_output": None,
+                    "error": None,
+                    "db": self.db
+                }
                 current_node = self._get_start_node()
-        else:
-            state = {
-                "inputs": inputs,
-                "variables": dict(inputs),
-                "secrets": {},
-                "history": [],
-                "current_node": None,
-                "current_output": None,
-                "error": None,
-                "db": self.db
-            }
-            current_node = self._get_start_node()
 
-        # Inject Model Override from Runtime
-        if self.model_override:
-            if "variables" not in state: state["variables"] = {}
-            state["variables"]["_execution_model"] = self.model_override
-            # Always set "model" to ensure the dropdown override wins over any default variables
-            state["variables"]["model"] = self.model_override
-            print(f"[RUNTIME] Injected model override: {self.model_override}")
+            # 2. Model Override
+            if self.model_override:
+                if "variables" not in state: state["variables"] = {}
+                state["variables"]["_execution_model"] = self.model_override
+                state["variables"]["model"] = self.model_override
 
-        if not current_node:
-            yield {
-                "type": "error",
-                "content": "No starting node found"
-            }
-            return
+            if not current_node:
+                yield {"type": "error", "content": "No starting node found"}
+                return
 
-        # Load secrets
-        if not initial_state:
-            blueprint_id = getattr(self.blueprint, 'id', None) or (
-                self.blueprint.get('id') if isinstance(self.blueprint, dict) else None
-            )
-            if blueprint_id and self.db:
-                state["secrets"] = secret_manager.load_blueprint_secrets(
-                    self.db, blueprint_id
+            # 3. Load Secrets
+            if not initial_state:
+                blueprint_id = getattr(self.blueprint, 'id', None) or (
+                    self.blueprint.get('id') if isinstance(self.blueprint, dict) else None
                 )
+                if blueprint_id and self.db:
+                    state["secrets"] = secret_manager.load_blueprint_secrets(self.db, blueprint_id)
             
-        # Yield Start Event
-        state_for_event = state.copy()
-        if "db" in state_for_event:
-            del state_for_event["db"]
-            
-        yield {
-            "type": "start",
-            "state": self._sanitize_for_json(state_for_event)
-        }
-            
-        max_iterations = 100
-        iteration = 0
-        steps_run = 0
-
-        while current_node and iteration < max_iterations:
-            iteration += 1
-            steps_run += 1
-            state["current_node"] = current_node
-            
-            # --- LOGGING HELPER ---
-            def _log_execution(title, data):
-                try:
-                    with open("execution_debug.log", "a", encoding="utf-8") as f:
-                        f.write(f"\n[{datetime.utcnow().isoformat()}] == {title} ==\n")
-                        f.write(f"{str(data)}\n")
-                        f.write("="*50 + "\n")
-                except Exception as e:
-                    print(f"Logging failed: {e}")
-
-            # --- START EXECUTE STREAM CHANGE ---
-            # Yield Step Start
-            yield {
-                "type": "step_start",
-                "step": {
-                    "node_id": current_node,
-                    "node_type": self.nodes.get(current_node, {}).get("type", "UNKNOWN"),
-                    "node_label": self.nodes.get(current_node, {}).get("metadata", {}).get("label", ""),
-                    "started_at": datetime.utcnow().isoformat()
-                }
-            }
-            # --- END EXECUTE STREAM CHANGE ---
-
-            # Log Node Start
-            _log_execution(f"NODE START: {current_node}", {
-                "params": self.nodes.get(current_node, {}).get("params"),
-                "state_variables_keys": list(state.get("variables", {}).keys()),
-                "state_variables_values_preview": {
-                    k: str(v)[:200] for k, v in state.get("variables", {}).items() 
-                    # Only log variables that look like our mapping output for debugging
-                    if k in ["column_name", "list_columns", "mapped_data"]
-                }
-            })
-
-            # Additional Console Print for immediate feedback
-            print(f"[RUNTIME DEBUG] Node {current_node} context variables: {list(state.get('variables', {}).keys())}")
-            if "column_name" in state.get("variables", {}):
-                print(f"[RUNTIME DEBUG] Found 'column_name': {str(state['variables']['column_name'])[:100]}...")
-
-            # Execute node with monitoring for the UI
-            start_time = time.time()
-            
-            # --- Status Queue Setup ---
-            status_queue = asyncio.Queue()
-            
-            async def status_callback(msg: str):
-                await status_queue.put(msg)
-            
-            # Inject callbacks into state so primitives can usage them
-            # Primitives like ExtractorPrimitive should look for "status_callbacks" in state
-            if "status_callbacks" not in state:
-                state["status_callbacks"] = []
-            state["status_callbacks"].append(status_callback)
-
-            # Yield explicit log for user visibility
-            node_label = self.nodes.get(current_node, {}).get("metadata", {}).get("label", current_node)
-            # Log start of step
-            yield {
-                "type": "log",
-                "level": "info",
-                "message": f"Starting Step '{node_label}'...",
-                "node_label": node_label,  # Include label for frontend UI
-                "node_id": current_node,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-
-            node_task = asyncio.create_task(self._execute_node(current_node, state))
-            
-            # Wait for node completion with periodic heartbeats for the UI
-            print(f"[RUNTIME DEBUG] Waiting for node_task (done={node_task.done()})...")
-            # Wait for node completion with periodic heartbeats for the UI
-            print(f"[RUNTIME DEBUG] Waiting for node_task (done={node_task.done()})...")
-            
-            queue_task = asyncio.create_task(status_queue.get())
-            
-            while not node_task.done():
-                try:
-                    # Wait for either task completion OR new status message
-                    pending_tasks = [node_task, queue_task]
-                    done, pending = await asyncio.wait(
-                        pending_tasks, 
-                        return_when=asyncio.FIRST_COMPLETED,
-                        timeout=30.0
-                    )
-                    
-                    if queue_task in done:
-                         # Queue has a message
-                         msg = queue_task.result()
-                         yield {
-                             "type": "log", 
-                             "level": "info", 
-                             "message": msg,
-                             "timestamp": datetime.utcnow().isoformat()
-                         }
-                         # Create new queue task for next message
-                         queue_task = asyncio.create_task(status_queue.get())
-                    
-                    # Also drain any other available messages without waiting
-                    while not status_queue.empty():
-                         try:
-                             msg = status_queue.get_nowait()
-                             yield {
-                                 "type": "log", 
-                                 "level": "info", 
-                                 "message": msg,
-                                 "timestamp": datetime.utcnow().isoformat()
-                             }
-                         except asyncio.QueueEmpty:
-                             break
-
-                    if node_task in done:
-                         # Task finished
-                         print(f"[RUNTIME DEBUG] node_task finished in wait loop.")
-                         break
-                         
-                    # If timeout (done empty) OR just queue task processed
-                    if not done or (node_task not in done):
-                        # Calculate elapsed only if genuinely timing out or if significant time passed?
-                        # Actually the timeout=30.0 guarantees we wake up.
-                        # If we woke up due to queue_task, we loop immediately.
-                        # If we woke up due to timeout (done=[]), we yield progress.
-                        if not done: 
-                            elapsed = time.time() - start_time
-                            node_label = self.nodes.get(current_node, {}).get("metadata", {}).get("label", current_node)
-                            print(f"[RUNTIME DEBUG] Wait timeout. Yielding progress. (elapsed {elapsed:.0f}s)")
-                            yield {
-                                "type": "progress",
-                                "message": f"Step '{node_label}' still working... [elapsed {elapsed:.0f}s]"
-                            }
-                        
-                except Exception as e:
-                     print(f"[RUNTIME DEBUG] Wait loop exception: {e}")
-                     # Ensure we don't spin flush
-                     await asyncio.sleep(1)
-            
-            # Cancel the pending queue task if it exists
-            if not queue_task.done():
-                queue_task.cancel()
-            
-            # Cleanup callback to avoid duplicates in next iteration
-            if status_callback in state["status_callbacks"]:
-                state["status_callbacks"].remove(status_callback)
-
-            print(f"[RUNTIME DEBUG] Exited wait loop. Awaiting node_task final...")
-            result = await node_task
-            print(f"[RUNTIME DEBUG] node_task awaited. Result success: {result.success}")
-            
-            # Log Node Result
-            try:
-                print(f"[RUNTIME DEBUG] Node {current_node} completed. Success: {result.success}")
-            except Exception as e:
-                print(f"[RUNTIME DEBUG] Logging failed: {e}")
-            
-            # Update state with output
-            is_dict = isinstance(result.output, dict)
-            log_msg = f"[RUNTIME DEBUG] Updating variables from output keys: "
-            if is_dict:
-                log_msg += f"{list(result.output.keys())}"
-            else:
-                log_msg += f"Not Dict (Type: {type(result.output).__name__})"
-                if not result.success:
-                    log_msg += f" | FAILED: {result.error or 'Unknown Error'}"
-            
-            print(log_msg)
-
-            if result.success and result.output is not None:
-                state["variables"][current_node] = result.output
-                if is_dict:
-                    for key, value in result.output.items():
-                        if not key.startswith('_'):
-                            state["variables"][key] = value
-                            # Yield variable update log
-                            val_str = str(value)
-                            if len(val_str) > 100:
-                                val_str = val_str[:100] + "..."
-                            yield {
-                                "type": "log",
-                                "level": "debug",
-                                "message": f"Variable set: {key} = {val_str}",
-                                "timestamp": datetime.utcnow().isoformat()
-                            }
-                state["current_output"] = result.output
-            print(f"[RUNTIME DEBUG] Variables updated.")
-            
-            # --- Yield Log Event for Node Completion ---
-            node_label = self.nodes.get(current_node, {}).get("metadata", {}).get("label", current_node)
-            yield {
-                "type": "log",
-                "level": "info",
-                "message": f"Step '{node_label}' completed. Processing results...",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-
-            # --- FOREACH SUB-GRAPH EXECUTION ---
-            if result.success and isinstance(result.output, dict) and "_foreach_subprocess" in result.output:
-                try:
-                    subprocess_def = result.output["_foreach_subprocess"]
-                    items = result.output.get("_foreach_items", [])
-                    iterator_var = result.output.get("_foreach_iterator", "item")
-                    index_var = result.output.get("_foreach_index", "index")
-                    
-                    # Find target output variable (key that is not internal)
-                    target_output_var = next((k for k in result.output.keys() if not k.startswith("_")), "foreach_results")
-                    
-                    print(f"[RUNTIME] executing ForEach Sub-Graph for {len(items)} items...")
-                    
-                    subprocess_results = []
-                    subprocess_histories = [] # Capture sub-histories for visualization
-                    realization_required = False # Track if any iteration requires realization
-                    
-                    for idx, item in enumerate(items):
-                        # Prepare Sub-State
-                        # Inherit variables from parent
-                        # Inject iteration variables
-                        sub_inputs = state["variables"].copy() 
-                        sub_inputs[iterator_var] = item
-                        sub_inputs["item"] = item # Default fallback
-                        sub_inputs[index_var] = idx
-                        sub_inputs["index"] = idx # Default fallback
-                        
-                        # Preparing iteration log
-                        yield {
-                            "type": "log",
-                            "level": "info",
-                            "message": f"-> Processing item {idx+1}/{len(items)}...",
-                            "timestamp": datetime.utcnow().isoformat()
-                        }
-
-                        # Create temporary Blueprint for sub-runtime
-                        sub_blueprint = {"graph": subprocess_def}
-                        
-                        # Instantiate Sub-Runtime
-                        # We use the same DB session
-                        sub_runtime = AgentRuntime(sub_blueprint, self.db)
-                        
-                        # Execute recursively
-                        # We use execute() to await completion (blocking the parent step)
-                        sub_res = await sub_runtime.execute(sub_inputs)
-                        
-                        # Collect outputs
-                        item_out = sub_res.get("outputs", {})
-
-                        # CAPTURE NEW VARIABLES from sub-state
-                        # sub_res["execution_state"] is usually the variables map directly.
-                        harvested_vars = {}
-                        final_vars = sub_res.get("execution_state") or {}
-                        if isinstance(final_vars, dict) and "variables" in final_vars:
-                            final_vars = final_vars["variables"]
-
-                        if isinstance(final_vars, dict):
-                            for k, v in final_vars.items():
-                                if k.startswith("_"): continue
-                                # If it's a new variable OR it changed from the initial sub_input
-                                if k not in sub_inputs or v != sub_inputs.get(k):
-                                    harvested_vars[k] = v
-                        
-                        if harvested_vars:
-                            harvested_keys = list(harvested_vars.keys())
-                            print(f"[RUNTIME] VARIABLE HARVESTED (Item {idx}): {harvested_keys}")
-                            # Also log via UI if enabled
-                            _log_execution(f"VARIABLE HARVESTED (Item {idx})", {
-                                "keys": harvested_keys,
-                                "values_preview": {k: str(v)[:100] for k, v in harvested_vars.items()}
-                            })
-                        
-                        # Use harvested vars for iteration results
-                        iteration_out = item_out.copy() if isinstance(item_out, dict) else {}
-                        iteration_out.update(harvested_vars)
-                        
-                        subprocess_results.append(iteration_out)
-                        
-                        # --- VARIABLE PROPAGATION ---
-                        # Merge harvested variables back to the parent state
-                        for k, v in harvested_vars.items():
-                            state["variables"][k] = v
-                         
-                        # Collect History/Steps from sub-execution
-                        item_history = sub_res.get("steps", [])
-                        subprocess_histories.append(item_history)
-
-                        # CHECK FOR REALIZATION in any step of this iteration
-                        for step_data in item_history:
-                            if step_data.get("output_data", {}).get("realization_required"):
-                                realization_required = True
-                                break
-                         
-                    # Update Parent State with Aggregated Results
-                    state["variables"][target_output_var] = subprocess_results
-                    state["variables"]["_debug_foreach_last"] = subprocess_results # DEBUG ARTIFACT
-                    
-                    state["current_output"] = result.output 
-                    result.output[target_output_var] = subprocess_results
-                    result.output["_foreach_subhistories"] = subprocess_histories
-                    
-                    # Propagate realization flag if any iteration required it
-                    if realization_required:
-                        result.output["realization_required"] = True
-                        print(f"[RUNTIME] ForEach detected realization requirement. Propagated to parent.")
-                    
-                    print(f"[RUNTIME] ForEach Complete. Aggregated {len(subprocess_results)} results into '{target_output_var}'.")
-
-                except Exception as e:
-                    print(f"[RUNTIME] ForEach Sub-Execution Failed: {e}")
-                    state["error"] = f"ForEach Execution Error: {str(e)}"
-                    yield {"type": "error", "content": str(e)}
-                    break
-            # -----------------------------------
-            
-            # Retrieve node definition for history
-            current_node_def = self.nodes.get(current_node)
-
-            state["history"].append({
-                "node": current_node,
-                "label": current_node_def.get("label") if current_node_def else "",
-                "type": current_node_def.get("type") if current_node_def else "",
-                "success": result.success,
-                "output": result.output,
-                "error": result.error
-            })
-
-            # --- START EXECUTE STREAM CHANGE ---
-            # Yield Step Complete
-            if self.steps:
-                current_step = self.steps[-1] # The last step added by _execute_node
-                yield {
-                    "type": "step_complete",
-                    "step": current_step.to_dict()
-                }
-            else:
-                 print(f"[RUNTIME ERROR] No steps recorded for node {current_node}. Result: {result.error}")
-            # --- END EXECUTE STREAM CHANGE ---
-            
-            if not result.success:
-                state["error"] = result.error
-                yield {
-                    "type": "error",
-                    "content": result.error
-                }
-                break
-            
-            # Check for GUI input required
-            if (isinstance(result.output, dict) and 
-                result.output.get("type") == "gui_input_required"):
-                state_to_save = state.copy()
-                if "db" in state_to_save: del state_to_save["db"]
-                completed_at = datetime.utcnow()
+            # 4. Yield Start Event
+            state_for_event = state.copy()
+            if "db" in state_for_event: del state_for_event["db"]
+            start_event = {"type": "start", "state": self._sanitize_for_json(state_for_event)}
+            print(f"[RUNTIME] Yielding START event: {start_event['type']}")
+            yield start_event
                 
-                yield {
-                    "type": "waiting_for_input",
-                    "data": self._sanitize_for_json({
-                        "status": "waiting_for_input",
-                        "waiting_node": current_node,
-                        "gui_schema": result.output.get("gui_schema", {}),
-                        "initial_values": result.output.get("initial_values", {}),
-                        "tool_name": result.output.get("tool_name", "GUI Tool"),
-                        "description": result.output.get("description", ""),
-                        "outputs": state["variables"],
-                        "execution_state": state_to_save,
-                        "steps": [step.to_dict() for step in self.steps],
-                        "error": None,
-                        "started_at": started_at.isoformat(),
-                        "completed_at": completed_at.isoformat(),
-                         "duration_ms": int((completed_at - started_at).total_seconds() * 1000)
-                    })
-                }
-                return
-            
-            # Get next node
-            print(f"[RUNTIME DEBUG] Determining NEXT NODE from {current_node}...")
-            # Note: _get_next_node signature might be (node_id, result) or (node_id, result, state) depending on version
-            # Inspecting view indicates it is (current_node, result)
-            current_node = self._get_next_node(current_node, result, state)
-            print(f"[RUNTIME DEBUG] Next node result: {current_node}")
-            
-            # Check step limit
-            if steps_limit and steps_run >= steps_limit and current_node:
+            max_iterations = 100
+            iteration = 0
+            steps_run = 0
+
+            # 5. Main Execution Loop
+            while current_node and iteration < max_iterations:
+                iteration += 1
+                steps_run += 1
                 state["current_node"] = current_node
-                state_to_save = state.copy()
-                if "db" in state_to_save: del state_to_save["db"]
                 
+                print(f"[RUNTIME] Executing Node: {current_node} (Iteration {iteration})")
+                
+                # Yield Step Start
                 yield {
-                    "type": "paused",
-                    "data": self._sanitize_for_json({
-                        "status": "paused",
-                        "execution_state": state_to_save,
-                        "outputs": state["variables"],
-                        "steps": [step.to_dict() for step in self.steps],
-                        "error": None,
-                        "started_at": started_at.isoformat(),
-                        "completed_at": None,
-                    })
+                    "type": "step_start",
+                    "step": {
+                        "node_id": current_node,
+                        "node_type": self.nodes.get(current_node, {}).get("type", "UNKNOWN"),
+                        "node_label": self.nodes.get(current_node, {}).get("metadata", {}).get("label", ""),
+                        "started_at": datetime.utcnow().isoformat()
+                    }
                 }
-                return
-            
-            # --- START EXECUTE STREAM CHANGE ---
-            # Update state with current node for downstream consumers
-            state["current_node"] = current_node 
-            # Note: current_node is now the NEXT node (or None if finished)
-            # We also want to track the LAST executed node.
-            state["last_executed_node"] = current_step.node_id
-            
-        
-        completed_at = datetime.utcnow()
-        final_status = "completed" if not state["error"] else "failed"
-        
-        # Ensure current_node reflects the last legitimate node if we are done
-        if not state["current_node"] and len(self.steps) > 0:
-             state["current_node"] = self.steps[-1].node_id
-        
-        # Prepare filtered outputs (reusing logic from original execute)
-        initial_inputs = state["inputs"]
-        all_variables = state["variables"]
-        last_node_id = state["current_node"]
-        last_node = self.nodes.get(last_node_id) if last_node_id else None
-        
-        output_template = None
-        if last_node:
-            node_type = last_node.type if hasattr(last_node, 'type') else last_node.get('type')
-            if hasattr(node_type, 'value'): node_type = node_type.value
-            if node_type == "END":
-                params = last_node.params if hasattr(last_node, 'params') else last_node.get('params', {})
-                output_template = params.get("output_template")
-                if isinstance(output_template, str):
+    
+                # Setup Monitoring
+                start_time = time.time()
+                status_queue = asyncio.Queue()
+                
+                async def status_callback(msg: str): 
+                    await status_queue.put(msg)
+                
+                if "status_callbacks" not in state: state["status_callbacks"] = []
+                state["status_callbacks"].append(status_callback)
+    
+                # Execute Node Task
+                node_task = asyncio.create_task(self._execute_node(current_node, state))
+                
+                # Simple Wait Loop with status checking
+                while not node_task.done():
                     try:
-                        import json
-                        output_template = json.loads(output_template)
-                    except Exception: pass
+                        # Check for status messages without blocking forever
+                        while not status_queue.empty():
+                            msg = status_queue.get_nowait()
+                            yield {"type": "log", "level": "info", "message": msg}
+                        
+                        # Brief sleep to allow node_task to progress and avoid CPU spin
+                        await asyncio.sleep(0.1)
+                        
+                        # Periodic progress update (every 5 seconds)
+                        elapsed = int(time.time() - start_time)
+                        if elapsed > 0 and elapsed % 5 == 0:
+                            # Use a simple flag or check if we already printed for this elapsed time
+                            if not hasattr(self, "_last_heartbeat") or self._last_heartbeat != elapsed:
+                                print(f"[RUNTIME DEBUG] Iteration {iteration} of node {current_node} still running... (elapsed: {elapsed}s)")
+                                self._last_heartbeat = elapsed
+                                yield {"type": "progress", "message": f"Working... ({elapsed}s)"}
+                            
+                    except Exception as e:
+                        print(f"[RUNTIME DEBUG] Wait loop error in node {current_node}: {e}")
+                        break
+    
+                # Cleanup and Result
+                yield {"type": "log", "level": "debug", "message": "[RUNTIME] Awaiting node_task final result..."}
+                result = await node_task
+                yield {"type": "log", "level": "debug", "message": f"[RUNTIME] node_task result received. Success: {result.success}"}
+                
+                if status_callback in state.get("status_callbacks", []):
+                    state["status_callbacks"].remove(status_callback)
+    
+                if not result.success:
+                    state["error"] = result.error
+                    break
+                
+                # Update Variables
+                yield {"type": "log", "level": "debug", "message": f"[RUNTIME] Updating state variables for node {current_node}..."}
+                state["variables"][current_node] = result.output
+                if isinstance(result.output, dict):
+                    for key, value in result.output.items():
+                        state["variables"][key] = value
+                
+                state["current_output"] = result.output
+                yield {"type": "log", "level": "debug", "message": "[RUNTIME] State variables updated."}
+                
+                # Yield Step Result
+                node_def = self.nodes.get(current_node, {})
+                node_type = node_def.type if hasattr(node_def, 'type') else node_def.get('type', 'UNKNOWN')
+                if hasattr(node_type, 'value'): node_type = node_type.value
+                
+                yield {"type": "log", "level": "debug", "message": f"[RUNTIME] Yielding step result for {current_node}..."}
+                step_event = {
+                    "type": "step",
+                    "node_id": current_node,
+                    "node_type": node_type,
+                    "output_data": result.output,
+                    "duration_ms": int((time.time() - start_time) * 1000)
+                }
+                print(f"[RUNTIME] Yielding STEP event: {step_event['type']} for {current_node}")
+                yield step_event
+                yield {"type": "log", "level": "debug", "message": "[RUNTIME] Step result yielded."}
+    
+                # Record in History
+                state["history"].append({"node": current_node, "output": result.output})
+                print(f"[RUNTIME] Node {current_node} history recorded. Moving to next node determination...")
+                
+                # --- FOREACH SUB-GRAPH EXECUTION ---
+                if result.success and isinstance(result.output, dict) and "_foreach_subprocess" in result.output:
+                    try:
+                        subprocess_def = result.output["_foreach_subprocess"]
+                        items = result.output.get("_foreach_items", [])
+                        iterator_var = result.output.get("_foreach_iterator", "item")
+                        index_var = result.output.get("_foreach_index", "index")
+                        target_output_var = next((k for k in result.output.keys() if not k.startswith("_")), "foreach_results")
+                        
+                        print(f"[RUNTIME] executing ForEach Sub-Graph for {len(items)} items...")
+                        subprocess_results = []
+                        subprocess_histories = []
+                        
+                        for idx, item in enumerate(items):
+                            sub_inputs = state["variables"].copy() 
+                            sub_inputs[iterator_var] = item
+                            sub_inputs[index_var] = idx
+                            
+                            yield {"type": "log", "level": "info", "message": f"-> Processing item {idx+1}/{len(items)}..."}
 
-        filtered_outputs = {}
-        if output_template is not None and isinstance(output_template, dict):
-            # Construct from template
-             for key, template_str in output_template.items():
-                if not isinstance(template_str, str):
-                    filtered_outputs[key] = template_str
-                    continue
-                if template_str in all_variables:
-                    filtered_outputs[key] = all_variables[template_str]
-                else:
-                    if "{{" in template_str:
-                        try:
-                            import jinja2
-                            env = jinja2.Environment()
-                            tmpl = env.from_string(template_str)
-                            filtered_outputs[key] = tmpl.render(**all_variables)
-                        except Exception:
-                            filtered_outputs[key] = template_str
-                    else:
-                        filtered_outputs[key] = template_str
-        else:
-            # Default filtering
-            for k, v in all_variables.items():
-                if k is None: continue
-                is_input = k in initial_inputs
-                is_internal = isinstance(k, str) and k.startswith('_')
-                if not is_input and not is_internal:
-                    filtered_outputs[k] = v
+                            sub_runtime = AgentRuntime({"graph": subprocess_def}, self.db, model_override=self.model_override)
+                            sub_res = await sub_runtime.execute(sub_inputs)
+                            
+                            item_out = sub_res.get("outputs", {})
+                            subprocess_results.append(item_out)
+                            subprocess_histories.append(sub_res.get("steps", []))
+                            
+                            # Merge iteration results back to state
+                            for k, v in item_out.items():
+                                if not k.startswith("_"): state["variables"][k] = v
+                         
+                        state["variables"][target_output_var] = subprocess_results
+                        result.output[target_output_var] = subprocess_results
+                        print(f"[RUNTIME] ForEach Complete. Aggregated {len(subprocess_results)} results.")
 
-        state_to_save = state.copy()
-        if "db" in state_to_save: del state_to_save["db"]
+                    except Exception as e:
+                        print(f"[RUNTIME] ForEach Sub-Execution Failed: {e}")
+                        state["error"] = f"ForEach Error: {str(e)}"
+                        break
+                # -----------------------------------
 
-        final_result = {
-            "status": final_status,
-            "outputs": filtered_outputs,
-            "execution_state": state["variables"],
-            "full_state": state_to_save,
-            "steps": [step.to_dict() for step in self.steps],
-            "error": state["error"],
-            "started_at": started_at.isoformat(),
-            "completed_at": completed_at.isoformat(),
-            "duration_ms": int((completed_at - started_at).total_seconds() * 1000)
-        }
+                # Check for GUI input
+                if result.error == "WAITING_FOR_INPUT" or (result.output and result.output.get("type") == "gui_input_required"):
+                    state["status"] = "waiting_for_input"
+                    state_to_save = state.copy()
+                    if "db" in state_to_save: del state_to_save["db"]
+                    yield {
+                        "type": "complete",
+                        "status": "waiting_for_input",
+                        "data": self._sanitize_for_json({
+                            "status": "waiting_for_input",
+                            "execution_state": state_to_save,
+                            "outputs": state["variables"],
+                            "steps": [step.to_dict(self._sanitize_for_json) for step in self.steps],
+                            "gui_schema": result.output.get("gui_schema"),
+                            "waiting_node": current_node
+                        })
+                    }
+                    return
+                
+                # Next Node
+                yield {"type": "log", "level": "debug", "message": "[RUNTIME] Calculating next node..."}
+                current_node = self._get_next_node(current_node, result, state)
+                yield {"type": "log", "level": "debug", "message": f"[RUNTIME] Next node calculated: {current_node}"}
+                
+                # Step Limit Check
+                if steps_limit and steps_run >= steps_limit and current_node:
+                    state["current_node"] = current_node
+                    state["status"] = "paused"
+                    state_to_save = state.copy()
+                    if "db" in state_to_save: del state_to_save["db"]
+                    
+                    # CLEANUP: Cancel pending tasks before pausing
+                    if not node_task.done(): node_task.cancel()
+                    if queue_task and not queue_task.done(): queue_task.cancel()
+                    
+                    yield {
+                        "type": "paused",
+                        "data": self._sanitize_for_json({
+                            "status": "paused",
+                            "execution_state": state_to_save,
+                            "outputs": state["variables"],
+                            "steps": [step.to_dict(self._sanitize_for_json) for step in self.steps],
+                            "started_at": started_at.isoformat()
+                        })
+                    }
+                    return
         
-        yield {
-            "type": "complete",
-            "data": self._sanitize_for_json(final_result)
-        }
+        except Exception as e:
+            import traceback
+            error_msg = f"Runtime Crash: {str(e)}\n{traceback.format_exc()}"
+            yield {"type": "error", "content": error_msg}
+        finally:
+            # Final Completion Event
+            completed_at = datetime.utcnow()
+            
+            # Determine correct final status
+            current_status = state.get("status", "completed")
+            if state.get("error"):
+                current_status = "failed"
+            elif iteration >= max_iterations:
+                current_status = "failed"
+                state["error"] = "Max iterations reached"
+            elif current_node is None:
+                # Workflow finished naturally, force status to completed
+                current_status = "completed"
+                state["status"] = "completed"
+            
+            state_to_save = state.copy() if state else {}
+            if "db" in state_to_save: del state_to_save["db"]
+            if "variables" in state_to_save: state_to_save["variables"] = dict(state_to_save["variables"])
+            if "status_callbacks" in state_to_save: del state_to_save["status_callbacks"]
+            
+            # 7. Collect Final Outputs
+            # If we ended on an END node, it likely has a filtered output.
+            # Otherwise, fallback to all variables.
+            final_outputs = state.get("variables", {})
+            last_output = state.get("current_output")
+            
+            print(f"[RUNTIME] Workflow ending. Status: {current_status}. Variables count: {len(final_outputs)}")
+            
+            if current_status == "completed" and isinstance(last_output, dict) and last_output.get("_completed"):
+                # Use the clean output from the END node, but keep _completed flag
+                final_outputs = last_output
+            
+            final_result = {
+                "status": current_status,
+                "outputs": final_outputs,
+                "execution_state": state_to_save,
+                "steps": [step.to_dict(self._sanitize_for_json) for step in self.steps],
+                "error": state.get("error"),
+                "started_at": started_at.isoformat(),
+                "completed_at": completed_at.isoformat()
+            }
+            yield {"type": "complete", "data": self._sanitize_for_json(final_result)}
 
     async def execute(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute the agent workflow (blocking wrapper around execute_stream).
         """
         final_result = None
+        logs = []
         async for event in self.execute_stream(inputs, initial_state, steps_limit):
             if event["type"] in ["complete", "paused", "waiting_for_input"]:
                 final_result = event["data"]
+            elif event["type"] == "log":
+                logs.append({
+                    "level": event.get("level", "info"),
+                    "message": event["message"],
+                    "timestamp": event.get("timestamp", datetime.utcnow().isoformat()),
+                    "node_id": event.get("node_id"),
+                    "node_label": event.get("node_label")
+                })
             elif event["type"] == "error" and not final_result:
                  # If we hit an error event but didn't reach 'complete', construct error result
                  final_result = {
                     "status": "failed",
                     "error": event["content"],
                     "outputs": {},
-                    "steps": [step.to_dict() for step in self.steps]
+                    "steps": [step.to_dict(self._sanitize_for_json) for step in self.steps]
                  }
         
-        if not final_result:
-             return {
-                "status": "failed",
-                "error": "Execution interrupted or returned no result",
-                "outputs": {},
-                "steps": []
-            }
-            
-        return final_result
+        if final_result:
+            final_result["logs"] = logs
+            if "started_at" not in final_result:
+                final_result["started_at"] = datetime.utcnow().isoformat()
+            return final_result
+        
+        # Fallback for interrupted execution
+        now = datetime.utcnow().isoformat()
+        return {
+            "status": "failed",
+            "error": "Execution interrupted or returned no result",
+            "outputs": {},
+            "steps": [],
+            "started_at": now,
+            "completed_at": now
+        }
 
     def resume_with_input(self, state: Dict[str, Any], input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1194,11 +966,14 @@ async def execute_blueprint(
     ).first()
     
     if not blueprint:
+        now = datetime.utcnow().isoformat()
         return {
             "status": "failed",
             "error": f"Blueprint not found: {blueprint_id}",
             "outputs": {},
-            "steps": []
+            "steps": [],
+            "started_at": now,
+            "completed_at": now
         }
     
     # Create execution record
@@ -1231,6 +1006,7 @@ async def execute_blueprint(
         return result
         
     except Exception as e:
+        now = datetime.utcnow().isoformat()
         execution.status = "failed"
         execution.error_message = str(e)
         execution.completed_at = datetime.utcnow()
@@ -1241,6 +1017,8 @@ async def execute_blueprint(
             "status": "failed",
             "error": str(e),
             "outputs": {},
-            "steps": []
+            "steps": [],
+            "started_at": now,
+            "completed_at": now
         }
 
