@@ -4,10 +4,19 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 import os
 
+from app.core.config import settings
+
 # Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440
+SECRET_KEY = settings.SECRET_KEY
+if not SECRET_KEY:
+    # Critical security warning: SECRET_KEY should always be set in environment
+    # Using a weak fallback for development ONLY. 
+    # In a real production deployment, this should raise an exception.
+    SECRET_KEY = "DEVELOPMENT_INSECURE_SECRET_KEY_PLEASE_CHANGE"
+    print("WARNING: SECRET_KEY is not set. Using an insecure fallback.")
+
+ALGORITHM = settings.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 

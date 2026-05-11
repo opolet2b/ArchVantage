@@ -15,7 +15,7 @@ from app.models.template import (
 )
 from app.models.user import User
 from app.services.template_service import template_service
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, PermissionChecker
 
 
 router = APIRouter(prefix="/templates", tags=["templates"])
@@ -48,7 +48,7 @@ async def update_template(
     template_id: str,
     data: TemplateUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Update a template. Requires WRITE permission on folder."""
     template = db.query(Template).filter(Template.id == template_id).first()
@@ -119,7 +119,7 @@ _template_config = {
 
 @router.get("/config")
 async def get_template_config(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("settings:manage"))
 ):
     """Get template storage configuration. Admin only."""
     is_admin = any(role.name == "Admin" for role in current_user.roles)
@@ -132,7 +132,7 @@ async def get_template_config(
 @router.put("/config")
 async def update_template_config(
     data: TemplateConfig,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("settings:manage"))
 ):
     """Update template storage configuration. Admin only."""
     is_admin = any(role.name == "Admin" for role in current_user.roles)
@@ -150,7 +150,7 @@ async def update_template_config(
 @router.get("/tree")
 async def get_template_tree(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:read"))
 ):
     """
     Get the folder/template tree filtered by user permissions.
@@ -166,7 +166,7 @@ async def get_template_tree(
 async def get_template(
     template_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:read"))
 ):
     """Get a template by ID if user has READ permission."""
     template = db.query(Template).filter(Template.id == template_id).first()
@@ -200,7 +200,7 @@ async def get_template(
 async def create_template(
     data: TemplateCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Create a new template. Requires WRITE permission on folder."""
     # Check permission on folder
@@ -236,7 +236,7 @@ async def update_template(
     template_id: str,
     data: TemplateUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Update a template. Requires WRITE permission on folder."""
     template = db.query(Template).filter(Template.id == template_id).first()
@@ -275,7 +275,7 @@ async def update_template(
 async def delete_template(
     template_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Delete a template. Requires WRITE permission on folder."""
     template = db.query(Template).filter(Template.id == template_id).first()
@@ -302,7 +302,7 @@ async def delete_template(
 async def create_folder(
     data: FolderCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Create a new folder. Requires WRITE permission on parent folder or Admin for root."""
     # Check if user is admin
@@ -346,7 +346,7 @@ async def create_folder(
 async def delete_folder(
     folder_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Delete a folder. Must be empty. Requires WRITE permission."""
     folder = db.query(TemplateFolder).filter(
@@ -375,7 +375,7 @@ async def delete_folder(
 @router.post("/render-preview")
 async def render_preview(
     data: RenderPreviewRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """
     Render HTML preview from YAML styles and markdown content.
@@ -393,7 +393,7 @@ async def render_preview(
 async def generate_template(
     data: GenerateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """
     Generate a template using AI from natural language description.
@@ -425,7 +425,7 @@ class PromptOptimizeRequest(BaseModel):
 @router.post("/optimize-prompt")
 async def optimize_prompt(
     data: PromptOptimizeRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """
     Optimize a user text into a high-quality LLM prompt.
@@ -450,7 +450,7 @@ async def optimize_prompt(
 async def get_folder_permissions(
     folder_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Get permissions for a folder. Admin only."""
     # Check if user is admin
@@ -481,7 +481,7 @@ async def add_folder_permission(
     folder_id: str,
     data: PermissionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Add permission to a folder. Admin only."""
     # Check if user is admin
@@ -525,7 +525,7 @@ async def add_folder_permission(
 async def delete_permission(
     permission_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("template:write"))
 ):
     """Delete a permission. Admin only."""
     # Check if user is admin

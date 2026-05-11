@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.core.security import get_password_hash
 from app.models.user import User, Role, UserRole, UserRoleSource, AuthType, KnownADGroup
 from app.schemas.user import User as UserSchema, UserCreate, UserUpdate
-from app.routers.auth import get_current_admin_user, get_current_active_user
+from app.routers.auth import get_current_admin_user, get_current_active_user, PermissionChecker
 
 router = APIRouter()
 
@@ -18,7 +18,7 @@ def read_users(
     no_roles_only: Optional[bool] = None,
     auth_type: Optional[str] = None,
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("user:manage"))
 ):
     query = db.query(User)
     
@@ -48,7 +48,7 @@ def read_users(
 def get_user_details(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("user:manage"))
 ):
     """Get detailed user information including role sources"""
     db_user = db.query(User).filter(User.id == user_id).first()
@@ -84,7 +84,7 @@ def get_user_details(
 def create_user(
     user: UserCreate, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("user:manage"))
 ):
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
@@ -121,7 +121,7 @@ def update_user(
     user_id: int, 
     user_update: UserUpdate, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("user:manage"))
 ):
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user:
@@ -168,7 +168,7 @@ def update_user(
 def toggle_user_active(
     user_id: int, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("user:manage"))
 ):
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user:
@@ -184,7 +184,7 @@ def get_ad_groups(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("user:manage"))
 ):
     """Get all known AD groups"""
     ad_groups = db.query(KnownADGroup).offset(skip).limit(limit).all()

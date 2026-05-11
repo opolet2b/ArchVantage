@@ -34,6 +34,11 @@ class Settings:
         if origin.strip()
     ]
 
+    # Security Configuration
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+
     # LLM Configuration
     DEFAULT_LLM_MODEL: str = os.getenv("DEFAULT_LLM_MODEL", "default")
 

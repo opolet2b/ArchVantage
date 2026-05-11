@@ -80,13 +80,14 @@ export function HelpTooltip({ contentPath, className, displayMode = "popover" }:
                     <Button
                         variant="ghost"
                         size="icon"
+                        onClick={(e) => e.stopPropagation()}
                         className={`h-5 w-5 rounded-full text-muted-foreground hover:text-primary ${className}`}
                     >
                         <HelpCircle className="h-4 w-4" />
                         <span className="sr-only">Help</span>
                     </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+                <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                     <VisuallyHidden>
                         <DialogTitle>Help Content</DialogTitle>
                     </VisuallyHidden>
@@ -102,13 +103,14 @@ export function HelpTooltip({ contentPath, className, displayMode = "popover" }:
                 <Button
                     variant="ghost"
                     size="icon"
+                    onClick={(e) => e.stopPropagation()}
                     className={`h-5 w-5 rounded-full text-muted-foreground hover:text-primary ${className}`}
                 >
                     <HelpCircle className="h-4 w-4" />
                     <span className="sr-only">Help</span>
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 max-h-[400px] overflow-y-auto rich-text">
+            <PopoverContent className="w-80 max-h-[400px] overflow-y-auto rich-text" onClick={(e) => e.stopPropagation()}>
                 <ContentBody />
             </PopoverContent>
         </Popover>

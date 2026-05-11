@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.routers.auth import get_current_user
+from app.routers.auth import get_current_user, PermissionChecker
 from app.models.user import User
 from app.models.scenario_models import Scenario
 from app.models.canvas_models import Canvas, Domain, ThingType, CanvasThing
@@ -33,7 +33,7 @@ def list_scenarios(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("scenario:read"))
 ):
     """List all available scenarios."""
     scenarios = db.query(Scenario).offset(skip).limit(limit).all()
@@ -44,7 +44,7 @@ def list_scenarios(
 def create_scenario(
     scenario: ScenarioCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("scenario:write"))
 ):
     """Create a new scenario definition."""
     # Ensure users can't create system scenarios via API
@@ -75,7 +75,7 @@ def create_scenario(
 def get_scenario(
     scenario_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("scenario:read"))
 ):
     """Get a specific scenario by ID."""
     scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
@@ -88,7 +88,7 @@ def update_scenario(
     scenario_id: str,
     updates: ScenarioUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("scenario:write"))
 ):
     """Update a scenario."""
     scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
@@ -126,7 +126,7 @@ def update_scenario(
 def delete_scenario(
     scenario_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("scenario:write"))
 ):
     """Delete a scenario."""
     scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
@@ -148,7 +148,7 @@ def delete_scenario(
 def instantiate_scenario(
     request: InstantiateScenarioRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("scenario:write"))
 ):
     """
     Create a new 'Master Canvas' based on a scenario.
@@ -242,7 +242,7 @@ def apply_to_canvas(
     canvas_id: str,
     request: ApplyScenarioRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(PermissionChecker("scenario:write"))
 ):
     """
     Apply a scenario to an existing canvas.

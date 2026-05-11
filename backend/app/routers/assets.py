@@ -18,6 +18,7 @@ from app.services.asset_service import asset_service
 from app.services.rag_service import rag_service
 from app.services.pptx_service import pptx_service
 import json
+import os
 
 print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 print("!!! ASSETS ROUTER LOADING - VERSION 5 (SIDECAR FIX) !!!")
@@ -136,16 +137,8 @@ async def get_asset_sidecar(
     """
     Retrieve the JSON sidecar for an asset (e.g. PPTX structure).
     """
-    # Verify ownership and get asset record
-    from app.models.asset_models import Asset
-    import os
-    
-    asset = db.query(Asset).filter(Asset.id == asset_id).first()
-    if not asset:
-         raise HTTPException(status_code=404, detail="Asset not found")
-         
-    if asset.owner_id != current_user.id:
-         raise HTTPException(status_code=403, detail="Not authorized")
+    # Verify ownership and access
+    asset = asset_service.verify_access(db, asset_id, current_user.id)
          
     file_path = asset_service.get_storage_path(asset)
     json_path = f"{file_path}.json"

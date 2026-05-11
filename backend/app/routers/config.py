@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from app.services.config_service import config_service
@@ -6,6 +6,9 @@ from app.core.env_manager import env_manager
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from app.services.debug_service import debug_service
+from app.routers.auth import get_current_active_user, PermissionChecker
+from app.models.user import User
+from app.core.database import get_db
 
 router = APIRouter(tags=["config"])
 
@@ -30,18 +33,18 @@ class ConfigRequest(BaseModel):
     response_format: Optional[str] = "mp3" # For TTS (e.g., "mp3", "wav", "pcm")
 
 @router.get("/config/models")
-async def get_models():
+async def get_models(user: User = Depends(get_current_active_user)):
     models = await config_service.get_ollama_models()
     return {"models": models}
 
 @router.get("/config/presets")
-def get_presets():
+def get_presets(user: User = Depends(get_current_active_user)):
     print("[ConfigRouter] Fetching LLM presets...")
     config = config_service.get_config()
     return {"presets": config.get("presets", [])}
 
 @router.post("/config/presets")
-def save_preset(preset: ConfigRequest):
+def save_preset(preset: ConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
     config = config_service.get_config()
     presets = config.get("presets", [])
     
@@ -60,7 +63,7 @@ def save_preset(preset: ConfigRequest):
     return {"status": "success", "preset": preset_dict}
 
 @router.delete("/config/presets/{preset_name}")
-def delete_preset(preset_name: str):
+def delete_preset(preset_name: str, user: User = Depends(PermissionChecker("settings:manage"))):
     success = config_service.delete_preset(preset_name)
     if success:
         return {"status": "success", "message": f"Preset '{preset_name}' deleted."}
@@ -75,7 +78,7 @@ class DefaultsRequest(BaseModel):
     reset_db: bool = False
 
 @router.get("/config/defaults")
-def get_defaults():
+def get_defaults(user: User = Depends(get_current_active_user)):
     print("[ConfigRouter] Fetching default configurations...")
     llm_preset = config_service.get_default_llm_preset()
     vision_preset = config_service.get_default_vision_preset()
@@ -91,7 +94,7 @@ def get_defaults():
     }
 
 @router.post("/config/defaults")
-def set_defaults(request: DefaultsRequest):
+def set_defaults(request: DefaultsRequest, user: User = Depends(PermissionChecker("settings:manage"))):
     if request.default_llm:
         config_service.set_default_llm_preset(request.default_llm)
     if request.default_vision:
@@ -133,7 +136,7 @@ class DatabaseConfigRequest(BaseModel):
     target: Optional[str] = "all"
 
 @router.get("/config/database")
-def get_database_config():
+def get_database_config(user: User = Depends(PermissionChecker("settings:manage"))):
     """Get current database configuration."""
     url = env_manager.get_env_value("DATABASE_URL", "sqlite:///./db/sql_app.db")
     arcadedb_host = env_manager.get_env_value("ARCADEDB_HOST", "http://localhost:2480")
@@ -149,7 +152,7 @@ def get_database_config():
     }
 
 @router.post("/config/database")
-def set_database_config(request: DatabaseConfigRequest):
+def set_database_config(request: DatabaseConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
     """Update database configuration in .env file."""
     if request.url is not None:
         env_manager.set_env_value("DATABASE_URL", request.url)
@@ -169,7 +172,7 @@ def set_database_config(request: DatabaseConfigRequest):
     debug_service.log("WARNING", "Settings", "Database", "Database configuration updated. Restart required.")
 
 @router.post("/config/database/test")
-def test_database_connection(request: DatabaseConfigRequest):
+def test_database_connection(request: DatabaseConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
     """Test connection to the provided database URLs (SQL and ArcadeDB)."""
     results = {}
     
@@ -243,7 +246,7 @@ class RagConfigRequest(BaseModel):
     reset_db: bool = True # Force DB reset by default for safety
 
 @router.get("/config/rag")
-def get_rag_config():
+def get_rag_config(user: User = Depends(PermissionChecker("settings:manage"))):
     config = config_service.get_config()
     rag_config = config.get("rag_config", {
         "embedding_provider": "ollama",
@@ -267,7 +270,7 @@ def get_rag_config():
     return {"config": rag_config}
 
 @router.post("/config/rag")
-def save_rag_config(request: RagConfigRequest):
+def save_rag_config(request: RagConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
     print(f"Update RAG Config. Reset DB: {request.reset_db}")
     config = config_service.get_config()
     
@@ -302,7 +305,7 @@ class QueryingConfigRequest(BaseModel):
     response_mode: str = "simple" # simple (default/manual), refine, tree_summarize, compact
     
 @router.get("/config/querying")
-def get_querying_config():
+def get_querying_config(user: User = Depends(PermissionChecker("settings:manage"))):
     config = config_service.get_config()
     # Defaults
     querying_config = config.get("querying_config", {
@@ -316,7 +319,7 @@ def get_querying_config():
     return {"config": querying_config}
 
 @router.post("/config/querying")
-def save_querying_config(request: QueryingConfigRequest):
+def save_querying_config(request: QueryingConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
     config = config_service.get_config()
     config["querying_config"] = request.dict()
     config_service.save_config(config)

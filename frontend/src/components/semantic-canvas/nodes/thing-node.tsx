@@ -1767,7 +1767,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         </div>
                     );
                 }
-                }
 
                 if (typeof rawVal === 'object' && rawVal !== null) {
                     rawVal = JSON.stringify(rawVal, null, 2);

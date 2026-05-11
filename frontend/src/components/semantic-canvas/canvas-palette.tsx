@@ -43,7 +43,8 @@ export type ToolType =
     | "import_conversation"
     | "mcp_tool"
     | "agent_tool"
-    | "archimate_tool";
+    | "archimate_tool"
+    | "sticky";
 
 export interface CanvasTool {
     id: ToolType;
@@ -73,7 +74,13 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         id: "text",
         name: "Text Note",
         icon: <Type className="h-4 w-4" />,
-        description: "Add a sticky note"
+        description: "Add a structured text"
+    },
+    {
+        id: "sticky",
+        name: "Sticky Note",
+        icon: <Palette className="h-4 w-4" />,
+        description: "Add a quick note"
     },
     {
         id: "url",
@@ -134,6 +141,7 @@ const PRESET_COLORS = [
 const DEFAULT_TOOL_COLORS: Record<string, string> = {
     // Basic text/doc - Slate/White
     text: "#f8fafc",
+    sticky: "#fef9c3", // Yellowish default for sticky
     document: "#f8fafc",
 
     // Conversation - Blue

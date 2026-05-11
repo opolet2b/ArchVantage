@@ -1031,6 +1031,18 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                             )}
                         </div>
                         <div className="space-y-2">
+                            <Label className="flex items-center gap-2">
+                                Input Schema
+                                <HelpTooltip contentPath="agent-builder/llm_decision_input_context" />
+                            </Label>
+                            <InputSchemaBuilder
+                                nodeId={selectedNode?.id}
+                                value={(params.input_context as string) || ""}
+                                onChange={(val) => handleParamChange("input_context", val)}
+                            />
+                        </div>
+
+                        <div className="space-y-2">
                             <Label className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
                                     Instruction
@@ -1073,63 +1085,58 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
 
                                 if (contextKeys.length > 0) {
                                     return (
-                                        <div className="flex items-center gap-2">
-                                            <select
-                                                className="h-7 w-full text-xs rounded-md border bg-background px-2"
-                                                id="instruction-var-select"
-                                            >
-                                                <option value="">Select Input Variable...</option>
-                                                {contextKeys.map(key => (
-                                                    <option key={key} value={key}>{key}</option>
-                                                ))}
-                                            </select>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="h-7 px-2 text-xs"
-                                                onClick={() => {
-                                                    const select = document.getElementById("instruction-var-select") as HTMLSelectElement;
-                                                    const textarea = document.getElementById("instruction-textarea") as HTMLTextAreaElement;
-                                                    const valueToInsert = select.value;
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-1">
+                                                <Label className="text-[10px] text-muted-foreground uppercase tracking-tight font-semibold">Variable Insertion Helper</Label>
+                                                <HelpTooltip contentPath="agent-builder/variable_insertion_helper" />
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <select
+                                                    className="h-7 w-full text-xs rounded-md border bg-background px-2"
+                                                    id="instruction-var-select"
+                                                >
+                                                    <option value="">Select Input Variable...</option>
+                                                    {contextKeys.map(key => (
+                                                        <option key={key} value={key}>{key}</option>
+                                                    ))}
+                                                </select>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 px-2 text-xs"
+                                                    onClick={() => {
+                                                        const select = document.getElementById("instruction-var-select") as HTMLSelectElement;
+                                                        const textarea = document.getElementById("instruction-textarea") as HTMLTextAreaElement;
+                                                        const valueToInsert = select.value;
 
-                                                    if (valueToInsert && textarea) {
-                                                        const start = textarea.selectionStart;
-                                                        const end = textarea.selectionEnd;
-                                                        const current = (params.instruction as string) || "";
+                                                        if (valueToInsert && textarea) {
+                                                            const start = textarea.selectionStart;
+                                                            const end = textarea.selectionEnd;
+                                                            const current = (params.instruction as string) || "";
 
-                                                        // Wraps in Jinja2 syntax as requested
-                                                        const textToInsert = `{{${valueToInsert}}}`;
+                                                            // Wraps in Jinja2 syntax as requested
+                                                            const textToInsert = `{{${valueToInsert}}}`;
 
-                                                        const newValue = current.substring(0, start) + textToInsert + current.substring(end);
+                                                            const newValue = current.substring(0, start) + textToInsert + current.substring(end);
 
-                                                        handleParamChange("instruction", newValue);
+                                                            handleParamChange("instruction", newValue);
 
-                                                        // Restore focus/cursor
-                                                        setTimeout(() => {
-                                                            textarea.focus();
-                                                            textarea.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
-                                                        }, 0);
-                                                    }
-                                                }}
-                                            >
-                                                Insert
-                                            </Button>
+                                                            // Restore focus/cursor
+                                                            setTimeout(() => {
+                                                                textarea.focus();
+                                                                textarea.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+                                                            }, 0);
+                                                        }
+                                                    }}
+                                                >
+                                                    Insert
+                                                </Button>
+                                            </div>
                                         </div>
                                     );
                                 }
                                 return null;
                             })()}
-                        </div>
-                        <div className="space-y-2">
-                            <Label className="flex items-center gap-2">
-                                Input Schema
-                                <HelpTooltip contentPath="agent-builder/llm_decision_input_context" />
-                            </Label>
-                            <InputSchemaBuilder
-                                nodeId={selectedNode?.id}
-                                value={(params.input_context as string) || ""}
-                                onChange={(val) => handleParamChange("input_context", val)}
-                            />
                         </div>
                         <div className="space-y-2">
                             <Label className="flex items-center gap-2 text-sm">
@@ -1175,21 +1182,6 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
             {
                 primitiveType === "FOREACH_START" && (
                     <>
-                        <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-md border border-dashed mb-4">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-2">Loop Logic Construction</div>
-                            <div className="flex flex-wrap items-center gap-2 font-mono text-sm">
-                                <span className="text-blue-500 font-bold">FOR EACH</span>
-                                <span className="bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-blue-200">
-                                    {(params.iterator_var as string) || "variable"}
-                                </span>
-                                <span className="text-blue-500 font-bold">IN</span>
-                                <span className="bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-blue-200 truncate max-w-[150px]">
-                                    {(params.items as string) || "source_item"}
-                                </span>
-                                <span className="text-blue-500 font-bold">DO</span>
-                            </div>
-                        </div>
-
                         <div className="space-y-4">
                             <div className="space-y-2">
                                 <Label className="text-sm font-semibold flex items-center gap-2">
@@ -1226,13 +1218,34 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                 <Label className="text-sm font-semibold text-muted-foreground">Track index as (optional)</Label>
                                 <Input
                                     placeholder="index"
-                                    value={(params.index_var as string) || "index"}
+                                    value={(params.index_var as string) || ""}
                                     onChange={(e) => handleParamChange("index_var", e.target.value)}
                                 />
                                 <p className="text-[11px] text-muted-foreground">
                                     Numeric variable tracking the current position (0, 1, 2...).
                                 </p>
                             </div>
+                        </div>
+
+                        <div className="mt-6 bg-blue-50/30 dark:bg-blue-900/10 p-4 rounded-lg border border-dashed border-blue-200 dark:border-blue-800">
+                            <div className="text-[10px] uppercase tracking-wider text-blue-600 dark:text-blue-400 font-bold mb-3 flex items-center gap-2">
+                                <Repeat className="h-3 w-3" />
+                                Loop Logic Construction
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-3 font-mono text-xs">
+                                <span className="text-muted-foreground font-bold italic">FOR EACH</span>
+                                <span className="text-blue-700 dark:text-blue-300 font-bold bg-blue-100/50 dark:bg-blue-900/40 px-2 py-0.5 rounded shadow-sm">
+                                    {(params.iterator_var as string) || "variable"}
+                                </span>
+                                <span className="text-muted-foreground font-bold italic">IN</span>
+                                <span className="text-blue-700 dark:text-blue-300 font-bold bg-blue-100/50 dark:bg-blue-900/40 px-2 py-0.5 rounded shadow-sm">
+                                    {(params.items as string) || "source_item"}
+                                </span>
+                                <span className="text-muted-foreground font-bold italic">DO</span>
+                            </div>
+                            <p className="mt-3 text-[10px] text-muted-foreground leading-tight">
+                                This preview shows how the loop is constructed using the variables defined above.
+                            </p>
                         </div>
                     </>
                 )
@@ -1253,7 +1266,7 @@ function NodeInspector({ node, onUpdate, onDelete }: NodeInspectorProps) {
                                     .filter((n) => n.data.primitiveType === "FOREACH_START")
                                     .map((n) => (
                                         <option key={n.id} value={n.id}>
-                                            {(n.data.label as string) || n.id}
+                                            {(n.data.label as string) || "Foreach Start"} ({n.id})
                                         </option>
                                     ))
                                 }

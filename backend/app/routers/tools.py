@@ -11,7 +11,7 @@ from app.schemas.tools import (
     ToolSuggestionRequest, MappingSuggestionRequest
 )
 from app.services import tools as tool_service
-from app.routers.auth import get_current_active_user, get_current_admin_user
+from app.routers.auth import get_current_active_user, get_current_admin_user, PermissionChecker
 from app.models.user import User
 from app.services.debug_service import debug_service
 
@@ -51,7 +51,7 @@ def read_tools_tree(
 def create_tool(
     tool: ToolCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("tool:write"))
 ):
     result = tool_service.create_tool(db=db, tool=tool, owner_id=current_user.id)
     debug_service.log("INFO", "Agents and Tools", "Tools", f"Created tool: {tool.name}", {"tool_id": result.id})
@@ -63,6 +63,10 @@ def read_tool(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    is_admin = any(role.name == "Admin" for role in current_user.roles)
+    if not tool_service.check_tool_access(db, tool_id, current_user.id, is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to access this tool")
+        
     db_tool = tool_service.get_tool(db, tool_id=tool_id)
     if db_tool is None:
         raise HTTPException(status_code=404, detail="Tool not found")
@@ -76,10 +80,11 @@ def update_tool(
     current_user: User = Depends(get_current_active_user)
 ):
     # Add permission check here (only owner or admin)
+    is_admin = any(role.name == "Admin" for role in current_user.roles)
     db_tool = tool_service.get_tool(db, tool_id=tool_id)
     if not db_tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-    if db_tool.owner_id != current_user.id: # Simple check for now
+    if db_tool.owner_id != current_user.id and not is_admin:
          raise HTTPException(status_code=403, detail="Not authorized to update this tool")
          
     return tool_service.update_tool(db=db, tool_id=tool_id, tool=tool)
@@ -91,10 +96,11 @@ def delete_tool(
     current_user: User = Depends(get_current_active_user)
 ):
     # Add permission check here
+    is_admin = any(role.name == "Admin" for role in current_user.roles)
     db_tool = tool_service.get_tool(db, tool_id=tool_id)
     if not db_tool:
         raise HTTPException(status_code=404, detail="Tool not found")
-    if db_tool.owner_id != current_user.id:
+    if db_tool.owner_id != current_user.id and not is_admin:
          raise HTTPException(status_code=403, detail="Not authorized to delete this tool")
 
     return tool_service.delete_tool(db=db, tool_id=tool_id)
@@ -166,6 +172,10 @@ async def execute_tool(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    is_admin = any(role.name == "Admin" for role in current_user.roles)
+    if not tool_service.check_tool_access(db, tool_id, current_user.id, is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to execute this tool")
+        
     debug_service.log("INFO", "Agents and Tools", "Execution", f"Executing tool {tool_id}", {"params": params})
     return await tool_service.execute_tool(db=db, tool_id=tool_id, params=params)
 
@@ -188,6 +198,10 @@ async def execute_pipeline(
         "id": 1  // optional request ID
     }
     """
+    is_admin = any(role.name == "Admin" for role in current_user.roles)
+    if not tool_service.check_tool_access(db, tool_id, current_user.id, is_admin):
+        raise HTTPException(status_code=403, detail="Not authorized to execute this pipeline")
+
     from app.services.tool_runtime import execute_pipeline as rt_execute_pipeline
     
     input_params = params.get("input", {})

@@ -66,63 +66,97 @@ export function ImageViewer({
     // Effect: Load image with Auth if it's a backend asset
     React.useEffect(() => {
         if (!src) return;
-        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+        
+        let isMounted = true;
+        
+        // 1. Regular HTTP URL (not an API asset) - use directly
+        if (src.startsWith("http") && !src.includes("/api/v1/assets/")) {
+            setImageSrc(src);
+            setLoading(false);
+            return;
+        }
 
-        // Blob URLs - use directly
+        // 2. Local Blob URL (already fetched or generated)
         if (src.startsWith("blob:") || src.startsWith("data:")) {
             setImageSrc(src);
+            setLoading(false);
             return;
         }
 
         // Check if this is an API asset URL (either relative or full HTTP)
-        const isApiAsset = src.startsWith("/api/") || src.includes("/api/v1/assets/");
+        const isApiAssetUrl = src.startsWith("/api/") || src.includes("/api/v1/assets/");
 
-        if (isApiAsset) {
+        if (isApiAssetUrl) {
             const fetchImage = async () => {
+                setLoading(true);
                 try {
                     const token = localStorage.getItem("token");
+                    
+                    // Construct final URL
                     let urlToFetch = src;
-
-                    // If it's a relative URL starting with /api/, we can just fetch it directly.
-                    // The browser will prepend the current origin.
-                    // This avoids issues with new URL(relative_api_url) crashing.
+                    
                     if (src.startsWith("/api/")) {
-                        urlToFetch = src;
+                        // Ensure we use the full origin to hit the Next.js rewrite proxy correctly
+                        urlToFetch = `${window.location.origin}${src}`;
                     } else if (src.includes("/api/v1/assets/")) {
-                        // If it's a full URL but for our API assets, we might want to ensure it's on our origin
-                        // but usually the passed src is already what we want.
-                        // Let's keep it simple: use src as is.
+                        // Full URL already, but if it's relative to another host, we keep it
                         urlToFetch = src;
                     }
+
+                    console.log(`[ImageViewer] Fetching secure asset: ${urlToFetch}`);
 
                     const res = await fetch(urlToFetch, {
                         headers: token ? { "Authorization": `Bearer ${token}` } : {}
                     });
 
                     if (!res.ok) {
-                        console.error(`[ImageViewer] Failed to load image: ${res.status} ${res.statusText}`);
-                        throw new Error(`Failed to load: ${res.status}`);
+                        console.error(`[ImageViewer] Failed to load image: ${res.status} ${res.statusText} for URL: ${urlToFetch}`);
+                        if (isMounted) {
+                            setError(true);
+                            setLoading(false);
+                        }
+                        return;
                     }
 
                     const blob = await res.blob();
-                    objectUrlRef.current = URL.createObjectURL(blob);
-                    setImageSrc(objectUrlRef.current);
+                    if (!isMounted) return;
+
+                    const objectUrl = URL.createObjectURL(blob);
+                    
+                    // Revoke previous local object URL if it exists
+                    if (objectUrlRef.current) {
+                        URL.revokeObjectURL(objectUrlRef.current);
+                    }
+                    
+                    objectUrlRef.current = objectUrl;
+                    setImageSrc(objectUrl);
                     setLoading(false);
                 } catch (err) {
-                    console.error("Failed to load secure image:", err);
-                    setError(true);
-                    setLoading(false);
+                    console.error("[ImageViewer] Error fetching image blob:", err);
+                    if (isMounted) {
+                        setError(true);
+                        setLoading(false);
+                    }
                 }
             };
+
             fetchImage();
-            return () => { if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current); };
+            return () => {
+                isMounted = false;
+            };
+        } else {
+            // Fallback for raw paths or other URLs
+            setImageSrc(src);
+            setLoading(false);
         }
 
-        // Regular HTTP URL (not an API asset) - use directly
-        if (src.startsWith("http")) {
-            setImageSrc(src);
-            return;
-        }
+        // Cleanup on unmount
+        return () => {
+            if (objectUrlRef.current) {
+                URL.revokeObjectURL(objectUrlRef.current);
+                objectUrlRef.current = null;
+            }
+        };
     }, [src]);
 
     if (error) {

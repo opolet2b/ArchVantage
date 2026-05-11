@@ -19,7 +19,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from sqlalchemy import or_
 from app.core.database import get_db
-from app.routers.auth import get_current_active_user
+from app.routers.auth import get_current_active_user, PermissionChecker
 from app.models.user import User, Role
 from app.models.canvas_models import (
     Canvas, CanvasThing, CanvasLink, Domain,
@@ -111,7 +111,7 @@ def _resolve_active_model(db: Session, canvas_id: str, requested_model: Optional
 def create_canvas(
     request: CanvasCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:write"))
 ):
     """Create a new canvas for the current user."""
     canvas = Canvas(
@@ -140,7 +140,7 @@ def create_canvas(
 def list_canvases(
     archived: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:read"))
 ):
     """List all canvases owned by or shared with the current user."""
     # Get user's role IDs
@@ -169,7 +169,7 @@ def list_canvases(
 def reorder_canvases(
     updates: List[Dict[str, Any]],
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:write"))
 ):
     """Reorder canvases."""
     # updates is a list of {id: str, position: int}
@@ -273,7 +273,7 @@ def _enrich_links(db: Session, links: List[CanvasLink]) -> List[Dict[str, Any]]:
 def get_canvas(
     canvas_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:read"))
 ):
     # Use helper for permission check
     canvas = _get_canvas_with_access(canvas_id, db, current_user)
@@ -344,7 +344,7 @@ def update_canvas(
     canvas_id: str,
     request: CanvasUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:write"))
 ):
     """Update canvas properties."""
     print(f"[CanvasRouter] PATCH /canvases/{canvas_id} reached. Request: {request.model_dump()}")
@@ -796,7 +796,7 @@ def trigger_vectorization(
     thing_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:write"))
 ):
     """
     Manually trigger RAG vectorization for a thing.
@@ -857,7 +857,7 @@ async def create_thing(
     request: ThingCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:write"))
 ):
     """Add a thing to the canvas."""
     print(f"[CanvasRouter] Received create_thing request for canvas {canvas_id}, type: {request.type}")
@@ -985,7 +985,7 @@ async def create_thing(
 def list_things(
     canvas_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:read"))
 ):
     """List all things on a canvas."""
     canvas = _get_canvas_with_access(canvas_id, db, current_user)
@@ -1482,7 +1482,7 @@ def sync_all_things(
     canvas_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("canvas:write"))
 ):
     """
     Return status for all syncable things.
@@ -1934,7 +1934,7 @@ async def analyze_selection(
     canvas_id: str,
     request: AnalyzeRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("analysis:write"))
 ):
     """
     Analyze selected content using LLM.

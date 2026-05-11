@@ -11,7 +11,7 @@ from app.models.chat import (
     AgentExecuteFromChatRequest, AgentExecuteFromChatResponse
 )
 from app.core.database import get_db
-from app.routers.auth import get_current_active_user
+from app.routers.auth import get_current_active_user, PermissionChecker
 from app.models.user import User
 from app.services.llm_service import llm_service
 from app.services.agent_matcher import agent_matcher
@@ -320,7 +320,8 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
 @router.get("/chat/context/{conversation_id}")
 async def debug_chat_context(
     conversation_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(PermissionChecker("chat:use"))
 ):
     """Debug endpoint to see what context is resolved for a conversation ID."""
     from app.services.rag_service import rag_service
@@ -341,7 +342,7 @@ async def debug_chat_context(
 async def chat_endpoint(
     request: ChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("chat:use"))
 ):
     """
     Standard chat endpoint with LlamaIndex-native context management.
@@ -680,7 +681,7 @@ async def chat_endpoint(
 async def match_agent_endpoint(
     request: AgentMatchRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("chat:use"))
 ):
     """
     Match a chat message against available agents.
@@ -731,7 +732,7 @@ async def match_agent_endpoint(
 async def execute_agent_from_chat_endpoint(
     request: AgentExecuteFromChatRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(PermissionChecker("chat:use"))
 ):
     """
     Execute an agent from chat context.

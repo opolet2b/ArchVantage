@@ -226,7 +226,7 @@ export function InputSchemaBuilder({ value, onChange, nodeId }: InputSchemaBuild
                     >
                         <option value="">Select Node...</option>
                         {uniqueNodes.map(node => (
-                            <option key={node.node_id} value={node.node_id}>{node.label}</option>
+                            <option key={node.node_id} value={node.node_id}>{node.label} ({node.node_id})</option>
                         ))}
                     </select>
                 </div>

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import Role, KnownADGroup, GroupMapping, User, UserRole, UserRoleSource
 from app.schemas.user import Role as RoleSchema, RoleCreate, KnownADGroup as KnownADGroupSchema, GroupMappingCreate
-from app.routers.auth import get_current_admin_user
+from app.routers.auth import get_current_admin_user, PermissionChecker
 
 router = APIRouter()
 
@@ -13,7 +13,7 @@ def read_roles(
     skip: int = 0, 
     limit: int = 100, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     roles = db.query(Role).offset(skip).limit(limit).all()
     return roles
@@ -22,7 +22,7 @@ def read_roles(
 def create_role(
     role: RoleCreate, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     db_role = db.query(Role).filter(Role.name == role.name).first()
     if db_role:
@@ -39,7 +39,7 @@ def update_role(
     role_id: int,
     role_update: RoleCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     db_role = db.query(Role).filter(Role.id == role_id).first()
     if not db_role:
@@ -63,7 +63,7 @@ def update_role(
 def delete_role(
     role_id: int, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     db_role = db.query(Role).filter(Role.id == role_id).first()
     if not db_role:
@@ -108,7 +108,7 @@ def read_ad_groups(
     skip: int = 0, 
     limit: int = 100, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     groups = db.query(KnownADGroup).offset(skip).limit(limit).all()
     return groups
@@ -117,7 +117,7 @@ def read_ad_groups(
 def create_group_mapping(
     mapping: GroupMappingCreate, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     # Check if mapping exists
     existing = db.query(GroupMapping).filter(
@@ -136,7 +136,7 @@ def create_group_mapping(
 @router.get("/group-mappings")
 def get_group_mappings(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     """Get all group mappings with details"""
     mappings = db.query(GroupMapping).all()
@@ -164,7 +164,7 @@ def get_group_mappings(
 def delete_group_mapping(
     mapping_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     mapping = db.query(GroupMapping).filter(GroupMapping.id == mapping_id).first()
     if not mapping:
@@ -179,7 +179,7 @@ def add_manual_ad_group(
     ad_group_oid: str,
     display_name: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(PermissionChecker("role:manage"))
 ):
     """Manually add an AD group that hasn't been discovered yet"""
     existing = db.query(KnownADGroup).filter(KnownADGroup.ad_group_oid == ad_group_oid).first()

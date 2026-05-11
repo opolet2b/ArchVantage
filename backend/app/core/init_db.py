@@ -429,10 +429,30 @@ def init_db(db: Session) -> None:
     for role_name in roles:
         role = db.query(Role).filter(Role.name == role_name).first()
         if not role:
-            role = Role(name=role_name, description=f"Default {role_name} role")
+            # Define default permissions
+            permissions = []
+            if role_name == "Admin":
+                permissions = [
+                    "canvas:read", "canvas:write", "chat:use", "analysis:write",
+                    "agent:read", "agent:write", "tool:read", "tool:write",
+                    "scenario:read", "scenario:write", "template:read", "template:write",
+                    "kb:manage", "settings:manage", "user:manage", "role:manage"
+                ]
+            elif role_name == "User":
+                permissions = [
+                    "canvas:read", "canvas:write", "chat:use", "analysis:write",
+                    "agent:read", "agent:write", "tool:read", "tool:write",
+                    "scenario:read", "scenario:write", "template:read", "template:write"
+                ]
+                
+            role = Role(
+                name=role_name, 
+                description=f"Default {role_name} role",
+                permissions=permissions
+            )
             db.add(role)
             db.commit()
-            print(f"Created role: {role_name}")
+            print(f"Created role: {role_name} with {len(permissions)} permissions")
 
     # 2. Create Default Admin User
     admin_email = "admin@example.com"
@@ -455,6 +475,7 @@ def init_db(db: Session) -> None:
         print(f"Created admin user: {admin_email}")
         
         # Assign Admin role
+        admin_role = db.query(Role).filter(Role.name == "Admin").first()
         if admin_role:
             user_role = UserRole(user_id=admin_user.id, role_id=admin_role.id, source=UserRoleSource.MANUAL)
             db.add(user_role)

@@ -20,6 +20,8 @@ from app.services.ingestion_service import ingestion_service
 from app.services.reconciliation_service import reconciliation_service
 from app.core.arcadedb import arcadedb
 from app.services.debug_service import debug_service
+from app.routers.auth import get_current_active_user, PermissionChecker
+from app.models.user import User
 
 router = APIRouter()
 
@@ -45,19 +47,19 @@ async def knowledge_endpoint(request: SearchRequest):
 # --- KB Configuration Endpoints ---
 
 @router.get("/knowledge/kb", response_model=List[KnowledgeBaseConfigResponse])
-def get_kb_configs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_kb_configs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     configs = db.query(KnowledgeBaseConfig).offset(skip).limit(limit).all()
     return configs
 
 @router.get("/knowledge/kb/{kb_id}", response_model=KnowledgeBaseConfigResponse)
-def get_kb_config(kb_id: str, db: Session = Depends(get_db)):
+def get_kb_config(kb_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     config = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
     if not config:
         raise HTTPException(status_code=404, detail="KB Config not found")
     return config
 
 @router.post("/knowledge/kb", response_model=KnowledgeBaseConfigResponse)
-def create_kb_config(kb: KnowledgeBaseConfigCreate, db: Session = Depends(get_db)):
+def create_kb_config(kb: KnowledgeBaseConfigCreate, db: Session = Depends(get_db), current_user: User = Depends(PermissionChecker("kb:manage"))):
     db_kb = KnowledgeBaseConfig(
         name=kb.name,
         description=kb.description,
@@ -74,7 +76,7 @@ def create_kb_config(kb: KnowledgeBaseConfigCreate, db: Session = Depends(get_db
     return db_kb
 
 @router.put("/knowledge/kb/{kb_id}", response_model=KnowledgeBaseConfigResponse)
-def update_kb_config(kb_id: str, kb_update: KnowledgeBaseConfigUpdate, db: Session = Depends(get_db)):
+def update_kb_config(kb_id: str, kb_update: KnowledgeBaseConfigUpdate, db: Session = Depends(get_db), current_user: User = Depends(PermissionChecker("kb:manage"))):
     db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
     if not db_kb:
         raise HTTPException(status_code=404, detail="KB Config not found")
@@ -88,7 +90,7 @@ def update_kb_config(kb_id: str, kb_update: KnowledgeBaseConfigUpdate, db: Sessi
     return db_kb
 
 @router.delete("/knowledge/kb/{kb_id}")
-def delete_kb_config(kb_id: str, db: Session = Depends(get_db)):
+def delete_kb_config(kb_id: str, db: Session = Depends(get_db), current_user: User = Depends(PermissionChecker("kb:manage"))):
     db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
     if not db_kb:
         raise HTTPException(status_code=404, detail="KB Config not found")
@@ -99,7 +101,7 @@ def delete_kb_config(kb_id: str, db: Session = Depends(get_db)):
 # --- Extraction Endpoints ---
 
 @router.post("/knowledge/extract-taxonomy")
-async def extract_taxonomy(request: TaxonomyExtractionRequest):
+async def extract_taxonomy(request: TaxonomyExtractionRequest, current_user: User = Depends(PermissionChecker("kb:manage"))):
     try:
         # Instead of awaiting and returning dict, return a StreamingResponse 
         # that consumes the async generator from ontology_service
@@ -111,7 +113,7 @@ async def extract_taxonomy(request: TaxonomyExtractionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/knowledge/extract-predicates")
-async def extract_predicates(request: ExtractPredicatesRequest):
+async def extract_predicates(request: ExtractPredicatesRequest, current_user: User = Depends(PermissionChecker("kb:manage"))):
     """
     Kicks off an async background extraction process that reads the supplied 
     sources and uses the prompt to find relationships for the approved_classes.
@@ -130,7 +132,7 @@ async def extract_predicates(request: ExtractPredicatesRequest):
     )
 
 @router.post("/knowledge/kb/{kb_id}/establish")
-async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, force: bool = False, db: Session = Depends(get_db)):
+async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, force: bool = False, db: Session = Depends(get_db), current_user: User = Depends(PermissionChecker("kb:manage"))):
     db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
     if not db_kb:
         raise HTTPException(status_code=404, detail="KB Config not found")
@@ -420,7 +422,7 @@ def get_quarantine_nodes(kb_id: str, db: Session = Depends(get_db)):
     return {"quarantine_items": nodes}
 
 @router.post("/knowledge/kb/{kb_id}/reconciliation/align")
-def align_quarantine_node(kb_id: str, req: AlignRequest, db: Session = Depends(get_db)):
+def align_quarantine_node(kb_id: str, req: AlignRequest, db: Session = Depends(get_db), current_user: User = Depends(PermissionChecker("kb:manage"))):
     success = reconciliation_service.align_node(kb_id, req.node_id, req.target_class)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to align node.")

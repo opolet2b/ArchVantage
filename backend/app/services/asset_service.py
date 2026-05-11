@@ -198,13 +198,14 @@ class AssetService:
         return new_asset, file_hash
 
     @staticmethod
-    def get_asset_stream(
+    def verify_access(
         db: Session,
         asset_id: str,
         user_id: int
-    ) -> tuple[Path, str, str]:
+    ) -> Asset:
         """
-        Verify access and return path/metadata for streaming.
+        Verify access to an asset and return the record.
+        Raises HTTPException if not found or authorized.
         """
         asset = db.query(Asset).filter(Asset.id == asset_id).first()
         
@@ -214,14 +215,63 @@ class AssetService:
                 detail="Asset not found"
             )
             
-        # Access control
-        if asset.owner_id != user_id:
-            # We return 404 to avoid leaking existence of other users' files
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Asset not found"
-            )
+        # 1. Admin check
+        from app.models.user import User, Role
+        user = db.query(User).filter(User.id == user_id).first()
+        if user and any(role.name == "Admin" for role in user.roles):
+            return asset
+
+        # 2. Ownership check
+        if asset.owner_id == user_id:
+            return asset
             
+        # 3. Shared Canvas check
+        from app.models.canvas_models import Canvas, CanvasThing
+        from sqlalchemy import or_, func
+
+        canvases_with_asset = db.query(CanvasThing.canvas_id).filter(
+            func.instr(CanvasThing.content, asset_id) > 0
+        ).distinct().all()
+        
+        canvas_ids = [c[0] for c in canvases_with_asset]
+        
+        if canvas_ids:
+            role_ids = [role.id for role in user.roles]
+            print(f"[AssetService] Checking Shared Canvas access for user {user_id} (Roles: {role_ids}) on Canvases: {canvas_ids}")
+            
+            accessible_canvas = db.query(Canvas).filter(
+                Canvas.id.in_(canvas_ids),
+                or_(
+                    Canvas.owner_id == user_id,
+                    Canvas.allowed_users.any(id=user_id),
+                    Canvas.allowed_roles.any(Role.id.in_(role_ids))
+                )
+            ).first()
+            
+            if accessible_canvas:
+                print(f"[AssetService] Shared Canvas access GRANTED via Canvas {accessible_canvas.id}")
+                return asset
+            else:
+                print(f"[AssetService] Shared Canvas access DENIED for user {user_id}")
+
+        # 4. Deny access
+        print(f"[AssetService] Final Access Denial for user {user_id} on asset {asset_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to this asset is restricted."
+        )
+
+    @staticmethod
+    def get_asset_stream(
+        db: Session,
+        asset_id: str,
+        user_id: int
+    ) -> tuple[Path, str, str]:
+        """
+        Verify access and return path/metadata for streaming.
+        """
+        asset = AssetService.verify_access(db, asset_id, user_id)
+        
         file_path = STORAGE_ROOT / asset.file_path
         
         if not file_path.exists():

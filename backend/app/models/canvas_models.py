@@ -60,6 +60,7 @@ class ThingType(str, Enum):
     MCP_TOOL = "mcp_tool"
     ARCHIMATE_TOOL = "archimate_tool"
     ARCHIMATE_ELEMENT = "archimate_element"
+    STICKY = "sticky"
 
 
 class RAGStatus(str, Enum):

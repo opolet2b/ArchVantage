@@ -32,7 +32,8 @@ export type ThingType =
     | "mcp_tool"
     | "agent_tool"
     | "archimate_tool"
-    | "archimate_element";
+    | "archimate_element"
+    | "sticky";
 
 /**
  * Types of relationships between things.

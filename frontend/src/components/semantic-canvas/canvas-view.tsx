@@ -35,6 +35,7 @@ import { DomainNode } from "./nodes/domain-node";
 import { TextThingEditor } from "./nodes/text-thing-editor";
 import { CustomEdge } from "./edges/custom-edge";
 import { CanvasToolbar } from "./canvas-toolbar";
+import { StickyNoteNode } from "./nodes/sticky-note-node";
 
 import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport, DomainDefinition } from "./canvas-store";
 
@@ -95,6 +96,7 @@ import {
 const nodeTypesMemo = {
     thing: ThingNode,
     domain: DomainNode,
+    sticky: StickyNoteNode,
 };
 
 const edgeTypesMemo: EdgeTypes = {
@@ -320,7 +322,7 @@ function CanvasViewInner() {
     // Convert things to React Flow nodes (memoized)
     const thingNodes: Node[] = React.useMemo(() => things.map((thing) => ({
         id: thing.id,
-        type: "thing",
+        type: thing.type === "sticky" ? "sticky" : "thing",
         selected: selectedThingIds.includes(thing.id),
         position: { x: thing.position_x, y: thing.position_y },
         data: {
@@ -826,7 +828,7 @@ function CanvasViewInner() {
         async (_: React.MouseEvent, node: Node) => {
             setIsDraggingNode(false);
 
-            if (node.type === "thing") {
+            if (node.type === "thing" || node.type === "sticky") {
                 const startPos = dragStartPosRef.current;
 
                 // Safety check: ensure we have a start position for the dragged node
@@ -1208,9 +1210,8 @@ function CanvasViewInner() {
 
                 // Clear drag start
                 dragStartPosRef.current = null;
-            } else if (node.type === "thing") {
-                // Thing drag handling is managed by React Flow components
             }
+
             setIsDraggingNode(false);
         },
         [updateThings, updateDomain, checkThingInDomain, things, selectedThingIds, domains]
@@ -1605,6 +1606,17 @@ function CanvasViewInner() {
                 case "text":
                     setPendingDropPos(position);
                     setShowTextDialog(true);
+                    break;
+                case "sticky":
+                    await addThing(
+                        "sticky",
+                        { text: "" },
+                        position,
+                        300, // Default width
+                        300, // Default height
+                        "New Sticky", // title
+                        color // color from palette
+                    );
                     break;
                 case "url":
                     setPendingDropPos(position);

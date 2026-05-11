@@ -13,6 +13,52 @@ def get_tools(db: Session, skip: int = 0, limit: int = 100, category_id: Optiona
         query = query.filter(Tool.category_id == category_id)
     return query.offset(skip).limit(limit).all()
 
+def check_tool_access(db: Session, tool_id: int, user_id: int, is_admin: bool = False) -> bool:
+    """
+    Check if a user has access to a specific tool.
+    
+    A user has access if:
+    - User is an admin
+    - Tool is public
+    - User is the owner
+    - User has explicit permission (direct or via AD group)
+    """
+    if is_admin:
+        return True
+    
+    from app.models.user import UserRole, GroupMapping
+    from sqlalchemy import or_
+    
+    # Get user's AD groups via role mappings
+    user_role_ids = db.query(UserRole.role_id).filter(UserRole.user_id == user_id).all()
+    user_role_ids = [role_id for (role_id,) in user_role_ids]
+    
+    # Get AD group IDs from role mappings
+    ad_group_ids = db.query(GroupMapping.ad_group_id).filter(
+        GroupMapping.role_id.in_(user_role_ids)
+    ).all() if user_role_ids else []
+    ad_group_ids = [group_id for (group_id,) in ad_group_ids]
+    
+    # Build authorization filter
+    auth_filter = or_(
+        Tool.is_public == True,
+        Tool.owner_id == user_id
+    )
+    
+    # Check if tool exists and matches auth filter or direct permission
+    query = db.query(Tool).outerjoin(
+        ToolPermission,
+        ToolPermission.tool_id == Tool.id
+    ).filter(Tool.id == tool_id).filter(
+        or_(
+            auth_filter,
+            ToolPermission.user_id == user_id,
+            ToolPermission.ad_group_id.in_(ad_group_ids) if ad_group_ids else False
+        )
+    )
+    
+    return query.first() is not None
+
 def get_tools_tree_for_user(db: Session, user_id: int, is_admin: bool = False):
     """
     Get tools organized by category with authorization filtering.

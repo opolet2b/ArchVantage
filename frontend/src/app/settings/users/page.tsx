@@ -264,21 +264,21 @@ export default function UserManagementPage() {
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
                 <TabsList>
-                    {hasPermission("MANAGE_USERS") && (
+                    {hasPermission("user:manage") && (
                         <TabsTrigger value="users">Users</TabsTrigger>
                     )}
-                    {hasPermission("MANAGE_ROLES") && (
+                    {hasPermission("role:manage") && (
                         <TabsTrigger value="roles">Roles</TabsTrigger>
                     )}
-                    {hasPermission("MANAGE_ROLES") && (
+                    {hasPermission("role:manage") && (
                         <TabsTrigger value="group-mappings">Group Mappings</TabsTrigger>
                     )}
-                    {hasPermission("MANAGE_USERS") && (
+                    {hasPermission("user:manage") && (
                         <TabsTrigger value="oauth">OAuth Config</TabsTrigger>
                     )}
                 </TabsList>
 
-                {hasPermission("MANAGE_USERS") && (
+                {hasPermission("user:manage") && (
                     <TabsContent value="users" className="space-y-4">
                         <div className="flex justify-end mb-4">
                             <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
@@ -573,19 +573,19 @@ export default function UserManagementPage() {
                     </TabsContent>
                 )}
 
-                {hasPermission("MANAGE_ROLES") && (
+                {hasPermission("role:manage") && (
                     <TabsContent value="roles">
                         <RolesTab />
                     </TabsContent>
                 )}
 
-                {hasPermission("MANAGE_ROLES") && (
+                {hasPermission("role:manage") && (
                     <TabsContent value="group-mappings">
                         <GroupMappingTab />
                     </TabsContent>
                 )}
 
-                {hasPermission("MANAGE_USERS") && (
+                {hasPermission("user:manage") && (
                     <TabsContent value="oauth">
                         <OAuthConfigTab />
                     </TabsContent>

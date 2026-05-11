@@ -1,11 +1,15 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from typing import List, Dict
 import json
 import os
 import shutil
+from sqlalchemy.orm import Session
 from app.models.agent_model import AgentConfig
 from app.services.rag_service import rag_service
 from app.services.debug_service import debug_service
+from app.core.database import get_db
+from app.routers.auth import get_current_active_user, PermissionChecker
+from app.models.user import User
 
 router = APIRouter()
 
@@ -27,12 +31,12 @@ def save_agents(agents: Dict[str, AgentConfig]):
         json.dump({k: v.model_dump() for k, v in agents.items()}, f, indent=2)
 
 @router.get("/agents", response_model=List[AgentConfig])
-async def list_agents():
+async def list_agents(user: User = Depends(PermissionChecker("agent:read"))):
     agents = load_agents()
     return list(agents.values())
 
 @router.post("/agents", response_model=AgentConfig)
-async def create_agent(agent: AgentConfig):
+async def create_agent(agent: AgentConfig, user: User = Depends(PermissionChecker("agent:write"))):
     agents = load_agents()
     if agent.id in agents:
         raise HTTPException(status_code=400, detail="Agent already exists")
@@ -42,14 +46,14 @@ async def create_agent(agent: AgentConfig):
     return agent
 
 @router.get("/agents/{agent_id}", response_model=AgentConfig)
-async def get_agent(agent_id: str):
+async def get_agent(agent_id: str, user: User = Depends(PermissionChecker("agent:read"))):
     agents = load_agents()
     if agent_id not in agents:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agents[agent_id]
 
 @router.put("/agents/{agent_id}", response_model=AgentConfig)
-async def update_agent(agent_id: str, agent: AgentConfig):
+async def update_agent(agent_id: str, agent: AgentConfig, user: User = Depends(PermissionChecker("agent:write"))):
     agents = load_agents()
     if agent_id not in agents:
         raise HTTPException(status_code=404, detail="Agent not found")
@@ -61,7 +65,7 @@ async def update_agent(agent_id: str, agent: AgentConfig):
     return agent
 
 @router.delete("/agents/{agent_id}")
-async def delete_agent(agent_id: str):
+async def delete_agent(agent_id: str, user: User = Depends(PermissionChecker("agent:write"))):
     agents = load_agents()
     if agent_id not in agents:
         raise HTTPException(status_code=404, detail="Agent not found")
