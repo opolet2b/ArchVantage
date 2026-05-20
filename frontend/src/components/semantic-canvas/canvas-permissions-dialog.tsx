@@ -15,7 +15,14 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, User as UserIcon, Shield } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Search, User as UserIcon, Shield, PenLine, Eye } from "lucide-react";
 import { API_URL } from "@/lib/utils";
 
 interface User {
@@ -31,14 +38,24 @@ interface Role {
     description?: string;
 }
 
+interface UserPermission {
+    user_id: number;
+    level: "read" | "write";
+}
+
+interface RolePermission {
+    role_id: number;
+    level: "read" | "write";
+}
+
 interface CanvasPermissionsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     canvasId: string;
     canvasName: string;
-    initialAllowedUserIds: number[];
-    initialAllowedRoleIds: number[];
-    onSave: (allowedUserIds: number[], allowedRoleIds: number[]) => Promise<void>;
+    initialUserPermissions: UserPermission[];
+    initialRolePermissions: RolePermission[];
+    onSave: (userPermissions: UserPermission[], rolePermissions: RolePermission[]) => Promise<void>;
 }
 
 export function CanvasPermissionsDialog({
@@ -46,12 +63,12 @@ export function CanvasPermissionsDialog({
     onOpenChange,
     canvasId,
     canvasName,
-    initialAllowedUserIds,
-    initialAllowedRoleIds,
+    initialUserPermissions,
+    initialRolePermissions,
     onSave,
 }: CanvasPermissionsDialogProps) {
-    const [allowedUserIds, setAllowedUserIds] = useState<number[]>(initialAllowedUserIds);
-    const [allowedRoleIds, setAllowedRoleIds] = useState<number[]>(initialAllowedRoleIds);
+    const [userPermissions, setUserPermissions] = useState<UserPermission[]>(initialUserPermissions);
+    const [rolePermissions, setRolePermissions] = useState<RolePermission[]>(initialRolePermissions);
 
     const [users, setUsers] = useState<User[]>([]);
     const [roles, setRoles] = useState<Role[]>([]);
@@ -63,11 +80,11 @@ export function CanvasPermissionsDialog({
 
     useEffect(() => {
         if (open) {
-            setAllowedUserIds(initialAllowedUserIds || []);
-            setAllowedRoleIds(initialAllowedRoleIds || []);
+            setUserPermissions(initialUserPermissions || []);
+            setRolePermissions(initialRolePermissions || []);
             fetchData();
         }
-    }, [open, canvasId, initialAllowedUserIds, initialAllowedRoleIds]);
+    }, [open, canvasId, initialUserPermissions, initialRolePermissions]);
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -98,7 +115,7 @@ export function CanvasPermissionsDialog({
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            await onSave(allowedUserIds, allowedRoleIds);
+            await onSave(userPermissions, rolePermissions);
             onOpenChange(false);
         } catch (error) {
             console.error("Failed to save permissions:", error);
@@ -108,18 +125,36 @@ export function CanvasPermissionsDialog({
     };
 
     const toggleUser = (userId: number) => {
-        setAllowedUserIds((prev) =>
-            prev.includes(userId)
-                ? prev.filter((id) => id !== userId)
-                : [...prev, userId]
+        setUserPermissions((prev) => {
+            const existing = prev.find((p) => p.user_id === userId);
+            if (existing) {
+                return prev.filter((p) => p.user_id !== userId);
+            } else {
+                return [...prev, { user_id: userId, level: "read" }];
+            }
+        });
+    };
+
+    const updateUserLevel = (userId: number, level: "read" | "write") => {
+        setUserPermissions((prev) =>
+            prev.map((p) => (p.user_id === userId ? { ...p, level } : p))
         );
     };
 
     const toggleRole = (roleId: number) => {
-        setAllowedRoleIds((prev) =>
-            prev.includes(roleId)
-                ? prev.filter((id) => id !== roleId)
-                : [...prev, roleId]
+        setRolePermissions((prev) => {
+            const existing = prev.find((p) => p.role_id === roleId);
+            if (existing) {
+                return prev.filter((p) => p.role_id !== roleId);
+            } else {
+                return [...prev, { role_id: roleId, level: "read" }];
+            }
+        });
+    };
+
+    const updateRoleLevel = (roleId: number, level: "read" | "write") => {
+        setRolePermissions((prev) =>
+            prev.map((p) => (p.role_id === roleId ? { ...p, level } : p))
         );
     };
 
@@ -134,7 +169,7 @@ export function CanvasPermissionsDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[550px]">
                 <DialogHeader>
                     <DialogTitle>Manage Permissions</DialogTitle>
                     <DialogDescription>
@@ -165,27 +200,55 @@ export function CanvasPermissionsDialog({
                                 <div className="p-4 text-center text-sm text-muted-foreground">No users found</div>
                             ) : (
                                 <div className="space-y-2">
-                                    {filteredUsers.map((user) => (
-                                        <div key={user.id} className="flex items-center space-x-3 p-1 rounded hover:bg-muted/50">
-                                            <Checkbox
-                                                id={`user-${user.id}`}
-                                                checked={allowedUserIds.includes(user.id)}
-                                                onCheckedChange={() => toggleUser(user.id)}
-                                            />
-                                            <div className="flex-1 space-y-0.5">
-                                                <Label htmlFor={`user-${user.id}`} className="text-sm font-medium cursor-pointer">
-                                                    {user.first_name} {user.last_name}
-                                                </Label>
-                                                <p className="text-xs text-muted-foreground">{user.email}</p>
+                                    {filteredUsers.map((user) => {
+                                        const permission = userPermissions.find(p => p.user_id === user.id);
+                                        return (
+                                            <div key={user.id} className="flex items-center space-x-3 p-1 rounded hover:bg-muted/50">
+                                                <Checkbox
+                                                    id={`user-${user.id}`}
+                                                    checked={!!permission}
+                                                    onCheckedChange={() => toggleUser(user.id)}
+                                                />
+                                                <div className="flex-1 space-y-0.5">
+                                                    <Label htmlFor={`user-${user.id}`} className="text-sm font-medium cursor-pointer">
+                                                        {user.first_name} {user.last_name}
+                                                    </Label>
+                                                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                                                </div>
+                                                
+                                                {permission && (
+                                                    <Select 
+                                                        value={permission.level} 
+                                                        onValueChange={(val) => updateUserLevel(user.id, val as any)}
+                                                    >
+                                                        <SelectTrigger className="h-8 w-[110px] text-xs">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="read">
+                                                                <div className="flex items-center">
+                                                                    <Eye className="mr-2 h-3 w-3" />
+                                                                    Read
+                                                                </div>
+                                                            </SelectItem>
+                                                            <SelectItem value="write">
+                                                                <div className="flex items-center">
+                                                                    <PenLine className="mr-2 h-3 w-3" />
+                                                                    Write
+                                                                </div>
+                                                            </SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                )}
+                                                {!permission && <UserIcon className="h-4 w-4 text-muted-foreground opacity-50" />}
                                             </div>
-                                            <UserIcon className="h-4 w-4 text-muted-foreground opacity-50" />
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </ScrollArea>
                         <div className="text-xs text-muted-foreground">
-                            Selected: {allowedUserIds.length} users
+                            Selected: {userPermissions.length} users
                         </div>
                     </TabsContent>
 
@@ -206,29 +269,57 @@ export function CanvasPermissionsDialog({
                                 <div className="p-4 text-center text-sm text-muted-foreground">No roles found</div>
                             ) : (
                                 <div className="space-y-2">
-                                    {filteredRoles.map((role) => (
-                                        <div key={role.id} className="flex items-center space-x-3 p-1 rounded hover:bg-muted/50">
-                                            <Checkbox
-                                                id={`role-${role.id}`}
-                                                checked={allowedRoleIds.includes(role.id)}
-                                                onCheckedChange={() => toggleRole(role.id)}
-                                            />
-                                            <div className="flex-1 space-y-0.5">
-                                                <Label htmlFor={`role-${role.id}`} className="text-sm font-medium cursor-pointer">
-                                                    {role.name}
-                                                </Label>
-                                                {role.description && (
-                                                    <p className="text-xs text-muted-foreground">{role.description}</p>
+                                    {filteredRoles.map((role) => {
+                                        const permission = rolePermissions.find(p => p.role_id === role.id);
+                                        return (
+                                            <div key={role.id} className="flex items-center space-x-3 p-1 rounded hover:bg-muted/50">
+                                                <Checkbox
+                                                    id={`role-${role.id}`}
+                                                    checked={!!permission}
+                                                    onCheckedChange={() => toggleRole(role.id)}
+                                                />
+                                                <div className="flex-1 space-y-0.5">
+                                                    <Label htmlFor={`role-${role.id}`} className="text-sm font-medium cursor-pointer">
+                                                        {role.name}
+                                                    </Label>
+                                                    {role.description && (
+                                                        <p className="text-xs text-muted-foreground truncate max-w-[200px]">{role.description}</p>
+                                                    )}
+                                                </div>
+                                                
+                                                {permission && (
+                                                    <Select 
+                                                        value={permission.level} 
+                                                        onValueChange={(val) => updateRoleLevel(role.id, val as any)}
+                                                    >
+                                                        <SelectTrigger className="h-8 w-[110px] text-xs">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="read">
+                                                                <div className="flex items-center">
+                                                                    <Eye className="mr-2 h-3 w-3" />
+                                                                    Read
+                                                                </div>
+                                                            </SelectItem>
+                                                            <SelectItem value="write">
+                                                                <div className="flex items-center">
+                                                                    <PenLine className="mr-2 h-3 w-3" />
+                                                                    Write
+                                                                </div>
+                                                            </SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                 )}
+                                                {!permission && <Shield className="h-4 w-4 text-muted-foreground opacity-50" />}
                                             </div>
-                                            <Shield className="h-4 w-4 text-muted-foreground opacity-50" />
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </ScrollArea>
                         <div className="text-xs text-muted-foreground">
-                            Users with these roles will have access.
+                            Users with these roles will have access with the chosen level.
                         </div>
                     </TabsContent>
                 </Tabs>
@@ -245,3 +336,4 @@ export function CanvasPermissionsDialog({
         </Dialog>
     );
 }
+

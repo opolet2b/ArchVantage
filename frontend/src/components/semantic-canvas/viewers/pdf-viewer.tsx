@@ -65,6 +65,8 @@ interface PDFViewerProps {
     exportMode?: boolean;
     /** Optional fragment to display (crops the view to this region) */
     viewFragment?: RegionFragment;
+    /** Optional highlight fragment */
+    highlight?: any;
 }
 
 // =============================================================================
@@ -84,6 +86,7 @@ export function PDFViewer({
     onOverlayDelete,
     exportMode = false,
     viewFragment,
+    highlight,
     ...props
 }: PDFViewerProps) {
     const [numPages, setNumPages] = React.useState<number>(0);
@@ -96,6 +99,7 @@ export function PDFViewer({
     const pageContainerRef = React.useRef<HTMLDivElement>(null);
 
     const [isLoaded, setIsLoaded] = React.useState(false);
+    const [pageRenderKey, setPageRenderKey] = React.useState(0);
 
     // Mode state: 'text' or 'region'
     const [mode, setMode] = React.useState<"text" | "region">("text");
@@ -237,6 +241,81 @@ export function PDFViewer({
             setPageNumber(fragmentPageNumber);
         }
     }, [viewFragment, pageNumber]);
+
+    // Auto-navigate to highlighted page when highlight changes
+    React.useEffect(() => {
+        if (!highlight) return;
+        
+        let targetPage: number | undefined;
+        const pNum = highlight.page_number ?? highlight.pageNumber;
+        const sIndex = highlight.slide_index ?? highlight.slideIndex;
+
+        if (pNum !== undefined) {
+            targetPage = pNum;
+        } else if (sIndex !== undefined) {
+            targetPage = sIndex + 1; // 0-based slide_index/slideIndex to 1-based page number
+        }
+        
+        if (targetPage && targetPage >= 1 && targetPage <= numPages && targetPage !== pageNumber) {
+            console.log("[PDFViewer] Navigating to highlighted page", targetPage);
+            setPageNumber(targetPage);
+        }
+    }, [highlight, numPages, pageNumber]);
+
+    // Highlight matching text spans in the PDF Page's text layer
+    React.useEffect(() => {
+        if (!highlight || highlight.type !== "text" || !highlight.content) return;
+
+        const timer = setTimeout(() => {
+            const container = pageContainerRef.current;
+            if (!container) return;
+
+            // Find all text layer spans
+            const spans = container.querySelectorAll(".react-pdf__Page__textContent span");
+            const highlightText = highlight.content.toLowerCase().trim();
+
+            if (spans.length === 0 || !highlightText) return;
+
+            // Clear previous link highlights
+            container.querySelectorAll(".pdf-link-highlight").forEach(el => {
+                const parent = el.parentNode;
+                if (parent) {
+                    parent.replaceChild(document.createTextNode(el.textContent || ""), el);
+                }
+            });
+
+            spans.forEach(span => {
+                const text = span.textContent || "";
+                const idx = text.toLowerCase().indexOf(highlightText);
+                if (idx !== -1) {
+                    const originalText = span.textContent || "";
+                    const before = originalText.slice(0, idx);
+                    const matched = originalText.slice(idx, idx + highlight.content.length);
+                    const after = originalText.slice(idx + highlight.content.length);
+
+                    span.innerHTML = "";
+                    if (before) span.appendChild(document.createTextNode(before));
+                    
+                    const marker = document.createElement("mark");
+                    marker.className = "pdf-link-highlight bg-amber-200 dark:bg-amber-900/50 text-slate-900 dark:text-slate-100 rounded px-0.5 shadow-[0_0_8px_rgba(245,158,11,0.6)] animate-pulse border border-amber-400 font-semibold";
+                    marker.appendChild(document.createTextNode(matched));
+                    
+                    // Add native tooltip to show context of this link/highlight to resolve ambiguity
+                    marker.title = highlight.targetTitle 
+                        ? `Linked to: ${highlight.targetTitle} (${highlight.linkTitle || 'related'})` 
+                        : "Source Selection";
+
+                    span.appendChild(marker);
+
+                    if (after) span.appendChild(document.createTextNode(after));
+
+                    span.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+            });
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }, [highlight, pageNumber, scale, isLoading, pageRenderKey]);
 
 
     // Handle document load success
@@ -437,22 +516,10 @@ export function PDFViewer({
     // For now, allow all (might be confusing) or try to adhere to session?
     // Let's pass all but maybe filtered if they have page metadata.
     const currentOverlays = overlays.filter(o => {
-        // Check for 'slideIndex' (0-based) which aligns with our RegionFragment type
-        if ((o as any).slideIndex !== undefined) {
-            return (o as any).slideIndex === (pageNumber - 1);
-        }
-
-        // Fallback for older 'pageNumber' property (1-based)
-        if ((o as any).pageNumber !== undefined) {
-            return (o as any).pageNumber === pageNumber;
-        }
-
-        // If no page info, assume it belongs to the first page or is global?
-        // Better to be strict: if it has no page info, it's likely broken or legacy.
-        // But for safety, show on Page 1 only? Or Show on All?
-        // Given the user report of "fragment of any page stays visible", defaulting to TRUE is the problem.
-        // Let's change default to: Show only on Page 1 (index 0) if undefined.
-        // OR better: Assume slideIndex 0 if undefined.
+        const pNum = (o as any).page_number ?? (o as any).pageNumber;
+        if (pNum !== undefined) return pNum === pageNumber;
+        const sIndex = (o as any).slide_index ?? (o as any).slideIndex;
+        if (sIndex !== undefined) return sIndex === (pageNumber - 1);
         return (pageNumber === 1);
     });
 
@@ -664,6 +731,7 @@ export function PDFViewer({
                                 onSelectionComplete={handleSelectionComplete}
                                 onOverlayAction={handleOverlayAction}
                                 activeOverlayId={activeOverlayId}
+                                highlight={highlight}
                             >
                                 {viewFragment ? (() => {
                                     // viewFragment coords are percentages (0-100) relative to the rendered page.
@@ -748,7 +816,8 @@ export function PDFViewer({
                                                 }
                                                 console.error('Page render error:', error);
                                             }}
-                                            renderTextLayer={selectionEnabled && mode === "text"}
+                                            onRenderSuccess={() => setPageRenderKey(p => p + 1)}
+                                            renderTextLayer={(selectionEnabled && mode === "text") || (highlight && highlight.type === "text")}
                                             renderAnnotationLayer={false}
                                         />
                                     ) : (

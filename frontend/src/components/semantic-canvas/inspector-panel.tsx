@@ -55,6 +55,9 @@ export function InspectorPanel() {
     const [edits, setEdits] = React.useState<Record<string, any>>({});
 
     // Resolve the inspected item
+    const accessLevel = useCanvasStore(s => s.accessLevel);
+    const isReadOnly = accessLevel === "read";
+
     const item = React.useMemo(() => {
         if (inspectedItemType === 'thing') {
             return things.find(t => t.id === inspectedItemId);
@@ -148,6 +151,7 @@ export function InspectorPanel() {
     };
 
     const setEditValue = (path: string[], value: any) => {
+        if (isReadOnly) return;
         setEdits(prev => {
             const next = { ...prev };
             let ptr = next;
@@ -162,7 +166,7 @@ export function InspectorPanel() {
     };
 
     const handleSave = () => {
-        if (!hasChanges) return;
+        if (!hasChanges || isReadOnly) return;
 
         if (isThing) {
             const thing = item as any;
@@ -196,7 +200,7 @@ export function InspectorPanel() {
 
 
     const togglePin = (key: string, section: 'technical' | 'custom' | 'system') => {
-        if (!isThing) return;
+        if (!isThing || isReadOnly) return;
 
         const currentPinned = getEffectiveValue(['custom_metadata', '_pinned_fields']) || [];
         const fieldId = `${section}:${key}`;
@@ -239,7 +243,7 @@ export function InspectorPanel() {
                             </div>
                         )}
                     </Label>
-                    {canPin && section && (
+                    {canPin && section && !isReadOnly && (
                         <Button
                             variant="ghost"
                             size="icon"
@@ -256,12 +260,14 @@ export function InspectorPanel() {
                         <Textarea
                             value={currentValue || ''}
                             onChange={e => onChange(e.target.value)}
+                            disabled={isReadOnly}
                             className="text-sm min-h-[80px]"
                             placeholder={field.placeholder}
                         /> :
                         <Input
                             value={currentValue || ''}
                             onChange={e => onChange(e.target.value)}
+                            disabled={isReadOnly}
                             className="h-8 text-sm"
                             placeholder={field.placeholder}
                         />
@@ -272,6 +278,7 @@ export function InspectorPanel() {
                         <Input
                             type="number"
                             value={currentValue ?? ''}
+                            disabled={isReadOnly}
                             onChange={e => {
                                 const val = e.target.value === '' ? undefined : Number(e.target.value);
                                 onChange(val);
@@ -288,11 +295,13 @@ export function InspectorPanel() {
                             <Switch
                                 checked={!!currentValue}
                                 onCheckedChange={onChange}
+                                disabled={isReadOnly}
                             />
                         ) : (
                             <Checkbox
                                 checked={!!currentValue}
                                 onCheckedChange={onChange}
+                                disabled={isReadOnly}
                             />
                         )}
                         <span className="text-xs text-muted-foreground">
@@ -305,6 +314,7 @@ export function InspectorPanel() {
                     <Select
                         value={currentValue !== undefined && currentValue !== null ? String(currentValue) : ''}
                         onValueChange={onChange}
+                        disabled={isReadOnly}
                     >
                         <SelectTrigger className="h-8 text-sm">
                             <SelectValue placeholder="Select..." />
@@ -324,6 +334,7 @@ export function InspectorPanel() {
                         options={(field.options || []).map(opt => ({ ...opt, value: String(opt.value) }))}
                         selected={Array.isArray(currentValue) ? currentValue.map(String) : []}
                         onChange={onChange}
+                        disabled={isReadOnly}
                         placeholder="Select multiple..."
                         className="text-sm"
                     />
@@ -337,6 +348,7 @@ export function InspectorPanel() {
                             className="pl-8 h-8 text-sm"
                             value={currentValue || ""}
                             onChange={(e) => onChange(e.target.value)}
+                            disabled={isReadOnly}
                         />
                     </div>
                 )}
@@ -349,6 +361,7 @@ export function InspectorPanel() {
                             className="pl-8 h-8 text-sm"
                             value={currentValue || ""}
                             onChange={(e) => onChange(e.target.value)}
+                            disabled={isReadOnly}
                         />
                     </div>
                 )}
@@ -366,6 +379,7 @@ export function InspectorPanel() {
                             step={field.step ?? 1}
                             value={[currentValue ?? field.min ?? 0]}
                             onValueChange={(vals) => onChange(vals[0])}
+                            disabled={isReadOnly}
                         />
                     </div>
                 )}
@@ -404,10 +418,13 @@ export function InspectorPanel() {
                     {isDomain && (
                         <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-1 flex-shrink-0">Domain</Badge>
                     )}
+                    {isReadOnly && (
+                        <Badge variant="secondary" className="text-[9px] h-4 px-1 bg-amber-100 text-amber-700 border-amber-200 uppercase font-bold">Read Only</Badge>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-1">
-                    {hasChanges ? (
+                    {hasChanges && !isReadOnly ? (
                         <div className="flex items-center gap-1 mr-2 animate-in fade-in slide-in-from-right-2 duration-200">
                             <Button size="sm" onClick={handleSave} className="h-7 px-2 text-xs gap-1 bg-green-600 hover:bg-green-700 text-white">
                                 <Save className="w-3 h-3" />
@@ -418,7 +435,7 @@ export function InspectorPanel() {
                             </Button>
                         </div>
                     ) : (
-                        item && (
+                        item && !isReadOnly && (
                             <div className="mr-2 text-[10px] text-muted-foreground italic opacity-50">
                                 Up to date
                             </div>
@@ -757,6 +774,7 @@ export function InspectorPanel() {
                                         <Input
                                             value={getEffectiveValue(['name']) || ''}
                                             onChange={(e) => setEditValue(['name'], e.target.value)}
+                                            disabled={isReadOnly}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -765,6 +783,7 @@ export function InspectorPanel() {
                                             value={getEffectiveValue(['description']) || ''}
                                             onChange={(e) => setEditValue(['description'], e.target.value)}
                                             rows={3}
+                                            disabled={isReadOnly}
                                         />
                                     </div>
 
@@ -780,22 +799,25 @@ export function InspectorPanel() {
                                                     value={getEffectiveValue(['color']) || ''}
                                                     onChange={(e) => setEditValue(['color'], e.target.value)}
                                                     className="font-mono"
+                                                    disabled={isReadOnly}
                                                 />
                                             </div>
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <Button variant="outline" size="sm" className="w-full">
-                                                        <Palette className="w-4 h-4 mr-2" />
-                                                        Pick Color
-                                                    </Button>
-                                                </PopoverTrigger>
-                                                <PopoverContent className="w-auto p-3">
-                                                    <HexColorPicker
-                                                        color={getEffectiveValue(['color'])}
-                                                        onChange={(c) => setEditValue(['color'], c)}
-                                                    />
-                                                </PopoverContent>
-                                            </Popover>
+                                            {!isReadOnly && (
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button variant="outline" size="sm" className="w-full">
+                                                            <Palette className="w-4 h-4 mr-2" />
+                                                            Pick Color
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent className="w-auto p-3">
+                                                        <HexColorPicker
+                                                            color={getEffectiveValue(['color'])}
+                                                            onChange={(c) => setEditValue(['color'], c)}
+                                                        />
+                                                    </PopoverContent>
+                                                </Popover>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

@@ -369,6 +369,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const processingThings = useCanvasStore((state) => state.processingThings);
     const processingMessage = processingThings?.[thing.id];
     const activeScenario = useCanvasStore((state) => state.activeScenario);
+    const accessLevel = useCanvasStore((state) => state.accessLevel);
+    const isReadOnly = accessLevel === "read";
 
     const [selected, setSelected] = React.useState(isSelected);
 
@@ -1896,6 +1898,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         onSelect={handleTextSelection}
                                         transclusionStates={(thing.content as any).transclusions}
                                         onTransclusionStateChange={handleTransclusionStateChange}
+                                        highlight={highlight}
                                     />
                                 ) : (
                                     <MemoizedTextViewer
@@ -2002,6 +2005,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         }
                                     }}
                                     onOverlayDelete={handleOverlayDelete}
+                                    highlight={highlight}
                                 />
                             </SelectableContent>
                         );
@@ -2019,6 +2023,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         className="h-full flex-1"
                                         ancestorIds={[thing.id]}
                                         onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                        highlight={highlight}
                                     />
                                 </SelectableContent>
                             </div>
@@ -2066,6 +2071,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         className="h-full px-4 flex-1"
                                         ancestorIds={[thing.id]}
                                         onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                        highlight={highlight}
                                     />
                                 </SelectableContent>
                             </div>
@@ -2088,6 +2094,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 ancestorIds={[thing.id]}
                                 onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                                 selectionEnabled={true}
+                                highlight={highlight}
                             />
                         </SelectableContent>
                     );
@@ -2121,6 +2128,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 setContentSelection(thing.id, fragment, position);
                             }}
                             onOverlayDelete={handleOverlayDelete}
+                            highlight={highlight}
                         />
                     </SelectableContent>
                 );
@@ -2247,7 +2255,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             const assetId = uuidMatch[0];
                             return (
                                 <div className="h-full overflow-hidden">
-                                    <PDFViewer src={`/api/v1/assets/${assetId}`} />
+                                    <PDFViewer src={`/api/v1/assets/${assetId}`} highlight={highlight} />
                                 </div>
                             );
                         }
@@ -2261,6 +2269,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             transclusionStates={(thing.content as any).transclusions}
                             onTransclusionStateChange={handleTransclusionStateChange}
                             ancestorIds={[thing.id]}
+                            highlight={highlight}
                         />
                     );
                 })();
@@ -2617,7 +2626,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 {/* Resize handles when selected - Now relative to this container */}
                 <NodeResizer
                     color="#3b82f6"
-                    isVisible={selected}
+                    isVisible={selected && !isReadOnly}
                     minWidth={minWidth}
                     minHeight={60}
                     handleStyle={resizeHandleStyle}
@@ -2629,8 +2638,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 />
 
                 {/* Selection Toolbar (for whole thing) */}
-                {/* Selection Toolbar (for whole thing) */}
-                {selected && !hasInnerSelection &&
+                {selected && !hasInnerSelection && !isReadOnly &&
                     <SelectionToolbar
                         fragment={fullThingFragment}
                         thingId={thing.id}
@@ -2685,11 +2693,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 <span
                                     className="text-sm font-medium truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors select-none"
                                     onDoubleClick={(e) => {
+                                        if (isReadOnly) return;
                                         e.stopPropagation();
                                         setTitleInputValue(thing.title || getDefaultTitle());
                                         setIsEditingTitle(true);
                                     }}
-                                    title="Double-click to rename"
+                                    title={isReadOnly ? undefined : "Double-click to rename"}
                                 >
                                     {thing.title || getDefaultTitle()}
                                 </span>
@@ -2703,26 +2712,28 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         <div className="flex-none w-full flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 z-[20] pointer-events-auto min-h-[32px]">
 
                             {/* Link/Ghost Mode Button */}
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    const isGhost = useCanvasStore.getState().transclusionGhostId === thing.id;
-                                    useCanvasStore.getState().setTransclusionGhostId(isGhost ? null : thing.id);
-                                    toast({
-                                        title: isGhost ? "Link Mode Cancelled" : "Link Mode Active",
-                                        description: isGhost ? "" : "Click inside a Text Node editor to place this reference.",
-                                        duration: 3000
-                                    });
-                                }}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                className={cn(
-                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
-                                    useCanvasStore.getState().transclusionGhostId === thing.id ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30" : "text-slate-400 hover:text-purple-400"
-                                )}
-                                title="Pick up to Transclude (Ghost Mode)"
-                            >
-                                <LinkIcon className="h-3.5 w-3.5" />
-                            </button>
+                            {!isReadOnly && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const isGhost = useCanvasStore.getState().transclusionGhostId === thing.id;
+                                        useCanvasStore.getState().setTransclusionGhostId(isGhost ? null : thing.id);
+                                        toast({
+                                            title: isGhost ? "Link Mode Cancelled" : "Link Mode Active",
+                                            description: isGhost ? "" : "Click inside a Text Node editor to place this reference.",
+                                            duration: 3000
+                                        });
+                                    }}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0 mr-1",
+                                        useCanvasStore.getState().transclusionGhostId === thing.id ? "text-purple-500 bg-purple-100 dark:bg-purple-900/30" : "text-slate-400 hover:text-purple-400"
+                                    )}
+                                    title="Pick up to Transclude (Ghost Mode)"
+                                >
+                                    <LinkIcon className="h-3.5 w-3.5" />
+                                </button>
+                            )}
 
                             {/* Thinking Toggle - Only if thinking content exists */}
                             {hasThinking && (
@@ -2749,11 +2760,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         e.stopPropagation();
                                         if (onOpenConversation) onOpenConversation(thing.id);
                                     }}
-                                    onPointerDown={undefined}
-                                    className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded mr-1"
-                                    title="Open in full chat"
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    className="p-1 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex-shrink-0 mr-1"
+                                    title="Open Chat"
                                 >
-                                    <ExternalLink className="h-3.5 w-3.5 opacity-70" />
+                                    <MessageSquare className="h-3.5 w-3.5" />
                                 </button>
                             )}
 
@@ -2834,7 +2845,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             )}
 
                             {/* Edit Content Button (Text Only) */}
-                            {(thing.type === "text" || thing.type === "agent_result") && (
+                            {(thing.type === "text" || thing.type === "agent_result") && !isReadOnly && (
                                 <>
                                     {isEditingContent ? (
                                         <>
@@ -2915,7 +2926,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             </button>
                             
                             {/* Dictation (STT) Button - Only visible in Edit Mode */}
-                            {(thing.type === "text" || thing.type === "agent_result") && isEditingContent && (
+                            {(thing.type === "text" || thing.type === "agent_result") && isEditingContent && !isReadOnly && (
                                 <button
                                     tabIndex={-1}
                                     onClick={(e) => {
@@ -2943,7 +2954,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             )}
 
                             {/* Refresh Transclusions Button (Text Node) */}
-                            {(thing.type === "text" || thing.type === "agent_result") && (
+                            {(thing.type === "text" || thing.type === "agent_result") && !isReadOnly && (
                                 <button
                                     onClick={handleRefreshNodes}
                                     onPointerDown={undefined}
@@ -2958,7 +2969,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             )}
 
                             {/* Sync Button (if asset exists, has source path, or is an image folder slideshow) */}
-                            {(thing.content?.asset_id || thing.technical_metadata?.source_path || thing.content?.source_type === 'image_folder') && (
+                            {(thing.content?.asset_id || thing.technical_metadata?.source_path || thing.content?.source_type === 'image_folder') && !isReadOnly && (
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -2982,7 +2993,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             {/* Manual Vectorize Button (Brain) */}
                             {/* Show if: Text/Document/Slideshow AND status is NOT completed/processing/pending */}
                             {((thing.type === 'text' || thing.type === 'document' || thing.type === 'slideshow' || thing.type === 'agent_result') &&
-                                (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending')) && (
+                                (localStatus !== 'completed' && localStatus !== 'processing' && localStatus !== 'pending') && !isReadOnly) && (
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -3074,7 +3085,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                                                 e.stopPropagation();
                                                                 setEditingExternalLink(link);
                                                             }}
-                                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-blue-100 text-blue-500 rounded mr-1"
+                                                            className={cn(
+                                                                "opacity-0 group-hover:opacity-100 p-1 hover:bg-blue-100 text-blue-500 rounded mr-1",
+                                                                isReadOnly && "hidden"
+                                                            )}
                                                             title="Edit Link"
                                                         >
                                                             <Pencil className="h-3 w-3" />
@@ -3084,7 +3098,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                                                 e.stopPropagation();
                                                                 deleteLink(link.id);
                                                             }}
-                                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded"
+                                                            className={cn(
+                                                                "opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 text-red-500 rounded",
+                                                                isReadOnly && "hidden"
+                                                            )}
                                                             title="Remove Link"
                                                         >
                                                             <X className="h-3 w-3" />
@@ -3095,7 +3112,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         </>
                                     )}
                                     <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => {
+                                    <DropdownMenuItem 
+                                        disabled={isReadOnly}
+                                        onSelect={() => {
                                         setPendingFragment(fullThingFragment);
                                         setCrossCanvasLinkDialogOpen(true);
                                     }}>
@@ -3171,36 +3190,40 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                             {/* Iconify button - shown when selected */}
                             {/* Iconify button - Always rendered to reserve space, control visibility via opacity */}
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleToggleIconify(e);
-                                }}
-                                className={cn(
-                                    "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200",
-                                    (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
-                                )}
-                                title="Reduce to icon"
-                                tabIndex={(isSelected || selected) ? 0 : -1}
-                            >
-                                <Minimize2 className="h-4 w-4 text-slate-500" />
-                            </button>
+                            {!isReadOnly && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleIconify(e);
+                                    }}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200",
+                                        (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
+                                    )}
+                                    title="Reduce to icon"
+                                    tabIndex={(isSelected || selected) ? 0 : -1}
+                                >
+                                    <Minimize2 className="h-4 w-4 text-slate-500" />
+                                </button>
+                            )}
 
                             {/* Delete button - Always rendered to reserve space */}
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onDelete(thing.id);
-                                }}
-                                className={cn(
-                                    "p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-all flex-shrink-0 duration-200",
-                                    (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
-                                )}
-                                title="Delete"
-                                tabIndex={(isSelected || selected) ? 0 : -1}
-                            >
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                            </button>
+                            {!isReadOnly && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDelete(thing.id);
+                                    }}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-all flex-shrink-0 duration-200",
+                                        (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
+                                    )}
+                                    title="Delete"
+                                    tabIndex={(isSelected || selected) ? 0 : -1}
+                                >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                </button>
+                            )}
                         </div>
                     )}
 
@@ -3218,12 +3241,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 <Handle
                     type="target"
                     position={Position.Left}
-                    className={cn("!w-4 !h-4 z-50", colorTheme.handleColor)}
+                    className={cn("!w-4 !h-4 z-50", colorTheme.handleColor, isReadOnly && "opacity-0 pointer-events-none")}
                 />
                 <Handle
                     type="source"
                     position={Position.Right}
-                    className={cn("!w-4 !h-4 z-50", colorTheme.handleColor)}
+                    className={cn("!w-4 !h-4 z-50", colorTheme.handleColor, isReadOnly && "opacity-0 pointer-events-none")}
                 />
 
                 {/* Automation Processing Overlay */}

@@ -601,14 +601,14 @@ export function SelectableContent({
                         {pendingFragment?.content && (
                             <div className="mb-4 space-y-2">
                                 <Label>Selected content</Label>
-                                <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded text-sm max-h-16 overflow-auto">
+                                <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded text-sm max-h-16 overflow-y-auto overflow-x-hidden break-all">
                                     {pendingFragment.content.slice(0, 100)}
                                     {pendingFragment.content.length > 100 && "..."}
                                 </div>
                             </div>
                         )}
                         <Label>Select target node</Label>
-                        <div className="mt-2 space-y-2 max-h-[200px] overflow-auto">
+                        <div className="mt-2 space-y-2 max-h-[200px] overflow-y-auto overflow-x-hidden pr-1">
                             {availableTargets.length === 0 ? (
                                 <div className="text-sm text-muted-foreground text-center py-4">
                                     No other nodes on canvas to link to
@@ -618,10 +618,10 @@ export function SelectableContent({
                                     <Button
                                         key={target.id}
                                         variant="outline"
-                                        className="w-full justify-start text-left h-auto py-2"
+                                        className="w-full justify-start text-left h-auto py-2 whitespace-normal break-all flex items-start"
                                         onClick={() => handleLinkToTarget(target.id)}
                                     >
-                                        <div className="truncate">
+                                        <div className="w-full min-w-0">
                                             <span className="font-medium">
                                                 {target.title || target.type}
                                             </span>

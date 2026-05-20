@@ -44,6 +44,7 @@ export type ToolType =
     | "mcp_tool"
     | "agent_tool"
     | "archimate_tool"
+    | "ocr_conversion"
     | "sticky";
 
 export interface CanvasTool {
@@ -130,6 +131,12 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         icon: <Bot className="h-4 w-4" />,
         description: "Connect & execute an Agent"
     },
+    {
+        id: "ocr_conversion",
+        name: "AI OCR Conversion",
+        icon: <Wand2 className="h-4 w-4" />,
+        description: "Convert scan/image to text"
+    },
 ];
 
 const PRESET_COLORS = [
@@ -170,6 +177,9 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
 
     // Agent - Violet
     agent_tool: "#f5f3ff",
+
+    // OCR - Amber
+    ocr_conversion: "#fffbeb",
 };
 
 
@@ -182,12 +192,17 @@ export function CanvasPalette() {
     const toggleSidebarCollapse = useCanvasStore(state => state.toggleSidebarCollapse);
     const isCollapsed = sidebarCollapsed; // Maintain local variable name to minimize further edits
     const setIsCollapsed = toggleSidebarCollapse; // Maintain local variable name to minimize further edits
+
+    const accessLevel = useCanvasStore(state => state.accessLevel);
+    const isReadOnly = accessLevel === "read";
+
     // State to track custom colors for tools
     const [toolColors, setToolColors] = React.useState<Record<string, string>>(DEFAULT_TOOL_COLORS);
     // Track open state for each tool's color picker
     const [openPopovers, setOpenPopovers] = React.useState<Record<string, boolean>>({});
 
     const handlePopoverOpenChange = (toolId: string, isOpen: boolean) => {
+        if (isReadOnly) return;
         setOpenPopovers(prev => ({ ...prev, [toolId]: isOpen }));
     };
 
@@ -204,6 +219,10 @@ export function CanvasPalette() {
     }, [canvasSettings]);
 
     const handleDragStart = (e: React.DragEvent, tool: CanvasTool) => {
+        if (isReadOnly) {
+            e.preventDefault();
+            return;
+        }
         // Set drag data
         e.dataTransfer.setData("application/semantic-canvas-tool", tool.id);
 
@@ -217,6 +236,7 @@ export function CanvasPalette() {
     };
 
     const handleColorSelect = (toolId: string, color: string) => {
+        if (isReadOnly) return;
         const newColors = {
             ...toolColors,
             [toolId]: color
@@ -235,6 +255,10 @@ export function CanvasPalette() {
     };
 
     const handleDragStartWithColor = (e: React.DragEvent, tool: CanvasTool) => {
+        if (isReadOnly) {
+            e.preventDefault();
+            return;
+        }
         // Set drag data
         e.dataTransfer.setData("application/semantic-canvas-tool", tool.id);
 
@@ -287,18 +311,18 @@ export function CanvasPalette() {
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {!isCollapsed && (
                     <div className="text-xs text-muted-foreground mb-4">
-                        Drag items onto the canvas to create them.
+                        {isReadOnly ? "Viewing in Read-Only mode." : "Drag items onto the canvas to create them."}
                     </div>
                 )}
 
                 {CANVAS_TOOLS.map((tool) => (
                     <div
                         key={tool.id}
-                        draggable
+                        draggable={!isReadOnly}
                         onDragStart={(e) => handleDragStartWithColor(e, tool)}
                         className={cn(
                             "group flex items-center gap-3 p-3 rounded-lg border bg-card",
-                            "hover:border-primary hover:shadow-sm transition-all cursor-grab active:cursor-grabbing",
+                            !isReadOnly ? "hover:border-primary hover:shadow-sm transition-all cursor-grab active:cursor-grabbing" : "opacity-60 cursor-not-allowed grayscale-[0.2]",
                             "border-border",
                             "relative",
                             isCollapsed && "justify-center p-2"
@@ -315,7 +339,7 @@ export function CanvasPalette() {
                             </div>
                         )}
 
-                        {!isCollapsed && (
+                        {!isCollapsed && !isReadOnly && (
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                                 <Popover
                                     open={openPopovers[tool.id] || false}

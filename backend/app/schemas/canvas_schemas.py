@@ -62,12 +62,30 @@ class ViewportState(BaseModel):
     zoom: float = 1.0
 
 
+class PermissionLevel(str, Enum):
+    """Levels of access for a shared canvas."""
+    READ = "read"
+    WRITE = "write"
+
+
+class UserPermission(BaseModel):
+    """User-specific canvas permission."""
+    user_id: int
+    level: PermissionLevel = PermissionLevel.READ
+
+
+class RolePermission(BaseModel):
+    """Role-specific canvas permission."""
+    role_id: int
+    level: PermissionLevel = PermissionLevel.READ
+
+
 class CanvasCreate(BaseModel):
     """Request to create a new canvas."""
     name: str = "My Canvas"
     description: Optional[str] = None
-    allowed_user_ids: List[int] = []
-    allowed_role_ids: List[int] = []
+    user_permissions: List[UserPermission] = []
+    role_permissions: List[RolePermission] = []
     owner_config: Optional[Dict[str, Any]] = None
 
 
@@ -77,8 +95,8 @@ class CanvasUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     viewport: Optional[ViewportState] = None
-    allowed_user_ids: Optional[List[int]] = None
-    allowed_role_ids: Optional[List[int]] = None
+    user_permissions: Optional[List[UserPermission]] = None
+    role_permissions: Optional[List[RolePermission]] = None
     owner_config: Optional[Dict[str, Any]] = None
     position: Optional[int] = None
 
@@ -90,11 +108,13 @@ class CanvasResponse(BaseModel):
     name: str
     description: Optional[str]
     viewport: ViewportState
-    allowed_user_ids: List[int] = [] # Computed field, needs resolver
-    allowed_role_ids: List[int] = [] # Computed field, needs resolver
+    user_permissions: List[UserPermission] = []
+    role_permissions: List[RolePermission] = []
     owner_config: Optional[Dict[str, Any]] = None
     position: int = 0
     analysis_space_id: Optional[str] = None
+    # Effective permission for the current user (computed on the fly)
+    access_level: Optional[PermissionLevel] = PermissionLevel.READ
     created_at: datetime
     updated_at: Optional[datetime]
 

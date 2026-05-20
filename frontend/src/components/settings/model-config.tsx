@@ -73,8 +73,11 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     }, [type])
 
     const fetchPresets = async () => {
+        const token = localStorage.getItem("token")
         try {
-            const res = await fetch(`${API_URL}/config/presets`)
+            const res = await fetch(`${API_URL}/config/presets`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             const data = await res.json()
             setPresets(data.presets || [])
         } catch (error) {
@@ -83,8 +86,11 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     }
 
     const fetchDefaults = async () => {
+        const token = localStorage.getItem("token")
         try {
-            const res = await fetch(`${API_URL}/config/defaults`)
+            const res = await fetch(`${API_URL}/config/defaults`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             const data = await res.json()
             setDefaultLLM(data.default_llm || "")
             setDefaultVision(data.default_vision || "")
@@ -95,9 +101,12 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
     }
 
     const fetchLocalModels = async () => {
+        const token = localStorage.getItem("token")
         setLoading(true)
         try {
-            const res = await fetch(`${API_URL}/config/models`)
+            const res = await fetch(`${API_URL}/config/models`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             const data = await res.json()
             setAvailableModels(data.models || [])
             if (data.models && data.models.length > 0 && !localModel) {
@@ -159,9 +168,13 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 context_window: contextWindow
             }
 
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/config/presets`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify(payload),
             })
 
@@ -191,8 +204,10 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
 
         setSaving(true)
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/config/presets/${encodeURIComponent(name)}`, {
                 method: "DELETE",
+                headers: { "Authorization": `Bearer ${token}` }
             })
 
             if (res.ok) {
@@ -226,9 +241,13 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 default_embedding: defaultEmbedding
             }
 
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/config/defaults`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify(payload),
             })
 
@@ -261,9 +280,13 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                 reset_db: resetDb
             }
 
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/config/defaults`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify(payload),
             })
 

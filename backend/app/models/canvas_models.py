@@ -23,21 +23,19 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 
-# Association table for Canvas-User (allowed users)
-canvas_users = Table(
-    "canvas_users_association",
-    Base.metadata,
-    Column("canvas_id", String(36), ForeignKey("canvases.id"), primary_key=True),
-    Column("user_id", Integer, ForeignKey("users.id"), primary_key=True)
-)
+# Association model for Canvas-User (allowed users) with permission levels
+class CanvasUser(Base):
+    __tablename__ = "canvas_users_association"
+    canvas_id = Column(String(36), ForeignKey("canvases.id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    permission_level = Column(String(20), default="read") # "read" or "write"
 
-# Association table for Canvas-Role (allowed roles)
-canvas_roles = Table(
-    "canvas_roles_association",
-    Base.metadata,
-    Column("canvas_id", String(36), ForeignKey("canvases.id"), primary_key=True),
-    Column("role_id", Integer, ForeignKey("roles.id"), primary_key=True)
-)
+# Association model for Canvas-Role (allowed roles) with permission levels
+class CanvasRole(Base):
+    __tablename__ = "canvas_roles_association"
+    canvas_id = Column(String(36), ForeignKey("canvases.id"), primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), primary_key=True)
+    permission_level = Column(String(20), default="read") # "read" or "write"
 
 
 
@@ -149,16 +147,23 @@ class Canvas(Base):
 
 
     # Permissions
+    # Simple view-only collections for backward compatibility
     allowed_users = relationship(
         "User",
-        secondary=canvas_users,
-        backref="canvases"
+        secondary="canvas_users_association",
+        backref="shared_canvases",
+        viewonly=True
     )
     allowed_roles = relationship(
         "Role",
-        secondary=canvas_roles,
-        backref="canvases"
+        secondary="canvas_roles_association",
+        backref="shared_canvases",
+        viewonly=True
     )
+
+    # Detailed associations with levels
+    user_permissions = relationship("CanvasUser", cascade="all, delete-orphan")
+    role_permissions = relationship("CanvasRole", cascade="all, delete-orphan")
 
     # Analysis Space
     analysis_space_id = Column(

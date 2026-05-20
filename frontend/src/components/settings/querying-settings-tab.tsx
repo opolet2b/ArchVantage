@@ -45,8 +45,11 @@ export function QueryingSettingsTab() {
     }, [])
 
     const fetchConfig = async () => {
+        const token = localStorage.getItem("token")
         try {
-            const res = await fetch(`${API_URL}/config/querying`)
+            const res = await fetch(`${API_URL}/config/querying`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             if (res.ok) {
                 const data = await res.json()
                 const cfg = data.config
@@ -76,9 +79,13 @@ export function QueryingSettingsTab() {
                 similarity_cutoff: enableCutoff ? cutoffValue : null
             }
 
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/config/querying`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify(payload),
             })
 

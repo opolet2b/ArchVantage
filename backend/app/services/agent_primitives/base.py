@@ -487,7 +487,7 @@ class BasePrimitive(ABC):
         
         print(f"[DEBUG_MODELS] Resolving config. Global: {global_model}, Param: {param_model}")
         
-        if global_model:
+        if global_model and global_model != "default":
             candidate = global_model
             print(f"[DEBUG_MODELS] Using global override: {candidate}")
         elif param_model and param_model != "default":
@@ -495,7 +495,7 @@ class BasePrimitive(ABC):
             print(f"[DEBUG_MODELS] Using param override: {candidate}")
         
         # 2. Canvas Config (DB Lookup)
-        if not candidate:
+        if not candidate or candidate == "default":
             canvas_id = state.get("canvas_id") or variables.get("canvas_id")
             db = state.get("db")
             if db and canvas_id:

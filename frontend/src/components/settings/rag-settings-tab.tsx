@@ -49,8 +49,11 @@ export function RagSettingsTab() {
     }, [])
 
     const fetchLocalModels = async () => {
+        const token = localStorage.getItem("token")
         try {
-            const res = await fetch(`${API_URL}/config/models`)
+            const res = await fetch(`${API_URL}/config/models`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             const data = await res.json()
             setAvailableModels(data.models || [])
         } catch (error) {
@@ -59,8 +62,11 @@ export function RagSettingsTab() {
     }
 
     const fetchConfig = async () => {
+        const token = localStorage.getItem("token")
         try {
-            const ragRes = await fetch(`${API_URL}/config/rag`)
+            const ragRes = await fetch(`${API_URL}/config/rag`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             if (ragRes.ok) {
                 const data = await ragRes.json()
                 if (data.config) {
@@ -76,11 +82,15 @@ export function RagSettingsTab() {
     }
 
     const handleSave = async () => {
+        const token = localStorage.getItem("token")
         setIsSaving(true)
         try {
             const ragRes = await fetch(`${API_URL}/config/rag`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify(config),
             })
 
@@ -115,7 +125,11 @@ export function RagSettingsTab() {
 
         try {
             // 1. Reset DB (Triggers re-init with new config)
-            const resetRes = await fetch(`${API_URL}/rag/reset`, { method: "POST" })
+            const token = localStorage.getItem("token")
+            const resetRes = await fetch(`${API_URL}/rag/reset`, { 
+                method: "POST",
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             if (!resetRes.ok) throw new Error("Failed to reset database")
 
             setStatus("Database reset. Starting ingestion...")
@@ -135,9 +149,13 @@ export function RagSettingsTab() {
         setStatus("Ingesting documents...")
 
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/rag/ingest`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     folder_path: "data",
                     chunk_size: config.chunk_size,

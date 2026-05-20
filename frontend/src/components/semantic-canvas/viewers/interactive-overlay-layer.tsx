@@ -24,6 +24,9 @@ interface InteractiveOverlayLayerProps {
     /** Active/Selected overlay ID */
     activeOverlayId?: string | null;
 
+    /** Optional highlight fragment */
+    highlight?: any;
+
     /** Optional classname */
     className?: string;
 
@@ -49,6 +52,7 @@ export function InteractiveOverlayLayer({
     onSelectionComplete,
     onOverlayAction,
     activeOverlayId: propActiveId,
+    highlight,
     className,
     children
 }: InteractiveOverlayLayerProps) {
@@ -213,6 +217,27 @@ export function InteractiveOverlayLayer({
                     }}
                 />
             ))}
+
+            {/* Pulsating Visual Link Highlight overlay */}
+            {highlight && (highlight.type === 'region' || highlight.type === 'link') && (
+                <div
+                    className="absolute border-2 border-amber-500 bg-amber-500/15 shadow-[0_0_20px_rgba(245,158,11,0.9)] rounded-md animate-pulse pointer-events-none z-[100]"
+                    style={{
+                        left: `${highlight.x}%`,
+                        top: `${highlight.y}%`,
+                        width: `${highlight.width}%`,
+                        height: `${highlight.height}%`,
+                    }}
+                >
+                    <div className="absolute -top-6 left-0 bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded shadow-[0_2px_6px_rgba(0,0,0,0.3)] font-bold flex items-center gap-1.5 whitespace-nowrap">
+                        <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                        </span>
+                        {highlight.targetTitle ? `Linked to: ${highlight.targetTitle} (${highlight.linkTitle || 'related'})` : (highlight.label || "Source Selection")}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

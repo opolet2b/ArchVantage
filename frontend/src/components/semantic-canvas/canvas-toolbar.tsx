@@ -60,8 +60,8 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const { toast } = useToast();
 
     // Selectors to minimize re-renders
-    const selectedModel = useCanvasStore((s) => s.selectedModel);
-    const visionModel = useCanvasStore((s) => s.visionModel);
+    const selectedModel = useCanvasStore((state) => state.selectedModel);
+    const visionModel = useCanvasStore((state) => state.visionModel);
     const selectedSttModel = useCanvasStore((s) => s.selectedSttModel);
     const sttProfiles = useCanvasStore((s) => s.sttProfiles);
     const selectionMode = useCanvasStore((s) => s.selectionMode);
@@ -246,9 +246,18 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
         }
     };
 
+    const accessLevel = useCanvasStore((s) => s.accessLevel);
+    const isReadOnly = accessLevel === "read";
+
     return (
         <div className="flex flex-wrap items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0 gap-y-2">
             <div id="canvas-model-selectors" className="flex flex-wrap items-center gap-y-2">
+                {isReadOnly && (
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full text-[10px] font-bold border border-amber-200 dark:border-amber-800 mr-4 shadow-sm">
+                        <Eye className="h-3 w-3" />
+                        READ ONLY
+                    </div>
+                )}
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mr-4">
                     <Brain className="h-4 w-4" />
                     <span>Model:</span>
@@ -260,8 +269,23 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             onValueChange={(value) => {
                                 console.log("[CanvasToolbar] Selected Model Change:", value);
                                 setSelectedModel(value);
-                                updateCanvasSettings({ model: value });
+                                
+                                // Auto-sync vision model if the selected model is vision-capable
+                                const modelConfig = models.find(m => m.name === value);
+                                if (modelConfig?.is_vision) {
+                                    console.log("[CanvasToolbar] Auto-syncing Vision Model to:", value);
+                                    setVisionModel(value);
+                                    if (!isReadOnly) {
+                                        updateCanvasSettings({ 
+                                            model: value,
+                                            vision_model: value 
+                                        });
+                                    }
+                                } else if (!isReadOnly) {
+                                    updateCanvasSettings({ model: value });
+                                }
                             }}
+                            disabled={isReadOnly}
                         >
                             <SelectTrigger className="w-[200px] h-8 text-sm">
                                 <SelectValue placeholder="Select model..." />
@@ -292,8 +316,9 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             value={visionModel || ""}
                             onValueChange={(value) => {
                                 setVisionModel(value);
-                                updateCanvasSettings({ vision_model: value });
+                                if (!isReadOnly) updateCanvasSettings({ vision_model: value });
                             }}
+                            disabled={isReadOnly}
                         >
                             <SelectTrigger className="w-[180px] h-8 text-sm">
                                 <SelectValue placeholder="Select vision model..." />
@@ -329,8 +354,9 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             value={selectedSttModel || ""}
                             onValueChange={(value) => {
                                 setSelectedSttModel(value);
-                                updateCanvasSettings({ speech_model: value });
+                                if (!isReadOnly) updateCanvasSettings({ speech_model: value });
                             }}
+                            disabled={isReadOnly}
                         >
                             <SelectTrigger className="w-[180px] h-8 text-sm">
                                 <SelectValue placeholder="Select voice engine..." />
@@ -368,8 +394,9 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             value={selectedKbId || "none"}
                             onValueChange={(value) => {
                                 setSelectedKbId(value === "none" ? null : value);
-                                updateCanvasSettings({ kb_id: value === "none" ? null : value });
+                                if (!isReadOnly) updateCanvasSettings({ kb_id: value === "none" ? null : value });
                             }}
+                            disabled={isReadOnly}
                         >
                             <SelectTrigger className="w-[200px] h-8 text-sm">
                                 <SelectValue placeholder="Select Knowledge Base..." />
@@ -420,8 +447,6 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             </Button>
                         </>
                     )}
-
-                    {/* Custom Main Tools moved to Node Selection Toolbar */}
                 </div>
 
                 <div className="flex items-center gap-1 border-l pl-4">
@@ -431,15 +456,18 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         className="h-8 text-slate-500 hover:text-primary"
                         onClick={() => setScenarioSelectorOpen(true)}
                         title="Scenarios (Vertical Modes)"
+                        disabled={isReadOnly}
                     >
                         <Layers className="h-4 w-4 mr-2" />
                         Scenarios
                     </Button>
-                    <ScenarioSelector
-                        open={scenarioSelectorOpen}
-                        onOpenChange={setScenarioSelectorOpen}
-                        onSelect={handleScenarioSelect}
-                    />
+                    {!isReadOnly && (
+                        <ScenarioSelector
+                            open={scenarioSelectorOpen}
+                            onOpenChange={setScenarioSelectorOpen}
+                            onSelect={handleScenarioSelect}
+                        />
+                    )}
                 </div>
 
                 <div className="h-6 w-px bg-border mx-2 hidden sm:block" />
@@ -492,32 +520,36 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             </div>
                         </div>
 
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        {!isReadOnly && <DropdownMenuLabel>Actions</DropdownMenuLabel>}
 
-                        <DropdownMenuItem onClick={handleCaptureThumbnail} className="cursor-pointer">
-                            <Camera className="h-4 w-4 mr-2 text-slate-500" />
-                            <span>Capture 3D Thumbnail</span>
-                        </DropdownMenuItem>
+                        {!isReadOnly && (
+                            <DropdownMenuItem onClick={handleCaptureThumbnail} className="cursor-pointer">
+                                <Camera className="h-4 w-4 mr-2 text-slate-500" />
+                                <span>Capture 3D Thumbnail</span>
+                            </DropdownMenuItem>
+                        )}
 
-                        <DropdownMenuItem
-                            className="cursor-pointer text-green-600 focus:text-green-600 focus:bg-green-50 dark:focus:bg-green-950/30"
-                            onClick={async () => {
-                                const confirmed = window.confirm("Sync All Files?");
-                                if (confirmed) {
-                                    try {
-                                        // @ts-ignore
-                                        await useCanvasStore.getState().syncAllThings();
-                                        toast({ title: "Sync Complete" });
-                                        refreshThings();
-                                    } catch (error) {
-                                        toast({ title: "Sync Failed", variant: "destructive" });
+                        {!isReadOnly && (
+                            <DropdownMenuItem
+                                className="cursor-pointer text-green-600 focus:text-green-600 focus:bg-green-50 dark:focus:bg-green-950/30"
+                                onClick={async () => {
+                                    const confirmed = window.confirm("Sync All Files?");
+                                    if (confirmed) {
+                                        try {
+                                            // @ts-ignore
+                                            await useCanvasStore.getState().syncAllThings();
+                                            toast({ title: "Sync Complete" });
+                                            refreshThings();
+                                        } catch (error) {
+                                            toast({ title: "Sync Failed", variant: "destructive" });
+                                        }
                                     }
-                                }
-                            }}
-                        >
-                            <RefreshCcw className="h-4 w-4 mr-2" />
-                            <span>Sync All Files</span>
-                        </DropdownMenuItem>
+                                }}
+                            >
+                                <RefreshCcw className="h-4 w-4 mr-2" />
+                                <span>Sync All Files</span>
+                            </DropdownMenuItem>
+                        )}
                     </DropdownMenuContent>
                 </DropdownMenu>
 
@@ -529,76 +561,78 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             variant="destructive"
                             size="sm"
                             className="h-8 shadow-sm"
-                            disabled={selectedThingIds.length === 0 && selectedDomainIds.length === 0}
+                            disabled={isReadOnly || (selectedThingIds.length === 0 && selectedDomainIds.length === 0)}
                         >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Delete ({selectedThingIds.length + selectedDomainIds.length})
                         </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent className="max-w-md w-full overflow-hidden flex flex-col max-h-[90vh] p-0 gap-0 shadow-2xl border-slate-200 dark:border-slate-800">
-                        <div className="p-6 pb-2 shrink-0">
-                            <AlertDialogHeader>
-                                <AlertDialogTitle className="text-xl font-bold tracking-tight">Delete Selected Items?</AlertDialogTitle>
-                                <AlertDialogDescription className="text-sm font-medium text-slate-500 dark:text-slate-400">
-                                    This will permanently delete {selectedThingIds.length} things and {selectedDomainIds.length} domains.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                        </div>
+                    {!isReadOnly && (
+                        <AlertDialogContent className="max-w-md w-full overflow-hidden flex flex-col max-h-[90vh] p-0 gap-0 shadow-2xl border-slate-200 dark:border-slate-800">
+                            <div className="p-6 pb-2 shrink-0">
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle className="text-xl font-bold tracking-tight">Delete Selected Items?</AlertDialogTitle>
+                                    <AlertDialogDescription className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                                        This will permanently delete {selectedThingIds.length} things and {selectedDomainIds.length} domains.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                            </div>
 
-                        <div className="px-6 py-2 flex-1 min-h-0">
-                            <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50/50 dark:bg-slate-900/50 flex flex-col h-[280px] w-full min-w-0">
-                                <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 border-b flex justify-between items-center shrink-0">
-                                    <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 dark:text-slate-500">Items List</span>
-                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-700 px-2 py-0.5 rounded-full shadow-sm">
-                                        {selectedThingIds.length + selectedDomainIds.length} Selected
-                                    </span>
-                                </div>
+                            <div className="px-6 py-2 flex-1 min-h-0">
+                                <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50/50 dark:bg-slate-900/50 flex flex-col h-[280px] w-full min-w-0">
+                                    <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 border-b flex justify-between items-center shrink-0">
+                                        <span className="text-[10px] uppercase font-black tracking-widest text-slate-400 dark:text-slate-500">Items List</span>
+                                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-700 px-2 py-0.5 rounded-full shadow-sm">
+                                            {selectedThingIds.length + selectedDomainIds.length} Selected
+                                        </span>
+                                    </div>
 
-                                <div className="overflow-y-auto flex-1 p-2 space-y-1 w-full min-w-0 scroll-smooth">
-                                    {selectedThingIds.map(id => {
-                                        const thing = things.find(t => t.id === id);
-                                        return (
-                                            <div key={id} className="flex items-center gap-3 py-2 px-3 hover:bg-white dark:hover:bg-slate-800 rounded-md transition-all group border border-transparent hover:border-slate-200/50 dark:hover:border-slate-700/50 hover:shadow-sm min-w-0">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)] shrink-0" />
-                                                <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex-1 truncate min-w-0">
-                                                    {thing?.title || thing?.type || "Unknown Thing"}
-                                                </span>
-                                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 shrink-0 bg-slate-100 dark:bg-slate-900/80 px-2 py-0.5 rounded-sm whitespace-nowrap min-w-[70px] text-center">
-                                                    {thing?.type || "Thing"}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                    {selectedDomainIds.map(id => {
-                                        const domain = domains.find(d => d.id === id);
-                                        return (
-                                            <div key={id} className="flex items-center gap-3 py-2 px-3 hover:bg-white dark:hover:bg-slate-800 rounded-md transition-all group border border-transparent hover:border-slate-200/50 dark:hover:border-slate-700/50 hover:shadow-sm min-w-0">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.4)] shrink-0" />
-                                                <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex-1 truncate min-w-0">
-                                                    {domain?.name || "Unnamed Domain"}
-                                                </span>
-                                                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 shrink-0 bg-slate-100 dark:bg-slate-900/80 px-2 py-0.5 rounded-sm whitespace-nowrap min-w-[70px] text-center">
-                                                    Domain
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
+                                    <div className="overflow-y-auto flex-1 p-2 space-y-1 w-full min-w-0 scroll-smooth">
+                                        {selectedThingIds.map(id => {
+                                            const thing = things.find(t => t.id === id);
+                                            return (
+                                                <div key={id} className="flex items-center gap-3 py-2 px-3 hover:bg-white dark:hover:bg-slate-800 rounded-md transition-all group border border-transparent hover:border-slate-200/50 dark:hover:border-slate-700/50 hover:shadow-sm min-w-0">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)] shrink-0" />
+                                                    <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex-1 truncate min-w-0">
+                                                        {thing?.title || thing?.type || "Unknown Thing"}
+                                                    </span>
+                                                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 shrink-0 bg-slate-100 dark:bg-slate-900/80 px-2 py-0.5 rounded-sm whitespace-nowrap min-w-[70px] text-center">
+                                                        {thing?.type || "Thing"}
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                        {selectedDomainIds.map(id => {
+                                            const domain = domains.find(d => d.id === id);
+                                            return (
+                                                <div key={id} className="flex items-center gap-3 py-2 px-3 hover:bg-white dark:hover:bg-slate-800 rounded-md transition-all group border border-transparent hover:border-slate-200/50 dark:hover:border-slate-700/50 hover:shadow-sm min-w-0">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.4)] shrink-0" />
+                                                    <span className="text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex-1 truncate min-w-0">
+                                                        {domain?.name || "Unnamed Domain"}
+                                                    </span>
+                                                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 shrink-0 bg-slate-100 dark:bg-slate-900/80 px-2 py-0.5 rounded-sm whitespace-nowrap min-w-[70px] text-center">
+                                                        Domain
+                                                    </span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <div className="p-6 pt-4 border-t bg-slate-50 dark:bg-slate-900/40 shrink-0 mt-2">
-                            <AlertDialogFooter className="sm:space-x-3 gap-2 sm:gap-0">
-                                <AlertDialogCancel className="mt-0 font-semibold px-6 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                    onClick={() => deleteSelectedNodes()}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-bold px-6 shadow-md"
-                                >
-                                    Delete
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </div>
-                    </AlertDialogContent>
+                            <div className="p-6 pt-4 border-t bg-slate-50 dark:bg-slate-900/40 shrink-0 mt-2">
+                                <AlertDialogFooter className="sm:space-x-3 gap-2 sm:gap-0">
+                                    <AlertDialogCancel className="mt-0 font-semibold px-6 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                        onClick={() => deleteSelectedNodes()}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-bold px-6 shadow-md"
+                                    >
+                                        Delete
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </div>
+                        </AlertDialogContent>
+                    )}
                 </AlertDialog>
             </div>
 

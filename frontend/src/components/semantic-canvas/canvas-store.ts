@@ -67,6 +67,27 @@ export interface Viewport {
 }
 
 /**
+ * Levels of access for a shared canvas.
+ */
+export type PermissionLevel = "read" | "write";
+
+/**
+ * User-specific canvas permission.
+ */
+export interface UserPermission {
+    user_id: number;
+    level: PermissionLevel;
+}
+
+/**
+ * Role-specific canvas permission.
+ */
+export interface RolePermission {
+    role_id: number;
+    level: PermissionLevel;
+}
+
+/**
  * A thing on the canvas.
  */
 export interface CanvasThing {
@@ -155,6 +176,9 @@ export interface Canvas {
     things: CanvasThing[];
     links: CanvasLink[];
     domains: Domain[];
+    user_permissions: UserPermission[];
+    role_permissions: RolePermission[];
+    access_level?: PermissionLevel;
     owner_config: Record<string, any> | null;
     created_at: string;
     updated_at: string | null;
@@ -331,6 +355,7 @@ interface CanvasState {
     things: CanvasThing[];
     links: CanvasLink[];
     domains: Domain[];
+    accessLevel: PermissionLevel;
     canvasSettings: Record<string, any> | null;
 
     // Inspector Panel State
@@ -586,6 +611,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     things: [],
     links: [],
     domains: [],
+    accessLevel: "read",
     canvasSettings: null,
     viewport: { x: 0, y: 0, zoom: 1.0 },
     zoomLevel: "full",
@@ -924,6 +950,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 links: canvas.links,
                 domains: canvas.domains,
                 canvasSettings: config,
+                accessLevel: canvas.access_level || "read",
                 selectedModel: config.model || null,
                 visionModel: config.vision_model || null,
                 selectedKbId: config.kb_id || null,
@@ -969,17 +996,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             if (res.ok) {
                 const canvas: Canvas = await res.json();
+                const config = canvas.owner_config || {};
                 // Update all canvas data silently
                 set({
                     things: canvas.things,
                     links: canvas.links,
                     domains: canvas.domains,
                     canvasName: canvas.name,
-                    canvasSettings: canvas.owner_config || {},
+                    canvasSettings: config,
+                    accessLevel: canvas.access_level || "read",
+                    // SYNC selection fields with backend to avoid "stale" UI state
+                    selectedModel: config.model || null,
+                    visionModel: config.vision_model || null
                 });
 
                 // Also refresh Active Scenario if one is linked (to catch schema updates)
-                const config = canvas.owner_config || {};
                 if (config.scenario_id) {
                     try {
                         const scenRes = await fetch(`${API_URL}/scenarios/${config.scenario_id}`, {

@@ -1101,21 +1101,21 @@ async def convert_pdf_to_form(
         # Text-based PDF path: extract text directly
         # -----------------------------------------------------------
         try:
-            pdf = pdfium.PdfDocument(file_path)
-            pages_text = []
-            for i in range(len(pdf)):
-                page = pdf[i]
-                textpage = page.get_textpage()
-                text = textpage.get_text_range()
-                if text and text.strip():
-                    pages_text.append(
-                        f"--- Page {i + 1} ---\n{text.strip()}"
-                    )
-            extracted_text = "\n\n".join(pages_text)
-            print(
-                f"[convert_pdf_to_form] Text extraction: "
-                f"{len(extracted_text)} chars from {len(pdf)} pages"
-            )
+            with pdfium.PdfDocument(file_path) as pdf:
+                pages_text = []
+                for i in range(len(pdf)):
+                    page = pdf[i]
+                    textpage = page.get_textpage()
+                    text = textpage.get_text_range()
+                    if text and text.strip():
+                        pages_text.append(
+                            f"--- Page {i + 1} ---\n{text.strip()}"
+                        )
+                extracted_text = "\n\n".join(pages_text)
+                print(
+                    f"[convert_pdf_to_form] Text extraction: "
+                    f"{len(extracted_text)} chars from {len(pdf)} pages"
+                )
         except Exception as e:
             print(f"[convert_pdf_to_form] Text extraction failed: {e}")
             extracted_text = ""

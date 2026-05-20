@@ -24,6 +24,7 @@ class RAGService:
         self.storage_context = None
         self.index = None
         self.init_error = None
+        self._lock = threading.Lock()
         
         # We do NOT initialize RAG here anymore. 
         # It must be called explicitly via initialize()
@@ -33,300 +34,265 @@ class RAGService:
         Lazy Initialization of RAG Service.
         Should be called automatically by public methods before use.
         """
-        # If model_name is provided, we might need to re-sync Settings.llm
-        # even if already initialized.
+        # If already initialized and no specific model update requested, skip.
         if self._initialized and not model_name:
             return
 
-        debug_service.log("INFO", "Knowledge Base", "RAG", "Initializing RAG Service (loading library)...")
-        self.init_error = None
-        
-        try:
-            from app.services.config_service import config_service
-            self.config_service = config_service
+        with self._lock:
+            # Re-check inside lock
+            if self._initialized and not model_name:
+                return
+
+            debug_service.log("INFO", "Knowledge Base", "RAG", "Initializing RAG Service (loading library)...")
+            self.init_error = None
             
-            # Heavy Imports - Localized to avoid import-time lag for the whole app
-            import chromadb
-            from llama_index.core import VectorStoreIndex, StorageContext, Settings
-            from llama_index.vector_stores.chroma import ChromaVectorStore
-            from llama_index.core.node_parser import SentenceSplitter
-            
-            # Soft dependencies for metadata extraction
             try:
-                from llama_index.llms.ollama import Ollama
-            except ImportError:
-                print("[RAGService] Warning: `llama-index-llms-ollama` not found. Metadata extraction with Ollama will be disabled.")
-
-            try:
-                from llama_index.llms.openai import OpenAI
-            except ImportError:
-                print("[RAGService] Warning: `llama-index-llms-openai` not found. Metadata extraction with OpenAI will be disabled.")
-
-
-            # Load RAG Config
-            config = self.config_service.get_config()
-            rag_config = config.get("rag_config", {})
-            self.querying_config = config.get("querying_config", {
-                "similarity_top_k": 5,
-                "similarity_cutoff": None,
-                "retrieval_mode": "embedding",
-                "postprocessor": "none",
-                "postprocessor_config": {},
-                "response_mode": "simple"
-            })
-            
-            # --- Resolve Embedding Model from Preset (Priority) ---
-            embedding_preset = self.config_service.get_default_embedding_preset()
-            
-            # Logic: Use provided model_name if available, else use default.
-            if model_name:
-                custom_preset = self.config_service.get_preset_config(model_name)
-                llm_preset = custom_preset if custom_preset else self.config_service.get_default_llm_preset()
-            else:
-                llm_preset = self.config_service.get_default_llm_preset()
-            
-            # Sync LlamaIndex Global Settings with User Config
-            if llm_preset:
-                raw_window = llm_preset.get("context_window", 4096)
-                # Apply safety buffer of 4000 tokens to account for tokenizer discrepancies
-                window = max(2048, raw_window - 4000)
-                print(f"[RAGService] Syncing Settings.context_window to {window} (raw: {raw_window}) from preset '{llm_preset['name']}'")
-                Settings.context_window = window
+                from app.services.config_service import config_service
+                self.config_service = config_service
                 
-                # Sync Global LLM for synthesis
-                from app.services.llm_service import llm_service
+                # Heavy Imports - Localized to avoid import-time lag for the whole app
+                import chromadb
+                from llama_index.core import VectorStoreIndex, StorageContext, Settings
+                from llama_index.vector_stores.chroma import ChromaVectorStore
+                from llama_index.core.node_parser import SentenceSplitter
                 
-                active_model = llm_preset["name"]
+                # Soft dependencies for metadata extraction
+                try:
+                    from llama_index.llms.ollama import Ollama
+                except ImportError:
+                    print("[RAGService] Warning: `llama-index-llms-ollama` not found. Metadata extraction with Ollama will be disabled.")
+
+                try:
+                    from llama_index.llms.openai import OpenAI
+                except ImportError:
+                    print("[RAGService] Warning: `llama-index-llms-openai` not found. Metadata extraction with OpenAI will be disabled.")
+
+                # Load RAG Config
+                config = self.config_service.get_config()
+                rag_config = config.get("rag_config", {})
+                self.querying_config = config.get("querying_config", {
+                    "similarity_top_k": 5,
+                    "similarity_cutoff": None,
+                    "retrieval_mode": "embedding",
+                    "postprocessor": "none",
+                    "postprocessor_config": {},
+                    "response_mode": "simple"
+                })
                 
-                # Check if Settings.llm is already set to this model to avoid redundant init
-                current_llm = getattr(Settings, "llm", None)
-                if current_llm and hasattr(current_llm, "model_name") and current_llm.model_name == active_model:
-                     print(f"[RAGService] Settings.llm already set to '{active_model}'. Skipping re-sync.")
+                # --- Resolve Embedding Model from Preset (Priority) ---
+                embedding_preset = self.config_service.get_default_embedding_preset()
+                
+                # Logic: Use provided model_name if available, else use default.
+                if model_name:
+                    custom_preset = self.config_service.get_preset_config(model_name)
+                    llm_preset = custom_preset if custom_preset else self.config_service.get_default_llm_preset()
                 else:
-                     Settings.llm = llm_service._get_llama_index_model(active_model)
-                     print(f"[RAGService] Syncing Settings.llm to model '{active_model}'")
-            else:
-                print(f"[RAGService] No LLM Preset found. Using default context_window/llm.")
-
-            if embedding_preset:
-                # Use Preset
-                model = embedding_preset.get("model_name")
-                preset_type = embedding_preset.get("type")
+                    llm_preset = self.config_service.get_default_llm_preset()
                 
-                if preset_type == "remote":
-                    provider = "openai"
-                    # Map Preset fields to RAG usage
-                    api_key = embedding_preset.get("model_api_key") or embedding_preset.get("service_api_key")
-                    api_base = embedding_preset.get("api_url")
+                # Sync LlamaIndex Global Settings with User Config
+                if llm_preset:
+                    raw_window = llm_preset.get("context_window", 4096)
+                    # Apply safety buffer of 4000 tokens to account for tokenizer discrepancies
+                    window = max(2048, raw_window - 4000)
+                    print(f"[RAGService] Syncing Settings.context_window to {window} (raw: {raw_window}) from preset '{llm_preset['name']}'")
+                    Settings.context_window = window
+                    
+                    # Sync Global LLM for synthesis
+                    from app.services.llm_service import llm_service
+                    
+                    active_model = llm_preset["name"]
+                    
+                    # Check if Settings.llm is already set to this model to avoid redundant init
+                    current_llm = getattr(Settings, "llm", None)
+                    if current_llm and hasattr(current_llm, "model_name") and current_llm.model_name == active_model:
+                        print(f"[RAGService] Settings.llm already set to '{active_model}'. Skipping re-sync.")
+                    else:
+                        Settings.llm = llm_service._get_llama_index_model(active_model)
+                        print(f"[RAGService] Syncing Settings.llm to model '{active_model}'")
                 else:
-                    provider = "ollama"
-                    api_key = None
+                    print(f"[RAGService] No LLM Preset found. Using default context_window/llm.")
+
+                if embedding_preset:
+                    # Use Preset
+                    model = embedding_preset.get("model_name")
+                    preset_type = embedding_preset.get("type")
+                    
+                    if preset_type == "remote":
+                        provider = "openai"
+                        # Map Preset fields to RAG usage
+                        api_key = embedding_preset.get("model_api_key") or embedding_preset.get("service_api_key")
+                        api_base = embedding_preset.get("api_url")
+                    else:
+                        provider = "ollama"
+                        api_key = None
+                        api_base = None
+                        
+                    print(f"[RAGService] Using Default Embedding Preset: {embedding_preset.get('name')} ({provider}/{model})")
+                else:
+                    # Try legacy rag_config but NO hardcoded defaults
+                    provider = rag_config.get("embedding_provider")
+                    model = rag_config.get("embedding_model")
+                    api_key = rag_config.get("embedding_api_key")
                     api_base = None
                     
-                print(f"[RAGService] Using Default Embedding Preset: {embedding_preset.get('name')} ({provider}/{model})")
-            else:
-                # Try legacy rag_config but NO hardcoded defaults
-                provider = rag_config.get("embedding_provider")
-                model = rag_config.get("embedding_model")
-                api_key = rag_config.get("embedding_api_key")
-                api_base = None
-                
-                if not model:
-                    msg = "CRITICAL: No default embedding model configured in presets or rag_config. Initialization aborted."
-                    print(f"[RAGService] {msg}")
-                    self.init_error = msg
-                    self.index = None
-                    return
-                
-                print(f"[RAGService] No Default Embedding Preset. Using configured legacy: {provider}/{model}")
-
-            parsing_strategy = rag_config.get("parsing_strategy", "recursive")
-            chunk_size = int(rag_config.get("chunk_size", 512)) # Lower default to 512
-            chunk_overlap = int(rag_config.get("chunk_overlap", 50))
-            self.enable_metadata = rag_config.get("enable_metadata", False)
-            
-            print(f"[RAGService] Initializing with Provider={provider}, Model={model}, Strategy={parsing_strategy}")
-
-            # 1. Configure Embedding Model
-            if provider == "openai":
-                try:
-                    from llama_index.embeddings.openai import OpenAIEmbedding
-                    if not api_key:
-                        print("[RAGService] Warning: OpenAI provider selected but no API Key found.")
+                    if not model:
+                        msg = "CRITICAL: No default embedding model configured in presets or rag_config. Initialization aborted."
+                        print(f"[RAGService] {msg}")
+                        self.init_error = msg
+                        self.index = None
+                        return
                     
-                    # specific args for OpenAI
-                    embed_args = {
-                        "model_name": model,
-                    }
-                    if api_key:
-                        embed_args["api_key"] = api_key
-                    if api_base:
-                        embed_args["api_base"] = api_base
-                        
-                    Settings.embed_model = OpenAIEmbedding(**embed_args)
-                    print(f"[RAGService] Configured OpenAI Embedding: {model}")
-                except ImportError:
-                    msg = "OpenAI provider selected but `llama-index-embeddings-openai` not installed."
-                    print(f"[RAGService] Error: {msg}")
-                    self.init_error = msg
-                    self.index = None
-                    return
-                except Exception as e:
-                    msg = f"Error configuring OpenAI Embedding: {str(e)}"
-                    print(f"[RAGService] {msg}")
-                    self.init_error = msg
-                    self.index = None
-                    return
-            else:
-                 # Default to Ollama
-                 self._configure_ollama(model)
+                    print(f"[RAGService] No Default Embedding Preset. Using configured legacy: {provider}/{model}")
 
-            # 2. Configure Text Splitter / Node Parser
-            if parsing_strategy == "window":
-                from llama_index.core.node_parser import SentenceWindowNodeParser
-                Settings.node_parser = SentenceWindowNodeParser.from_defaults(
-                    window_size=3,
-                    window_metadata_key="window",
-                    original_text_metadata_key="original_text",
-                )
-                print("[RAGService] Configured SentenceWindowNodeParser")
+                parsing_strategy = rag_config.get("parsing_strategy", "recursive")
+                chunk_size = int(rag_config.get("chunk_size", 512))
+                chunk_overlap = int(rag_config.get("chunk_overlap", 50))
+                self.enable_metadata = rag_config.get("enable_metadata", False)
                 
-            elif parsing_strategy == "token":
-                from llama_index.core.node_parser import TokenTextSplitter
-                Settings.text_splitter = TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-                Settings.node_parser = Settings.text_splitter
-                print(f"[RAGService] Configured TokenTextSplitter (size={chunk_size}, overlap={chunk_overlap})")
+                print(f"[RAGService] Initializing with Provider={provider}, Model={model}, Strategy={parsing_strategy}")
 
-            elif parsing_strategy == "markdown":
-                from llama_index.core.node_parser import MarkdownNodeParser
-                Settings.node_parser = MarkdownNodeParser()
-                print("[RAGService] Configured MarkdownNodeParser")
-
-            elif parsing_strategy == "hierarchical":
-                from llama_index.core.node_parser import HierarchicalNodeParser
-                # Use simplified derived chunk sizes
-                Settings.node_parser = HierarchicalNodeParser.from_defaults(
-                    chunk_sizes=[chunk_size*4, chunk_size*2, chunk_size]
-                )
-                print(f"[RAGService] Configured HierarchicalNodeParser (sizes={[chunk_size*4, chunk_size*2, chunk_size]})")
-
-            elif parsing_strategy == "semantic":
-                from llama_index.core.node_parser import SemanticSplitterNodeParser
-                if Settings.embed_model:
-                    Settings.node_parser = SemanticSplitterNodeParser(
-                        buffer_size=1, 
-                        breakpoint_percentile_threshold=95, 
-                        embed_model=Settings.embed_model
-                    )
-                    print("[RAGService] Configured SemanticSplitterNodeParser")
+                # 1. Configure Embedding Model
+                if provider == "openai":
+                    try:
+                        from llama_index.embeddings.openai import OpenAIEmbedding
+                        if not api_key:
+                            print("[RAGService] Warning: OpenAI provider selected but no API Key found.")
+                        
+                        embed_args = {
+                            "model_name": model,
+                        }
+                        if api_key:
+                            embed_args["api_key"] = api_key
+                        if api_base:
+                            embed_args["api_base"] = api_base
+                            
+                        Settings.embed_model = OpenAIEmbedding(**embed_args)
+                        print(f"[RAGService] Configured OpenAI Embedding: {model}")
+                    except ImportError:
+                        msg = "OpenAI provider selected but `llama-index-embeddings-openai` not installed."
+                        print(f"[RAGService] Error: {msg}")
+                        self.init_error = msg
+                        self.index = None
+                        return
+                    except Exception as e:
+                        msg = f"Error configuring OpenAI Embedding: {str(e)}"
+                        print(f"[RAGService] {msg}")
+                        self.init_error = msg
+                        self.index = None
+                        return
                 else:
-                    print("[RAGService] Error: Semantic Splitter requires an embedding model. Falling back to SentenceSplitter.")
+                    self._configure_ollama(model)
+
+                # 2. Configure Text Splitter / Node Parser
+                if parsing_strategy == "window":
+                    from llama_index.core.node_parser import SentenceWindowNodeParser
+                    Settings.node_parser = SentenceWindowNodeParser.from_defaults(
+                        window_size=3,
+                        window_metadata_key="window",
+                        original_text_metadata_key="original_text",
+                    )
+                    print("[RAGService] Configured SentenceWindowNodeParser")
+                elif parsing_strategy == "token":
+                    from llama_index.core.node_parser import TokenTextSplitter
+                    Settings.text_splitter = TokenTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                    Settings.node_parser = Settings.text_splitter
+                    print(f"[RAGService] Configured TokenTextSplitter (size={chunk_size}, overlap={chunk_overlap})")
+                elif parsing_strategy == "markdown":
+                    from llama_index.core.node_parser import MarkdownNodeParser
+                    Settings.node_parser = MarkdownNodeParser()
+                    print("[RAGService] Configured MarkdownNodeParser")
+                elif parsing_strategy == "hierarchical":
+                    from llama_index.core.node_parser import HierarchicalNodeParser
+                    Settings.node_parser = HierarchicalNodeParser.from_defaults(
+                        chunk_sizes=[chunk_size*4, chunk_size*2, chunk_size]
+                    )
+                    print(f"[RAGService] Configured HierarchicalNodeParser (sizes={[chunk_size*4, chunk_size*2, chunk_size]})")
+                elif parsing_strategy == "semantic":
+                    from llama_index.core.node_parser import SemanticSplitterNodeParser
+                    if Settings.embed_model:
+                        Settings.node_parser = SemanticSplitterNodeParser(
+                            buffer_size=1, 
+                            breakpoint_percentile_threshold=95, 
+                            embed_model=Settings.embed_model
+                        )
+                        print("[RAGService] Configured SemanticSplitterNodeParser")
+                    else:
+                        print("[RAGService] Error: Semantic Splitter requires an embedding model. Falling back to SentenceSplitter.")
+                        Settings.text_splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+                        Settings.node_parser = Settings.text_splitter
+                else:
                     Settings.text_splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
                     Settings.node_parser = Settings.text_splitter
+                    print(f"[RAGService] Configured SentenceSplitter (size={chunk_size}, overlap={chunk_overlap})")
 
-            else:
-                # Recursive / Default
-                Settings.text_splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-                Settings.node_parser = Settings.text_splitter # Explicitly set node parser too
-                print(f"[RAGService] Configured SentenceSplitter (size={chunk_size}, overlap={chunk_overlap})")
-
-            
-            # Initialize Chroma Client
-            # Use PersistentClient for data retention
-            try:
-                print(f"DEBUG: Initializing ChromaDB PersistentClient at {self.persist_directory}")
-                self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
-                print("DEBUG: ChromaDB Client successfully initialized.")
-            except Exception as e:
-                debug_service.log("ERROR", "Knowledge Base", "RAG", f"CRITICAL ERROR: Failed to initialize ChromaDB: {e}")
-                
-                # Attempt to recover from corruption
-                if "tenant" in str(e).lower() or "sqlite" in str(e).lower() or "database" in str(e).lower():
-                    print("[RAGService] Detected potential DB corruption. Attempting to recover...")
-                    try:
-                        import shutil
-                        import time
-                        
-                        timestamp = int(time.time())
-                        backup_path = f"{self.persist_directory}_corrupt_{timestamp}"
-                        
-                        if os.path.exists(self.persist_directory):
-                            print(f"[RAGService] Renaming corrupt DB to {backup_path}")
-                            try:
-                                os.rename(self.persist_directory, backup_path)
-                            except OSError:
-                                print("[RAGService] Rename failed (likely locked). Attempting detailed cleanup...")
-                                # Last ditch: try to ignore it and init client with new path? No, path is fixed.
-                                # Just try to proceed, maybe it was a transient lock?
-                                pass
-                                
-                        # Retry initialization completely
-                        print("[RAGService] Retrying initialization with fresh DB...")
+                # Initialize Chroma Client
+                try:
+                    if self.chroma_client is None:
+                        print(f"DEBUG: Initializing ChromaDB PersistentClient at {self.persist_directory}")
                         self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
-                        self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
-                        print("[RAGService] Recovery successful. Fresh DB initialized.")
-                        
-                        # Set up Vector Store and Storage Context immediately to ensure consistent state
-                        self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
-                        self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
-                        
-                        # Re-create index immediately
-                        self.index = VectorStoreIndex.from_documents([], storage_context=self.storage_context)
-                        self._initialized = True
-                        return
+                        print("DEBUG: ChromaDB Client successfully initialized.")
+                    else:
+                        print("DEBUG: ChromaDB Client already initialized. Reusing.")
+                except Exception as e:
+                    err_msg = str(e)
+                    debug_service.log("ERROR", "Knowledge Base", "RAG", f"CRITICAL ERROR: Failed to initialize ChromaDB: {err_msg}")
+                    if "tenant" in err_msg.lower() or "sqlite" in err_msg.lower() or "database" in err_msg.lower():
+                        print("[RAGService] Detected potential DB corruption. Attempting to recover...")
+                        try:
+                            import shutil
+                            import time
+                            timestamp = int(time.time())
+                            backup_path = f"{self.persist_directory}_corrupt_{timestamp}"
+                            if os.path.exists(self.persist_directory):
+                                print(f"[RAGService] Renaming corrupt DB to {backup_path}")
+                                try:
+                                    os.rename(self.persist_directory, backup_path)
+                                except OSError as rename_err:
+                                    print(f"[RAGService] Rename failed: {rename_err}. (likely locked by another process).")
+                                    time.sleep(1)
+                                    try: os.rename(self.persist_directory, backup_path)
+                                    except: pass
+                            print("[RAGService] Retrying initialization with fresh DB...")
+                            self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
+                            self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
+                            print("[RAGService] Recovery successful. Fresh DB initialized.")
+                            self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
+                            self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+                            self.index = VectorStoreIndex.from_documents([], storage_context=self.storage_context)
+                            self._initialized = True
+                            return
+                        except Exception as recovery_err:
+                            print(f"CRITICAL: Auto-recovery failed: {recovery_err}")
+                            self.init_error = f"ChromaDB Recovery Failed: {recovery_err}"
+                    import traceback
+                    traceback.print_exc()
+                    self.chroma_client = None
+                    self.init_error = f"ChromaDB Initialization Exception: {str(e)}"
+                    self.index = None
+                    return
 
-                    except Exception as recovery_err:
-                        print(f"CRITICAL: Auto-recovery failed: {recovery_err}")
-                        self.init_error = f"ChromaDB Recovery Failed: {recovery_err}"
+                self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
+                try: print(f"[RAGService] Collection '{self.chroma_collection.name}' initialized.")
+                except: pass
                 
+                self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
+                self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
+                try:
+                    self.index = VectorStoreIndex.from_vector_store(self.vector_store, storage_context=self.storage_context)
+                except Exception:
+                    self.index = VectorStoreIndex.from_documents([], storage_context=self.storage_context)
+                
+                self._initialized = True
+            except Exception as e:
+                self.init_error = f"Initialization Exception: {str(e)}"
+                print(f"RAGService initialization failed: {e}")
                 import traceback
                 traceback.print_exc()
                 self.chroma_client = None
-                self.init_error = f"ChromaDB Initialization Exception: {str(e)}"
+                self.chroma_collection = None
+                self.vector_store = None
+                self.storage_context = None
                 self.index = None
-                return
-            
-            # Collection name depends on embedding model to avoid dimension mismatches?
-            # Or just use v2 and let user handle "reset" if they change models.
-            # Plan said: enforce "Clear & Re-index".
-            self.chroma_collection = self.chroma_client.get_or_create_collection("chatbot_rag_v2")
-            
-            # Diagnostic: Log dimension of existing/created collection
-            try:
-                # Access hidden _collection to check metadata/dim if needed, 
-                # but simplest is just checking what it expects now.
-                print(f"[RAGService] Collection '{self.chroma_collection.name}' initialized.")
-            except: pass
-            
-            # Set up Vector Store and Storage Context
-            self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_collection)
-            self.storage_context = StorageContext.from_defaults(vector_store=self.vector_store)
-            
-            # Load index from storage if it exists, otherwise create empty
-            try:
-                self.index = VectorStoreIndex.from_vector_store(
-                    self.vector_store,
-                    storage_context=self.storage_context
-                )
-            except Exception:
-                self.index = VectorStoreIndex.from_documents(
-                    [], storage_context=self.storage_context
-                )
-            
-            self._initialized = True
-        except Exception as e:
-            self.init_error = f"Initialization Exception: {str(e)}"
-            print(f"RAGService initialization failed: {e}")
-            print("RAG features will be disabled.")
-            import traceback
-            traceback.print_exc()
-            self.chroma_client = None
-            self.chroma_collection = None
-            self.vector_store = None
-            self.storage_context = None
-            self.index = None
-
-    def _get_postprocessors(self, config):
         """Factory for creating postprocessors based on config."""
         from llama_index.core.postprocessor import SimilarityPostprocessor, KeywordNodePostprocessor
         from llama_index.core import Settings

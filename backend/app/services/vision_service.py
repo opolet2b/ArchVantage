@@ -151,6 +151,24 @@ class OllamaVisionProvider(VisionProvider):
 
         # Construct raw payload for Ollama /api/chat
         # Ollama expects 'images' as a list of base64 strings (no data URI prefix)
+        # Construct options with defaults
+        options = {
+            "temperature": 0.3,
+            "repeat_penalty": 1.2,
+            "num_ctx": 8192,
+            "top_k": 40,
+            "top_p": 0.9
+        }
+        
+        # Override with model_kwargs from preset if available
+        if model_kwargs:
+            for k, v in model_kwargs.items():
+                # Map common names to Ollama option names if necessary
+                if k == "max_tokens":
+                    options["num_predict"] = v
+                elif k in options:
+                    options[k] = v
+
         payload = {
             "model": model_name,
             "messages": [
@@ -161,13 +179,7 @@ class OllamaVisionProvider(VisionProvider):
                 }
             ],
             "stream": False,
-            "options": {
-                "temperature": 0.3,       # Moderate creativity
-                "repeat_penalty": 1.2,    # STRUCTURAL FIX: Penalizes loops like "bombombom"
-                "num_ctx": 8192,          # Increased to 8k to prevent "decode: cannot decode batches" errors
-                "top_k": 40,
-                "top_p": 0.9
-            }
+            "options": options
         }
 
         if system_prompt:
@@ -273,77 +285,80 @@ class VisionService:
         image_data: str,
         prompt: str,
         system_prompt: Optional[str] = None,
-        model_name: str = "gpt-4o"
+        model_name: str = "default"
     ) -> str:
         """
         Facade method to analyze an image using the appropriate provider.
+        Resolves model names/presets and uses all configured parameters.
         """
-        config = config_service.get_config()
-        presets = config.get("presets", [])
-        
-        # 1. Resolve 'model_name' to a Preset
+        # 1. Resolve 'model_name' to a Preset Configuration
         target_preset = None
         
         if model_name == "default":
             target_preset = config_service.get_default_vision_preset()
+            # If no vision-specific default, try LLM default
             if not target_preset:
                 target_preset = config_service.get_default_llm_preset()
         else:
-            # Check if input matches a Preset Name
-            target_preset = next((p for p in presets if p["name"] == model_name), None)
+            # Try to get the preset by name
+            target_preset = config_service.get_preset_config(model_name)
             
             # Fallback: check if input matches a model_name tag within presets
             if not target_preset:
+                config = config_service.get_config()
+                presets = config.get("presets", [])
                 target_preset = next((p for p in presets if p.get("model_name") == model_name), None)
 
-            
-        # 2. Determine Provider & Actual Model Tag
+        # 2. Extract parameters from the configuration
         provider = None
-        actual_model_tag = model_name # Fallback: assume input was a raw tag
-        
-        # Params for Remote API
+        actual_model_tag = model_name  # Fallback: assume input was a raw tag
         api_key = None
         base_url = None
         model_kwargs = {}
-        
+
         if target_preset:
-            print(f"[VisionService] Resolved '{model_name}' to preset '{target_preset['name']}'")
+            preset_name = target_preset.get("name", "Unknown")
+            print(f"[VisionService] Resolved model configuration: '{preset_name}'")
+            
+            # Determine Provider
             if target_preset.get("type") == "local":
                 provider = self._providers["ollama"]
-                actual_model_tag = target_preset.get("model_name", "llama3.2-vision")
+                actual_model_tag = target_preset.get("model_name")
+                if not actual_model_tag:
+                    raise ValueError(f"Preset '{preset_name}' is missing 'model_name' (tag) for Ollama")
+                # Use configured API URL for local Ollama if provided
+                base_url = target_preset.get("api_url") or "http://localhost:11434"
             else:
                 provider = self._providers["openai"]
-                # For remote, if the preset has a specific model_name, use it, else default
-                actual_model_tag = target_preset.get("model_name") or "gpt-4o"
+                actual_model_tag = target_preset.get("model_name")
+                if not actual_model_tag:
+                    raise ValueError(f"Preset '{preset_name}' is missing 'model_name' for remote provider")
                 api_key = target_preset.get("service_api_key")
                 base_url = target_preset.get("api_url")
                 
-                # Add sort strategy if present
+                # Handle OpenRouter/Proxy sort strategy
                 sort_strategy = target_preset.get("sort")
                 if sort_strategy:
-                    model_kwargs["extra_body"] = {
-                        "provider": {
-                            "sort": sort_strategy
-                        }
-                    }
+                    model_kwargs["extra_body"] = {"provider": {"sort": sort_strategy}}
+
+            # Extract common LLM parameters if present
+            if "temperature" in target_preset:
+                model_kwargs["temperature"] = target_preset["temperature"]
+            if "max_tokens" in target_preset:
+                model_kwargs["max_tokens"] = target_preset["max_tokens"]
+            if "top_p" in target_preset:
+                model_kwargs["top_p"] = target_preset["top_p"]
+            
+            print(f"[VisionService] Configured Model Tag: '{actual_model_tag}' via {base_url or 'default service'}")
         else:
             # No preset found. Use heuristic or legacy logic.
-            print(f"[VisionService] No preset found for '{model_name}'. Treating as raw tag.")
+            print(f"[VisionService] No preset found for '{model_name}'. Treating as raw model tag.")
             provider = self._get_provider(model_name)
             actual_model_tag = model_name
-            
-            # Check if this raw tag matches the format of a remote model but wasn't in presets? 
-            # Or assume OpenAI env vars if no preset.
             if provider == self._providers["openai"]:
-                api_key = os.getenv("OPENAI_API_KEY") # explicit fallback to be safe
+                api_key = os.getenv("OPENAI_API_KEY")
 
-        provider_name = "Ollama" if isinstance(provider, OllamaVisionProvider) else "OpenAI-compatible (e.g. OpenRouter/vLLM)"
-        print(f"[VisionService] Routing to provider: {provider_name} with tag: '{actual_model_tag}'")
-        
-        # Log approximate image size to verify cropping
-        img_len = len(image_data)
-        # print(f"[VisionService] Image Payload Size: {img_len} chars (approx {img_len * 3 / 4 / 1024:.1f} KB)")
-
+        # 3. Execute analysis
         return await provider.analyze_image(
             image_data=image_data, 
             prompt=prompt, 

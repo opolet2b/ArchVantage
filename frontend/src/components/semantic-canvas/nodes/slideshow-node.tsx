@@ -12,6 +12,8 @@ interface SlideshowNodeProps {
     onOverlayResize?: (id: string, x: number, y: number, width: number, height: number) => void;
     onOverlayDelete?: (id: string) => void;
     onOverlayClick?: (fragment: RegionFragment, position?: { x: number; y: number }) => void;
+    /** Optional highlight fragment */
+    highlight?: any;
 }
 
 export function SlideshowNode({
@@ -20,7 +22,8 @@ export function SlideshowNode({
     onSelect,
     onOverlayResize,
     onOverlayDelete,
-    onOverlayClick
+    onOverlayClick,
+    highlight,
 }: SlideshowNodeProps) {
     const [jsonContent, setJsonContent] = React.useState<any>(null);
     const [loading, setLoading] = React.useState(false);
@@ -195,6 +198,7 @@ export function SlideshowNode({
                 onOverlayResize={onOverlayResize}
                 onOverlayDelete={onOverlayDelete}
                 onOverlayClick={onOverlayClick}
+                highlight={highlight}
             />
 
             {/* Progress Overlay (Toast style) */}

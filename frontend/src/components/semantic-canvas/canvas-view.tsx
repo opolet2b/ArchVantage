@@ -60,6 +60,7 @@ import { CanvasContextMenu } from "./canvas-context-menu";
 import { useToast } from "@/components/ui/use-toast";
 import { CanvasPalette } from "./canvas-palette";
 import { InspectorPanel } from "./inspector-panel";
+import { OCRConversionDialog } from "./ocr-conversion-dialog";
 import {
     Dialog,
     DialogContent,
@@ -143,6 +144,8 @@ function CanvasViewInner() {
     const editingThingId = useCanvasStore(s => s.editingThingId);
     const sidebarCollapsed = useCanvasStore(s => s.sidebarCollapsed);
     const snapToGrid = useCanvasStore(s => s.snapToGrid); // Grid System
+    const accessLevel = useCanvasStore((s) => s.accessLevel);
+    const isReadOnly = accessLevel === "read";
 
     // Actions
     const updateViewport = useCanvasStore(s => s.updateViewport);
@@ -284,6 +287,7 @@ function CanvasViewInner() {
     const [contextMenuPosition, setContextMenuPosition] = React.useState({ x: 0, y: 0 });
     const [contextMenuContext, setContextMenuContext] = React.useState<"canvas" | "domain" | "selection">("canvas");
     const [contextMenuDomainId, setContextMenuDomainId] = React.useState<string | undefined>(undefined);
+    const [showOCRDialog, setShowOCRDialog] = React.useState(false);
 
     // Handle opening a conversation from canvas
     const handleOpenConversation = React.useCallback((conversationId: string) => {
@@ -1282,6 +1286,18 @@ function CanvasViewInner() {
                 setEditingLink(link);
                 setPendingConnection(null);
                 setLinkDialogOpen(true);
+
+                // Highlight source fragment with enriched target title
+                const store = useCanvasStore.getState();
+                const targetNode = store.things.find(t => t.id === link.target_id);
+                store.setHighlightedFragment({
+                    thingId: link.source_id,
+                    fragment: {
+                        ...link.source_fragment,
+                        linkTitle: link.label || link.type,
+                        targetTitle: targetNode?.title || "Target Node"
+                    }
+                });
             }
         },
         [links]
@@ -1517,9 +1533,14 @@ function CanvasViewInner() {
                 const link = links.find(l => l.id === edge.id);
                 // Check if link has source fragment data
                 if (link && link.source_fragment) {
+                    const targetNode = things.find(t => t.id === link.target_id);
                     setHighlightedFragment({
                         thingId: link.source_id,
-                        fragment: link.source_fragment
+                        fragment: {
+                            ...link.source_fragment,
+                            linkTitle: link.label || link.type,
+                            targetTitle: targetNode?.title || "Target Node"
+                        }
                     });
                     return;
                 }
@@ -1535,18 +1556,37 @@ function CanvasViewInner() {
                 );
 
                 if (incomingWithFragment) {
+                    const targetNode = things.find(t => t.id === incomingWithFragment.target_id);
                     setHighlightedFragment({
                         thingId: incomingWithFragment.source_id,
-                        fragment: incomingWithFragment.source_fragment
+                        fragment: {
+                            ...incomingWithFragment.source_fragment,
+                            linkTitle: incomingWithFragment.label || incomingWithFragment.type,
+                            targetTitle: targetNode?.title || "Target Node"
+                        }
                     });
                     return;
                 }
             }
 
+            // Retain highlight if we are editing a link to avoid clearing focus loss highlights
+            if (editingLink && editingLink.source_fragment) {
+                const targetNode = things.find(t => t.id === editingLink.target_id);
+                setHighlightedFragment({
+                    thingId: editingLink.source_id,
+                    fragment: {
+                        ...editingLink.source_fragment,
+                        linkTitle: editingLink.label || editingLink.type,
+                        targetTitle: targetNode?.title || "Target Node"
+                    }
+                });
+                return;
+            }
+
             // If nothing matched, clear highlight
             setHighlightedFragment(null);
         },
-        []
+        [editingLink, things, links]
     );
 
     // Handle drag leave
@@ -1696,6 +1736,9 @@ function CanvasViewInner() {
                         undefined, // height
                         "ArchiMate Importer" // title
                     );
+                    break;
+                case "ocr_conversion":
+                    setShowOCRDialog(true);
                     break;
             }
             return;
@@ -2912,16 +2955,16 @@ function CanvasViewInner() {
                             id="canvas-area"
                             className={cn(
                                 "flex-1 relative",
-                                isDraggingFile && "ring-4 ring-inset ring-blue-400 bg-blue-50/50 dark:bg-blue-950/30"
+                                isDraggingFile && !isReadOnly && "ring-4 ring-inset ring-blue-400 bg-blue-50/50 dark:bg-blue-950/30"
                             )}
-                            onContextMenu={handlePaneContextMenu}
-                            onDragOverCapture={handleDragOver}
-                            onDragEnterCapture={handleDragOver}
-                            onDragLeave={handleDragLeave}
-                            onDrop={handleFileDrop}
+                            onContextMenu={isReadOnly ? (e) => e.preventDefault() : handlePaneContextMenu}
+                            onDragOverCapture={isReadOnly ? undefined : handleDragOver}
+                            onDragEnterCapture={isReadOnly ? undefined : handleDragOver}
+                            onDragLeave={isReadOnly ? undefined : handleDragLeave}
+                            onDrop={isReadOnly ? undefined : handleFileDrop}
                         >
                             {/* Drop zone overlay */}
-                            {isDraggingFile && (
+                            {isDraggingFile && !isReadOnly && (
                                 <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
                                     <div className="bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg text-lg font-medium">
                                         Drop files to add to canvas
@@ -2935,19 +2978,19 @@ function CanvasViewInner() {
                                 onNodesChange={handleNodesChange}
                                 onEdgesChange={onEdgesChange}
                                 onMove={onMoveEnd}
-                                onEdgesDelete={handleEdgesDelete}
+                                onEdgesDelete={isReadOnly ? undefined : handleEdgesDelete}
                                 snapToGrid={snapToGrid}
                                 snapGrid={[20, 20]} // Standard 20px grid
-                                onConnect={onConnect}
+                                onConnect={isReadOnly ? undefined : onConnect}
                                 onNodeDragStart={onNodeDragStart}
                                 onNodeDragStop={onNodeDragStop}
                                 onNodeClick={onNodeClick}
                                 onEdgeClick={onEdgeClick}
                                 onSelectionChange={onSelectionChange}
                                 onPaneClick={onPaneClick}
-                                onNodeContextMenu={onNodeContextMenu}
-                                onDragOver={handleDragOver}
-                                onDrop={handleFileDrop}
+                                onNodeContextMenu={isReadOnly ? (e) => e.preventDefault() : onNodeContextMenu}
+                                onDragOver={isReadOnly ? undefined : handleDragOver}
+                                onDrop={isReadOnly ? undefined : handleFileDrop}
                                 nodeTypes={nodeTypes}
                                 edgeTypes={edgeTypesMemo}
                                 minZoom={0.1}
@@ -2960,8 +3003,8 @@ function CanvasViewInner() {
                                 selectionOnDrag={selectionMode === "selection"}
                                 selectionKeyCode={selectionMode === "selection" ? null : "Shift"}
                                 multiSelectionKeyCode="Shift"
-                                nodesDraggable={true}
-                                nodesConnectable={true}
+                                nodesDraggable={!isReadOnly}
+                                nodesConnectable={!isReadOnly}
                                 elementsSelectable={true}
                                 className={cn(
                                     "bg-slate-50 dark:bg-slate-950",
@@ -2987,6 +3030,7 @@ function CanvasViewInner() {
                                     setLinkDialogOpen(false);
                                     setPendingConnection(null);
                                     setEditingLink(null);
+                                    useCanvasStore.getState().setHighlightedFragment(null);
                                 }}
                                 onConfirm={editingLink ? handleUpdateLink : handleCreateLink}
                                 onDelete={editingLink ? handleDeleteLink : undefined}
@@ -3339,6 +3383,10 @@ function CanvasViewInner() {
                     <InspectorPanel />
                 </div>
             </div>
+            <OCRConversionDialog
+                isOpen={showOCRDialog}
+                onClose={() => setShowOCRDialog(false)}
+            />
         </div >
     );
 }

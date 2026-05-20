@@ -23,7 +23,8 @@ from app.routers.auth import get_current_active_user, PermissionChecker
 from app.models.user import User, Role
 from app.models.canvas_models import (
     Canvas, CanvasThing, CanvasLink, Domain,
-    ThingType as ModelThingType, LinkType as ModelLinkType, RAGStatus
+    ThingType as ModelThingType, LinkType as ModelLinkType, RAGStatus,
+    CanvasUser, CanvasRole
 )
 from app.schemas.canvas_schemas import (
     CanvasCreate, CanvasUpdate, CanvasResponse, CanvasWithContents,
@@ -57,7 +58,47 @@ class CanvasEventRequest(BaseModel):
 router = APIRouter()
 
 
-def _get_canvas_with_access(canvas_id: str, db: Session, user: User, abort_if_not_found: bool = True) -> Optional[Canvas]:
+def _get_canvas_access_level(canvas: Canvas, user: User) -> str:
+    """Calculate effective access level for a user on a canvas."""
+    # 1. Owner always has 'write'
+    if canvas.owner_id == user.id:
+        return "write"
+    
+    # 2. Admins always have 'write'
+    if any(role.name == "Admin" for role in user.roles):
+        return "write"
+    
+    # 3. Check specific user permissions
+    # We query the association model directly for clarity
+    from sqlalchemy.orm import Session
+    db = Session.object_session(canvas)
+    
+    user_p = db.query(CanvasUser).filter(
+        CanvasUser.canvas_id == canvas.id,
+        CanvasUser.user_id == user.id
+    ).first()
+    
+    if user_p and user_p.permission_level == "write":
+        return "write"
+    
+    # 4. Check role-based permissions
+    user_role_ids = [role.id for role in user.roles]
+    role_ps = db.query(CanvasRole).filter(
+        CanvasRole.canvas_id == canvas.id,
+        CanvasRole.role_id.in_(user_role_ids)
+    ).all()
+    
+    if any(p.permission_level == "write" for p in role_ps):
+        return "write"
+    
+    # 5. Default to 'read' if any record exists, otherwise check if they matched the query
+    if user_p or role_ps:
+        return "read"
+        
+    return "read" # Fallback if they passed the initial filter
+
+
+def _get_canvas_with_access(canvas_id: str, db: Session, user: User, abort_if_not_found: bool = True, require_write: bool = False) -> Optional[Canvas]:
     """
     Helper to find a canvas if the user has permission (owner, allowed user, or role).
     """
@@ -76,6 +117,17 @@ def _get_canvas_with_access(canvas_id: str, db: Session, user: User, abort_if_no
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Canvas not found or access denied"
         )
+    
+    if canvas:
+        # Inject effective level into the object for the response schema
+        canvas.access_level = _get_canvas_access_level(canvas, user)
+        
+        if require_write and canvas.access_level != "write":
+             raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You have read-only access to this canvas"
+            )
+        
     return canvas
 
 
@@ -121,13 +173,15 @@ def create_canvas(
     )
     
     # Set permissions
-    if request.allowed_user_ids:
-        users = db.query(User).filter(User.id.in_(request.allowed_user_ids)).all()
-        canvas.allowed_users = users
-        
-    if request.allowed_role_ids:
-        roles = db.query(Role).filter(Role.id.in_(request.allowed_role_ids)).all()
-        canvas.allowed_roles = roles
+    if request.user_permissions:
+        for p in request.user_permissions:
+            assoc = CanvasUser(user_id=p.user_id, permission_level=p.level.value)
+            canvas.user_permissions.append(assoc)
+            
+    if request.role_permissions:
+        for p in request.role_permissions:
+            assoc = CanvasRole(role_id=p.role_id, permission_level=p.level.value)
+            canvas.role_permissions.append(assoc)
         
     db.add(canvas)
     db.commit()
@@ -162,6 +216,12 @@ def list_canvases(
     query = query.order_by(Canvas.position.asc(), Canvas.updated_at.desc())
 
     canvases = query.all()
+    for canvas in canvases:
+        # Calculate effective level for the listing
+        canvas.access_level = _get_canvas_access_level(canvas, current_user)
+        # Populate legacy fields for frontend compatibility
+        canvas.user_permissions = canvas.user_permissions
+        canvas.role_permissions = canvas.role_permissions
     return canvases
 
 
@@ -184,13 +244,16 @@ def reorder_canvases(
     
     user_role_ids = [role.id for role in current_user.roles]
     canvases = db.query(Canvas).filter(
-        Canvas.id.in_(ids),
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id),
-            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
-        )
+        Canvas.id.in_(ids)
     ).all()
+    
+    # Verify write access for each
+    for canvas in canvases:
+        if _get_canvas_access_level(canvas, current_user) != "write":
+             raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"No write access to canvas {canvas.id}"
+            )
     
     # Map for quick lookup
     canvas_map = {c.id: c for c in canvases}
@@ -323,16 +386,23 @@ def get_canvas(
         owner_id=canvas.owner_id,
         name=canvas.name,
         description=canvas.description,
-        viewport=canvas.viewport, # Pydantic handles JSON-to-Model conversion if defined? No, it's a dict in DB usually or JSON column
-        allowed_user_ids=[u.id for u in canvas.allowed_users],
-        allowed_role_ids=[r.id for r in canvas.allowed_roles],
-        owner_config=merged_config, # Return the dynamically enriched config
+        viewport=canvas.viewport,
+        user_permissions=[
+            {"user_id": p.user_id, "level": p.permission_level} 
+            for p in canvas.user_permissions
+        ],
+        role_permissions=[
+            {"role_id": p.role_id, "level": p.permission_level}
+            for p in canvas.role_permissions
+        ],
+        owner_config=merged_config,
         position=canvas.position,
         analysis_space_id=canvas.analysis_space_id,
+        access_level=canvas.access_level,
         created_at=canvas.created_at,
         updated_at=canvas.updated_at,
-        things=canvas.things, # Pydantic converts List[CanvasThing] to List[ThingResponse]
-        links=enriched_links, # Our enriched list of dicts
+        things=canvas.things,
+        links=enriched_links,
         domains=canvas.domains
     )
     
@@ -350,9 +420,7 @@ def update_canvas(
     print(f"[CanvasRouter] PATCH /canvases/{canvas_id} reached. Request: {request.model_dump()}")
     # Only owner or explicit write access (treated same as read for now) can update
     # Ideally, we should check for "Write" permission if we had granular permissions.
-    # For now, we allow update if user has access.
-    
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     # Update fields
     if request.name is not None:
@@ -385,21 +453,25 @@ def update_canvas(
         canvas.owner_config = current_config
         flag_modified(canvas, "owner_config")
         
-    # Update Permissions (Only Owner can change permissions?)
-    # Let's say yes, only owner can manage permissions.
-    if (request.allowed_user_ids is not None or request.allowed_role_ids is not None) and canvas.owner_id != current_user.id:
+    # Update Permissions (Only Owner can change permissions)
+    if (request.user_permissions is not None or request.role_permissions is not None) and canvas.owner_id != current_user.id:
         raise HTTPException(
              status_code=status.HTTP_403_FORBIDDEN,
              detail="Only the owner can manage permissions"
         )
 
-    if request.allowed_user_ids is not None:
-        users = db.query(User).filter(User.id.in_(request.allowed_user_ids)).all()
-        canvas.allowed_users = users
+    if request.user_permissions is not None:
+        # Clear existing and re-add
+        db.query(CanvasUser).filter(CanvasUser.canvas_id == canvas_id).delete()
+        for p in request.user_permissions:
+            assoc = CanvasUser(user_id=p.user_id, permission_level=p.level.value)
+            canvas.user_permissions.append(assoc)
         
-    if request.allowed_role_ids is not None:
-        roles = db.query(Role).filter(Role.id.in_(request.allowed_role_ids)).all()
-        canvas.allowed_roles = roles
+    if request.role_permissions is not None:
+        db.query(CanvasRole).filter(CanvasRole.canvas_id == canvas_id).delete()
+        for p in request.role_permissions:
+            assoc = CanvasRole(role_id=p.role_id, permission_level=p.level.value)
+            canvas.role_permissions.append(assoc)
     db.commit()
     db.refresh(canvas)
     return canvas
@@ -439,14 +511,8 @@ async def auto_rename_canvas(
     from app.services.llm_service import llm_service
     
     # 1. Fetch canvas with things
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id)
-            # Roles excluded for now as implicit write permission is tricky
-        )
-    ).first()
+    # Use helper for permission check
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     if not canvas:
         raise HTTPException(
@@ -499,7 +565,7 @@ def delete_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a canvas and all its contents."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     # Cascade delete assets
     from app.services.asset_service import asset_service
@@ -560,7 +626,7 @@ def archive_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Archive a canvas."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
         
     canvas.is_archived = True
     db.commit()
@@ -574,7 +640,7 @@ def restore_canvas(
     current_user: User = Depends(get_current_active_user)
 ):
     """Restore an archived canvas."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
         
     canvas.is_archived = False
     db.commit()
@@ -863,7 +929,7 @@ async def create_thing(
     print(f"[CanvasRouter] Received create_thing request for canvas {canvas_id}, type: {request.type}")
     print(f"[CanvasRouter] Request Domain ID: {request.domain_id}")
     try:
-        canvas = _get_canvas_with_access(canvas_id, db, current_user)
+        canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
         
         technical_metadata = request.technical_metadata or {}
         
@@ -1036,7 +1102,7 @@ def update_thing(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update a thing's properties."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
@@ -1189,7 +1255,7 @@ def delete_thing(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a thing from the canvas."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
 
     thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
@@ -1542,7 +1608,7 @@ def create_link(
     current_user: User = Depends(get_current_active_user)
 ):
     """Create a link between two things."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     # Verify source exists (Thing OR Domain)
     source = db.query(CanvasThing).filter(
@@ -1628,7 +1694,7 @@ def update_link(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update a link's type or label."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     link = db.query(CanvasLink).filter(
         CanvasLink.id == link_id,
@@ -1672,7 +1738,7 @@ def delete_link(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a link."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
 
     link = db.query(CanvasLink).filter(
         CanvasLink.id == link_id,
@@ -1702,7 +1768,7 @@ def create_domain(
     current_user: User = Depends(get_current_active_user)
 ):
     """Create a domain container."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     domain = Domain(
         canvas_id=canvas_id,
@@ -1737,7 +1803,7 @@ def update_domain(
     current_user: User = Depends(get_current_active_user)
 ):
     """Update a domain."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     domain = db.query(Domain).filter(
         Domain.id == domain_id,
@@ -1789,7 +1855,7 @@ def delete_domain(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a domain (things inside are un-grouped, not deleted)."""
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
 
     domain = db.query(Domain).filter(
         Domain.id == domain_id,
@@ -1829,7 +1895,7 @@ async def summarize_thing(
     """
     Generate AI summaries for a thing at different zoom levels.
     """
-    canvas = _get_canvas_with_access(canvas_id, db, current_user)
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     thing = db.query(CanvasThing).filter(
         CanvasThing.id == thing_id,
@@ -1941,11 +2007,8 @@ async def analyze_selection(
     Supports summarize, explain, extract_points, and ask actions.
     Supports text and image content.
     """
-    # Verify canvas ownership
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
-    ).first()
+    # Verify canvas access
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     if not canvas:
         raise HTTPException(
@@ -2181,20 +2244,7 @@ async def analyze_batch(
     Aggregates content and sends a single prompt to LLM.
     """
     # 1. Verify canvas access
-    from app.models.canvas_models import Canvas, CanvasThing
-    from app.services.llm_service import llm_service
-    from app.models.chat import Message
-    
-    user_role_ids = [role.id for role in current_user.roles]
-
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        or_(
-            Canvas.owner_id == current_user.id,
-            Canvas.allowed_users.any(id=current_user.id),
-            Canvas.allowed_roles.any(Role.id.in_(user_role_ids))
-        )
-    ).first()
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     if not canvas:
         raise HTTPException(status_code=404, detail="Canvas not found")
@@ -2323,7 +2373,7 @@ async def discover_links(
     # 0. Resolve Model
     active_model = _resolve_active_model(db, canvas_id, request.model)
 
-    debug_service.log("INFO", "DiscoverLinks", f"Starting discovery for Canvas {canvas_id}", {
+    debug_service.log("INFO", "Smart Analysis", "DiscoverLinks", f"Starting discovery for Canvas {canvas_id}", {
         "thing_ids": request.thing_ids,
         "domain_ids": request.domain_ids,
         "model": active_model
@@ -2366,7 +2416,7 @@ async def discover_links(
                     summary = content.get("text", "")[:500] # Truncate raw text
                 elif thing.type == ModelThingType.DOCUMENT:
                     summary = f"Document: {content.get('filename', 'Unknown')}"
-                    debug_service.log("DEBUG", "DiscoverLinks", f"Checking RAG status for {thing.id}: {thing.rag_status}")
+                    debug_service.log("DEBUG", "Smart Analysis", "DiscoverLinks", f"Checking RAG status for {thing.id}: {thing.rag_status}")
                     
                     if thing.rag_status and thing.rag_status.lower() == "completed":
                         try:
@@ -2374,7 +2424,7 @@ async def discover_links(
                             # Correct filter is 'thing_id' as set in canvas_worker.py
                             filters = {"thing_id": thing.id}
                             
-                            debug_service.log("DEBUG", "DiscoverLinks", f"Fetching RAG context for {thing.id} with filters {filters}...")
+                            debug_service.log("DEBUG", "Smart Analysis", "DiscoverLinks", f"Fetching RAG context for {thing.id} with filters {filters}...")
                             
                             results = rag_service.search(
                                 query="Summary and key themes of this document",
@@ -2387,7 +2437,7 @@ async def discover_links(
                                  # Fallback: Try searching by filename if thing_id didn't work (unlikely if status is completed)
                                 filename = content.get("filename")
                                 if filename:
-                                    debug_service.log("WARN", "DiscoverLinks", f"No results for thing_id {thing.id}, trying filename {filename}")
+                                    debug_service.log("WARN", "Smart Analysis", "DiscoverLinks", f"No results for thing_id {thing.id}, trying filename {filename}")
                                     # SimpleDirectoryReader often adds 'file_name' to metadata
                                     results = rag_service.search(
                                         query="Summary and key themes of this document",
@@ -2397,23 +2447,23 @@ async def discover_links(
                                     )
 
                             if results:
-                                debug_service.log("INFO", "DiscoverLinks", f"Found {len(results)} RAG chunks for {thing.id}")
+                                debug_service.log("INFO", "Smart Analysis", "DiscoverLinks", f"Found {len(results)} RAG chunks for {thing.id}")
                                 rag_context = "\n".join([r["text"] for r in results])
                                 summary += f"\n\nContext:\n{rag_context}"
                             else:
-                                debug_service.log("WARN", "DiscoverLinks", f"No RAG results found for {thing.id} after fallback.")
+                                debug_service.log("WARN", "Smart Analysis", "DiscoverLinks", f"No RAG results found for {thing.id} after fallback.")
                                 
                         except Exception as e:
-                            debug_service.log("ERROR", "DiscoverLinks", f"Failed to fetch RAG context for thing {thing.id}: {e}")
+                            debug_service.log("ERROR", "Smart Analysis", "DiscoverLinks", f"Failed to fetch RAG context for thing {thing.id}: {e}")
                     else:
-                        debug_service.log("WARN", "DiscoverLinks", f"Skipping RAG for {thing.id} - status is {thing.rag_status}")
+                        debug_service.log("WARN", "Smart Analysis", "DiscoverLinks", f"Skipping RAG for {thing.id} - status is {thing.rag_status}")
                 elif thing.type == ModelThingType.IMAGE:
                     summary = "Image"
                     if thing.rag_status and thing.rag_status.lower() == "completed":
                         try:
                             from app.services.rag_service import rag_service
                             filters = {"thing_id": thing.id}
-                            debug_service.log("DEBUG", "DiscoverLinks", f"Fetching RAG context for IMAGE {thing.id}...")
+                            debug_service.log("DEBUG", "Smart Analysis", "DiscoverLinks", f"Fetching RAG context for IMAGE {thing.id}...")
                             
                             results = rag_service.search(
                                 query="Describe this image",
@@ -2423,13 +2473,13 @@ async def discover_links(
                             )
                             
                             if results:
-                                debug_service.log("INFO", "DiscoverLinks", f"Found {len(results)} chunks for IMAGE {thing.id}")
+                                debug_service.log("INFO", "Smart Analysis", "DiscoverLinks", f"Found {len(results)} chunks for IMAGE {thing.id}")
                                 rag_context = "\n".join([r["text"] for r in results])
                                 summary += f"\n\nVisual Analysis:\n{rag_context}"
                             else:
                                 summary += " (No description available)"
                         except Exception as e:
-                            debug_service.log("ERROR", "DiscoverLinks", f"Failed to fetch RAG for image {thing.id}: {e}")
+                            debug_service.log("ERROR", "Smart Analysis", "DiscoverLinks", f"Failed to fetch RAG for image {thing.id}: {e}")
                             summary += " (Error fetching description)"
                     else:
                         summary += " (Not analyzed)"
@@ -2468,7 +2518,7 @@ async def discover_links(
                     "description": desc
                 }
         
-        debug_service.log("INFO", "DiscoverLinks", f"Entities collected: {len(things_map)} Things, {len(domains_map)} Domains", {
+        debug_service.log("INFO", "Smart Analysis", "DiscoverLinks", f"Entities collected: {len(things_map)} Things, {len(domains_map)} Domains", {
             "things": {k: {**v, "summary": (v["summary"][:100] + "...") if len(v["summary"]) > 100 else v["summary"]} for k,v in things_map.items()},
             "domains": domains_map
         })
@@ -2516,6 +2566,9 @@ async def discover_links(
         4. **AVOID OBVIOUS**: Do not link things just because they are in the same domain. Link them only if their *content* interacts.
         5. **DIRECTION MATTERS**: Ensure source->target direction makes logical sense for the chosen type (e.g. Evidence -> Hypothesis = PROVES).
         6. **MULTIPLE LINKS**: It is acceptable to create multiple links between the same two entities IF they represent distinct relationships.
+        
+        Return ONLY the JSON. Do not include markdown formatting like ```json.
+        If you find NO meaningful links, you MUST return {"links": []} instead of an empty object {}.
         """
         
         user_prompt = f"""
@@ -2536,7 +2589,7 @@ async def discover_links(
         """
         
         # Log the prompt for debugging
-        debug_service.log("DEBUG", "DiscoverLinks", "Prompt Constructed", {
+        debug_service.log("DEBUG", "Smart Analysis", "DiscoverLinks", "Prompt Constructed", {
             "system_prompt": system_prompt,
             "user_prompt_preview": user_prompt[:1000] + "..." if len(user_prompt) > 1000 else user_prompt
         })
@@ -2549,22 +2602,21 @@ async def discover_links(
                 Message(role="system", content=system_prompt),
                 Message(role="user", content=user_prompt)
             ],
-            model_name=active_model,
-            response_format={"type": "json_object"}
+            model_name=active_model
         )
         
-        debug_service.log("DEBUG", "DiscoverLinks", "LLM Response Received", {"response": response_text})
+        debug_service.log("DEBUG", "Smart Analysis", "DiscoverLinks", "LLM Response Received", {"response": response_text})
 
         
         # Parse JSON
         import json
         try:
-            # Handle potential markdown wrapping
-            cleaned_text = response_text.replace("```json", "").replace("```", "").strip()
+            # Handle potential markdown wrapping using LLM service's robust extractor
+            cleaned_text = llm_service._extract_json(response_text)
             result_json = json.loads(cleaned_text)
             links_data = result_json.get("links", [])
-        except json.JSONDecodeError as je:
-            debug_service.log("ERROR", "DiscoverLinks", "Failed to parse JSON response", {"response_text": response_text, "error": str(je)})
+        except Exception as je:
+            debug_service.log("ERROR", "Smart Analysis", "DiscoverLinks", "Failed to parse JSON response", {"response_text": response_text, "error": str(je)})
             return DiscoverLinksResponse(links_created=0, domains_updated=0, details=[])
 
 
@@ -2629,7 +2681,7 @@ async def discover_links(
             
         db.commit()
         
-        debug_service.log("INFO", "DiscoverLinks", f"Discovery complete. Created {created_count} new links.")
+        debug_service.log("INFO", "Smart Analysis", "DiscoverLinks", f"Discovery complete. Created {created_count} new links.")
         
         return DiscoverLinksResponse(
             links_created=created_count,
@@ -2643,7 +2695,7 @@ async def discover_links(
             # Try to log detailed debug info
             import traceback
             tb = traceback.format_exc()
-            debug_service.log("ERROR", "DiscoverLinks", error_detail, {"traceback": tb})
+            debug_service.log("ERROR", "Smart Analysis", "DiscoverLinks", error_detail, {"traceback": tb})
             print(f"[DiscoverLinks Error] {error_detail}\n{tb}")
         except Exception as log_err:
             # Fallback if logging fails
@@ -2767,10 +2819,7 @@ async def bulk_delete_items(
     from app.schemas.canvas_schemas import BatchDeleteRequest
     
     # 1. Verify Canvas Access
-    canvas = db.query(Canvas).filter(
-        Canvas.id == canvas_id,
-        Canvas.owner_id == current_user.id
-    ).first()
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
     
     if not canvas:
         raise HTTPException(

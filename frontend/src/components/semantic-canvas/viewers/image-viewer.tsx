@@ -37,6 +37,8 @@ interface ImageViewerProps {
     overlays?: { id: string; label?: string; x: number; y: number; width: number; height: number; type?: string }[];
     /** Optional: render only a specific fragment (crop/zoom) */
     viewFragment?: RegionFragment;
+    /** Optional highlight fragment */
+    highlight?: any;
 }
 
 // =============================================================================
@@ -54,6 +56,7 @@ export function ImageViewer({
     onOverlayDelete,
     onOverlayClick,
     viewFragment,
+    highlight,
 }: ImageViewerProps) {
     const imageRef = React.useRef<HTMLImageElement>(null);
     // Don't initialize with src if it's an API asset - let useEffect fetch with auth
@@ -390,6 +393,7 @@ export function ImageViewer({
             overlays={overlays as RegionFragment[]} // Cast to match type
             selectionEnabled={selectionEnabled}
             onSelectionComplete={handleSelectionComplete}
+            highlight={highlight}
             onOverlayAction={(action, id, data) => {
                 if (action === 'delete') onOverlayDelete?.(id);
                 if (action === 'resize') onOverlayResize?.(id, data.x, data.y, data.width, data.height);

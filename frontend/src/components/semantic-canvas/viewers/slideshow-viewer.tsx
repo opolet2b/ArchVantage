@@ -20,6 +20,8 @@ interface SlideshowViewerProps {
     onOverlayResize?: (id: string, x: number, y: number, width: number, height: number) => void;
     onOverlayDelete?: (id: string) => void;
     onOverlayClick?: (fragment: RegionFragment, position?: { x: number; y: number }) => void;
+    /** Optional highlight fragment */
+    highlight?: any;
 }
 
 export function SlideshowViewer({
@@ -28,13 +30,40 @@ export function SlideshowViewer({
     onSelect,
     onOverlayResize,
     onOverlayDelete,
-    onOverlayClick
+    onOverlayClick,
+    highlight,
 }: SlideshowViewerProps) {
     const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
     const [showSidebar, setShowSidebar] = useState(true);
 
     const slides = content.slides || [];
     const totalSlides = content.total_slides || slides.length;
+
+    // Auto-navigate to correct slide index when highlight changes
+    React.useEffect(() => {
+        if (!highlight) return;
+        
+        let targetIndex: number | undefined;
+        const sIndex = highlight.slide_index ?? highlight.slideIndex;
+        const sNum = highlight.slide_number ?? (highlight as any).slideNumber;
+        const pNum = highlight.page_number ?? (highlight as any).pageNumber;
+
+        if (highlight.type === "slide" && sNum !== undefined) {
+            targetIndex = sNum - 1; // 1-based to 0-based
+        } else if (sIndex !== undefined) {
+            targetIndex = sIndex;
+        } else if (pNum !== undefined) {
+            targetIndex = pNum - 1;
+        } else if (sNum !== undefined) {
+            targetIndex = sNum - 1;
+        }
+        
+        if (targetIndex !== undefined && targetIndex >= 0 && targetIndex < totalSlides && targetIndex !== currentSlideIndex) {
+            console.log("[SlideshowViewer] Navigating to slide", targetIndex);
+            setCurrentSlideIndex(targetIndex);
+        }
+    }, [highlight, totalSlides, currentSlideIndex]);
+
     const currentSlide = slides[currentSlideIndex];
 
     const hasNext = currentSlideIndex < totalSlides - 1;
@@ -149,12 +178,14 @@ export function SlideshowViewer({
                                     onOverlayResize={onOverlayResize}
                                     onOverlayDelete={onOverlayDelete}
                                     onOverlayClick={(overlay) => onOverlayClick?.(overlay as RegionFragment, undefined)} // Wrap to match signature
+                                    highlight={highlight}
                                 />
                             ) : (
                                 <InteractiveOverlayLayer
                                     overlays={currentSlideOverlays}
                                     selectionEnabled={true}
                                     onSelectionComplete={handleStructuralSlideSelection}
+                                    highlight={highlight}
                                     onOverlayAction={(action, id, data) => {
                                         if (action === 'resize' && onOverlayResize) {
                                             onOverlayResize(id, data.x, data.y, data.width, data.height);

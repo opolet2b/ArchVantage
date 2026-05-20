@@ -101,10 +101,15 @@ export function TtsConfigTab() {
 
     const fetchPresets = async () => {
         setLoading(true)
+        const token = localStorage.getItem("token")
         try {
             const [presetsRes, defaultRes] = await Promise.all([
-                fetch(`${API_URL}/config/presets`),
-                fetch(`${API_URL}/config/defaults`)
+                fetch(`${API_URL}/config/presets`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                }),
+                fetch(`${API_URL}/config/defaults`, {
+                    headers: { "Authorization": `Bearer ${token}` }
+                })
             ])
 
             if (presetsRes.ok) {
@@ -158,9 +163,13 @@ export function TtsConfigTab() {
 
         setSaving(true)
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/config/presets`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify(form)
             })
 
@@ -181,9 +190,13 @@ export function TtsConfigTab() {
 
     const handleSetDefault = async (name: string) => {
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_URL}/config/defaults`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({ default_tts: name })
             })
             if (res.ok) {
@@ -198,7 +211,11 @@ export function TtsConfigTab() {
     const handleDelete = async (name: string) => {
         if (!confirm(`Delete preset "${name}"?`)) return
         try {
-            const res = await fetch(`${API_URL}/config/presets/${encodeURIComponent(name)}`, { method: "DELETE" })
+            const token = localStorage.getItem("token")
+            const res = await fetch(`${API_URL}/config/presets/${encodeURIComponent(name)}`, { 
+                method: "DELETE",
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             if (res.ok) {
                 toast({ title: "Deleted" })
                 fetchPresets()
@@ -223,10 +240,14 @@ export function TtsConfigTab() {
         }
 
         try {
+            const token = localStorage.getItem("token")
             toast({ title: "Generating test audio..." })
             const res = await fetch(`${API_URL}/tts/generate`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     text: TEST_PHRASES[testLang] || TEST_PHRASES.en,
                     config_name: selectedName,

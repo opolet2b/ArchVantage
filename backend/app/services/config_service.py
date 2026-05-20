@@ -3,7 +3,9 @@ import os
 import httpx
 from typing import Dict, Any, List, Optional
 
-CONFIG_FILE = "data/config.json"
+# Root of the project
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+CONFIG_FILE = os.path.join(BASE_DIR, "data", "config.json")
 
 class ConfigService:
     def __init__(self):

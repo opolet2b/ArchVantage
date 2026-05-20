@@ -49,8 +49,8 @@ interface CanvasSummary {
     created_at: string;
     updated_at: string | null;
     owner_id: number;
-    allowed_user_ids: number[];
-    allowed_role_ids: number[];
+    user_permissions: UserPermission[];
+    role_permissions: RolePermission[];
 }
 
 // =============================================================================
@@ -388,7 +388,7 @@ export function CanvasList() {
     };
 
     // Save permissions
-    const savePermissions = async (allowedUserIds: number[], allowedRoleIds: number[]) => {
+    const savePermissions = async (userPermissions: UserPermission[], rolePermissions: RolePermission[]) => {
         if (!permissionTarget) return;
 
         const token = getToken();
@@ -402,8 +402,8 @@ export function CanvasList() {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    allowed_user_ids: allowedUserIds,
-                    allowed_role_ids: allowedRoleIds
+                    user_permissions: userPermissions,
+                    role_permissions: rolePermissions
                 }),
             });
 
@@ -412,7 +412,7 @@ export function CanvasList() {
                 setCanvases((prev) =>
                     prev.map((c) =>
                         c.id === permissionTarget.id
-                            ? { ...c, allowed_user_ids: allowedUserIds, allowed_role_ids: allowedRoleIds }
+                            ? { ...c, user_permissions: userPermissions, role_permissions: rolePermissions }
                             : c
                     )
                 );
@@ -962,8 +962,8 @@ export function CanvasList() {
                     onOpenChange={setPermissionsOpen}
                     canvasId={permissionTarget.id}
                     canvasName={permissionTarget.name}
-                    initialAllowedUserIds={permissionTarget.allowed_user_ids || []}
-                    initialAllowedRoleIds={permissionTarget.allowed_role_ids || []}
+                    initialUserPermissions={permissionTarget.user_permissions || []}
+                    initialRolePermissions={permissionTarget.role_permissions || []}
                     onSave={savePermissions}
                 />
             )}

@@ -1,7 +1,7 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
 from app.core.security import verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, decode_access_token
 from app.models.user import User
@@ -26,7 +26,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if email is None:
         raise credentials_exception
     token_data = TokenData(email=email)
-    user = db.query(User).filter(User.email == token_data.email).first()
+    user = db.query(User).options(joinedload(User.roles)).filter(User.email == token_data.email).first()
     if user is None:
         raise credentials_exception
     return user

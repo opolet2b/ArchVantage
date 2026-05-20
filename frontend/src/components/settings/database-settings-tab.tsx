@@ -28,8 +28,11 @@ export function DatabaseSettingsTab() {
     }, [])
 
     const fetchConfig = async () => {
+        const token = localStorage.getItem("token")
         try {
-            const res = await fetch(`${API_BASE_URL}/config/database`)
+            const res = await fetch(`${API_BASE_URL}/config/database`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
             if (res.ok) {
                 const data = await res.json()
                 setDbUrl(data.url || "")
@@ -47,9 +50,13 @@ export function DatabaseSettingsTab() {
         setSqlTesting(true)
         setSqlStatus(null)
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_BASE_URL}/config/database/test`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({ url: dbUrl, target: "sql" }),
             })
             const data = await res.json()
@@ -69,9 +76,13 @@ export function DatabaseSettingsTab() {
         setSqlLoading(true)
         setSqlStatus(null)
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_BASE_URL}/config/database`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     url: dbUrl
                 }),
@@ -96,9 +107,13 @@ export function DatabaseSettingsTab() {
         setArcadeTesting(true)
         setArcadeStatus(null)
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_BASE_URL}/config/database/test`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     arcadedb_host: arcadeHost,
                     arcadedb_user: arcadeUser,
@@ -124,9 +139,13 @@ export function DatabaseSettingsTab() {
         setArcadeLoading(true)
         setArcadeStatus(null)
         try {
+            const token = localStorage.getItem("token")
             const res = await fetch(`${API_BASE_URL}/config/database`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({
                     arcadedb_host: arcadeHost,
                     arcadedb_user: arcadeUser,

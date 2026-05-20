@@ -39,6 +39,8 @@ interface MarkdownViewerProps {
     ancestorIds?: string[];
     /** Callback when a link is clicked */
     onLinkClick?: (href: string) => void;
+    /** Optional highlight fragment */
+    highlight?: any;
 }
 
 // =============================================================================
@@ -66,8 +68,9 @@ export function MarkdownViewer({
     exportMode = false,
     ancestorIds = [],
     onLinkClick,
+    highlight,
 }: MarkdownViewerProps) {
-    console.log("[MarkdownViewer] RENDER", { contentLength: content?.length, hasOnSelect: !!onSelect });
+    console.log("[MarkdownViewer] RENDER", { contentLength: content?.length, hasOnSelect: !!onSelect, hasHighlight: !!highlight });
     const containerRef = React.useRef<HTMLDivElement>(null);
     const lastMousePos = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -162,8 +165,37 @@ export function MarkdownViewer({
             });
         }
 
+        // 5. Selected Link Traceability Highlight
+        if (highlight && highlight.type === "text" && highlight.content) {
+            const hText = highlight.content.trim();
+            if (hText.length >= 2) {
+                const escaped = hText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                try {
+                    const re = new RegExp(`(${escaped})`, 'i'); // Match the first occurrence
+                    processed = processed.replace(re, `[$1](#link-highlight-match)`);
+                } catch (e) {
+                    console.warn("Failed to create trace highlight regex", e);
+                }
+            }
+        }
+
         return processed;
-    }, [content, highlightTarget]);
+    }, [content, highlightTarget, highlight]);
+
+    // Auto-scroll to active link highlight
+    React.useEffect(() => {
+        if (!highlight || highlight.type !== "text") return;
+        
+        const timer = setTimeout(() => {
+            const el = containerRef.current?.querySelector("#active-link-highlight");
+            if (el) {
+                console.log("[MarkdownViewer] Auto-scrolling to highlighted text fragment");
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        }, 200); // slight delay to allow rendering
+        
+        return () => clearTimeout(timer);
+    }, [highlight, processedContent]);
 
     return (
         <div
@@ -224,6 +256,19 @@ export function MarkdownViewer({
                         if (href === "#highlight-match") {
                             return (
                                 <span className="bg-yellow-200 dark:bg-yellow-900/50 text-slate-900 dark:text-slate-100 rounded-sm px-0.5 box-decoration-clone">
+                                    {children}
+                                </span>
+                            );
+                        }
+
+                        // 1.b. Link Traceability Highlight Match (Pulsating amber, premium glow)
+                        if (href === "#link-highlight-match") {
+                            return (
+                                <span 
+                                    id="active-link-highlight"
+                                    className="bg-amber-200 dark:bg-amber-950/70 border-b-2 border-amber-500 text-slate-900 dark:text-slate-100 rounded-sm px-1 py-0.5 box-decoration-clone shadow-[0_0_15px_rgba(245,158,11,0.8)] animate-pulse font-semibold"
+                                    title={highlight?.targetTitle ? `Linked to: ${highlight.targetTitle} (${highlight.linkTitle || 'related'})` : "Source Selection"}
+                                >
                                     {children}
                                 </span>
                             );

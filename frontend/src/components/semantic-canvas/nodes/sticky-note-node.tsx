@@ -11,7 +11,8 @@ import {
     Type as TypeIcon,
     Trash2,
     ChevronDown,
-    Baseline
+    Baseline,
+    Highlighter
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "../canvas-store";
@@ -47,8 +48,10 @@ export function StickyNoteNode({ id, data, selected }: NodeProps) {
     const updateThing = useCanvasStore(state => state.updateThing);
     const editingThingId = useCanvasStore(state => state.editingThingId);
     const setEditingThingId = useCanvasStore(state => state.setEditingThingId);
+    const accessLevel = useCanvasStore(state => state.accessLevel);
+    const isReadOnly = accessLevel === "read";
     
-    const isEditing = editingThingId === id;
+    const isEditing = editingThingId === id && !isReadOnly;
     const containerRef = React.useRef<HTMLDivElement>(null);
     const contentRef = React.useRef<HTMLDivElement>(null);
     
@@ -76,9 +79,11 @@ export function StickyNoteNode({ id, data, selected }: NodeProps) {
     const [fontFamilyOpen, setFontFamilyOpen] = React.useState(false);
     const [fontSizeOpen, setFontSizeOpen] = React.useState(false);
     const [textColorOpen, setTextColorOpen] = React.useState(false);
+    const [textBgColorOpen, setTextBgColorOpen] = React.useState(false);
     const [bgColorOpen, setBgColorOpen] = React.useState(false);
 
     const handleContentChange = () => {
+        if (isReadOnly) return;
         if (contentRef.current) {
             const newText = contentRef.current.innerHTML;
             // We update the store but DON'T update the local content state
@@ -90,6 +95,7 @@ export function StickyNoteNode({ id, data, selected }: NodeProps) {
     };
 
     const execCommand = (command: string, value?: string) => {
+        if (isReadOnly) return;
         if (document.activeElement !== contentRef.current) {
             contentRef.current?.focus();
         }
@@ -98,11 +104,13 @@ export function StickyNoteNode({ id, data, selected }: NodeProps) {
     };
 
     const handleBgColorChange = (color: string) => {
+        if (isReadOnly) return;
         setBgColor(color);
         updateThing(id, { color });
     };
 
     const handleNodeClick = (e: React.MouseEvent) => {
+        if (isReadOnly) return;
         // We use onClick (which fires after mouseup) to enter edit mode.
         // React Flow handles selection and dragging on pointerdown.
         if (!isEditing) {
@@ -339,6 +347,45 @@ export function StickyNoteNode({ id, data, selected }: NodeProps) {
                         </PopoverContent>
                     </Popover>
 
+                    {/* Text Background Color (Highlight) */}
+                    <Popover open={textBgColorOpen} onOpenChange={setTextBgColorOpen} modal={false}>
+                        <PopoverTrigger asChild>
+                            <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8" 
+                                title="Text Highlight Color"
+                                onMouseDown={(e) => e.preventDefault()}
+                            >
+                                <Highlighter className="h-4 w-4" />
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent 
+    onOpenAutoFocus={(e) => e.preventDefault()} 
+    onCloseAutoFocus={(e) => e.preventDefault()} className="w-auto p-3 flex flex-col gap-2">
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="w-full text-xs h-8"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                    contentRef.current?.focus();
+                                    document.execCommand("styleWithCSS", false, "true");
+                                    execCommand("hiliteColor", "transparent");
+                                    setTextBgColorOpen(false);
+                                }}
+                            >
+                                Transparent
+                            </Button>
+                            <HexColorPicker onChange={(color) => {
+                                contentRef.current?.focus();
+                                document.execCommand("styleWithCSS", false, "true");
+                                execCommand("hiliteColor", color);
+                                setTextBgColorOpen(false);
+                            }} />
+                        </PopoverContent>
+                    </Popover>
+
                     {/* Background Color */}
                     <Popover open={bgColorOpen} onOpenChange={setBgColorOpen} modal={false}>
                         <PopoverTrigger asChild>
@@ -394,11 +441,11 @@ export function StickyNoteNode({ id, data, selected }: NodeProps) {
             />
 
             {/* Resize Handles */}
-            {selected && (
+            {selected && !isReadOnly && (
                 <NodeResizer 
                     minWidth={150} 
                     minHeight={150} 
-                    isVisible={selected} 
+                    isVisible={selected && !isReadOnly} 
                     lineClassName="border-blue-500" 
                     handleClassName="h-3 w-3 bg-white border-2 border-blue-500 rounded-full"
                     onResizeEnd={(_, { width, height }) => onResizeEnd(id, width, height)}
