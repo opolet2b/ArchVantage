@@ -45,3 +45,4 @@ ddgs
 rdflib
 google-genai
 langgraph-checkpoint-sqlite
+markdown2
