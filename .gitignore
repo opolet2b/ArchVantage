@@ -55,6 +55,7 @@ backend/agent_data.json
 backend/agent_graph.json
 *.log
 backend/*.txt
+!backend/requirements.txt
 backend/data_storage/
 Videos/
 
