@@ -22,6 +22,8 @@
 docker_pack/*
 !docker_pack/db
 !docker_pack/data
+!docker_pack/chroma_db
+!docker_pack/data_storage
 frontend/out
 build
 dist
@@ -31,5 +33,8 @@ backend/db/
 backend/data/
 backend/data_storage/
 backend/chroma_db/
-**/*.db
 **/*.sqlite3
+
+# Explicitly re-include database files from docker_pack so they aren't ignored
+!docker_pack/db/*.db
+!docker_pack/db/*.sqlite3
