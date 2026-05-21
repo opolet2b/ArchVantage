@@ -16,7 +16,8 @@ import {
     Bot,
     Wand2,
     ChevronLeft,
-    ChevronRight
+    ChevronRight,
+    GitBranch
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
@@ -45,7 +46,8 @@ export type ToolType =
     | "agent_tool"
     | "archimate_tool"
     | "ocr_conversion"
-    | "sticky";
+    | "sticky"
+    | "workflow";
 
 export interface CanvasTool {
     id: ToolType;
@@ -137,6 +139,12 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         icon: <Wand2 className="h-4 w-4" />,
         description: "Convert scan/image to text"
     },
+    {
+        id: "workflow",
+        name: "Workflow Instance",
+        icon: <GitBranch className="h-4 w-4" />,
+        description: "Instantiate an interactive automation process"
+    },
 ];
 
 const PRESET_COLORS = [
@@ -180,6 +188,9 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
 
     // OCR - Amber
     ocr_conversion: "#fffbeb",
+
+    // Workflow - Violet
+    workflow: "#f5f3ff",
 };
 
 

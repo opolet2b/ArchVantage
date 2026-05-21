@@ -20,6 +20,7 @@ from app.models.template import Template, TemplateFolder, TemplatePermission
 from app.models.tools import Tool, Category as ToolCategory, ToolPermission, MCPServer, MCPServerPermission
 from app.models.knowledge_graph import KnowledgeBaseConfig
 from app.models.stt import STTConfig
+from app.models.workflow import WorkflowTemplate, WorkflowInstance, WorkflowExecutionLog
 
 from app.routers import (
     chat, workflow, rag, knowledge, research, config, conversation,

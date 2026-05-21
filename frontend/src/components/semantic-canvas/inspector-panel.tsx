@@ -421,6 +421,19 @@ export function InspectorPanel() {
                     {isReadOnly && (
                         <Badge variant="secondary" className="text-[9px] h-4 px-1 bg-amber-100 text-amber-700 border-amber-200 uppercase font-bold">Read Only</Badge>
                     )}
+                    {item && (
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-5 text-[9px] px-1.5 ml-1 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            onClick={() => {
+                                navigator.clipboard.writeText(item.id);
+                            }}
+                            title="Copy ID to clipboard"
+                        >
+                            Copy ID
+                        </Button>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-1">

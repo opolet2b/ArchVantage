@@ -2657,12 +2657,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 <div className="flex-1 w-full min-h-0 flex flex-col overflow-hidden rounded-lg relative">
                     <div ref={nodeRef} className="absolute inset-0 pointer-events-none" />
                     {/* Gradient header - Pure Drag Handle */}
+                    {/* Document and Text headers */}
                     <div className={cn(
                         "flex items-center gap-2 px-3 py-2 border-b rounded-t-lg",
                         colorTheme.headerBg,
                         colorTheme.headerBgDark,
-                        // Cursor pointer to indicate draggable/selectable
-                        "cursor-pointer select-none"
+                        "select-none"
                     )}
                         style={{
                             backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,

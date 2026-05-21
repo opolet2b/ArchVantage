@@ -36,6 +36,8 @@ import { TextThingEditor } from "./nodes/text-thing-editor";
 import { CustomEdge } from "./edges/custom-edge";
 import { CanvasToolbar } from "./canvas-toolbar";
 import { StickyNoteNode } from "./nodes/sticky-note-node";
+import { WorkflowInstanceNode } from "./nodes/workflow-instance-node";
+import { WorkflowTemplateDialog } from "./workflow-template-dialog";
 
 import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport, DomainDefinition } from "./canvas-store";
 
@@ -98,6 +100,7 @@ const nodeTypesMemo = {
     thing: ThingNode,
     domain: DomainNode,
     sticky: StickyNoteNode,
+    workflow: WorkflowInstanceNode,
 };
 
 const edgeTypesMemo: EdgeTypes = {
@@ -326,7 +329,7 @@ function CanvasViewInner() {
     // Convert things to React Flow nodes (memoized)
     const thingNodes: Node[] = React.useMemo(() => things.map((thing) => ({
         id: thing.id,
-        type: thing.type === "sticky" ? "sticky" : "thing",
+        type: thing.type === "sticky" ? "sticky" : thing.type === "workflow" ? "workflow" : "thing",
         selected: selectedThingIds.includes(thing.id),
         position: { x: thing.position_x, y: thing.position_y },
         data: {
@@ -1737,6 +1740,10 @@ function CanvasViewInner() {
                         "ArchiMate Importer" // title
                     );
                     break;
+                case "workflow":
+                    setPendingDropPos(position);
+                    setShowWorkflowDialog(true);
+                    break;
                 case "ocr_conversion":
                     setShowOCRDialog(true);
                     break;
@@ -2359,6 +2366,7 @@ function CanvasViewInner() {
     const [showImageSlidesDialog, setShowImageSlidesDialog] = React.useState(false);
     const [showMCPToolDialog, setShowMCPToolDialog] = React.useState(false);
     const [showAgentToolDialog, setShowAgentToolDialog] = React.useState(false);
+    const [showWorkflowDialog, setShowWorkflowDialog] = React.useState(false);
 
     // Track dragging state for smooth animations
     const [isDraggingNode, setIsDraggingNode] = React.useState(false);
@@ -2446,6 +2454,37 @@ function CanvasViewInner() {
             );
         }
         setShowAgentToolDialog(false);
+        setPendingDropPos(null);
+        setPendingCanvasId(null);
+    };
+
+    // Workflow Creation Handler
+    const handleAddWorkflow = async (template: any, customName: string, customDescription: string) => {
+        const storeModel = useCanvasStore.getState().selectedModel;
+        const storeVisionModel = useCanvasStore.getState().visionModel;
+
+        await addThing(
+            "workflow",
+            {
+                template_id: template.id,
+                template_name: template.name,
+                template_description: customDescription || template.description || "",
+                status: "IDLE",
+                current_node_ids: [],
+                instance_id: undefined,
+                state_payload: {},
+                selected_model: storeModel,
+                selected_vision_model: storeVisionModel
+            },
+            pendingDropPos || getCenterPosition(),
+            450, // default width
+            380, // default height
+            customName || template.name, // title
+            "#f5f3ff", // violet theme color
+            undefined, // scrapeOptions
+            undefined // transientExtras
+        );
+        setShowWorkflowDialog(false);
         setPendingDropPos(null);
         setPendingCanvasId(null);
     };
@@ -3054,6 +3093,12 @@ function CanvasViewInner() {
                                 existingConfig={editingAgentId ? { ...things.find(t => t.id === editingAgentId)?.content, id: editingAgentId } : undefined}
                                 mode={editingAgentId ? "mapping" : "create"}
                                 showMapping={!!editingAgentId}
+                            />
+
+                            <WorkflowTemplateDialog
+                                open={showWorkflowDialog}
+                                onOpenChange={setShowWorkflowDialog}
+                                onConfirm={handleAddWorkflow}
                             />
 
                             <CanvasContextMenu

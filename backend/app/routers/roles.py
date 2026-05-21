@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.user import Role, KnownADGroup, GroupMapping, User, UserRole, UserRoleSource
 from app.schemas.user import Role as RoleSchema, RoleCreate, KnownADGroup as KnownADGroupSchema, GroupMappingCreate
-from app.routers.auth import get_current_admin_user, PermissionChecker
+from app.routers.auth import get_current_admin_user, PermissionChecker, get_current_active_user
 
 router = APIRouter()
 
@@ -13,7 +13,7 @@ def read_roles(
     skip: int = 0, 
     limit: int = 100, 
     db: Session = Depends(get_db), 
-    current_user: User = Depends(PermissionChecker("role:manage"))
+    current_user: User = Depends(get_current_active_user)
 ):
     roles = db.query(Role).offset(skip).limit(limit).all()
     return roles

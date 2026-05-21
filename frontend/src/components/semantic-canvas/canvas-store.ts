@@ -33,7 +33,8 @@ export type ThingType =
     | "agent_tool"
     | "archimate_tool"
     | "archimate_element"
-    | "sticky";
+    | "sticky"
+    | "workflow";
 
 /**
  * Types of relationships between things.

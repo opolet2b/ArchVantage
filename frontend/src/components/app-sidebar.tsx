@@ -12,7 +12,7 @@ import { useViewMode } from "@/lib/view-mode-context"
 import { useAuth } from "@/lib/auth-context"
 
 const navItems = [
-    { href: "/workflow", icon: GitGraph, label: "Workflows" },
+    { href: "/workflow", icon: GitGraph, label: "Workflow Builder" },
     { href: "/agents-tools", icon: Bot, label: "Agents and Tools" },
     { href: "/smart-analysis", icon: Brain, label: "Smart Analysis" },
     { href: "/scenarios", icon: Layers, label: "Scenarios" },
