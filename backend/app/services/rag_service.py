@@ -103,7 +103,11 @@ class RAGService:
                     active_model = llm_preset["name"]
                     
                     # Check if Settings.llm is already set to this model to avoid redundant init
-                    current_llm = getattr(Settings, "llm", None)
+                    try:
+                        current_llm = getattr(Settings, "llm", None)
+                    except ValueError:
+                        current_llm = None
+                        
                     if current_llm and hasattr(current_llm, "model_name") and current_llm.model_name == active_model:
                         print(f"[RAGService] Settings.llm already set to '{active_model}'. Skipping re-sync.")
                     else:
