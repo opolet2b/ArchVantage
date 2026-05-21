@@ -3,8 +3,8 @@ import os
 import httpx
 from typing import Dict, Any, List, Optional
 
-# Root of the project
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Root of the backend directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CONFIG_FILE = os.path.join(BASE_DIR, "data", "config.json")
 
 class ConfigService:
