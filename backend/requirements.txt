@@ -44,3 +44,4 @@ duckduckgo-search
 ddgs
 rdflib
 google-genai
+langgraph-checkpoint-sqlite
