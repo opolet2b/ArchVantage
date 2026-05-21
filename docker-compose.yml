@@ -11,7 +11,7 @@ services:
       - ./backend/data:/app/backend/data
       - ./backend/data_storage:/app/backend/data_storage
       - ./backend/chroma_db:/app/backend/chroma_db
-      - ./backend/db:/app/backend/db
+      - sqlite_data:/app/backend/db
     environment:
       - PORT=3000
       - HOSTNAME=0.0.0.0
@@ -20,3 +20,6 @@ services:
       - ARCADEDB_HOST=http://host.docker.internal:2480
       - OLLAMA_HOST=http://host.docker.internal:11434
     restart: unless-stopped
+
+volumes:
+  sqlite_data:
