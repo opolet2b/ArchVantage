@@ -279,7 +279,7 @@ export function WorkflowInstanceNode({ id, data, selected }: NodeProps) {
         const activeNodeId = instanceData.current_node_ids?.[0];
         if (!activeNodeId) return;
 
-        const guiSchema = instanceData.gui_schema || {
+        let guiSchema = instanceData.gui_schema || {
             type: "object",
             title: "Human Approval Required",
             properties: {
@@ -287,6 +287,14 @@ export function WorkflowInstanceNode({ id, data, selected }: NodeProps) {
                 comments: { type: "string", title: "Review Comments" }
             }
         };
+
+        if (typeof guiSchema === "string") {
+            try {
+                guiSchema = JSON.parse(guiSchema);
+            } catch (e) {
+                console.error("Failed to parse gui_schema string", e);
+            }
+        }
 
         const laneAuth = instanceData.lane_authorization || {};
 

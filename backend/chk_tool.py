@@ -23,12 +23,15 @@ for row in result:
         
     output_schema = config.get("output_schema")
     
-    # Filter for the relevant tool if possible
-    if tool_id == 1:
-        print(f"--- Tool: {tool_name} (ID: {tool_id}) ---")
-        if output_schema:
-            print(json.dumps(output_schema, indent=2))
-        else:
-            print("No output_schema")
-        print("\n")
+    print(f"--- Tool: {tool_name} (ID: {tool_id}) ---")
+    print(f"Type of config: {type(config_json)}")
+    print(f"Content: {config_json}")
+    if output_schema:
+        print("Output Schema:")
+        print(json.dumps(output_schema, indent=2))
+    else:
+        print("No output_schema")
+    print("\n")
+db.close()
+
 

@@ -1339,6 +1339,18 @@ export function WorkflowEditor() {
         }
     }
 
+    const handleNewTemplate = () => {
+        setSelectedTemplateId("")
+        setTemplateName("New Automation Workflow")
+        setTemplateDescription("")
+        setNodes([])
+        setEdges([])
+        setLaneOrder([])
+        setSelectedNode(null)
+        setValidationReport([])
+        setValidationPassed(null)
+    }
+
     const handleDeleteTemplate = async () => {
         if (!selectedTemplateId) return
         if (!window.confirm("Are you sure you want to delete this workflow template? This action cannot be undone.")) return
@@ -1391,7 +1403,16 @@ export function WorkflowEditor() {
                 if (eventData.type === "status") {
                     setDebugStatus(eventData.status)
                     setDebugActiveNodes(eventData.current_node_ids || [])
-                    setDebugActiveGuiSchema(eventData.gui_schema || null)
+                    
+                    let schema = eventData.gui_schema || null
+                    if (typeof schema === "string") {
+                        try {
+                            schema = JSON.parse(schema)
+                        } catch (e) {
+                            console.error("Failed to parse gui_schema string from SSE", e)
+                        }
+                    }
+                    setDebugActiveGuiSchema(schema)
                     
                     if (eventData.status === "COMPLETED" || eventData.status === "FAILED") {
                         if (eventSourceRef.current) {
@@ -1491,7 +1512,17 @@ export function WorkflowEditor() {
 
                     {/* Template Loader */}
                     <div className="flex flex-col gap-1.5 mt-2">
-                        <Label className="text-xs text-slate-400">Load Template</Label>
+                        <div className="flex items-center justify-between">
+                            <Label className="text-xs text-slate-400">Load Template</Label>
+                            <button
+                                onClick={handleNewTemplate}
+                                title="New blank workflow"
+                                className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 px-1.5 py-0.5 rounded transition-colors"
+                            >
+                                <Plus className="h-3 w-3" />
+                                New
+                            </button>
+                        </div>
                         <Select value={selectedTemplateId} onValueChange={handleLoadTemplate}>
                             <SelectTrigger className="w-full bg-slate-950 border-slate-800 focus:ring-indigo-500">
                                 <SelectValue placeholder="Select Template..." />

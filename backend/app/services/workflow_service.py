@@ -636,50 +636,88 @@ class WorkflowService:
                 db.close()
             raise e
 
-    async def resume_workflow(self, instance_id: str, user: User, form_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def resume_workflow(
+        self,
+        instance_id: str,
+        user: User,
+        form_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
-        Strictly validates role constraints before resuming execution.
+        Validates role constraints and resumes a paused workflow execution.
+
+        The next-node is determined first from the LangGraph checkpoint (compiled
+        app .get_state) and falls back to instance.current_node_ids when the
+        compiled snapshot returns no pending nodes (e.g. transient DB locking).
         """
         db = SessionLocal()
         try:
-            # 1. Fetch active state and config
-            instance = db.query(WorkflowInstance).filter(WorkflowInstance.id == instance_id).first()
+            # 1. Fetch active instance and template from DB
+            instance = db.query(WorkflowInstance).filter(
+                WorkflowInstance.id == instance_id
+            ).first()
             if not instance:
                 raise ValueError("Workflow instance not found")
-                
-            template = db.query(WorkflowTemplate).filter(WorkflowTemplate.id == instance.template_id).first()
+
+            if instance.status != WorkflowStatus.WAITING:
+                raise ValueError(
+                    "Workflow instance is not currently waiting for input."
+                )
+
+            template = db.query(WorkflowTemplate).filter(
+                WorkflowTemplate.id == instance.template_id
+            ).first()
             if not template:
                 raise ValueError("Workflow template blueprint not found")
-                
+
             bpmn_json = template.bpmn_json
-            
-            # Check current breakpoint using compiled graph snapshot instead of raw saver
-            saver = get_saver()
             config = {"configurable": {"thread_id": instance_id}}
-            
-            # Compile graph temporarily using synchronous saver to inspect the checkpoint state
-            workflow_temp = self.build_graph(bpmn_json, instance_id)
-            user_task_ids_temp = []
-            for node in bpmn_json.get("nodes", []):
-                node_type = str(node.get("type", "")).lower()
-                if instance.is_debug:
-                    if node_type not in ["start", "end", "lane", "startevent", "bpmnstartnode", "endevent", "bpmnendnode"]:
-                        user_task_ids_temp.append(node.get("id"))
-                else:
-                    if node_type in ["usertask", "user_task", "humantask", "bpmnusernode"]:
-                        user_task_ids_temp.append(node.get("id"))
-            
-            app_temp = workflow_temp.compile(
-                checkpointer=saver,
-                interrupt_before=user_task_ids_temp
-            )
-            state_snapshot = app_temp.get_state(config)
-            snap_next = get_snapshot_next(state_snapshot)
-            
-            if not snap_next:
+
+            # 2. Determine the next waiting node.
+            #    Primary: inspect the LangGraph compiled-graph state snapshot.
+            #    Fallback: use instance.current_node_ids stored by the background
+            #    runner (reliable because the DB is updated atomically).
+            next_node_id = None
+            try:
+                saver = get_saver()
+                user_task_ids_temp = []
+                for node in bpmn_json.get("nodes", []):
+                    node_type = str(node.get("type", "")).lower()
+                    if instance.is_debug:
+                        if node_type not in [
+                            "start", "end", "lane", "startevent",
+                            "bpmnstartnode", "endevent", "bpmnendnode"
+                        ]:
+                            user_task_ids_temp.append(node.get("id"))
+                    else:
+                        if node_type in [
+                            "usertask", "user_task", "humantask", "bpmnusernode"
+                        ]:
+                            user_task_ids_temp.append(node.get("id"))
+
+                workflow_temp = self.build_graph(bpmn_json, instance_id)
+                app_temp = workflow_temp.compile(
+                    checkpointer=saver,
+                    interrupt_before=user_task_ids_temp
+                )
+                state_snapshot = app_temp.get_state(config)
+                snap_next = get_snapshot_next(state_snapshot)
+                if snap_next:
+                    next_node_id = snap_next[0]
+            except Exception as snap_err:
+                print(
+                    f"[WORKFLOW RESUME] Snapshot lookup failed, "
+                    f"falling back to DB node ids: {snap_err}"
+                )
+
+            # Fallback: trust the DB record set by the background runner
+            if not next_node_id and instance.current_node_ids:
+                next_node_id = instance.current_node_ids[0]
+                print(
+                    f"[WORKFLOW RESUME] Using DB fallback next_node_id: {next_node_id}"
+                )
+
+            if not next_node_id:
                 raise ValueError("Workflow is not waiting on any breakpoints.")
-                
-            next_node_id = snap_next[0]
             
             # 2. Strict Lane RBAC Authorization check
             lane_info = get_node_lane_assignment(next_node_id, bpmn_json)
@@ -849,32 +887,45 @@ class WorkflowService:
         finally:
             db.close()
 
-    async def stream_workflow_execution(self, instance_id: str) -> Generator[str, None, None]:
+    async def stream_workflow_execution(
+        self,
+        instance_id: str
+    ) -> Generator[str, None, None]:
         """
         Pushes real-time execution changes, current breakpoints, and logs
         as NDJSON data stream to the Canvas subscriber.
+
+        Important: waiting-node resolution is derived entirely from the instance
+        DB record (status + current_node_ids) rather than the LangGraph
+        checkpoint saver.  saver.get() returns a CheckpointTuple namedtuple
+        that carries no .next attribute, so the old get_snapshot_next() call
+        always returned [] and gui_schema was never sent to the client.
         """
         last_log_id = 0
         execution_active = True
-        
+
         print(f"[WORKFLOW STREAM] Started subscription for instance: {instance_id}")
-        
+
         while execution_active:
             db = SessionLocal()
             try:
-                # 1. Fetch active state
-                instance = db.query(WorkflowInstance).filter(WorkflowInstance.id == instance_id).first()
+                # 1. Fetch active instance state from DB
+                instance = db.query(WorkflowInstance).filter(
+                    WorkflowInstance.id == instance_id
+                ).first()
                 if not instance:
-                    yield f"data: {{\"type\": \"error\", \"message\": \"Workflow instance '{instance_id}' not found\"}}\n\n"
+                    yield (
+                        f'data: {{"type": "error", "message": '
+                        f'"Workflow instance \'{instance_id}\' not found"}}\n\n'
+                    )
                     break
-                    
-                # 2. Pull incremental logs
+
+                # 2. Pull incremental execution logs
                 logs = db.query(WorkflowExecutionLog).filter(
                     WorkflowExecutionLog.instance_id == instance_id,
                     WorkflowExecutionLog.id > last_log_id
                 ).order_by(WorkflowExecutionLog.id.asc()).all()
-                
-                # Push log updates
+
                 for log in logs:
                     log_payload = {
                         "type": "log",
@@ -889,49 +940,100 @@ class WorkflowService:
                     }
                     yield f"data: {json.dumps(log_payload)}\n\n"
                     last_log_id = log.id
-                    
-                # 3. Check for waiting human validation
-                saver = get_saver()
-                config = {"configurable": {"thread_id": instance_id}}
-                state_snapshot = saver.get(config)
-                snap_next = get_snapshot_next(state_snapshot)
-                
+
+                # 3. Resolve waiting-node details using instance DB state.
+                #    We intentionally avoid saver.get() here because it returns
+                #    a CheckpointTuple whose .next attribute is always missing,
+                #    causing gui_schema to never be populated.
                 waiting_node = None
                 gui_schema = None
                 lane_authorization = {}
-                
-                if snap_next:
-                    # Currently halted at a breakpoint User Task
-                    waiting_node = snap_next[0]
-                    
-                    # Fetch form details from visual properties
+
+                if (
+                    instance.status == WorkflowStatus.WAITING
+                    and instance.current_node_ids
+                ):
+                    waiting_node = instance.current_node_ids[0]
+
+                    # Resolve form schema from template topology
                     template = db.query(WorkflowTemplate).filter(
                         WorkflowTemplate.id == instance.template_id
                     ).first()
                     if template:
                         nodes = template.bpmn_json.get("nodes", [])
-                        node = next((n for n in nodes if n.get("id") == waiting_node), None)
+                        node = next(
+                            (n for n in nodes if n.get("id") == waiting_node),
+                            None
+                        )
                         if node:
                             node_data = node.get("data", {})
-                            gui_schema = node_data.get("gui_schema") or {
-                                "type": "object",
-                                "title": node_data.get("label", "Human Approval Required"),
-                                "properties": {
-                                    "approved": {"type": "boolean", "title": "Approve Progression"},
-                                    "comments": {"type": "string", "title": "Review Comments"}
+
+                            # Primary: dynamically load from GUI tool if linked
+                            form_tool_id = node_data.get("form_tool_id")
+                            if form_tool_id:
+                                try:
+                                    from app.models.tools import Tool
+                                    tool = db.query(Tool).filter(
+                                        Tool.id == int(form_tool_id)
+                                    ).first()
+                                    if tool:
+                                        gui_schema = tool.configuration
+                                        if isinstance(gui_schema, str):
+                                            try:
+                                                gui_schema = json.loads(gui_schema)
+                                            except Exception as json_err:
+                                                print(
+                                                    f"[WORKFLOW STREAM ERROR] "
+                                                    f"Failed to parse tool config "
+                                                    f"JSON string: {json_err}"
+                                                )
+                                except Exception as tool_err:
+                                    print(
+                                        f"[WORKFLOW STREAM ERROR] Failed to fetch"
+                                        f" dynamic form tool {form_tool_id}: {tool_err}"
+                                    )
+
+                            # Secondary: fall back to inline gui_schema on node
+                            if not gui_schema:
+                                raw = node_data.get("gui_schema")
+                                if isinstance(raw, str):
+                                    try:
+                                        raw = json.loads(raw)
+                                    except Exception:
+                                        raw = None
+                                gui_schema = raw
+
+                            # Tertiary: default approval form
+                            if not gui_schema:
+                                gui_schema = {
+                                    "type": "object",
+                                    "title": node_data.get(
+                                        "label", "Human Approval Required"
+                                    ),
+                                    "properties": {
+                                        "approved": {
+                                            "type": "boolean",
+                                            "title": "Approve Progression"
+                                        },
+                                        "comments": {
+                                            "type": "string",
+                                            "title": "Review Comments"
+                                        }
+                                    }
                                 }
-                            }
-                            
+
                             # Lane restrictions metadata
-                            lane_info = get_node_lane_assignment(waiting_node, template.bpmn_json)
+                            lane_info = get_node_lane_assignment(
+                                waiting_node, template.bpmn_json
+                            )
                             if lane_info:
                                 lane_authorization = {
                                     "lane_name": lane_info.get("name"),
                                     "roles": lane_info.get("roles", []),
                                     "users": lane_info.get("users", [])
                                 }
-                                
-                # Push active status frame
+
+                # 4. Push active status frame to client
                 payload = {
                     "type": "status",
                     "status": instance.status.value,
@@ -939,26 +1041,32 @@ class WorkflowService:
                     "waiting_node": waiting_node,
                     "gui_schema": gui_schema,
                     "lane_authorization": lane_authorization,
-                    "variables": instance.state_payload.get("variables", {}) if instance.state_payload else {}
+                    "variables": (
+                        instance.state_payload.get("variables", {})
+                        if instance.state_payload else {}
+                    )
                 }
-                
                 yield f"data: {json.dumps(payload)}\n\n"
-                
-                # If execution terminated, close stream
-                if instance.status in [WorkflowStatus.COMPLETED, WorkflowStatus.FAILED]:
+
+                # 5. Terminate stream when execution finishes
+                if instance.status in [
+                    WorkflowStatus.COMPLETED, WorkflowStatus.FAILED
+                ]:
                     execution_active = False
-                    
+
             except Exception as e:
                 print(f"[WORKFLOW STREAM ERROR] subscription failed: {e}")
+                import traceback
+                traceback.print_exc()
                 error_payload = {"type": "error", "message": str(e)}
                 yield f"data: {json.dumps(error_payload)}\n\n"
                 break
             finally:
                 db.close()
-                
+
             if execution_active:
                 await asyncio.sleep(1.0)
-                
+
         print(f"[WORKFLOW STREAM] Ended subscription for instance: {instance_id}")
 
 

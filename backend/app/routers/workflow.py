@@ -277,14 +277,43 @@ async def get_workflow_instance_status(
             node = next((n for n in nodes if n.get("id") == waiting_node), None)
             if node:
                 node_data = node.get("data", {})
-                gui_schema = node_data.get("gui_schema") or {
-                    "type": "object",
-                    "title": node_data.get("label", "Human Approval Required"),
-                    "properties": {
-                        "approved": {"type": "boolean", "title": "Approve Progression"},
-                        "comments": {"type": "string", "title": "Review Comments"}
+                
+                # Dynamically resolve from the tools database if a form tool is linked
+                form_tool_id = node_data.get("form_tool_id")
+                if form_tool_id:
+                    try:
+                        from app.models.tools import Tool
+                        tool = db.query(Tool).filter(Tool.id == int(form_tool_id)).first()
+                        if tool:
+                            gui_schema = tool.configuration
+                            if isinstance(gui_schema, str):
+                                import json
+                                try:
+                                    gui_schema = json.loads(gui_schema)
+                                except Exception as json_err:
+                                    print(f"[WORKFLOW STATUS ERROR] Failed to parse tool config JSON string: {json_err}")
+                    except Exception as e:
+                        print(f"[WORKFLOW STATUS ERROR] Failed to fetch dynamic form tool {form_tool_id}: {e}")
+                
+                # Fallback to local gui_schema or default approval form if not dynamically resolved
+                if not gui_schema:
+                    gui_schema = node_data.get("gui_schema")
+                    if isinstance(gui_schema, str):
+                        import json
+                        try:
+                            gui_schema = json.loads(gui_schema)
+                        except Exception:
+                            pass
+                            
+                if not gui_schema:
+                    gui_schema = {
+                        "type": "object",
+                        "title": node_data.get("label", "Human Approval Required"),
+                        "properties": {
+                            "approved": {"type": "boolean", "title": "Approve Progression"},
+                            "comments": {"type": "string", "title": "Review Comments"}
+                        }
                     }
-                }
                 
                 from app.services.workflow_service import get_node_lane_assignment
                 lane_info = get_node_lane_assignment(waiting_node, template.bpmn_json)
