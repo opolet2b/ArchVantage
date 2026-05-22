@@ -221,6 +221,7 @@ async def get_workflow_instance_status(
 ):
     """
     Retrieves the execution status, current active nodes, and the completed timeline logs.
+    Includes resolved gui_schema and lane_authorization for active breakpoints.
     """
     instance = db.query(WorkflowInstance).filter(WorkflowInstance.id == id).first()
     if not instance:
@@ -229,6 +230,36 @@ async def get_workflow_instance_status(
     logs = db.query(WorkflowExecutionLog).filter(
         WorkflowExecutionLog.instance_id == id
     ).order_by(WorkflowExecutionLog.timestamp.asc()).all()
+    
+    # Resolve active user task gui_schema and lane restrictions if status is WAITING
+    gui_schema = None
+    lane_authorization = {}
+    
+    if instance.status.value == "WAITING" and instance.current_node_ids:
+        waiting_node = instance.current_node_ids[0]
+        template = db.query(WorkflowTemplate).filter(WorkflowTemplate.id == instance.template_id).first()
+        if template:
+            nodes = template.bpmn_json.get("nodes", [])
+            node = next((n for n in nodes if n.get("id") == waiting_node), None)
+            if node:
+                node_data = node.get("data", {})
+                gui_schema = node_data.get("gui_schema") or {
+                    "type": "object",
+                    "title": node_data.get("label", "Human Approval Required"),
+                    "properties": {
+                        "approved": {"type": "boolean", "title": "Approve Progression"},
+                        "comments": {"type": "string", "title": "Review Comments"}
+                    }
+                }
+                
+                from app.services.workflow_service import get_node_lane_assignment
+                lane_info = get_node_lane_assignment(waiting_node, template.bpmn_json)
+                if lane_info:
+                    lane_authorization = {
+                        "lane_name": lane_info.get("name"),
+                        "roles": lane_info.get("roles", []),
+                        "users": lane_info.get("users", [])
+                    }
     
     return {
         "id": instance.id,
@@ -239,6 +270,8 @@ async def get_workflow_instance_status(
         "state_payload": instance.state_payload,
         "created_at": instance.created_at,
         "updated_at": instance.updated_at,
+        "gui_schema": gui_schema,
+        "lane_authorization": lane_authorization,
         "logs": [
             {
                 "id": log.id,

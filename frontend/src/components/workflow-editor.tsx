@@ -99,6 +99,159 @@ interface NodeData extends Record<string, any> {
 type BPMNNode = Node<NodeData>
 
 // =============================================================================
+// Helper Component: Dynamic Form Renderer for step-by-step debugging
+// =============================================================================
+function renderDynamicForm(
+    guiSchema: any, 
+    values: Record<string, any>, 
+    onChange: (key: string, val: any) => void,
+    disabled: boolean = false
+) {
+    if (!guiSchema) return null;
+
+    // 1. Components List Format (from GUI tool configuration)
+    if (Array.isArray(guiSchema.components)) {
+        return (
+            <div className="flex flex-col gap-2.5">
+                {guiSchema.components.map((comp: any) => {
+                    const compId = comp.id;
+                    const compType = comp.type || "text_input";
+                    const label = comp.label || compId;
+                    const placeholder = comp.placeholder || "";
+                    const required = comp.required || false;
+                    const val = values[compId] !== undefined ? values[compId] : (comp.default || "");
+
+                    return (
+                        <div key={compId} className="flex flex-col gap-1">
+                            <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                                {label} {required && <span className="text-rose-500">*</span>}
+                            </Label>
+                            {compType === "text_area" ? (
+                                <Textarea
+                                    disabled={disabled}
+                                    placeholder={placeholder}
+                                    value={val}
+                                    onChange={(e) => onChange(compId, e.target.value)}
+                                    className="bg-slate-900 border-slate-800 text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
+                                    rows={2}
+                                />
+                            ) : compType === "dropdown" || compType === "select" ? (
+                                <Select
+                                    disabled={disabled}
+                                    value={val}
+                                    onValueChange={(v) => onChange(compId, v)}
+                                >
+                                    <SelectTrigger className="bg-slate-900 border-slate-800 text-slate-100 h-8 text-xs rounded">
+                                        <SelectValue placeholder={placeholder || "Select option..."} />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-slate-950 border-slate-800 text-slate-100">
+                                        {(comp.options || []).map((opt: any) => (
+                                            <SelectItem key={opt.value} value={opt.value} className="text-xs hover:bg-slate-800">
+                                                {opt.label || opt.value}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            ) : compType === "boolean" || compType === "checkbox" ? (
+                                <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer py-0.5">
+                                    <input
+                                        type="checkbox"
+                                        disabled={disabled}
+                                        checked={!!val}
+                                        onChange={(e) => onChange(compId, e.target.checked)}
+                                        className="rounded bg-slate-900 border-slate-800 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                    />
+                                    {label}
+                                </label>
+                            ) : (
+                                <Input
+                                    disabled={disabled}
+                                    type={compType === "number" ? "number" : "text"}
+                                    placeholder={placeholder}
+                                    value={val}
+                                    onChange={(e) => onChange(compId, compType === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
+                                    className="bg-slate-900 border-slate-800 text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
+                                />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    // 2. Standard JSON Schema Format
+    if (guiSchema.properties) {
+        return (
+            <div className="flex flex-col gap-2.5">
+                {Object.entries(guiSchema.properties).map(([key, valObj]) => {
+                    const prop = valObj as any;
+                    const label = prop.title || key;
+                    const required = Array.isArray(guiSchema.required) && guiSchema.required.includes(key);
+                    const propType = prop.type;
+                    const val = values[key] !== undefined ? values[key] : "";
+
+                    return (
+                        <div key={key} className="flex flex-col gap-1">
+                            <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                                {label} {required && <span className="text-rose-500">*</span>}
+                            </Label>
+                            {prop.enum ? (
+                                <Select
+                                    disabled={disabled}
+                                    value={val}
+                                    onValueChange={(v) => onChange(key, v)}
+                                >
+                                    <SelectTrigger className="bg-slate-900 border-slate-800 text-slate-100 h-8 text-xs rounded">
+                                        <SelectValue placeholder="Select..." />
+                                    </SelectTrigger>
+                                    <SelectContent className="bg-slate-955 border-slate-800 text-slate-100">
+                                        {prop.enum.map((opt: string) => (
+                                            <SelectItem key={opt} value={opt} className="text-xs hover:bg-slate-800">
+                                                {opt}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            ) : propType === "boolean" ? (
+                                <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer py-0.5">
+                                    <input
+                                        type="checkbox"
+                                        disabled={disabled}
+                                        checked={!!val}
+                                        onChange={(e) => onChange(key, e.target.checked)}
+                                        className="rounded bg-slate-900 border-slate-800 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                    />
+                                    {label}
+                                </label>
+                            ) : propType === "string" && (key.includes("comment") || key.includes("note") || key.includes("desc")) ? (
+                                <Textarea
+                                    disabled={disabled}
+                                    value={val}
+                                    onChange={(e) => onChange(key, e.target.value)}
+                                    className="bg-slate-900 border-slate-800 text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
+                                    rows={2}
+                                />
+                            ) : (
+                                <Input
+                                    disabled={disabled}
+                                    type={propType === "number" || propType === "integer" ? "number" : "text"}
+                                    value={val}
+                                    onChange={(e) => onChange(key, propType === "number" || propType === "integer" ? parseFloat(e.target.value) || 0 : e.target.value)}
+                                    className="bg-slate-900 border-slate-800 text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
+                                />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    return null;
+}
+
+// =============================================================================
 // Styled BPMN Node Components for React Flow
 // =============================================================================
 
@@ -598,6 +751,9 @@ export function WorkflowEditor() {
     const [roles, setRoles] = useState<RoleItem[]>([])
     const [templates, setTemplates] = useState<TemplateItem[]>([])
     const [selectedTemplateId, setSelectedTemplateId] = useState<string>("")
+    const [guiTools, setGuiTools] = useState<any[]>([])
+    const [debugFormValues, setDebugFormValues] = useState<Record<string, any>>({})
+    const [debugActiveGuiSchema, setDebugActiveGuiSchema] = useState<any | null>(null)
 
     // 3. Modals and Settings State
     const [templateName, setTemplateName] = useState("")
@@ -667,6 +823,14 @@ export function WorkflowEditor() {
                 if (templatesRes.ok) {
                     const data = await templatesRes.json()
                     setTemplates(data)
+                }
+
+                // Fetch tools and filter GUI form tools
+                const toolsRes = await fetch(`${API_URL}/tools`, { headers })
+                if (toolsRes.ok) {
+                    const data = await toolsRes.json()
+                    const filtered = data.filter((t: any) => t.tool_type === "gui" || t.tool_type === "GUI")
+                    setGuiTools(filtered)
                 }
             } catch (err) {
                 console.error("Failed to load backend workflow metadata", err)
@@ -1221,6 +1385,7 @@ export function WorkflowEditor() {
                 if (eventData.type === "status") {
                     setDebugStatus(eventData.status)
                     setDebugActiveNodes(eventData.current_node_ids || [])
+                    setDebugActiveGuiSchema(eventData.gui_schema || null)
                     
                     if (eventData.status === "COMPLETED" || eventData.status === "FAILED") {
                         if (eventSourceRef.current) {
@@ -1269,6 +1434,8 @@ export function WorkflowEditor() {
             })
             if (res.ok) {
                 const data = await res.json()
+                setDebugFormValues({})
+                setDebugActiveGuiSchema(null)
                 setDebugInstanceId(data.id)
                 setDebugStatus(data.status)
                 setDebugActiveNodes(data.current_node_ids || [])
@@ -1286,12 +1453,14 @@ export function WorkflowEditor() {
         if (!debugInstanceId) return
         const token = localStorage.getItem("token")
         try {
-            // Provide an empty dictionary to just unblock the node
+            // Provide the form values entered by the user during debugging
             await fetch(`${API_URL}/workflows/instances/${debugInstanceId}/resume`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ form_data: {} })
+                body: JSON.stringify({ form_data: debugFormValues })
             })
+            setDebugFormValues({})
+            setDebugActiveGuiSchema(null)
         } catch (err) {
             console.error(err)
         }
@@ -1544,20 +1713,40 @@ export function WorkflowEditor() {
                                 <div className="flex flex-col gap-1.5">
                                     <span className="text-xs font-semibold text-slate-300">Active Node(s):</span>
                                     {debugActiveNodes.length > 0 ? (
-                                        debugActiveNodes.map((nId) => (
-                                            <div key={nId} className="text-xs font-mono bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded border border-indigo-500/30">
-                                                {nodes.find(n => n.id === nId)?.data?.label || nId}
-                                            </div>
-                                        ))
+                                        debugActiveNodes.map((nId) => {
+                                            const actNode = nodes.find(n => n.id === nId)
+                                            return (
+                                                <div key={nId} className="space-y-2">
+                                                    <div className="text-xs font-mono bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded border border-indigo-500/30 flex items-center justify-between">
+                                                        <span>{actNode?.data?.label || nId}</span>
+                                                        <span className="text-[9px] uppercase font-bold text-indigo-400">({actNode?.type || "Task"})</span>
+                                                    </div>
+                                                </div>
+                                            )
+                                        })
                                     ) : (
                                         <div className="text-xs text-slate-500 italic">None</div>
                                     )}
                                 </div>
+
+                                {debugStatus === "WAITING" && debugActiveGuiSchema && (
+                                    <div className="border border-slate-850 bg-slate-950/60 rounded-xl p-3 space-y-3 max-h-60 overflow-y-auto">
+                                        <div className="text-[10px] font-bold text-amber-500 uppercase tracking-wide">
+                                            {debugActiveGuiSchema.title || "Human Input Form"}
+                                        </div>
+                                        {renderDynamicForm(
+                                            debugActiveGuiSchema,
+                                            debugFormValues,
+                                            (key, val) => setDebugFormValues(prev => ({ ...prev, [key]: val }))
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="pt-2 border-t border-slate-800">
                                     <Button 
                                         onClick={handleStepForward} 
                                         disabled={debugStatus !== "WAITING"}
-                                        className="w-full text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white gap-2 disabled:bg-slate-800 disabled:text-slate-500"
+                                        className="w-full text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white gap-2 disabled:bg-slate-800 disabled:text-slate-500 shadow-lg shadow-indigo-650/10 active:scale-95 transition-transform"
                                     >
                                         <ChevronRight className="h-4 w-4" />
                                         Step Forward
@@ -1837,7 +2026,50 @@ export function WorkflowEditor() {
                         {selectedNode.type === "user_task" && (
                             <div className="flex flex-col gap-4 border-t border-slate-800/80 pt-4">
                                 <div className="flex flex-col gap-1.5">
-                                    <Label className="text-xs text-slate-400">Human Form Tool Display</Label>
+                                    <Label className="text-xs text-slate-400">Associate Form Tool</Label>
+                                    <Select
+                                        value={selectedNode.data.form_tool_id?.toString() || "default"}
+                                        onValueChange={(val) => {
+                                            const tool = guiTools.find(t => t.id.toString() === val)
+                                            if (tool) {
+                                                handleUpdateNodeData(selectedNode.id, {
+                                                    form_tool_id: tool.id,
+                                                    form_tool_name: tool.name,
+                                                    gui_schema: tool.configuration
+                                                })
+                                            } else {
+                                                handleUpdateNodeData(selectedNode.id, {
+                                                    form_tool_id: null,
+                                                    form_tool_name: "Approval Form",
+                                                    gui_schema: {
+                                                        type: "object",
+                                                        properties: {
+                                                            approved: { type: "boolean", title: "Approve Progression" },
+                                                            comments: { type: "string", title: "Review Comments" }
+                                                        }
+                                                    }
+                                                })
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="bg-slate-950 border-slate-800 text-slate-100 focus:ring-indigo-500 text-sm">
+                                            <SelectValue placeholder="Choose a Form Tool..." />
+                                        </SelectTrigger>
+                                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                                            <SelectItem value="default" className="hover:bg-slate-800">
+                                                (Default Approval Form)
+                                            </SelectItem>
+                                            {guiTools.map((t) => (
+                                                <SelectItem key={t.id} value={t.id.toString()} className="hover:bg-slate-800">
+                                                    {t.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="flex flex-col gap-1.5">
+                                    <Label className="text-xs text-slate-400">Form Name / Display Label</Label>
                                     <Input 
                                         value={selectedNode.data.form_tool_name || "Approval Form"}
                                         onChange={(e) => handleUpdateNodeData(selectedNode.id, { form_tool_name: e.target.value })}
