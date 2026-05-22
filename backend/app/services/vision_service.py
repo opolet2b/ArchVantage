@@ -92,14 +92,13 @@ class OpenAIVisionProvider(VisionProvider):
             img_url = f"data:image/jpeg;base64,{image_data}"
             
         user_content = [
-            {"type": "text", "text": prompt},
             {
                 "type": "image_url", 
                 "image_url": {
-                    "url": img_url,
-                    "detail": "high"
+                    "url": img_url
                 }
-            }
+            },
+            {"type": "text", "text": prompt}
         ]
         
         messages.append(HumanMessage(content=user_content))
