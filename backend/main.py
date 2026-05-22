@@ -38,7 +38,7 @@ load_dotenv()
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="ChatBot Agent Orchestrator")
+app = FastAPI(title="Semantic Canvas")
 
 @app.middleware("http")
 async def log_requests(request, call_next):

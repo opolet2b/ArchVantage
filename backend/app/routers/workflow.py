@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models.workflow import WorkflowTemplate, WorkflowInstance, WorkflowExecutionLog
 from app.schemas.workflow import (
     WorkflowTemplateCreate,
+    WorkflowTemplateUpdate,
     WorkflowTemplateResponse,
     WorkflowInstanceCreate,
     WorkflowInstanceResponse,
@@ -80,6 +81,39 @@ async def create_workflow_template(
         created_by=current_user.id
     )
     db.add(template)
+    db.commit()
+    db.refresh(template)
+    return template
+
+
+@router.put("/workflows/templates/{id}", response_model=WorkflowTemplateResponse)
+async def update_workflow_template(
+    id: str,
+    payload: WorkflowTemplateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Updates an existing workflow template definition with new names,
+    descriptions, or visual BPMN diagram topologies.
+    
+    Ensures that modifications are applied cleanly and adheres to repository standards.
+    """
+    template = db.query(WorkflowTemplate).filter(WorkflowTemplate.id == id).first()
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow template not found"
+        )
+        
+    # Update only the fields that were provided in the request body
+    if payload.name is not None:
+        template.name = payload.name
+    if payload.description is not None:
+        template.description = payload.description
+    if payload.bpmn_json is not None:
+        template.bpmn_json = payload.bpmn_json
+        
     db.commit()
     db.refresh(template)
     return template

@@ -189,6 +189,7 @@ The API endpoints will be registered under `backend/app/routers/workflow.py`.
 Endpoint                               Method   Payload / Query         Auth / Check
 ========================================================================================
 POST /api/workflows/templates          POST     WorkflowTemplateCreate  Editor / Admin
+PUT  /api/workflows/templates/{id}      PUT      WorkflowTemplateUpdate  Editor / Admin
 GET  /api/workflows/templates/{id}      GET      -                       Read Canvas
 POST /api/workflows/instances/start    POST     WorkflowInstanceCreate  Write Canvas
 GET  /api/workflows/instances/{id}      GET      -                       Read Canvas

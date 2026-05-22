@@ -6,8 +6,8 @@ import { AppSidebar } from "@/components/app-sidebar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ChatBot Agent Orchestrator",
-  description: "Advanced AI Chat & Agent Orchestration",
+  title: "Semantic Canvas",
+  description: "Spatial computing platform for AI-driven insights and automation.",
 };
 
 import { ConversationProvider } from "@/lib/conversation-context"

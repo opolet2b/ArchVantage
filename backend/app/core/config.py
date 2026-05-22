@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    PROJECT_NAME: str = "ChatBot Agent Orchestrator"
+    PROJECT_NAME: str = "Semantic Canvas"
     API_V1_STR: str = "/api/v1"
     
     # Base Directory

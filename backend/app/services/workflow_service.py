@@ -566,7 +566,8 @@ class WorkflowService:
                         try:
                             instance_upd = db_bg.query(WorkflowInstance).filter(WorkflowInstance.id == instance_id).first()
                             if instance_upd:
-                                state_snap = await async_saver.aget(config)
+                                # Fetch full state snapshot via CompiledStateGraph API to read next nodes to run
+                                state_snap = await app.aget_state(config)
                                 snap_next = get_snapshot_next(state_snap)
                                 if snap_next:
                                     instance_upd.status = WorkflowStatus.WAITING
@@ -652,10 +653,27 @@ class WorkflowService:
                 
             bpmn_json = template.bpmn_json
             
-            # Check current breakpoint
+            # Check current breakpoint using compiled graph snapshot instead of raw saver
             saver = get_saver()
             config = {"configurable": {"thread_id": instance_id}}
-            state_snapshot = saver.get(config)
+            
+            # Compile graph temporarily using synchronous saver to inspect the checkpoint state
+            workflow_temp = self.build_graph(bpmn_json, instance_id)
+            user_task_ids_temp = []
+            for node in bpmn_json.get("nodes", []):
+                node_type = str(node.get("type", "")).lower()
+                if instance.is_debug:
+                    if node_type not in ["start", "end", "lane", "startevent", "bpmnstartnode", "endevent", "bpmnendnode"]:
+                        user_task_ids_temp.append(node.get("id"))
+                else:
+                    if node_type in ["usertask", "user_task", "humantask", "bpmnusernode"]:
+                        user_task_ids_temp.append(node.get("id"))
+            
+            app_temp = workflow_temp.compile(
+                checkpointer=saver,
+                interrupt_before=user_task_ids_temp
+            )
+            state_snapshot = app_temp.get_state(config)
             snap_next = get_snapshot_next(state_snapshot)
             
             if not snap_next:
@@ -742,14 +760,13 @@ class WorkflowService:
                     await aio_conn.execute("PRAGMA busy_timeout=30000")
                     
                     async_saver = AsyncSqliteSaver(aio_conn)
-                    # Update state asynchronously
-                    await async_saver.aupdate_state(config, new_state)
-                    
-                    # Compile graph using async saver
+                    # Compile graph using async saver first
                     app = workflow.compile(
                         checkpointer=async_saver,
                         interrupt_before=user_task_ids
                     )
+                    # Update state asynchronously on the compiled app graph
+                    await app.aupdate_state(config, new_state)
                     
                     await app.ainvoke(None, config)
                     
@@ -758,7 +775,8 @@ class WorkflowService:
                     try:
                         instance_upd = db_bg.query(WorkflowInstance).filter(WorkflowInstance.id == instance_id).first()
                         if instance_upd:
-                            state_snap = await async_saver.aget(config)
+                            # Fetch state snapshot from compiled app to get proper next node keys
+                            state_snap = await app.aget_state(config)
                             snap_next = get_snapshot_next(state_snap)
                             if snap_next:
                                 instance_upd.status = WorkflowStatus.WAITING

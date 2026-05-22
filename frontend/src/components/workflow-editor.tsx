@@ -1305,8 +1305,14 @@ export function WorkflowEditor() {
         }
 
         try {
-            const res = await fetch(`${API_URL}/workflows/templates`, {
-                method: "POST",
+            const isEditing = !!selectedTemplateId
+            const url = isEditing
+                ? `${API_URL}/workflows/templates/${selectedTemplateId}`
+                : `${API_URL}/workflows/templates`
+            const method = isEditing ? "PUT" : "POST"
+
+            const res = await fetch(url, {
+                method,
                 headers,
                 body: JSON.stringify(payload)
             })
