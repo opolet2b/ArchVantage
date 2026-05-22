@@ -88,8 +88,8 @@ class OpenAIVisionProvider(VisionProvider):
         # Ensure base64 prefix if missing
         img_url = image_data
         if not image_data.startswith("data:image"):
-            # Assume jpeg by default if raw base64
-            img_url = f"data:image/jpeg;base64,{image_data}"
+            # PyMuPDF in canvas_worker generates PNGs
+            img_url = f"data:image/png;base64,{image_data}"
             
         user_content = [
             {
@@ -337,8 +337,16 @@ class VisionService:
                 
                 # Handle OpenRouter/Proxy sort strategy
                 sort_strategy = target_preset.get("sort")
+                extra_body = {}
                 if sort_strategy:
-                    model_kwargs["extra_body"] = {"provider": {"sort": sort_strategy}}
+                    extra_body["provider"] = {"sort": sort_strategy}
+                
+                # If pointing to local vLLM, add the chat template kwargs to prevent thinking loops
+                if base_url and "thalabus" in base_url.lower():
+                    extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+                    
+                if extra_body:
+                    model_kwargs["extra_body"] = extra_body
 
             # Extract common LLM parameters if present
             if "temperature" in target_preset:
