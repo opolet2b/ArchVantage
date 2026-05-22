@@ -160,13 +160,13 @@ class RAGService:
                     try:
                         from llama_index.embeddings.openai import OpenAIEmbedding
                         if not api_key:
-                            print("[RAGService] Warning: OpenAI provider selected but no API Key found.")
+                            print("[RAGService] Warning: OpenAI provider selected but no API Key found. Using 'dummy' key.")
+                            api_key = "dummy"
                         
                         embed_args = {
                             "model_name": model,
+                            "api_key": api_key,
                         }
-                        if api_key:
-                            embed_args["api_key"] = api_key
                         if api_base:
                             embed_args["api_base"] = api_base
                             
