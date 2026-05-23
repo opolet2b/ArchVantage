@@ -716,14 +716,21 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
     const [isDebugFormOpen, setIsDebugFormOpen] = useState(false)
     const eventSourceRef = useRef<EventSource | null>(null)
 
-    // Auto-open debug form when waiting
+    const lastOpenedNodeRef = useRef<string | null>(null)
+
+    // Auto-open debug form when waiting, but only once per active node
     useEffect(() => {
         if (debugStatus === "WAITING" && debugActiveGuiSchema) {
-            setIsDebugFormOpen(true)
-        } else {
+            const activeNode = debugActiveNodes[0] || "unknown"
+            if (lastOpenedNodeRef.current !== activeNode) {
+                setIsDebugFormOpen(true)
+                lastOpenedNodeRef.current = activeNode
+            }
+        } else if (debugStatus !== "WAITING") {
             setIsDebugFormOpen(false)
+            lastOpenedNodeRef.current = null
         }
-    }, [debugStatus, debugActiveGuiSchema])
+    }, [debugStatus, debugActiveGuiSchema, debugActiveNodes])
 
     // Cleanup debug SSE on unmount
     useEffect(() => {
@@ -1445,7 +1452,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
         }
     }
 
-    const handleStepForward = async () => {
+    const handleStepForward = async (overrideData?: Record<string, any>) => {
         if (!debugInstanceId) return
         const token = localStorage.getItem("token")
         try {
@@ -1453,7 +1460,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
             await fetch(`${API_URL}/workflows/instances/${debugInstanceId}/resume`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ form_data: debugFormValues })
+                body: JSON.stringify({ form_data: overrideData || debugFormValues })
             })
             setDebugFormValues({})
             setDebugActiveGuiSchema(null)
@@ -1778,8 +1785,15 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                         </div>
 
                         <DialogFooter className="px-6 py-4 border-t border-border bg-muted/30 flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setIsDebugFormOpen(false)}>
-                                Cancel
+                            <Button 
+                                variant="outline" 
+                                className="text-rose-500 border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
+                                onClick={() => {
+                                    handleStepForward({ cancelled: true })
+                                    setIsDebugFormOpen(false)
+                                }}
+                            >
+                                Cancel Task
                             </Button>
                             <Button 
                                 onClick={() => {
