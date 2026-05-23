@@ -54,6 +54,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { HelpTooltip } from "@/components/ui/help-tooltip"
 import { API_URL } from "@/lib/utils"
+import { FormRenderer } from "@/components/tools/form-builder/form-renderer"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 
 // =============================================================================
 // Interface Types
@@ -113,71 +115,13 @@ function renderDynamicForm(
     // 1. Components List Format (from GUI tool configuration)
     if (Array.isArray(guiSchema.components)) {
         return (
-            <div className="flex flex-col gap-2.5">
-                {guiSchema.components.map((comp: any) => {
-                    const compId = comp.id;
-                    const compType = comp.type || "text_input";
-                    const label = comp.label || compId;
-                    const placeholder = comp.placeholder || "";
-                    const required = comp.required || false;
-                    const val = values[compId] !== undefined ? values[compId] : (comp.default || "");
-
-                    return (
-                        <div key={compId} className="flex flex-col gap-1">
-                            <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
-                                {label} {required && <span className="text-rose-500">*</span>}
-                            </Label>
-                            {compType === "text_area" ? (
-                                <Textarea
-                                    disabled={disabled}
-                                    placeholder={placeholder}
-                                    value={val}
-                                    onChange={(e) => onChange(compId, e.target.value)}
-                                    className="bg-card border-border text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
-                                    rows={2}
-                                />
-                            ) : compType === "dropdown" || compType === "select" ? (
-                                <Select
-                                    disabled={disabled}
-                                    value={val}
-                                    onValueChange={(v) => onChange(compId, v)}
-                                >
-                                    <SelectTrigger className="bg-popover border-border text-popover-foreground h-8 text-xs rounded">
-                                        <SelectValue placeholder={placeholder || "Select option..."} />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-background border-border text-slate-100">
-                                        {(comp.options || []).map((opt: any) => (
-                                            <SelectItem key={opt.value} value={opt.value} className="text-xs hover:bg-accent focus:bg-accent">
-                                                {opt.label || opt.value}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            ) : compType === "boolean" || compType === "checkbox" ? (
-                                <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer py-0.5">
-                                    <input
-                                        type="checkbox"
-                                        disabled={disabled}
-                                        checked={!!val}
-                                        onChange={(e) => onChange(compId, e.target.checked)}
-                                        className="rounded bg-card border-border text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                                    />
-                                    {label}
-                                </label>
-                            ) : (
-                                <Input
-                                    disabled={disabled}
-                                    type={compType === "number" ? "number" : "text"}
-                                    placeholder={placeholder}
-                                    value={val}
-                                    onChange={(e) => onChange(compId, compType === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
-                                    className="bg-card border-border text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
-                                />
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
+            <FormRenderer
+                widgets={guiSchema.components}
+                layout={guiSchema.layout}
+                value={values}
+                onChange={onChange}
+                readOnly={disabled}
+            />
         );
     }
 
@@ -206,7 +150,7 @@ function renderDynamicForm(
                                     <SelectTrigger className="bg-popover border-border text-popover-foreground h-8 text-xs rounded">
                                         <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-slate-955 border-border text-slate-100">
+                                    <SelectContent className="bg-popover border-border text-foreground">
                                         {prop.enum.map((opt: string) => (
                                             <SelectItem key={opt} value={opt} className="text-xs hover:bg-accent focus:bg-accent">
                                                 {opt}
@@ -215,7 +159,7 @@ function renderDynamicForm(
                                     </SelectContent>
                                 </Select>
                             ) : propType === "boolean" ? (
-                                <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer py-0.5">
+                                <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer py-0.5">
                                     <input
                                         type="checkbox"
                                         disabled={disabled}
@@ -230,7 +174,7 @@ function renderDynamicForm(
                                     disabled={disabled}
                                     value={val}
                                     onChange={(e) => onChange(key, e.target.value)}
-                                    className="bg-card border-border text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
+                                    className="bg-card border-border text-xs focus:ring-indigo-500 text-foreground min-h-[50px] rounded"
                                     rows={2}
                                 />
                             ) : (
@@ -239,7 +183,7 @@ function renderDynamicForm(
                                     type={propType === "number" || propType === "integer" ? "number" : "text"}
                                     value={val}
                                     onChange={(e) => onChange(key, propType === "number" || propType === "integer" ? parseFloat(e.target.value) || 0 : e.target.value)}
-                                    className="bg-card border-border text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
+                                    className="bg-card border-border text-xs h-8 focus:ring-indigo-500 text-foreground rounded"
                                 />
                             )}
                         </div>
@@ -260,7 +204,7 @@ const StartNode = ({ data }: any) => (
     <div className="flex flex-col items-center justify-center p-3 rounded-full border-2 border-emerald-500 bg-white/90 dark:bg-card/90 shadow-[0_0_15px_rgba(16,185,129,0.2)] backdrop-blur-md transition-all duration-300 hover:scale-105 select-none w-14 h-14 relative group">
         <Play className="h-6 w-6 text-emerald-500 fill-emerald-500/20 group-hover:scale-110 transition-transform" />
         <Handle type="source" position={Position.Right} className="w-3 h-3 bg-emerald-500 border-2 border-white dark:border-border" />
-        <div className="absolute top-16 text-[10px] font-bold text-muted-foreground dark:text-slate-300 bg-slate-100 dark:bg-secondary px-2 py-0.5 rounded shadow whitespace-nowrap">
+        <div className="absolute top-16 text-[10px] font-bold text-muted-foreground dark:text-foreground bg-slate-100 dark:bg-secondary px-2 py-0.5 rounded shadow whitespace-nowrap">
             {data.label || "Start"}
         </div>
     </div>
@@ -270,7 +214,7 @@ const EndNode = ({ data }: any) => (
     <div className="flex flex-col items-center justify-center p-3 rounded-full border-2 border-rose-500 bg-white/90 dark:bg-card/90 shadow-[0_0_15px_rgba(244,63,94,0.2)] backdrop-blur-md transition-all duration-300 hover:scale-105 select-none w-14 h-14 relative group">
         <Square className="h-5 w-5 text-rose-500 fill-rose-500/20 group-hover:scale-110 transition-transform" />
         <Handle type="target" position={Position.Left} className="w-3 h-3 bg-rose-500 border-2 border-white dark:border-border" />
-        <div className="absolute top-16 text-[10px] font-bold text-muted-foreground dark:text-slate-300 bg-slate-100 dark:bg-secondary px-2 py-0.5 rounded shadow whitespace-nowrap">
+        <div className="absolute top-16 text-[10px] font-bold text-muted-foreground dark:text-foreground bg-slate-100 dark:bg-secondary px-2 py-0.5 rounded shadow whitespace-nowrap">
             {data.label || "End"}
         </div>
     </div>
@@ -425,12 +369,12 @@ const LANE_DEFAULT_HEIGHT = 220
 const LANE_STRIPE_WIDTH = 44
 
 const LANE_ACCENT_COLORS = [
-    { stripe: "from-indigo-600 to-indigo-500", text: "text-indigo-200", badge: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30", headerBg: "bg-indigo-500/5" },
-    { stripe: "from-emerald-600 to-emerald-500", text: "text-emerald-200", badge: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30", headerBg: "bg-emerald-500/5" },
-    { stripe: "from-amber-600 to-amber-500", text: "text-amber-200", badge: "bg-amber-500/20 text-amber-300 border-amber-500/30", headerBg: "bg-amber-500/5" },
-    { stripe: "from-rose-600 to-rose-500", text: "text-rose-200", badge: "bg-rose-500/20 text-rose-300 border-rose-500/30", headerBg: "bg-rose-500/5" },
-    { stripe: "from-cyan-600 to-cyan-500", text: "text-cyan-200", badge: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30", headerBg: "bg-cyan-500/5" },
-    { stripe: "from-purple-600 to-purple-500", text: "text-purple-200", badge: "bg-purple-500/20 text-purple-300 border-purple-500/30", headerBg: "bg-purple-500/5" },
+    { stripe: "from-indigo-600 to-indigo-500", text: "text-indigo-200", badge: "bg-indigo-600 text-white shadow-sm", headerBg: "bg-indigo-500/5" },
+    { stripe: "from-emerald-600 to-emerald-500", text: "text-emerald-200", badge: "bg-emerald-600 text-white shadow-sm", headerBg: "bg-emerald-500/5" },
+    { stripe: "from-amber-600 to-amber-500", text: "text-amber-200", badge: "bg-amber-600 text-white shadow-sm", headerBg: "bg-amber-500/5" },
+    { stripe: "from-rose-600 to-rose-500", text: "text-rose-200", badge: "bg-rose-600 text-white shadow-sm", headerBg: "bg-rose-500/5" },
+    { stripe: "from-cyan-600 to-cyan-500", text: "text-cyan-200", badge: "bg-cyan-600 text-white shadow-sm", headerBg: "bg-cyan-500/5" },
+    { stripe: "from-purple-600 to-purple-500", text: "text-purple-200", badge: "bg-purple-600 text-white shadow-sm", headerBg: "bg-purple-500/5" },
 ]
 
 /**
@@ -612,12 +556,11 @@ const LaneNode = ({ id, data, selected }: any) => {
 
     return (
         <div
-            className={`w-full h-full rounded-xl overflow-hidden border-2 transition-all duration-200 select-none ${
+            className={`w-full h-full rounded-xl overflow-hidden border-2 transition-all duration-200 select-none bg-transparent ${
                 selected
-                    ? "border-slate-400 shadow-[0_0_20px_rgba(100,116,139,0.15)]"
-                    : "border-slate-700/50"
+                    ? "border-primary shadow-[0_0_20px_rgba(100,116,139,0.15)]"
+                    : "border-slate-400 dark:border-slate-600"
             }`}
-            style={{ background: "rgba(15,23,42,0.3)" }}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
         >
@@ -636,7 +579,7 @@ const LaneNode = ({ id, data, selected }: any) => {
 
             {/* Top header bar with controls */}
             <div
-                className={`flex items-center gap-2 ${accent.headerBg} border-b border-slate-700/30`}
+                className={`flex items-center gap-2 ${accent.headerBg} border-b border-border/30`}
                 style={{
                     marginLeft: LANE_STRIPE_WIDTH,
                     height: 36,
@@ -648,7 +591,7 @@ const LaneNode = ({ id, data, selected }: any) => {
                 <div
                     draggable
                     onDragStart={handleDragStart}
-                    className="nodrag cursor-grab active:cursor-grabbing p-1 hover:bg-slate-600/40 rounded transition-colors pointer-events-auto"
+                    className="nodrag cursor-grab active:cursor-grabbing p-1 hover:bg-accent rounded transition-colors pointer-events-auto"
                     title="Drag to reorder swimlane"
                 >
                     <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
@@ -682,7 +625,7 @@ const LaneNode = ({ id, data, selected }: any) => {
                 <div className="nodrag flex items-center gap-0.5 shrink-0 pointer-events-auto">
                     <button
                         onClick={(e) => { e.stopPropagation(); LANE_ACTIONS.moveUp(id) }}
-                        className="p-1 hover:bg-slate-600/40 rounded text-muted-foreground hover:text-slate-300 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                        className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
                         disabled={data.laneIndex === 0}
                         title="Move lane up"
                     >
@@ -690,7 +633,7 @@ const LaneNode = ({ id, data, selected }: any) => {
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); LANE_ACTIONS.moveDown(id) }}
-                        className="p-1 hover:bg-slate-600/40 rounded text-muted-foreground hover:text-slate-300 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                        className="p-1 hover:bg-accent rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30 disabled:pointer-events-none"
                         disabled={data.laneIndex === (data.totalLanes || 1) - 1}
                         title="Move lane down"
                     >
@@ -770,7 +713,17 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
     const [debugStatus, setDebugStatus] = useState<string | null>(null)
     const [debugActiveNodes, setDebugActiveNodes] = useState<string[]>([])
     const [debugPayload, setDebugPayload] = useState<string>('{\n  "document_id": "paste_doc_id_here"\n}')
+    const [isDebugFormOpen, setIsDebugFormOpen] = useState(false)
     const eventSourceRef = useRef<EventSource | null>(null)
+
+    // Auto-open debug form when waiting
+    useEffect(() => {
+        if (debugStatus === "WAITING" && debugActiveGuiSchema) {
+            setIsDebugFormOpen(true)
+        } else {
+            setIsDebugFormOpen(false)
+        }
+    }, [debugStatus, debugActiveGuiSchema])
 
     // Cleanup debug SSE on unmount
     useEffect(() => {
@@ -1435,12 +1388,20 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                 }
             } catch (e) {}
         }
-        eventSourceRef.current.onerror = () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close()
-            }
+        eventSourceRef.current.onerror = (err) => {
+            console.error("SSE Connection Error. Attempting to automatically reconnect...", err);
+            // Do not call close() here, allowing the browser to automatically reconnect
         }
     }
+
+    // Ensure SSE is closed when component unmounts (e.g., during hot reloads)
+    useEffect(() => {
+        return () => {
+            if (eventSourceRef.current) {
+                eventSourceRef.current.close();
+            }
+        };
+    }, []);
 
     const handleStartDebug = async () => {
         if (!selectedTemplateId) {
@@ -1734,7 +1695,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                 <Play className="h-4 w-4 text-emerald-400" />
                                 <span className="font-bold text-sm text-foreground">Debug Mode</span>
                             </div>
-                            <button onClick={() => { setIsDebugMode(false); setDebugInstanceId(null); setDebugStatus(null); setDebugActiveNodes([]); }} className="text-muted-foreground hover:text-slate-300">
+                            <button onClick={() => { setIsDebugMode(false); setDebugInstanceId(null); setDebugStatus(null); setDebugActiveNodes([]); }} className="text-muted-foreground hover:text-foreground">
                                 <X className="h-4 w-4" />
                             </button>
                         </div>
@@ -1746,7 +1707,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                     <Textarea
                                         value={debugPayload}
                                         onChange={(e) => setDebugPayload(e.target.value)}
-                                        className="bg-background border-border text-xs font-mono h-24 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-24 focus:ring-indigo-500 text-foreground"
                                     />
                                     <p className="text-[10px] text-muted-foreground">Provide document_id or other variables needed by the workflow.</p>
                                 </div>
@@ -1765,7 +1726,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                     }`}>{debugStatus}</span>
                                 </div>
                                 <div className="flex flex-col gap-1.5">
-                                    <span className="text-xs font-semibold text-slate-300">Active Node(s):</span>
+                                    <span className="text-xs font-semibold text-foreground">Active Node(s):</span>
                                     {debugActiveNodes.length > 0 ? (
                                         debugActiveNodes.map((nId) => {
                                             const actNode = nodes.find(n => n.id === nId)
@@ -1784,32 +1745,54 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                 </div>
 
                                 {debugStatus === "WAITING" && debugActiveGuiSchema && (
-                                    <div className="border border-border bg-background/60 rounded-xl p-3 space-y-3 max-h-60 overflow-y-auto">
+                                    <div className="border border-amber-500/30 bg-amber-500/10 rounded-xl p-3 space-y-3">
                                         <div className="text-[10px] font-bold text-amber-500 uppercase tracking-wide">
-                                            {debugActiveGuiSchema.title || "Human Input Form"}
+                                            {debugActiveGuiSchema.title || "Human Input Required"}
                                         </div>
-                                        {renderDynamicForm(
-                                            debugActiveGuiSchema,
-                                            debugFormValues,
-                                            (key, val) => setDebugFormValues(prev => ({ ...prev, [key]: val }))
-                                        )}
+                                        <Button 
+                                            onClick={() => setIsDebugFormOpen(true)}
+                                            className="w-full text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow shadow-amber-900/20 active:scale-95 transition-transform"
+                                        >
+                                            Open Task Form
+                                        </Button>
                                     </div>
                                 )}
-
-                                <div className="pt-2 border-t border-border">
-                                    <Button 
-                                        onClick={handleStepForward} 
-                                        disabled={debugStatus !== "WAITING"}
-                                        className="w-full text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white gap-2 disabled:bg-secondary disabled:text-muted-foreground shadow-lg shadow-indigo-650/10 active:scale-95 transition-transform"
-                                    >
-                                        <ChevronRight className="h-4 w-4" />
-                                        Step Forward
-                                    </Button>
-                                </div>
                             </div>
                         )}
                     </div>
                 )}
+
+                {/* Debug Task Form Dialog */}
+                <Dialog open={isDebugFormOpen} onOpenChange={setIsDebugFormOpen}>
+                    <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-0 bg-background border-border">
+                        <DialogHeader className="px-6 py-4 border-b border-border">
+                            <DialogTitle className="text-foreground">{debugActiveGuiSchema?.title || "Human Input Form"}</DialogTitle>
+                        </DialogHeader>
+
+                        <div className="flex-1 overflow-y-auto p-6">
+                            {debugActiveGuiSchema && renderDynamicForm(
+                                debugActiveGuiSchema,
+                                debugFormValues,
+                                (key, val) => setDebugFormValues(prev => ({ ...prev, [key]: val }))
+                            )}
+                        </div>
+
+                        <DialogFooter className="px-6 py-4 border-t border-border bg-muted/30 flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setIsDebugFormOpen(false)}>
+                                Cancel
+                            </Button>
+                            <Button 
+                                onClick={() => {
+                                    handleStepForward()
+                                    setIsDebugFormOpen(false)
+                                }}
+                                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold"
+                            >
+                                Submit & Step Forward
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
 
                 <ReactFlow
                     nodes={nodes}
@@ -1822,7 +1805,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                     onPaneClick={onPaneClick}
                     onNodeDragStop={onNodeDragStop}
                     fitView
-                    className="w-full h-full text-slate-800 dark:text-slate-100"
+                    className="w-full h-full text-slate-800 dark:text-foreground"
                 >
                     <Controls className="bg-popover border-border text-popover-foreground" />
                     <MiniMap style={{ background: "#020617" }} />
@@ -1844,13 +1827,13 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                 ) : (
                                     <TriangleAlert className="h-4 w-4 text-rose-400" />
                                 )}
-                                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-300">
+                                <span className="text-xs font-extrabold uppercase tracking-wider text-foreground">
                                     {validationPassed ? "All checks passed" : `${validationReport.length} issue(s) found`}
                                 </span>
                             </div>
                             <button
                                 onClick={() => { setValidationReport([]); setValidationPassed(null) }}
-                                className="p-1 rounded hover:bg-accent focus:bg-accent text-muted-foreground hover:text-slate-300 transition-colors"
+                                className="p-1 rounded hover:bg-accent focus:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                                 title="Dismiss"
                             >
                                 <X className="h-3.5 w-3.5" />
@@ -1890,7 +1873,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                     <div className="p-4 border-b border-border flex items-center justify-between bg-card">
                         <div className="flex items-center gap-2">
                             <Settings className="h-4 w-4 text-indigo-400" />
-                            <span className="font-bold text-xs uppercase tracking-wider text-slate-300">Node Properties</span>
+                            <span className="font-bold text-xs uppercase tracking-wider text-foreground">Node Properties</span>
                         </div>
                         <Button 
                             variant="ghost" 
@@ -1963,7 +1946,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                             const activeRoles = selectedNode.data.roles || []
                                             const isChecked = activeRoles.includes(role.name)
                                             return (
-                                                <label key={role.id} className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer py-1 hover:bg-card px-1.5 rounded">
+                                                <label key={role.id} className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer py-1 hover:bg-card px-1.5 rounded">
                                                     <input
                                                         type="checkbox"
                                                         checked={isChecked}
@@ -2026,7 +2009,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                             })
                                         }}
                                     >
-                                        <SelectTrigger className="w-full bg-background border-border text-slate-100">
+                                        <SelectTrigger className="w-full bg-background border-border text-foreground">
                                             <SelectValue placeholder="Link Blueprint..." />
                                         </SelectTrigger>
                                         <SelectContent className="bg-popover border-border text-popover-foreground">
@@ -2053,7 +2036,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                                 // Wait for valid JSON
                                             }
                                         }}
-                                        className="bg-background border-border text-xs font-mono h-32 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-32 focus:ring-indigo-500 text-foreground"
                                     />
                                 </div>
 
@@ -2070,7 +2053,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                                 // Wait for valid JSON
                                             }
                                         }}
-                                        className="bg-background border-border text-xs font-mono h-28 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-28 focus:ring-indigo-500 text-foreground"
                                     />
                                 </div>
                             </div>
@@ -2106,7 +2089,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                             }
                                         }}
                                     >
-                                        <SelectTrigger className="bg-background border-border text-slate-100 focus:ring-indigo-500 text-sm">
+                                        <SelectTrigger className="bg-background border-border text-foreground focus:ring-indigo-500 text-sm">
                                             <SelectValue placeholder="Choose a Form Tool..." />
                                         </SelectTrigger>
                                         <SelectContent className="bg-popover border-border text-popover-foreground">
@@ -2153,7 +2136,7 @@ export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowI
                                                 // Wait for valid JSON
                                             }
                                         }}
-                                        className="bg-background border-border text-xs font-mono h-48 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-48 focus:ring-indigo-500 text-foreground"
                                     />
                                 </div>
                             </div>

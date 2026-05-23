@@ -16,7 +16,7 @@ import operator
 import asyncio
 from uuid import uuid4
 from datetime import datetime
-from typing import Dict, Any, List, TypedDict, Annotated, Optional, Generator
+from typing import Dict, Any, List, TypedDict, Annotated, Optional, Generator, AsyncGenerator
 
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -757,6 +757,9 @@ class WorkflowService:
             db.add(log)
             db.commit()
             
+            instance.status = WorkflowStatus.RUNNING
+            db.commit()
+            
             is_debug = instance.is_debug
         finally:
             db.close()
@@ -804,7 +807,8 @@ class WorkflowService:
                         interrupt_before=user_task_ids
                     )
                     # Update state asynchronously on the compiled app graph
-                    await app.aupdate_state(config, new_state)
+                    # Use as_node to treat this update as the node's output and bypass the interrupt
+                    await app.aupdate_state(config, new_state, as_node=next_node_id)
                     
                     await app.ainvoke(None, config)
                     
@@ -889,8 +893,9 @@ class WorkflowService:
 
     async def stream_workflow_execution(
         self,
-        instance_id: str
-    ) -> Generator[str, None, None]:
+        instance_id: str,
+        request=None
+    ) -> AsyncGenerator[str, None]:
         """
         Pushes real-time execution changes, current breakpoints, and logs
         as NDJSON data stream to the Canvas subscriber.
@@ -907,12 +912,19 @@ class WorkflowService:
         print(f"[WORKFLOW STREAM] Started subscription for instance: {instance_id}")
 
         while execution_active:
+            if request and await request.is_disconnected():
+                print(f"[WORKFLOW STREAM] Client disconnected for instance: {instance_id}")
+                break
+
+            print(f"[DEBUG] Loop start for {instance_id}")
             db = SessionLocal()
             try:
+                print(f"[DEBUG] Fetching instance {instance_id}")
                 # 1. Fetch active instance state from DB
                 instance = db.query(WorkflowInstance).filter(
                     WorkflowInstance.id == instance_id
                 ).first()
+                print(f"[DEBUG] Fetched instance {instance_id}: {instance}")
                 if not instance:
                     yield (
                         f'data: {{"type": "error", "message": '
@@ -949,8 +961,14 @@ class WorkflowService:
                 gui_schema = None
                 lane_authorization = {}
 
+                status_val = instance.status
+                if hasattr(status_val, "value"):
+                    status_val = status_val.value
+                elif isinstance(status_val, enum.Enum):
+                    status_val = status_val.name
+
                 if (
-                    instance.status == WorkflowStatus.WAITING
+                    status_val == "WAITING"
                     and instance.current_node_ids
                 ):
                     waiting_node = instance.current_node_ids[0]
@@ -1036,7 +1054,7 @@ class WorkflowService:
                 # 4. Push active status frame to client
                 payload = {
                     "type": "status",
-                    "status": instance.status.value,
+                    "status": status_val,
                     "current_node_ids": instance.current_node_ids or [],
                     "waiting_node": waiting_node,
                     "gui_schema": gui_schema,
@@ -1046,12 +1064,11 @@ class WorkflowService:
                         if instance.state_payload else {}
                     )
                 }
+                print(f"[DEBUG STREAM] Yielding status for {instance_id}: {status_val}")
                 yield f"data: {json.dumps(payload)}\n\n"
 
                 # 5. Terminate stream when execution finishes
-                if instance.status in [
-                    WorkflowStatus.COMPLETED, WorkflowStatus.FAILED
-                ]:
+                if status_val in ["COMPLETED", "FAILED"]:
                     execution_active = False
 
             except Exception as e:

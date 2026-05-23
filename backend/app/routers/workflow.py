@@ -7,7 +7,7 @@ to real-time SSE streams.
 Adheres strictly to PEP 8 standards and repository styles.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
@@ -365,6 +365,7 @@ async def get_current_user_from_token(token: str = Query(...), db: Session = Dep
 
 @router.get("/workflows/instances/{id}/stream")
 async def stream_workflow_instance_execution(
+    request: Request,
     id: str,
     current_user: User = Depends(get_current_user_from_token)
 ):
@@ -373,6 +374,11 @@ async def stream_workflow_instance_execution(
     Triggers path progressions, real-time status updates, and updates the canvas minilogs.
     """
     return StreamingResponse(
-        workflow_service.stream_workflow_execution(instance_id=id),
-        media_type="text/event-stream"
+        workflow_service.stream_workflow_execution(instance_id=id, request=request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
     )

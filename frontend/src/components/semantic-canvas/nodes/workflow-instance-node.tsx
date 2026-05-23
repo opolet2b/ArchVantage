@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FormRenderer } from "@/components/tools/form-builder/form-renderer";
 
 // =============================================================================
 // Helper Component: Dynamic Form Renderer
@@ -46,71 +47,13 @@ function renderDynamicForm(
     // 1. Components List Format (from Form Tools builder configuration)
     if (Array.isArray(guiSchema.components)) {
         return (
-            <div className="flex flex-col gap-3">
-                {guiSchema.components.map((comp: any) => {
-                    const compId = comp.id;
-                    const compType = comp.type || "text_input";
-                    const label = comp.label || compId;
-                    const placeholder = comp.placeholder || "";
-                    const required = comp.required || false;
-                    const val = values[compId] !== undefined ? values[compId] : (comp.default || "");
-
-                    return (
-                        <div key={compId} className="flex flex-col gap-1.5">
-                            <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
-                                {label} {required && <span className="text-rose-500">*</span>}
-                            </Label>
-                            {compType === "text_area" ? (
-                                <Textarea
-                                    disabled={disabled}
-                                    placeholder={placeholder}
-                                    value={val}
-                                    onChange={(e) => onChange(compId, e.target.value)}
-                                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-lg text-xs leading-normal resize-none min-h-[60px]"
-                                    rows={2}
-                                />
-                            ) : compType === "dropdown" || compType === "select" ? (
-                                <Select
-                                    disabled={disabled}
-                                    value={val}
-                                    onValueChange={(v) => onChange(compId, v)}
-                                >
-                                    <SelectTrigger className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 h-9 rounded-lg text-xs">
-                                        <SelectValue placeholder={placeholder || "Select option..."} />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100">
-                                        {(comp.options || []).map((opt: any) => (
-                                            <SelectItem key={opt.value} value={opt.value} className="text-xs hover:bg-slate-100 dark:hover:bg-slate-800">
-                                                {opt.label || opt.value}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            ) : compType === "boolean" || compType === "checkbox" ? (
-                                <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer py-1">
-                                    <input
-                                        type="checkbox"
-                                        disabled={disabled}
-                                        checked={!!val}
-                                        onChange={(e) => onChange(compId, e.target.checked)}
-                                        className="rounded border-slate-350 dark:border-slate-850 bg-white dark:bg-slate-950 text-indigo-600 focus:ring-indigo-500"
-                                    />
-                                    {label}
-                                </label>
-                            ) : (
-                                <Input
-                                    disabled={disabled}
-                                    type={compType === "number" ? "number" : "text"}
-                                    placeholder={placeholder}
-                                    value={val}
-                                    onChange={(e) => onChange(compId, compType === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
-                                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs h-9 rounded-lg"
-                                />
-                            )}
-                        </div>
-                    );
-                })}
-            </div>
+            <FormRenderer
+                widgets={guiSchema.components}
+                layout={guiSchema.layout}
+                value={values}
+                onChange={onChange}
+                readOnly={disabled}
+            />
         );
     }
 
