@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, Plus, Wrench } from "lucide-react";
+import { Bot, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SidebarItemProps {
@@ -46,12 +46,6 @@ export default function AgentsToolsLayout({
                     icon={Bot}
                     label="My Agents"
                     isActive={pathname === "/agents-tools/agents" || pathname === "/agents-tools"}
-                />
-                <SidebarItem
-                    href="/agents-tools/agents/builder/new"
-                    icon={Plus}
-                    label="Agent Builder"
-                    isActive={pathname.includes("/builder")}
                 />
                 <SidebarItem
                     href="/agents-tools/tools"

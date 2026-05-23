@@ -33,6 +33,7 @@ import {
     Settings, 
     Search,
     ChevronRight,
+    ChevronLeft,
     HelpCircle,
     Activity,
     Users,
@@ -123,7 +124,7 @@ function renderDynamicForm(
 
                     return (
                         <div key={compId} className="flex flex-col gap-1">
-                            <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
                                 {label} {required && <span className="text-rose-500">*</span>}
                             </Label>
                             {compType === "text_area" ? (
@@ -132,7 +133,7 @@ function renderDynamicForm(
                                     placeholder={placeholder}
                                     value={val}
                                     onChange={(e) => onChange(compId, e.target.value)}
-                                    className="bg-slate-900 border-slate-800 text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
+                                    className="bg-card border-border text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
                                     rows={2}
                                 />
                             ) : compType === "dropdown" || compType === "select" ? (
@@ -141,12 +142,12 @@ function renderDynamicForm(
                                     value={val}
                                     onValueChange={(v) => onChange(compId, v)}
                                 >
-                                    <SelectTrigger className="bg-slate-900 border-slate-800 text-slate-100 h-8 text-xs rounded">
+                                    <SelectTrigger className="bg-popover border-border text-popover-foreground h-8 text-xs rounded">
                                         <SelectValue placeholder={placeholder || "Select option..."} />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-slate-950 border-slate-800 text-slate-100">
+                                    <SelectContent className="bg-background border-border text-slate-100">
                                         {(comp.options || []).map((opt: any) => (
-                                            <SelectItem key={opt.value} value={opt.value} className="text-xs hover:bg-slate-800">
+                                            <SelectItem key={opt.value} value={opt.value} className="text-xs hover:bg-accent focus:bg-accent">
                                                 {opt.label || opt.value}
                                             </SelectItem>
                                         ))}
@@ -159,7 +160,7 @@ function renderDynamicForm(
                                         disabled={disabled}
                                         checked={!!val}
                                         onChange={(e) => onChange(compId, e.target.checked)}
-                                        className="rounded bg-slate-900 border-slate-800 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                        className="rounded bg-card border-border text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
                                     />
                                     {label}
                                 </label>
@@ -170,7 +171,7 @@ function renderDynamicForm(
                                     placeholder={placeholder}
                                     value={val}
                                     onChange={(e) => onChange(compId, compType === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
-                                    className="bg-slate-900 border-slate-800 text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
+                                    className="bg-card border-border text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
                                 />
                             )}
                         </div>
@@ -193,7 +194,7 @@ function renderDynamicForm(
 
                     return (
                         <div key={key} className="flex flex-col gap-1">
-                            <Label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">
+                            <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
                                 {label} {required && <span className="text-rose-500">*</span>}
                             </Label>
                             {prop.enum ? (
@@ -202,12 +203,12 @@ function renderDynamicForm(
                                     value={val}
                                     onValueChange={(v) => onChange(key, v)}
                                 >
-                                    <SelectTrigger className="bg-slate-900 border-slate-800 text-slate-100 h-8 text-xs rounded">
+                                    <SelectTrigger className="bg-popover border-border text-popover-foreground h-8 text-xs rounded">
                                         <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
-                                    <SelectContent className="bg-slate-955 border-slate-800 text-slate-100">
+                                    <SelectContent className="bg-slate-955 border-border text-slate-100">
                                         {prop.enum.map((opt: string) => (
-                                            <SelectItem key={opt} value={opt} className="text-xs hover:bg-slate-800">
+                                            <SelectItem key={opt} value={opt} className="text-xs hover:bg-accent focus:bg-accent">
                                                 {opt}
                                             </SelectItem>
                                         ))}
@@ -220,7 +221,7 @@ function renderDynamicForm(
                                         disabled={disabled}
                                         checked={!!val}
                                         onChange={(e) => onChange(key, e.target.checked)}
-                                        className="rounded bg-slate-900 border-slate-800 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                        className="rounded bg-card border-border text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
                                     />
                                     {label}
                                 </label>
@@ -229,7 +230,7 @@ function renderDynamicForm(
                                     disabled={disabled}
                                     value={val}
                                     onChange={(e) => onChange(key, e.target.value)}
-                                    className="bg-slate-900 border-slate-800 text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
+                                    className="bg-card border-border text-xs focus:ring-indigo-500 text-slate-100 min-h-[50px] rounded"
                                     rows={2}
                                 />
                             ) : (
@@ -238,7 +239,7 @@ function renderDynamicForm(
                                     type={propType === "number" || propType === "integer" ? "number" : "text"}
                                     value={val}
                                     onChange={(e) => onChange(key, propType === "number" || propType === "integer" ? parseFloat(e.target.value) || 0 : e.target.value)}
-                                    className="bg-slate-900 border-slate-800 text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
+                                    className="bg-card border-border text-xs h-8 focus:ring-indigo-500 text-slate-100 rounded"
                                 />
                             )}
                         </div>
@@ -256,38 +257,38 @@ function renderDynamicForm(
 // =============================================================================
 
 const StartNode = ({ data }: any) => (
-    <div className="flex flex-col items-center justify-center p-3 rounded-full border-2 border-emerald-500 bg-white/90 dark:bg-slate-900/90 shadow-[0_0_15px_rgba(16,185,129,0.2)] backdrop-blur-md transition-all duration-300 hover:scale-105 select-none w-14 h-14 relative group">
+    <div className="flex flex-col items-center justify-center p-3 rounded-full border-2 border-emerald-500 bg-white/90 dark:bg-card/90 shadow-[0_0_15px_rgba(16,185,129,0.2)] backdrop-blur-md transition-all duration-300 hover:scale-105 select-none w-14 h-14 relative group">
         <Play className="h-6 w-6 text-emerald-500 fill-emerald-500/20 group-hover:scale-110 transition-transform" />
-        <Handle type="source" position={Position.Right} className="w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-800" />
-        <div className="absolute top-16 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded shadow whitespace-nowrap">
+        <Handle type="source" position={Position.Right} className="w-3 h-3 bg-emerald-500 border-2 border-white dark:border-border" />
+        <div className="absolute top-16 text-[10px] font-bold text-muted-foreground dark:text-slate-300 bg-slate-100 dark:bg-secondary px-2 py-0.5 rounded shadow whitespace-nowrap">
             {data.label || "Start"}
         </div>
     </div>
 )
 
 const EndNode = ({ data }: any) => (
-    <div className="flex flex-col items-center justify-center p-3 rounded-full border-2 border-rose-500 bg-white/90 dark:bg-slate-900/90 shadow-[0_0_15px_rgba(244,63,94,0.2)] backdrop-blur-md transition-all duration-300 hover:scale-105 select-none w-14 h-14 relative group">
+    <div className="flex flex-col items-center justify-center p-3 rounded-full border-2 border-rose-500 bg-white/90 dark:bg-card/90 shadow-[0_0_15px_rgba(244,63,94,0.2)] backdrop-blur-md transition-all duration-300 hover:scale-105 select-none w-14 h-14 relative group">
         <Square className="h-5 w-5 text-rose-500 fill-rose-500/20 group-hover:scale-110 transition-transform" />
-        <Handle type="target" position={Position.Left} className="w-3 h-3 bg-rose-500 border-2 border-white dark:border-slate-800" />
-        <div className="absolute top-16 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded shadow whitespace-nowrap">
+        <Handle type="target" position={Position.Left} className="w-3 h-3 bg-rose-500 border-2 border-white dark:border-border" />
+        <div className="absolute top-16 text-[10px] font-bold text-muted-foreground dark:text-slate-300 bg-slate-100 dark:bg-secondary px-2 py-0.5 rounded shadow whitespace-nowrap">
             {data.label || "End"}
         </div>
     </div>
 )
 
 const ServiceNode = ({ data, selected }: any) => (
-    <Card className={`min-w-[220px] max-w-[280px] shadow-lg border-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-all duration-300 ${selected ? "border-purple-500 ring-2 ring-purple-500/30 scale-[1.02]" : "border-purple-200 dark:border-purple-900"} overflow-hidden`}>
-        <Handle type="target" position={Position.Left} className="w-3 h-3 bg-purple-500 border-2 border-white dark:border-slate-800" />
-        <CardHeader className="p-3 pb-2 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-purple-500/10 to-indigo-500/10 flex flex-row items-center justify-between">
+    <Card className={`min-w-[220px] max-w-[280px] shadow-lg border-2 bg-white/95 dark:bg-card/95 backdrop-blur-md transition-all duration-300 ${selected ? "border-purple-500 ring-2 ring-purple-500/30 scale-[1.02]" : "border-purple-200 dark:border-purple-900"} overflow-hidden`}>
+        <Handle type="target" position={Position.Left} className="w-3 h-3 bg-purple-500 border-2 border-white dark:border-border" />
+        <CardHeader className="p-3 pb-2 border-b border-slate-100 dark:border-border bg-gradient-to-r from-purple-500/10 to-indigo-500/10 flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
                     <Bot className="h-4 w-4" />
                 </div>
-                <CardTitle className="text-xs font-bold tracking-tight text-slate-800 dark:text-slate-200">{data.label || "Service Task"}</CardTitle>
+                <CardTitle className="text-xs font-bold tracking-tight text-slate-800 dark:text-foreground">{data.label || "Service Task"}</CardTitle>
             </div>
-            <Settings className="h-3 w-3 text-slate-400" />
+            <Settings className="h-3 w-3 text-muted-foreground" />
         </CardHeader>
-        <CardContent className="p-3 text-[11px] text-slate-500 dark:text-slate-400 flex flex-col gap-1">
+        <CardContent className="p-3 text-[11px] text-muted-foreground dark:text-muted-foreground flex flex-col gap-1">
             <div className="flex items-center justify-between">
                 <span className="font-semibold">Blueprint:</span>
                 <span className="truncate max-w-[120px] text-purple-600 dark:text-purple-400 font-medium">{data.blueprint_name || "None Selected"}</span>
@@ -297,23 +298,23 @@ const ServiceNode = ({ data, selected }: any) => (
                 <span>{Object.keys(data.inputs || {}).length} variables</span>
             </div>
         </CardContent>
-        <Handle type="source" position={Position.Right} className="w-3 h-3 bg-purple-500 border-2 border-white dark:border-slate-800" />
+        <Handle type="source" position={Position.Right} className="w-3 h-3 bg-purple-500 border-2 border-white dark:border-border" />
     </Card>
 )
 
 const UserNode = ({ data, selected }: any) => (
-    <Card className={`min-w-[220px] max-w-[280px] shadow-lg border-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-all duration-300 ${selected ? "border-amber-500 ring-2 ring-amber-500/30 scale-[1.02]" : "border-amber-200 dark:border-amber-900"} overflow-hidden`}>
-        <Handle type="target" position={Position.Left} className="w-3 h-3 bg-amber-500 border-2 border-white dark:border-slate-800" />
-        <CardHeader className="p-3 pb-2 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-amber-500/10 to-orange-500/10 flex flex-row items-center justify-between">
+    <Card className={`min-w-[220px] max-w-[280px] shadow-lg border-2 bg-white/95 dark:bg-card/95 backdrop-blur-md transition-all duration-300 ${selected ? "border-amber-500 ring-2 ring-amber-500/30 scale-[1.02]" : "border-amber-200 dark:border-amber-900"} overflow-hidden`}>
+        <Handle type="target" position={Position.Left} className="w-3 h-3 bg-amber-500 border-2 border-white dark:border-border" />
+        <CardHeader className="p-3 pb-2 border-b border-slate-100 dark:border-border bg-gradient-to-r from-amber-500/10 to-orange-500/10 flex flex-row items-center justify-between">
             <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
                     <User className="h-4 w-4" />
                 </div>
-                <CardTitle className="text-xs font-bold tracking-tight text-slate-800 dark:text-slate-200">{data.label || "User Task"}</CardTitle>
+                <CardTitle className="text-xs font-bold tracking-tight text-slate-800 dark:text-foreground">{data.label || "User Task"}</CardTitle>
             </div>
-            <Settings className="h-3 w-3 text-slate-400" />
+            <Settings className="h-3 w-3 text-muted-foreground" />
         </CardHeader>
-        <CardContent className="p-3 text-[11px] text-slate-500 dark:text-slate-400 flex flex-col gap-1">
+        <CardContent className="p-3 text-[11px] text-muted-foreground dark:text-muted-foreground flex flex-col gap-1">
             <div className="flex items-center justify-between">
                 <span className="font-semibold">Form:</span>
                 <span className="truncate max-w-[120px] text-amber-600 dark:text-amber-400 font-medium">{data.form_tool_name || "Approval Default"}</span>
@@ -325,7 +326,7 @@ const UserNode = ({ data, selected }: any) => (
                 </div>
             )}
         </CardContent>
-        <Handle type="source" position={Position.Right} className="w-3 h-3 bg-amber-500 border-2 border-white dark:border-slate-800" />
+        <Handle type="source" position={Position.Right} className="w-3 h-3 bg-amber-500 border-2 border-white dark:border-border" />
     </Card>
 )
 
@@ -347,7 +348,7 @@ const XORNode = ({ data, selected }: any) => (
         <div className={`w-14 h-14 rotate-45 border-2 ${
             selected
                 ? "border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.4)] bg-yellow-500/10"
-                : "border-yellow-400 dark:border-yellow-600 bg-white dark:bg-slate-900"
+                : "border-yellow-400 dark:border-yellow-600 bg-white dark:bg-card"
         } rounded-lg flex items-center justify-center backdrop-blur-md transition-all duration-300 select-none`}>
             <div className="-rotate-45">
                 <Split className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
@@ -358,17 +359,17 @@ const XORNode = ({ data, selected }: any) => (
         <Handle
             type="target"
             position={Position.Left}
-            className="w-3 h-3 bg-yellow-500 border-2 border-white dark:border-slate-800 rounded-full"
+            className="w-3 h-3 bg-yellow-500 border-2 border-white dark:border-border rounded-full"
         />
         <Handle
             type="source"
             position={Position.Right}
-            className="w-3 h-3 bg-yellow-500 border-2 border-white dark:border-slate-800 rounded-full"
+            className="w-3 h-3 bg-yellow-500 border-2 border-white dark:border-border rounded-full"
         />
 
         {/* Label below the diamond — no rotation needed since outer wrapper is not rotated */}
         <div
-            className="absolute text-[9px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded shadow whitespace-nowrap pointer-events-none"
+            className="absolute text-[9px] font-bold text-muted-foreground dark:text-muted-foreground bg-slate-100 dark:bg-secondary px-1.5 py-0.5 rounded shadow whitespace-nowrap pointer-events-none"
             style={{ top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)" }}
         >
             {data.label || "XOR Gateway"}
@@ -386,7 +387,7 @@ const ANDNode = ({ data, selected }: any) => (
         <div className={`w-14 h-14 rotate-45 border-2 ${
             selected
                 ? "border-sky-500 shadow-[0_0_20px_rgba(14,165,233,0.4)] bg-sky-500/10"
-                : "border-sky-400 dark:border-sky-600 bg-white dark:bg-slate-900"
+                : "border-sky-400 dark:border-sky-600 bg-white dark:bg-card"
         } rounded-lg flex items-center justify-center backdrop-blur-md transition-all duration-300 select-none`}>
             <div className="-rotate-45">
                 <Plus className="h-6 w-6 text-sky-600 dark:text-sky-400" />
@@ -397,17 +398,17 @@ const ANDNode = ({ data, selected }: any) => (
         <Handle
             type="target"
             position={Position.Left}
-            className="w-3 h-3 bg-sky-500 border-2 border-white dark:border-slate-800 rounded-full"
+            className="w-3 h-3 bg-sky-500 border-2 border-white dark:border-border rounded-full"
         />
         <Handle
             type="source"
             position={Position.Right}
-            className="w-3 h-3 bg-sky-500 border-2 border-white dark:border-slate-800 rounded-full"
+            className="w-3 h-3 bg-sky-500 border-2 border-white dark:border-border rounded-full"
         />
 
         {/* Label below the diamond */}
         <div
-            className="absolute text-[9px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded shadow whitespace-nowrap pointer-events-none"
+            className="absolute text-[9px] font-bold text-muted-foreground dark:text-muted-foreground bg-slate-100 dark:bg-secondary px-1.5 py-0.5 rounded shadow whitespace-nowrap pointer-events-none"
             style={{ top: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)" }}
         >
             {data.label || "AND Gateway"}
@@ -650,12 +651,12 @@ const LaneNode = ({ id, data, selected }: any) => {
                     className="nodrag cursor-grab active:cursor-grabbing p-1 hover:bg-slate-600/40 rounded transition-colors pointer-events-auto"
                     title="Drag to reorder swimlane"
                 >
-                    <GripVertical className="h-3.5 w-3.5 text-slate-500" />
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
 
                 {/* Role badges */}
                 <div className="flex items-center gap-1.5 flex-1 overflow-hidden pointer-events-none">
-                    <Users className="h-3 w-3 text-slate-500 shrink-0" />
+                    <Users className="h-3 w-3 text-muted-foreground shrink-0" />
                     {(data.roles || []).map((role: string) => (
                         <span
                             key={role}
@@ -665,13 +666,13 @@ const LaneNode = ({ id, data, selected }: any) => {
                         </span>
                     ))}
                     {(data.users || []).length > 0 && (
-                        <span className="text-[9px] text-slate-500 font-medium ml-1">
+                        <span className="text-[9px] text-muted-foreground font-medium ml-1">
                             +{data.users.length} user(s)
                         </span>
                     )}
                     {(!data.roles || data.roles.length === 0) &&
                         (!data.users || data.users.length === 0) && (
-                            <span className="text-[9px] text-slate-600 italic">
+                            <span className="text-[9px] text-muted-foreground italic">
                                 No roles assigned
                             </span>
                         )}
@@ -681,7 +682,7 @@ const LaneNode = ({ id, data, selected }: any) => {
                 <div className="nodrag flex items-center gap-0.5 shrink-0 pointer-events-auto">
                     <button
                         onClick={(e) => { e.stopPropagation(); LANE_ACTIONS.moveUp(id) }}
-                        className="p-1 hover:bg-slate-600/40 rounded text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                        className="p-1 hover:bg-slate-600/40 rounded text-muted-foreground hover:text-slate-300 transition-colors disabled:opacity-30 disabled:pointer-events-none"
                         disabled={data.laneIndex === 0}
                         title="Move lane up"
                     >
@@ -689,7 +690,7 @@ const LaneNode = ({ id, data, selected }: any) => {
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); LANE_ACTIONS.moveDown(id) }}
-                        className="p-1 hover:bg-slate-600/40 rounded text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                        className="p-1 hover:bg-slate-600/40 rounded text-muted-foreground hover:text-slate-300 transition-colors disabled:opacity-30 disabled:pointer-events-none"
                         disabled={data.laneIndex === (data.totalLanes || 1) - 1}
                         title="Move lane down"
                     >
@@ -740,7 +741,7 @@ const nodeTypes = {
 // Core Visual Workflow Editor Component
 // =============================================================================
 
-export function WorkflowEditor() {
+export function WorkflowEditor({ initialWorkflowId, onBack }: { initialWorkflowId?: string | null, onBack?: () => void }) {
     // 1. Flow canvas State variables
     const [nodes, setNodes, onNodesChange] = useNodesState<BPMNNode>([])
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
@@ -869,6 +870,13 @@ export function WorkflowEditor() {
             setIsLoading(false)
         }
     }
+    
+    // Auto-load initial workflow if provided via props
+    useEffect(() => {
+        if (initialWorkflowId && templates.length > 0 && selectedTemplateId !== initialWorkflowId) {
+            handleLoadTemplate(initialWorkflowId)
+        }
+    }, [initialWorkflowId, templates, selectedTemplateId])
 
     // Connect node handles
     const onConnect = useCallback(
@@ -1498,10 +1506,10 @@ export function WorkflowEditor() {
     // =============================================================================
 
     return (
-        <div className="flex h-[calc(100vh-4rem)] w-full overflow-hidden bg-slate-950 text-slate-100 font-sans">
+        <div className="flex h-[calc(100vh-4rem)] w-full overflow-hidden bg-background text-foreground font-sans">
             {/* 1. Left Tool Palette / Templates Explorer */}
-            <div className="w-80 border-r border-slate-800 bg-slate-900/50 backdrop-blur-xl flex flex-col shrink-0">
-                <div className="p-4 border-b border-slate-800 flex flex-col gap-3">
+            <div className="w-80 border-r border-border bg-card/50 backdrop-blur-xl flex flex-col shrink-0">
+                <div className="p-4 border-b border-border flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <Activity className="h-5 w-5 text-indigo-500 animate-pulse" />
@@ -1510,42 +1518,51 @@ export function WorkflowEditor() {
                         <HelpTooltip contentPath="workflow/editor_overview" />
                     </div>
 
-                    {/* Template Loader */}
-                    <div className="flex flex-col gap-1.5 mt-2">
-                        <div className="flex items-center justify-between">
-                            <Label className="text-xs text-slate-400">Load Template</Label>
-                            <button
-                                onClick={handleNewTemplate}
-                                title="New blank workflow"
-                                className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 px-1.5 py-0.5 rounded transition-colors"
-                            >
-                                <Plus className="h-3 w-3" />
-                                New
-                            </button>
+                    {/* Template Loader or Back Button */}
+                    {onBack ? (
+                        <div className="flex flex-col gap-1.5 mt-2">
+                            <Button variant="outline" onClick={onBack} className="w-full bg-background border-border hover:bg-accent text-xs gap-2">
+                                <ChevronLeft className="h-4 w-4" />
+                                Back to Workflows
+                            </Button>
                         </div>
-                        <Select value={selectedTemplateId} onValueChange={handleLoadTemplate}>
-                            <SelectTrigger className="w-full bg-slate-950 border-slate-800 focus:ring-indigo-500">
-                                <SelectValue placeholder="Select Template..." />
-                            </SelectTrigger>
-                            <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                                {templates.map((t) => (
-                                    <SelectItem key={t.id} value={t.id} className="hover:bg-slate-800">{t.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    ) : (
+                        <div className="flex flex-col gap-1.5 mt-2">
+                            <div className="flex items-center justify-between">
+                                <Label className="text-xs text-muted-foreground">Load Template</Label>
+                                <button
+                                    onClick={handleNewTemplate}
+                                    title="New blank workflow"
+                                    className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 px-1.5 py-0.5 rounded transition-colors"
+                                >
+                                    <Plus className="h-3 w-3" />
+                                    New
+                                </button>
+                            </div>
+                            <Select value={selectedTemplateId} onValueChange={handleLoadTemplate}>
+                                <SelectTrigger className="w-full bg-background border-border focus:ring-primary">
+                                    <SelectValue placeholder="Select Template..." />
+                                </SelectTrigger>
+                                <SelectContent className="bg-popover border-border text-popover-foreground">
+                                    {templates.map((t) => (
+                                        <SelectItem key={t.id} value={t.id} className="hover:bg-accent focus:bg-accent">{t.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                 </div>
 
                 {/* Node tool components insertion palette */}
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
                     <div>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">BPMN Canvas Tools</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">BPMN Canvas Tools</span>
                         <div className="grid grid-cols-2 gap-2 mt-2">
                             <Button 
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handleAddNode("start")}
-                                className="bg-slate-950/40 border-slate-800 hover:bg-slate-800/50 hover:border-emerald-500 text-xs gap-1.5 flex items-center justify-start"
+                                className="bg-background/40 border-border hover:bg-accent focus:bg-accent/50 hover:border-emerald-500 text-xs gap-1.5 flex items-center justify-start"
                             >
                                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                                 Start Event
@@ -1554,7 +1571,7 @@ export function WorkflowEditor() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handleAddNode("end")}
-                                className="bg-slate-950/40 border-slate-800 hover:bg-slate-800/50 hover:border-rose-500 text-xs gap-1.5 flex items-center justify-start"
+                                className="bg-background/40 border-border hover:bg-accent focus:bg-accent/50 hover:border-rose-500 text-xs gap-1.5 flex items-center justify-start"
                             >
                                 <div className="w-2.5 h-2.5 rounded bg-rose-500" />
                                 End Event
@@ -1563,7 +1580,7 @@ export function WorkflowEditor() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handleAddNode("service_task")}
-                                className="bg-slate-950/40 border-slate-800 hover:bg-slate-800/50 hover:border-purple-500 text-xs gap-1.5 flex items-center justify-start col-span-2"
+                                className="bg-background/40 border-border hover:bg-accent focus:bg-accent/50 hover:border-purple-500 text-xs gap-1.5 flex items-center justify-start col-span-2"
                             >
                                 <Bot className="h-3.5 w-3.5 text-purple-400" />
                                 Service Task (Agent)
@@ -1572,7 +1589,7 @@ export function WorkflowEditor() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handleAddNode("user_task")}
-                                className="bg-slate-950/40 border-slate-800 hover:bg-slate-800/50 hover:border-amber-500 text-xs gap-1.5 flex items-center justify-start col-span-2"
+                                className="bg-background/40 border-border hover:bg-accent focus:bg-accent/50 hover:border-amber-500 text-xs gap-1.5 flex items-center justify-start col-span-2"
                             >
                                 <User className="h-3.5 w-3.5 text-amber-400" />
                                 User Task (Human)
@@ -1581,7 +1598,7 @@ export function WorkflowEditor() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handleAddNode("xor_gateway")}
-                                className="bg-slate-950/40 border-slate-800 hover:bg-slate-800/50 hover:border-yellow-500 text-xs gap-1.5 flex items-center justify-start"
+                                className="bg-background/40 border-border hover:bg-accent focus:bg-accent/50 hover:border-yellow-500 text-xs gap-1.5 flex items-center justify-start"
                             >
                                 <Split className="h-3.5 w-3.5 text-yellow-400" />
                                 XOR Gateway
@@ -1590,7 +1607,7 @@ export function WorkflowEditor() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handleAddNode("and_gateway")}
-                                className="bg-slate-950/40 border-slate-800 hover:bg-slate-800/50 hover:border-sky-500 text-xs gap-1.5 flex items-center justify-start"
+                                className="bg-background/40 border-border hover:bg-accent focus:bg-accent/50 hover:border-sky-500 text-xs gap-1.5 flex items-center justify-start"
                             >
                                 <Plus className="h-3.5 w-3.5 text-sky-400" />
                                 AND Gateway
@@ -1599,7 +1616,7 @@ export function WorkflowEditor() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => handleAddNode("lane")}
-                                className="bg-slate-950/40 border-slate-800 hover:bg-slate-800/50 hover:border-indigo-500 text-xs gap-1.5 flex items-center justify-start col-span-2"
+                                className="bg-background/40 border-border hover:bg-accent focus:bg-accent/50 hover:border-indigo-500 text-xs gap-1.5 flex items-center justify-start col-span-2"
                             >
                                 <Layers className="h-3.5 w-3.5 text-indigo-400" />
                                 Swimlane Group
@@ -1607,33 +1624,33 @@ export function WorkflowEditor() {
                         </div>
                     </div>
 
-                    <div className="border-t border-slate-800/80 pt-4 flex flex-col gap-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 font-sans">Template Settings</span>
+                    <div className="border-t border-border pt-4 flex flex-col gap-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground font-sans">Template Settings</span>
                         
                         <div className="flex flex-col gap-1.5">
-                            <Label className="text-xs text-slate-400">Template Name</Label>
+                            <Label className="text-xs text-muted-foreground">Template Name</Label>
                             <Input 
                                 placeholder="New Workflow Name"
                                 value={templateName}
                                 onChange={(e) => setTemplateName(e.target.value)}
-                                className="bg-slate-950 border-slate-800 text-sm focus:ring-indigo-500 text-slate-100"
+                                className="bg-background border-border text-sm focus:ring-primary text-foreground"
                             />
                         </div>
 
                         <div className="flex flex-col gap-1.5">
-                            <Label className="text-xs text-slate-400">Description</Label>
+                            <Label className="text-xs text-muted-foreground">Description</Label>
                             <Textarea 
                                 placeholder="Details about this process template..."
                                 value={templateDescription}
                                 onChange={(e) => setTemplateDescription(e.target.value)}
-                                className="bg-slate-950 border-slate-800 text-xs focus:ring-indigo-500 h-20 text-slate-100"
+                                className="bg-background border-border text-xs focus:ring-primary h-20 text-foreground"
                             />
                         </div>
                     </div>
                 </div>
 
                 {/* Validation and saving buttons */}
-                <div className="p-4 border-t border-slate-800 flex flex-col gap-3 shrink-0">
+                <div className="p-4 border-t border-border flex flex-col gap-3 shrink-0">
 
                     {/* Validate button with inline description */}
                     <div className="flex flex-col gap-1.5">
@@ -1644,7 +1661,7 @@ export function WorkflowEditor() {
                                     ? "bg-emerald-900/50 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-700/50"
                                     : validationPassed === false
                                     ? "bg-rose-900/40 hover:bg-rose-900/60 text-rose-300 border border-rose-700/50"
-                                    : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700"
+                                    : "bg-secondary hover:bg-secondary/80 text-secondary-foreground border-border"
                             }`}
                             onClick={handleValidateTopology}
                         >
@@ -1661,7 +1678,7 @@ export function WorkflowEditor() {
                                 ? `${validationReport.length} Issue(s) Found`
                                 : "Check Workflow"}
                         </Button>
-                        <p className="text-[10px] text-slate-600 leading-relaxed px-0.5">
+                        <p className="text-[10px] text-muted-foreground leading-relaxed px-0.5">
                             Verifies that all nodes are connected, start/end events exist,
                             lanes have owners, and no infinite loops are present.
                         </p>
@@ -1701,23 +1718,23 @@ export function WorkflowEditor() {
             </div>
 
             {/* 2. Visual React Flow canvas */}
-            <div className="flex-1 h-full relative bg-slate-950">
+            <div className="flex-1 h-full relative bg-background">
                 {isLoading && (
-                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center flex-col gap-3">
+                    <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center flex-col gap-3">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
-                        <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Loading Process Schema...</span>
+                        <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Loading Process Schema...</span>
                     </div>
                 )}
                 
                 {/* Debug Panel Overlay */}
                 {isDebugMode && (
-                    <div className="absolute top-4 left-4 z-40 w-80 bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-2xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-4">
-                        <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                    <div className="absolute top-4 left-4 z-40 w-80 bg-card border border-border rounded-xl p-4 shadow-2xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-4">
+                        <div className="flex justify-between items-center border-b border-border pb-2">
                             <div className="flex items-center gap-2">
                                 <Play className="h-4 w-4 text-emerald-400" />
-                                <span className="font-bold text-sm text-slate-200">Debug Mode</span>
+                                <span className="font-bold text-sm text-foreground">Debug Mode</span>
                             </div>
-                            <button onClick={() => { setIsDebugMode(false); setDebugInstanceId(null); setDebugStatus(null); setDebugActiveNodes([]); }} className="text-slate-500 hover:text-slate-300">
+                            <button onClick={() => { setIsDebugMode(false); setDebugInstanceId(null); setDebugStatus(null); setDebugActiveNodes([]); }} className="text-muted-foreground hover:text-slate-300">
                                 <X className="h-4 w-4" />
                             </button>
                         </div>
@@ -1725,13 +1742,13 @@ export function WorkflowEditor() {
                         {!debugInstanceId ? (
                             <div className="flex flex-col gap-3">
                                 <div className="flex flex-col gap-1.5">
-                                    <Label className="text-xs text-slate-400">Initial Payload (JSON)</Label>
+                                    <Label className="text-xs text-muted-foreground">Initial Payload (JSON)</Label>
                                     <Textarea
                                         value={debugPayload}
                                         onChange={(e) => setDebugPayload(e.target.value)}
-                                        className="bg-slate-950 border-slate-800 text-xs font-mono h-24 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-24 focus:ring-indigo-500 text-slate-100"
                                     />
-                                    <p className="text-[10px] text-slate-500">Provide document_id or other variables needed by the workflow.</p>
+                                    <p className="text-[10px] text-muted-foreground">Provide document_id or other variables needed by the workflow.</p>
                                 </div>
                                 <Button onClick={handleStartDebug} className="w-full text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white gap-2">
                                     Start Execution
@@ -1739,8 +1756,8 @@ export function WorkflowEditor() {
                             </div>
                         ) : (
                             <div className="flex flex-col gap-3">
-                                <div className="flex justify-between items-center bg-slate-950 p-2 rounded border border-slate-800">
-                                    <span className="text-xs text-slate-400">Status:</span>
+                                <div className="flex justify-between items-center bg-background p-2 rounded border border-border">
+                                    <span className="text-xs text-muted-foreground">Status:</span>
                                     <span className={`text-xs font-bold uppercase tracking-wider ${
                                         debugStatus === "RUNNING" ? "text-indigo-400 animate-pulse" :
                                         debugStatus === "WAITING" ? "text-amber-400" :
@@ -1762,12 +1779,12 @@ export function WorkflowEditor() {
                                             )
                                         })
                                     ) : (
-                                        <div className="text-xs text-slate-500 italic">None</div>
+                                        <div className="text-xs text-muted-foreground italic">None</div>
                                     )}
                                 </div>
 
                                 {debugStatus === "WAITING" && debugActiveGuiSchema && (
-                                    <div className="border border-slate-850 bg-slate-950/60 rounded-xl p-3 space-y-3 max-h-60 overflow-y-auto">
+                                    <div className="border border-border bg-background/60 rounded-xl p-3 space-y-3 max-h-60 overflow-y-auto">
                                         <div className="text-[10px] font-bold text-amber-500 uppercase tracking-wide">
                                             {debugActiveGuiSchema.title || "Human Input Form"}
                                         </div>
@@ -1779,11 +1796,11 @@ export function WorkflowEditor() {
                                     </div>
                                 )}
 
-                                <div className="pt-2 border-t border-slate-800">
+                                <div className="pt-2 border-t border-border">
                                     <Button 
                                         onClick={handleStepForward} 
                                         disabled={debugStatus !== "WAITING"}
-                                        className="w-full text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white gap-2 disabled:bg-slate-800 disabled:text-slate-500 shadow-lg shadow-indigo-650/10 active:scale-95 transition-transform"
+                                        className="w-full text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white gap-2 disabled:bg-secondary disabled:text-muted-foreground shadow-lg shadow-indigo-650/10 active:scale-95 transition-transform"
                                     >
                                         <ChevronRight className="h-4 w-4" />
                                         Step Forward
@@ -1807,7 +1824,7 @@ export function WorkflowEditor() {
                     fitView
                     className="w-full h-full text-slate-800 dark:text-slate-100"
                 >
-                    <Controls className="bg-slate-900 border-slate-800 text-slate-100" />
+                    <Controls className="bg-popover border-border text-popover-foreground" />
                     <MiniMap style={{ background: "#020617" }} />
                     <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#334155" />
                 </ReactFlow>
@@ -1817,10 +1834,10 @@ export function WorkflowEditor() {
                     <div className={`absolute bottom-6 left-6 z-20 max-w-sm rounded-xl border backdrop-blur-md p-4 shadow-2xl animate-in slide-in-from-bottom duration-300 ${
                         validationPassed
                             ? "bg-emerald-950/90 border-emerald-800/60"
-                            : "bg-slate-900/90 border-rose-800/40"
+                            : "bg-card/90 border-rose-800/40"
                     }`}>
                         {/* Header */}
-                        <div className="flex items-center justify-between pb-2.5 border-b border-slate-800/80 mb-2.5">
+                        <div className="flex items-center justify-between pb-2.5 border-b border-border/80 mb-2.5">
                             <div className="flex items-center gap-2">
                                 {validationPassed ? (
                                     <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -1833,7 +1850,7 @@ export function WorkflowEditor() {
                             </div>
                             <button
                                 onClick={() => { setValidationReport([]); setValidationPassed(null) }}
-                                className="p-1 rounded hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition-colors"
+                                className="p-1 rounded hover:bg-accent focus:bg-accent text-muted-foreground hover:text-slate-300 transition-colors"
                                 title="Dismiss"
                             >
                                 <X className="h-3.5 w-3.5" />
@@ -1859,8 +1876,8 @@ export function WorkflowEditor() {
 
                         {/* Footer hint when errors exist */}
                         {!validationPassed && (
-                            <p className="text-[10px] text-slate-500 mt-3 pt-2.5 border-t border-slate-800/80">
-                                Fix the issues above and click <span className="font-semibold text-slate-400">Check Workflow</span> again before saving.
+                            <p className="text-[10px] text-muted-foreground mt-3 pt-2.5 border-t border-border/80">
+                                Fix the issues above and click <span className="font-semibold text-muted-foreground">Check Workflow</span> again before saving.
                             </p>
                         )}
                     </div>
@@ -1869,8 +1886,8 @@ export function WorkflowEditor() {
 
             {/* 3. Right Node Properties / Lane Configuration Inspector */}
             {selectedNode && (
-                <div className="w-80 border-l border-slate-800 bg-slate-900/50 backdrop-blur-xl flex flex-col shrink-0 animate-in slide-in-from-right duration-200">
-                    <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900">
+                <div className="w-80 border-l border-border bg-card/50 backdrop-blur-xl flex flex-col shrink-0 animate-in slide-in-from-right duration-200">
+                    <div className="p-4 border-b border-border flex items-center justify-between bg-card">
                         <div className="flex items-center gap-2">
                             <Settings className="h-4 w-4 text-indigo-400" />
                             <span className="font-bold text-xs uppercase tracking-wider text-slate-300">Node Properties</span>
@@ -1888,17 +1905,17 @@ export function WorkflowEditor() {
                     <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
                         {/* Generic Label Field */}
                         <div className="flex flex-col gap-1.5">
-                            <Label className="text-xs text-slate-400">Node Label</Label>
+                            <Label className="text-xs text-muted-foreground">Node Label</Label>
                             <Input 
                                 value={selectedNode.data.label || ""}
                                 onChange={(e) => handleUpdateNodeData(selectedNode.id, { label: e.target.value })}
-                                className="bg-slate-950 border-slate-800 text-sm focus:ring-indigo-500 text-slate-100"
+                                className="bg-background border-border text-sm focus:ring-primary text-foreground"
                             />
                         </div>
 
                         {/* Lane specific inspector */}
                         {selectedNode.type === "lane" && (
-                            <div className="flex flex-col gap-4 border-t border-slate-800/80 pt-4">
+                            <div className="flex flex-col gap-4 border-t border-border pt-4">
 
                                 {/* Lane position badge */}
                                 <div className="flex items-center gap-2">
@@ -1916,18 +1933,18 @@ export function WorkflowEditor() {
                                             </span>
                                         )
                                     })()}
-                                    <span className="text-[10px] text-slate-500">
+                                    <span className="text-[10px] text-muted-foreground">
                                         {(selectedNode.data.roles || []).length} role(s) assigned
                                     </span>
                                 </div>
 
                                 {/* Semantic ownership info */}
-                                <div className="rounded-lg bg-slate-950/60 border border-slate-800 p-3 flex flex-col gap-1.5">
+                                <div className="rounded-lg bg-background/60 border border-border p-3 flex flex-col gap-1.5">
                                     <div className="flex items-center gap-1.5">
                                         <Users className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
-                                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Semantic Ownership</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Semantic Ownership</span>
                                     </div>
-                                    <p className="text-[10px] text-slate-500 leading-relaxed">
+                                    <p className="text-[10px] text-muted-foreground leading-relaxed">
                                         Tasks placed inside this swimlane are automatically owned by its assigned actors.
                                         Drag any task node into this lane to assign it. The lane and all its tasks move together.
                                     </p>
@@ -1935,10 +1952,10 @@ export function WorkflowEditor() {
 
                                 {/* Role checkboxes */}
                                 <div className="flex flex-col gap-1.5">
-                                    <Label className="text-xs text-slate-400">Authorized System Roles</Label>
-                                    <div className="flex flex-col gap-1 max-h-40 overflow-y-auto bg-slate-950 p-2 rounded-lg border border-slate-800">
+                                    <Label className="text-xs text-muted-foreground">Authorized System Roles</Label>
+                                    <div className="flex flex-col gap-1 max-h-40 overflow-y-auto bg-background p-2 rounded-lg border border-border">
                                         {roles.length === 0 && (
-                                            <span className="text-[10px] text-slate-600 italic px-1">
+                                            <span className="text-[10px] text-muted-foreground italic px-1">
                                                 No roles available — create roles in Settings first.
                                             </span>
                                         )}
@@ -1946,7 +1963,7 @@ export function WorkflowEditor() {
                                             const activeRoles = selectedNode.data.roles || []
                                             const isChecked = activeRoles.includes(role.name)
                                             return (
-                                                <label key={role.id} className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer py-1 hover:bg-slate-900 px-1.5 rounded">
+                                                <label key={role.id} className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer py-1 hover:bg-card px-1.5 rounded">
                                                     <input
                                                         type="checkbox"
                                                         checked={isChecked}
@@ -1956,7 +1973,7 @@ export function WorkflowEditor() {
                                                                 : [...activeRoles, role.name]
                                                             handleUpdateNodeData(selectedNode.id, { roles: nextRoles })
                                                         }}
-                                                        className="rounded bg-slate-950 border-slate-800 text-indigo-600 focus:ring-indigo-500"
+                                                        className="rounded bg-background border-border text-indigo-600 focus:ring-indigo-500"
                                                     />
                                                     {role.name}
                                                 </label>
@@ -1966,15 +1983,15 @@ export function WorkflowEditor() {
                                 </div>
 
                                 {/* Reorder controls in inspector */}
-                                <div className="flex flex-col gap-1.5 border-t border-slate-800/60 pt-3">
-                                    <Label className="text-xs text-slate-400">Swimlane Position</Label>
+                                <div className="flex flex-col gap-1.5 border-t border-border/60 pt-3">
+                                    <Label className="text-xs text-muted-foreground">Swimlane Position</Label>
                                     <div className="flex gap-2">
                                         <Button
                                             variant="outline"
                                             size="sm"
                                             onClick={() => LANE_ACTIONS.moveUp(selectedNode.id)}
                                             disabled={selectedNode.data.laneIndex === 0}
-                                            className="flex-1 text-xs bg-slate-950 border-slate-800 hover:bg-slate-800 gap-1.5"
+                                            className="flex-1 text-xs bg-background border-border hover:bg-accent focus:bg-accent gap-1.5"
                                         >
                                             <ArrowUp className="h-3 w-3" />
                                             Move Up
@@ -1984,7 +2001,7 @@ export function WorkflowEditor() {
                                             size="sm"
                                             onClick={() => LANE_ACTIONS.moveDown(selectedNode.id)}
                                             disabled={selectedNode.data.laneIndex === (selectedNode.data.totalLanes || 1) - 1}
-                                            className="flex-1 text-xs bg-slate-950 border-slate-800 hover:bg-slate-800 gap-1.5"
+                                            className="flex-1 text-xs bg-background border-border hover:bg-accent focus:bg-accent gap-1.5"
                                         >
                                             <ArrowDown className="h-3 w-3" />
                                             Move Down
@@ -1996,9 +2013,9 @@ export function WorkflowEditor() {
 
                         {/* Service Task specific inspector */}
                         {selectedNode.type === "service_task" && (
-                            <div className="flex flex-col gap-4 border-t border-slate-800/80 pt-4">
+                            <div className="flex flex-col gap-4 border-t border-border pt-4">
                                 <div className="flex flex-col gap-1.5">
-                                    <Label className="text-xs text-slate-400">Linked Agent Blueprint</Label>
+                                    <Label className="text-xs text-muted-foreground">Linked Agent Blueprint</Label>
                                     <Select 
                                         value={selectedNode.data.blueprint_id || ""}
                                         onValueChange={(val) => {
@@ -2009,12 +2026,12 @@ export function WorkflowEditor() {
                                             })
                                         }}
                                     >
-                                        <SelectTrigger className="w-full bg-slate-950 border-slate-800 text-slate-100">
+                                        <SelectTrigger className="w-full bg-background border-border text-slate-100">
                                             <SelectValue placeholder="Link Blueprint..." />
                                         </SelectTrigger>
-                                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
+                                        <SelectContent className="bg-popover border-border text-popover-foreground">
                                             {blueprints.map((bp) => (
-                                                <SelectItem key={bp.id} value={bp.id} className="hover:bg-slate-800">{bp.name}</SelectItem>
+                                                <SelectItem key={bp.id} value={bp.id} className="hover:bg-accent focus:bg-accent">{bp.name}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -2022,7 +2039,7 @@ export function WorkflowEditor() {
 
                                 <div className="flex flex-col gap-1.5">
                                     <div className="flex items-center justify-between">
-                                        <Label className="text-xs text-slate-400">Input Variables Mapping (JSON)</Label>
+                                        <Label className="text-xs text-muted-foreground">Input Variables Mapping (JSON)</Label>
                                         <HelpTooltip contentPath="workflow/service_inputs" />
                                     </div>
                                     <Textarea 
@@ -2036,12 +2053,12 @@ export function WorkflowEditor() {
                                                 // Wait for valid JSON
                                             }
                                         }}
-                                        className="bg-slate-950 border-slate-800 text-xs font-mono h-32 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-32 focus:ring-indigo-500 text-slate-100"
                                     />
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
-                                    <Label className="text-xs text-slate-400">Output Mapping (State bindings)</Label>
+                                    <Label className="text-xs text-muted-foreground">Output Mapping (State bindings)</Label>
                                     <Textarea 
                                         placeholder='e.g. {"extracted_keywords": "keywords"}'
                                         value={JSON.stringify(selectedNode.data.output_mapping || {}, null, 2)}
@@ -2053,7 +2070,7 @@ export function WorkflowEditor() {
                                                 // Wait for valid JSON
                                             }
                                         }}
-                                        className="bg-slate-950 border-slate-800 text-xs font-mono h-28 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-28 focus:ring-indigo-500 text-slate-100"
                                     />
                                 </div>
                             </div>
@@ -2061,9 +2078,9 @@ export function WorkflowEditor() {
 
                         {/* User Task specific inspector */}
                         {selectedNode.type === "user_task" && (
-                            <div className="flex flex-col gap-4 border-t border-slate-800/80 pt-4">
+                            <div className="flex flex-col gap-4 border-t border-border pt-4">
                                 <div className="flex flex-col gap-1.5">
-                                    <Label className="text-xs text-slate-400">Associate Form Tool</Label>
+                                    <Label className="text-xs text-muted-foreground">Associate Form Tool</Label>
                                     <Select
                                         value={selectedNode.data.form_tool_id?.toString() || "default"}
                                         onValueChange={(val) => {
@@ -2089,15 +2106,15 @@ export function WorkflowEditor() {
                                             }
                                         }}
                                     >
-                                        <SelectTrigger className="bg-slate-950 border-slate-800 text-slate-100 focus:ring-indigo-500 text-sm">
+                                        <SelectTrigger className="bg-background border-border text-slate-100 focus:ring-indigo-500 text-sm">
                                             <SelectValue placeholder="Choose a Form Tool..." />
                                         </SelectTrigger>
-                                        <SelectContent className="bg-slate-900 border-slate-800 text-slate-100">
-                                            <SelectItem value="default" className="hover:bg-slate-800">
+                                        <SelectContent className="bg-popover border-border text-popover-foreground">
+                                            <SelectItem value="default" className="hover:bg-accent focus:bg-accent">
                                                 (Default Approval Form)
                                             </SelectItem>
                                             {guiTools.map((t) => (
-                                                <SelectItem key={t.id} value={t.id.toString()} className="hover:bg-slate-800">
+                                                <SelectItem key={t.id} value={t.id.toString()} className="hover:bg-accent focus:bg-accent">
                                                     {t.name}
                                                 </SelectItem>
                                             ))}
@@ -2106,17 +2123,17 @@ export function WorkflowEditor() {
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
-                                    <Label className="text-xs text-slate-400">Form Name / Display Label</Label>
+                                    <Label className="text-xs text-muted-foreground">Form Name / Display Label</Label>
                                     <Input 
                                         value={selectedNode.data.form_tool_name || "Approval Form"}
                                         onChange={(e) => handleUpdateNodeData(selectedNode.id, { form_tool_name: e.target.value })}
-                                        className="bg-slate-950 border-slate-800 text-sm focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-sm focus:ring-primary text-foreground"
                                     />
                                 </div>
 
                                 <div className="flex flex-col gap-1.5">
                                     <div className="flex items-center justify-between">
-                                        <Label className="text-xs text-slate-400">JSON GUI Schema Layout</Label>
+                                        <Label className="text-xs text-muted-foreground">JSON GUI Schema Layout</Label>
                                         <HelpTooltip contentPath="workflow/form_schemas" />
                                     </div>
                                     <Textarea 
@@ -2136,7 +2153,7 @@ export function WorkflowEditor() {
                                                 // Wait for valid JSON
                                             }
                                         }}
-                                        className="bg-slate-950 border-slate-800 text-xs font-mono h-48 focus:ring-indigo-500 text-slate-100"
+                                        className="bg-background border-border text-xs font-mono h-48 focus:ring-indigo-500 text-slate-100"
                                     />
                                 </div>
                             </div>
