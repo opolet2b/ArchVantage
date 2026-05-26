@@ -420,6 +420,31 @@ def run_migrations(db: Session) -> None:
     except Exception as e:
         print(f"knowledge_base_configs migration check failed: {e}")
 
+    # Migration for users table: requires_password_change
+    try:
+        result = db.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        )
+        table_exists = result.fetchone() is not None
+        result.close()
+
+        if table_exists:
+            try:
+                result = db.execute(text("SELECT requires_password_change FROM users LIMIT 1"))
+                result.close()
+                print("Migration check: requires_password_change already exists in users.")
+            except Exception:
+                print("Adding 'requires_password_change' column to users table...")
+                try:
+                    db.execute(text("ALTER TABLE users ADD COLUMN requires_password_change BOOLEAN DEFAULT 0"))
+                    db.commit()
+                    print("Added 'requires_password_change' column successfully.")
+                except Exception as e:
+                    print(f"Warning: Could not add requires_password_change: {e}")
+                    db.rollback()
+    except Exception as e:
+        print(f"users migration check failed: {e}")
+
     except Exception as e:
         print(f"domains migration check failed: {e}")
 
