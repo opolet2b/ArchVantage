@@ -1,6 +1,10 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
+import csv
+import io
+import secrets
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.core.database import get_db
 from app.core.security import get_password_hash
 from app.models.user import User, Role, UserRole, UserRoleSource, AuthType, KnownADGroup
@@ -178,6 +182,107 @@ def toggle_user_active(
     db.commit()
     db.refresh(db_user)
     return db_user
+
+@router.post("/users/bulk-upload")
+def bulk_upload_users(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(PermissionChecker("user:manage"))
+):
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are allowed")
+
+    content = file.file.read()
+    try:
+        decoded = content.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        decoded = content.decode('latin-1') # fallback
+        
+    try:
+        # Detect the dialect (handles both comma and semicolon)
+        dialect = csv.Sniffer().sniff(decoded[:1024])
+    except csv.Error:
+        # Fallback if sniffing fails
+        csv.register_dialect('fallback', delimiter=',')
+        dialect = 'fallback'
+
+    csv_reader = csv.DictReader(io.StringIO(decoded), dialect=dialect)
+    
+    # We will generate a CSV response with temporary passwords
+    output = io.StringIO()
+    csv_writer = csv.writer(output)
+    csv_writer.writerow(['Email', 'Role', 'Temporary Password', 'Status'])
+
+    fieldnames = [field.strip().lower() for field in (csv_reader.fieldnames or [])]
+    csv_reader.fieldnames = fieldnames
+    
+    if 'email' not in fieldnames:
+        raise HTTPException(status_code=400, detail="CSV must contain an 'Email' column (and optionally a 'Role' column)")
+
+    for row in csv_reader:
+        email = row.get('email', '').strip()
+        role_name = row.get('role', '').strip()
+        
+        if not email or '@' not in email:
+            continue
+
+        assigned_role_name = ''
+        role_obj = None
+        if role_name:
+            role_obj = db.query(Role).filter(func.lower(Role.name) == role_name.lower()).first()
+            if role_obj:
+                assigned_role_name = role_obj.name
+            else:
+                assigned_role_name = f"{role_name} (Not Found)"
+            
+        # Check if user exists
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            status = 'Already Exists'
+            if role_obj:
+                # Assign role if not already assigned
+                existing_role = db.query(UserRole).filter(UserRole.user_id == existing.id, UserRole.role_id == role_obj.id).first()
+                if not existing_role:
+                    user_role = UserRole(user_id=existing.id, role_id=role_obj.id, source=UserRoleSource.MANUAL)
+                    db.add(user_role)
+                    status = 'Already Exists - Role Assigned'
+                else:
+                    status = 'Already Exists - Role Already Had'
+            csv_writer.writerow([email, assigned_role_name, '', status])
+            continue
+            
+        temp_password = secrets.token_urlsafe(8)
+        hashed_password = get_password_hash(temp_password)
+        
+        # User username is usually email or we derive first/last from email if missing
+        first_name = email.split('@')[0]
+        last_name = ''
+        
+        db_user = User(
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            password_hash=hashed_password,
+            auth_type=AuthType.INTERNAL,
+            is_active=True,
+            requires_password_change=True
+        )
+        db.add(db_user)
+        db.flush() # get user id
+        
+        if role_obj:
+            user_role = UserRole(user_id=db_user.id, role_id=role_obj.id, source=UserRoleSource.MANUAL)
+            db.add(user_role)
+                
+        csv_writer.writerow([email, assigned_role_name, temp_password, 'Created'])
+        
+    db.commit()
+    
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=users_created.csv"}
+    )
 
 @router.get("/ad-groups")
 def get_ad_groups(

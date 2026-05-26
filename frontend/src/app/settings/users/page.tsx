@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,11 +34,12 @@ import {
     TabsList,
     TabsTrigger,
 } from "@/components/ui/tabs"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Pencil, Lock } from "lucide-react"
+import { Pencil, Lock, HelpCircle } from "lucide-react"
 import { useRouter, useSearchParams, usePathname } from "next/navigation"
 import { RolesTab } from "@/components/settings/roles-tab"
 import { GroupMappingTab } from "@/components/settings/group-mapping-tab"
@@ -70,6 +71,8 @@ export default function UserManagementPage() {
     const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
     const [selectedUser, setSelectedUser] = useState<User | null>(null)
+    const [isUploading, setIsUploading] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const { user: currentUser } = useAuth()
     const router = useRouter()
     const searchParams = useSearchParams()
@@ -256,6 +259,44 @@ export default function UserManagementPage() {
         }
     }
 
+    const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+
+        setIsUploading(true)
+        const formData = new FormData()
+        formData.append("file", file)
+
+        try {
+            const token = localStorage.getItem("token")
+            const res = await fetch(`${API_URL}/users/bulk-upload`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`
+                },
+                body: formData
+            })
+
+            if (res.ok) {
+                const blob = await res.blob()
+                const url = window.URL.createObjectURL(blob)
+                const a = document.createElement("a")
+                a.href = url
+                a.download = "users_created.csv"
+                a.click()
+                window.URL.revokeObjectURL(url)
+                fetchUsers()
+            } else {
+                alert("Failed to upload users")
+            }
+        } catch (error) {
+            console.error("Bulk upload failed", error)
+        } finally {
+            setIsUploading(false)
+            if (fileInputRef.current) fileInputRef.current.value = ""
+        }
+    }
+
     return (
         <div className="container mx-auto py-10">
             <div className="flex justify-between items-center mb-6">
@@ -280,7 +321,29 @@ export default function UserManagementPage() {
 
                 {hasPermission("user:manage") && (
                     <TabsContent value="users" className="space-y-4">
-                        <div className="flex justify-end mb-4">
+                        <div className="flex justify-end mb-4 gap-2">
+                            <input
+                                type="file"
+                                accept=".csv"
+                                className="hidden"
+                                ref={fileInputRef}
+                                onChange={handleBulkUpload}
+                            />
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+                                            {isUploading ? "Uploading..." : "Bulk Upload (CSV)"}
+                                            <HelpCircle className="ml-2 h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs">
+                                        <p>Upload a CSV file to mass-create users.</p>
+                                        <p className="mt-1">Required column: <strong>Email</strong></p>
+                                        <p>Optional column: <strong>Role</strong> (assigns an existing role by name)</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
                             <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
                                 <DialogTrigger asChild>
                                     <Button>Add User</Button>

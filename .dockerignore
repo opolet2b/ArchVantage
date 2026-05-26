@@ -38,3 +38,7 @@ backend/chroma_db/
 # Explicitly re-include database files from docker_pack so they aren't ignored
 !docker_pack/db/*.db
 !docker_pack/db/*.sqlite3
+
+# Ignore local environment variables
+**/.env.local
+**/.env.*.local

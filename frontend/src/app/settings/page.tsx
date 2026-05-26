@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { AccountSettingsTab } from "@/components/settings/account-settings-tab"
 import { ModelConfig } from "@/components/settings/model-config"
 import UsersPage from "@/app/settings/users/page"
 import { MCPServersTab } from "@/components/settings/mcp-servers-tab"
@@ -18,7 +19,7 @@ import { SttSettingsTab } from "@/components/settings/stt-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit, Volume2, Mic } from "lucide-react"
+import { Users, User, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit, Volume2, Mic } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -58,6 +59,14 @@ export default function SettingsPage() {
 
                 <div className="flex flex-col md:flex-row gap-8">
                     <aside className="w-full md:w-64 flex flex-col gap-2">
+                        <Button
+                            variant={activeTab === "account" ? "secondary" : "ghost"}
+                            className="justify-start gap-2"
+                            onClick={() => handleTabChange("account")}
+                        >
+                            <User className="h-4 w-4" />
+                            Account Settings
+                        </Button>
                         <Button
                             variant={activeTab === "model" ? "secondary" : "ghost"}
                             className="justify-start gap-2"
@@ -184,6 +193,7 @@ export default function SettingsPage() {
                     </aside>
 
                     <main className="flex-1">
+                        {activeTab === "account" && <AccountSettingsTab />}
                         {activeTab === "model" && <ModelConfig />}
                         {activeTab === "styling" && <StylingSettingsTab />}
                         {activeTab === "tts" && <TtsConfigTab />}

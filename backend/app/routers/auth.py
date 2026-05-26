@@ -3,10 +3,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 from app.core.database import get_db
-from app.core.security import verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, decode_access_token
+from app.core.security import verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, decode_access_token, get_password_hash
 from app.models.user import User
 from app.schemas.user import Token, TokenData
 from app.services.debug_service import debug_service
+
+from pydantic import BaseModel
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 router = APIRouter()
 
@@ -102,4 +108,23 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
         if role.name == "Admin":
             permissions.add("ADMIN") # Implicit admin permission
             
-    return TokenData(email=current_user.email, roles=roles, permissions=list(permissions))
+    return TokenData(
+        email=current_user.email, 
+        roles=roles, 
+        permissions=list(permissions),
+        requires_password_change=current_user.requires_password_change
+    )
+
+@router.put("/auth/password")
+async def change_password(
+    request: PasswordChangeRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    if not verify_password(request.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+    
+    current_user.password_hash = get_password_hash(request.new_password)
+    current_user.requires_password_change = False
+    db.commit()
+    return {"message": "Password updated successfully"}

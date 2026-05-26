@@ -22,6 +22,7 @@ class UserBase(BaseModel):
     first_name: str
     last_name: str
     is_active: Optional[bool] = True
+    requires_password_change: Optional[bool] = False
 
 class UserCreate(UserBase):
     password: str
@@ -53,6 +54,7 @@ class TokenData(BaseModel):
     email: Optional[str] = None
     roles: List[str] = []
     permissions: List[str] = []
+    requires_password_change: Optional[bool] = False
 
 class KnownADGroupBase(BaseModel):
     ad_group_oid: str
