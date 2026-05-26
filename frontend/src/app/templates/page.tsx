@@ -64,7 +64,7 @@ import {
 import { TemplateStructureBuilder } from "@/components/templates/structure-builder";
 import { TemplateParserClient, TemplateBlock } from "@/components/templates/template-parser-client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+import { API_URL } from "@/lib/utils"
 
 // Tree node types
 interface TreeNode {

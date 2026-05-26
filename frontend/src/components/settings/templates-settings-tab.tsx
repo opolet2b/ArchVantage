@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, FolderPlus, RefreshCw, Save, CheckCircle2 } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+import { API_URL } from "@/lib/utils"
 
 interface Folder {
     id: string;

@@ -8,7 +8,9 @@ import { Label } from "@/components/ui/label"
 import { FlaskConical, Save, Database, AlertCircle, CheckCircle2 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1"
+import { API_URL } from "@/lib/utils"
+
+const API_BASE_URL = API_URL
 
 export function DatabaseSettingsTab() {
     const [dbUrl, setDbUrl] = useState("")
