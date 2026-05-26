@@ -17,9 +17,23 @@ services:
       - HOSTNAME=0.0.0.0
       - DATABASE_URL=sqlite:///./db/sql_app.db
       - NEXT_PUBLIC_API_URL=/api/v1
-      - ARCADEDB_HOST=http://host.docker.internal:2480
+      - ARCADEDB_HOST=http://arcadedb:2480
       - OLLAMA_HOST=http://host.docker.internal:11434
+    restart: unless-stopped
+    depends_on:
+      - arcadedb
+
+  arcadedb:
+    image: arcadedata/arcadedb:latest
+    ports:
+      - "2480:2480"
+      - "2424:2424"
+    environment:
+      - JAVA_OPTS=-Darcadedb.server.rootPassword=playwithdata -Darcadedb.server.defaultDatabases=KnowledgeGraph
+    volumes:
+      - arcadedb_data:/home/arcadedb/databases
     restart: unless-stopped
 
 volumes:
   sqlite_data:
+  arcadedb_data:
