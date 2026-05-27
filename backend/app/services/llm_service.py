@@ -424,7 +424,11 @@ class LLMService:
             # The chat returns raw JSON or a string containing JSON. 
             # We use the _extract_json helper to be robust.
             json_str = self._extract_json(response_text)
-            data = json.loads(json_str)
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError:
+                print(f"[LLMService] Zoom summary JSON decode error. Output was: {response_text[:200]}")
+                data = {}
             
             # Ensure all keys exist
             required = ["label", "one_line", "sentence", "paragraph"]

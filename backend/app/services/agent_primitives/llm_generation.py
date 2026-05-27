@@ -148,22 +148,11 @@ class LLMGenerationPrimitive(BasePrimitive):
                       print(f"[LLM_PRIM] Recovered instruction from loop item: {loop_item.get('instruction')[:50]}...")
                       resolved_instruction = loop_item.get("instruction")
             
-            # --- DEBUG LOGGING ---
-            print("\n" + "!"*50)
-            print(f"[LLM_PRIM] EXECUTING! Instruction: {resolved_instruction[:50]}...")
-            print("!"*50 + "\n")
-            
-            if "is_template_mode" in params:
-                 print("\n\n[TEMPLATE_DEBUGGER] !!! FLAG FOUND IN PARAMS !!!\n\n")
-            else:
-                 print(f"\n\n[TEMPLATE_DEBUGGER] FLAG MISSING. Param Keys: {list(params.keys())}\n\n")
-
             is_template_mode = (
                 params.get("is_template_mode") or
                 variables.get("is_document_template") or 
                 (resolved_instruction and ("## **" in resolved_instruction or "<!-- INSTRUCTION" in resolved_instruction))
             )
-            print(f"[TEMPLATE_DEBUG] Template Structure Detected: {is_template_mode}")
             # ---------------------
             
             # --- CONTEXT TRACE LOGGING ---

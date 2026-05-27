@@ -127,22 +127,8 @@ class AutomationService:
             thing_id = payload["thing_id"]
             thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
             if thing:
-                # Synchronization: Wait for embedding if it's currently PROCESSING or PENDING
-                # This ensures actions like search or analysis have data to work with.
                 if thing.rag_status in [RAGStatus.PENDING, RAGStatus.PROCESSING]:
-                    self._log(f"Context: Thing {thing_id} is embedding ({thing.rag_status}). Waiting...", "DEBUG")
-                    max_retries = 15 # 30 seconds total
-                    for i in range(max_retries):
-                        await asyncio.sleep(2)
-                        db.refresh(thing)
-                        if thing.rag_status == RAGStatus.COMPLETED:
-                            self._log(f"Context: Thing {thing_id} embedding COMPLETED after {i*2}s.", "DEBUG")
-                            break
-                        if thing.rag_status == RAGStatus.FAILED:
-                            self._log(f"Context: Thing {thing_id} embedding FAILED. Proceeding anyway.", "WARNING")
-                            break
-                    else:
-                        self._log(f"Context: Thing {thing_id} embedding timed out after 30s. Proceeding.", "WARNING")
+                    self._log(f"Context: Thing {thing_id} is currently embedding ({thing.rag_status}). Text content may be incomplete.", "DEBUG")
 
                 payload["thing_content"] = str(thing.content)
                 payload["thing_name"] = getattr(thing, "name", None) or getattr(thing, "title", None) or "Untitled"
@@ -442,9 +428,11 @@ class AutomationService:
                 payload_val = payload[key]
                 
                 # Resolve Domain Type for "domain_id" criteria
-                # If the rule expects a Definition ID, but we have an Instance ID, 
-                # we need to check if the instance's type matches the criteria.
                 if key == "domain_id":
+                    # If rule expects ANY domain, it always passes (even on raw canvas)
+                    if expected_val == "*":
+                        continue
+
                     # Check direct ID match first
                     if str(payload_val) == str(expected_val):
                          continue # Direct ID match, so this filter passes

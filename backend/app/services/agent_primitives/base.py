@@ -151,9 +151,7 @@ class BasePrimitive(ABC):
             var_path = match.group(1).strip()
             val = self._resolve_single_variable(var_path, state)
             if val is None:
-                variables = state.get("variables", {})
-                available = list(variables.keys())
-                self._log_debug(f"Variable NOT FOUND: '{var_path}'. Available keys: {available}", state)
+                pass # Expected when resolving partial templates
             return str(val) if val is not None else ""
             
         pattern = r'\{\{([^}]+)\}\}'

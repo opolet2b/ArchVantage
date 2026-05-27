@@ -106,17 +106,23 @@ class SlideshowIngestor:
                 documents.append(Document(text=full_slide_text, metadata=doc_metadata))
 
             if documents:
-                print(f"[SlideshowIngestor] Vectorizing {len(documents)} slide documents...")
-                
                 if index is None:
                      print("[SlideshowIngestor] Error: Index is None.")
                      return {"status": "error", "message": "Vector Index not initialized"}
 
-                for i, doc in enumerate(documents):
-                    print(f"[SlideshowIngestor] Embedding Slide {i+1}/{len(documents)}...")
-                    index.insert(doc)
+                from llama_index.core import Settings
+                nodes = Settings.node_parser.get_nodes_from_documents(documents)
+                
+                total_nodes = len(nodes)
+                batch_size = 100
+                
+                print(f"[SlideshowIngestor] Vectorizing {total_nodes} nodes from {len(documents)} slides...")
+                
+                for i in range(0, total_nodes, batch_size):
+                    batch = nodes[i:i + batch_size]
+                    index.insert_nodes(batch)
                     if progress_callback:
-                        progress_callback(i + 1, len(documents))
+                        progress_callback(min(i + batch_size, total_nodes), total_nodes)
                 
                 print(f"[SlideshowIngestor] Slideshow ingestion complete.")
                 return {"status": "success", "count": len(documents)}

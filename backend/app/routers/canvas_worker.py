@@ -87,6 +87,16 @@ async def handle_async_vectorization(
         # Generic Progress Callback
         def update_progress(current, total):
             try:
+                # Refresh to check if the user deleted the thing or clicked "Stop"
+                try:
+                    db.refresh(thing)
+                except Exception as ex:
+                    print(f"[CanvasWorker] Thing likely deleted: {ex}")
+                    raise Exception("Abort: Thing was deleted.")
+                
+                if thing.rag_status == RAGStatus.FAILED:
+                     raise Exception("Abort: RAG processing was stopped by user.")
+
                 # We reuse the same logic for all types
                 new_content = dict(thing.content)
                 new_content["ingestion_progress"] = {
@@ -101,6 +111,9 @@ async def handle_async_vectorization(
                 db.commit()
             except Exception as e:
                 print(f"[CanvasWorker] Error updating progress: {e}")
+                # Re-raise abortion signals so they bubble up to the ingestion loops and stop them
+                if "Abort:" in str(e):
+                    raise e
 
         if thing.type.value == "image":
              print(f"[CanvasWorker] Processing Image Thing using VLM...")
@@ -147,7 +160,9 @@ async def handle_async_vectorization(
                  meta = base_metadata.copy()
                  meta.update({"type": "image_description", "source_image": file_path})
                  
-                 result = rag_service.ingest_text(
+                 from starlette.concurrency import run_in_threadpool
+                 result = await run_in_threadpool(
+                     rag_service.ingest_text,
                      description,
                      metadata=meta
                  )
@@ -181,7 +196,9 @@ async def handle_async_vectorization(
                 meta = base_metadata.copy()
                 meta.update({"type": "text_node"})
                 
-                result = rag_service.ingest_text(
+                from starlette.concurrency import run_in_threadpool
+                result = await run_in_threadpool(
+                    rag_service.ingest_text,
                     text_content,
                     metadata=meta
                 )
@@ -712,9 +729,11 @@ async def handle_async_vectorization(
 
             # We explicitly disable vision in RAG Service because CanvasWorker handles hybrid analysis manually 
             # in Phase 3 (lines 800+). Enabling it here would cause double-processing.
-            result = rag_service.ingest_file(
-                file_path, 
-                metadata=meta, # Fixed: was missing!
+            from starlette.concurrency import run_in_threadpool
+            result = await run_in_threadpool(
+                rag_service.ingest_file,
+                file_path=file_path, 
+                metadata=meta,
                 progress_callback=update_progress,
                 model_name=canvas_model,
                 vision_model_name=vision_model,
@@ -982,6 +1001,31 @@ async def handle_async_vectorization(
             # CRITICAL FIX: Ensure we commit the COMPLETED status for normal mode too!
             if mode != "sync":
                 db.commit()
+
+            # Trigger Document Processed Automation
+            try:
+                from app.services.automation_service import automation_service
+                canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
+                user_id = canvas.owner_id if canvas else 1
+                
+                print(f"[CanvasWorker] Triggering onProcessed automation for thing {thing_id}")
+                
+                # Payload matching what automation_service expects for drop/entry
+                payload = {
+                    "thing_id": thing_id,
+                    "domain_id": thing.domain_id,
+                    "is_new_domain": True
+                }
+                
+                await automation_service.handle_canvas_event(
+                    db,
+                    canvas_id,
+                    "onProcessed",
+                    payload,
+                    user_id
+                )
+            except Exception as auto_err:
+                print(f"[CanvasWorker] Failed to trigger automation: {auto_err}")
         else:
             # Check if it was "no_documents_found" or error
             thing.rag_status = RAGStatus.FAILED

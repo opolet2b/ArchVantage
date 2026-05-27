@@ -651,14 +651,14 @@ class RAGService:
             if nodes:
                print(f"[RAGService] Ingesting {len(nodes)} nodes from text content.")
                try:
-                   for i, node in enumerate(nodes):
+                   for node in nodes:
                        # OPTIMIZATION: Prevent LlamaIndex from storing the whole node content in metadata redundantly
                        # Chroma stores the text anyway in the document field.
                        node.excluded_embed_metadata_keys.append("_node_content")
                        node.excluded_llm_metadata_keys.append("_node_content")
                        
-                       print(f"[RAGService] Embedding Text Node {i+1}/{len(nodes)}...")
-                       self.index.insert_nodes([node])
+                   print(f"[RAGService] Embedding {len(nodes)} Text Nodes in batch...")
+                   self.index.insert_nodes(nodes)
                except Exception as ie:
                    err_str = str(ie).lower()
                    if "connect" in err_str and "11434" in err_str:

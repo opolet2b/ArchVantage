@@ -22,6 +22,7 @@ class DocumentIngestor:
         print(f"[DocumentIngestor] Starting ingestion for: {file_path}")
         
         try:
+            structured_data = None
             is_docx = file_path.lower().endswith('.docx')
             
             # Word Document Handling
@@ -68,7 +69,6 @@ class DocumentIngestor:
                 # Check for Excel/CSV for structured extraction
                 is_excel = file_path.lower().endswith(('.xlsx', '.xls'))
                 is_csv = file_path.lower().endswith('.csv')
-                structured_data = None
 
                 if is_excel or is_csv:
                     try:
@@ -196,17 +196,21 @@ class DocumentIngestor:
                 else:
                     nodes = Settings.node_parser.get_nodes_from_documents(documents)
 
-                # Insert nodes
+                # Prepare metadata and exclusions
                 total_nodes = len(nodes)
-                for i, node in enumerate(nodes):
+                for node in nodes:
                     if "_node_content" not in node.excluded_embed_metadata_keys:
                         node.excluded_embed_metadata_keys.append("_node_content")
                     if "_node_content" not in node.excluded_llm_metadata_keys:
                         node.excluded_llm_metadata_keys.append("_node_content")
 
-                    index.insert_nodes([node])
+                # Insert nodes in batches of 100 to optimize API calls while giving progress updates
+                batch_size = 100
+                for i in range(0, total_nodes, batch_size):
+                    batch = nodes[i:i + batch_size]
+                    index.insert_nodes(batch)
                     if progress_callback:
-                        progress_callback(i + 1, total_nodes)
+                        progress_callback(min(i + batch_size, total_nodes), total_nodes)
                 
                 # Result construction
                 text = "\n\n".join([doc.text for doc in documents])

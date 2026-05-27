@@ -1454,6 +1454,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             set({ things: [...get().things, thing] });
 
             // Emit Automation Event
+            get().emitCanvasEvent("onDrop", {
+                thing_id: thing.id,
+                domain_id: finalDomainId,
+                is_new_domain: true,
+                ...transientExtras
+            });
+
             if (finalDomainId) {
                 get().emitCanvasEvent("onEntry", {
                     thing_id: thing.id,
