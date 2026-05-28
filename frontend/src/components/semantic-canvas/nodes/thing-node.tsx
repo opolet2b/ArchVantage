@@ -2557,10 +2557,13 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     {thing.title || getDefaultTitle()}
                 </span>
 
-                {/* Automation Processing Overlay (Iconified) */}
+                {/* Automation Floating Badge (Iconified) */}
                 {processingMessage && (
-                    <div className="absolute inset-0 z-[60] flex items-center justify-center bg-white/90 dark:bg-slate-900/90 rounded-xl backdrop-blur-sm animate-in fade-in zoom-in-95 duration-700">
-                        <Loader2 className="w-6 h-6 text-blue-500 animate-spin duration-[2000ms]" />
+                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-[100] pointer-events-none flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-full shadow-lg shadow-blue-500/20 whitespace-nowrap animate-in slide-in-from-bottom-2 fade-in duration-300">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span className="text-[10px] font-semibold">
+                            {processingMessage}
+                        </span>
                     </div>
                 )}
             </div>
@@ -3265,15 +3268,13 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     className={cn("!w-4 !h-4 z-50", colorTheme.handleColor, isReadOnly && "opacity-0 pointer-events-none")}
                 />
 
-                {/* Automation Processing Overlay */}
+                {/* Automation Floating Badge */}
                 {processingMessage && (
-                    <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-white/90 dark:bg-slate-900/90 rounded-lg backdrop-blur-sm animate-in fade-in zoom-in-95 duration-700">
-                        <div className="flex flex-col items-center gap-2 p-4 text-center">
-                            <Loader2 className="w-8 h-8 text-blue-500 animate-spin duration-[2000ms]" />
-                            <span className="text-xs font-semibold text-slate-700 dark:text-slate-100 bg-white/90 dark:bg-slate-800/90 px-3 py-1 rounded-full shadow-sm border border-slate-200 dark:border-slate-700 animate-pulse duration-1000">
-                                {processingMessage}
-                            </span>
-                        </div>
+                    <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-[100] pointer-events-none flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full shadow-[0_0_20px_rgba(59,130,246,0.5)] whitespace-nowrap animate-in slide-in-from-bottom-2 fade-in duration-300 border border-blue-400/30">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-xs font-bold tracking-wide">
+                            {processingMessage}
+                        </span>
                     </div>
                 )}
             </div>

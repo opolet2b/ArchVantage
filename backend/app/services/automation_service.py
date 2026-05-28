@@ -271,15 +271,32 @@ class AutomationService:
                     automation_reasoning = self._extract_all_reasonings(steps, res.get("output"))
                     
                     insight_str = f"**{a_name}**"
+                    
+                    # Build a detailed step-by-step log
+                    if steps:
+                        insight_str += "\n\n**Execution Log:**\n"
+                        for i, step in enumerate(steps):
+                            n_type = step.get("node_type", "Unknown")
+                            n_label = step.get("node_label") or step.get("label") or n_type
+                            s_status = step.get("status", "unknown")
+                            s_error = step.get("error", "")
+                            
+                            icon = "✅" if s_status == "completed" else "❌" if s_status == "failed" else "⏳"
+                            insight_str += f"- {icon} **Step {i+1}**: {n_label}"
+                            if s_error:
+                                insight_str += f" *(Error: {s_error})*"
+                            insight_str += "\n"
+
                     if automation_reasoning:
+                        insight_str += "\n**AI Reasoning:**\n"
                         # Join multiple reasonings with bullet points if more than one
                         if len(automation_reasoning) > 1:
-                            r_text = "\n" + "\n".join([f"- {r}" for r in automation_reasoning])
+                            r_text = "\n".join([f"{r}" for r in automation_reasoning])
                         else:
-                            r_text = f": {automation_reasoning[0]}"
+                            r_text = f"{automation_reasoning[0]}"
                         insight_str += r_text
-                    else:
-                        insight_str += ": Automation completed successfully."
+                    elif not steps:
+                        insight_str += "\nAutomation completed successfully."
                     
                     insights.append(insight_str)
                 
