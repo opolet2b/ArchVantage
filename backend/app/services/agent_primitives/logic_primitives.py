@@ -71,8 +71,8 @@ class LogicIfElsePrimitive(BasePrimitive):
             "required": ["condition", "context"]
         }
 
-    async def _evaluate_condition(self, condition: str, context: Any, compare_value: str, state: Dict[str, Any], label: str = "Condition") -> tuple[bool, str]:
-        """Evaluates a condition using the configured LLM."""
+    async def _evaluate_condition(self, condition: str, context: Any, compare_value: str, state: Dict[str, Any], label: str = "Condition", eval_type: str = "ai") -> tuple[bool, str]:
+        """Evaluates a condition using the configured LLM or strict deterministic rules."""
         import json
         
         # Robustly handle non-string context
@@ -82,6 +82,48 @@ class LogicIfElsePrimitive(BasePrimitive):
             context_str = ""
         else:
             context_str = str(context)
+
+        # Check for strict deterministic mode
+        strict_operators = ["is", "is exactly", "contains", "is not", "does not contain", "is greater than", "is less than", "is greater than or equal", "is less than or equal"]
+        if eval_type == "strict" or condition in strict_operators:
+            is_true = False
+            c_str = str(context).strip().lower()
+            cv_str = str(compare_value).strip().lower()
+            if condition in ["is", "is exactly"]:
+                is_true = (c_str == cv_str)
+                reasoning = f"Strict check: '{c_str}' is exactly '{cv_str}'" if is_true else f"Strict check: '{c_str}' does not match '{cv_str}'"
+            elif condition == "is not":
+                is_true = (c_str != cv_str)
+                reasoning = f"Strict check: '{c_str}' is indeed not '{cv_str}'" if is_true else f"Strict check: '{c_str}' matches '{cv_str}', which violates 'is not'"
+            elif condition == "contains":
+                is_true = (cv_str in c_str)
+                reasoning = f"Strict check: '{c_str}' contains '{cv_str}'" if is_true else f"Strict check: '{c_str}' does not contain '{cv_str}'"
+            elif condition == "does not contain":
+                is_true = (cv_str not in c_str)
+                reasoning = f"Strict check: '{c_str}' does not contain '{cv_str}'" if is_true else f"Strict check: '{c_str}' contains '{cv_str}', which violates 'does not contain'"
+            elif condition in ["is greater than", "is less than", "is greater than or equal", "is less than or equal"]:
+                try:
+                    c_num = float(c_str)
+                    cv_num = float(cv_str)
+                    if condition == "is greater than":
+                        is_true = c_num > cv_num
+                        reasoning = f"Strict check: {c_num} is > {cv_num}" if is_true else f"Strict check: {c_num} is not > {cv_num}"
+                    elif condition == "is less than":
+                        is_true = c_num < cv_num
+                        reasoning = f"Strict check: {c_num} is < {cv_num}" if is_true else f"Strict check: {c_num} is not < {cv_num}"
+                    elif condition == "is greater than or equal":
+                        is_true = c_num >= cv_num
+                        reasoning = f"Strict check: {c_num} is >= {cv_num}" if is_true else f"Strict check: {c_num} is not >= {cv_num}"
+                    elif condition == "is less than or equal":
+                        is_true = c_num <= cv_num
+                        reasoning = f"Strict check: {c_num} is <= {cv_num}" if is_true else f"Strict check: {c_num} is not <= {cv_num}"
+                except ValueError:
+                    is_true = False
+                    reasoning = f"Strict check failed: Cannot compare non-numeric values '{c_str}' and '{cv_str}'."
+            
+            self._log_debug(f"[{label}] Strict Result: {is_true} | Reasoning: {reasoning}", state, extra={"reasoning": reasoning})
+            return is_true, reasoning
+
 
         full_statement = condition
         if compare_value:
@@ -218,7 +260,8 @@ class LogicIfElsePrimitive(BasePrimitive):
                 compare_value = self.resolve_variables(compare_value_template, sub_state)
                 
                 # Evaluate
-                is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, sub_state, label=node_label)
+                eval_type = params.get("eval_type", "ai")
+                is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, sub_state, label=node_label, eval_type=eval_type)
                 
                 # Execute branch
                 steps_to_run = then_steps if is_true else else_steps
@@ -275,9 +318,10 @@ class LogicIfElsePrimitive(BasePrimitive):
             # Simple Mode
             context = self.resolve_variables(context_template, state)
             compare_value = self.resolve_variables(compare_value_template, state)
+            eval_type = params.get("eval_type", "ai")
             
             # Evaluate
-            is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, state, label=node_label)
+            is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, state, label=node_label, eval_type=eval_type)
             
             # Execute branch
             steps_to_run = then_steps if is_true else else_steps
@@ -286,11 +330,14 @@ class LogicIfElsePrimitive(BasePrimitive):
             self._log_debug(f"[{node_label}] Executing branch: {branch_name} ({num_steps} internal steps)", state)
             
             branch_output = None
+            child_steps = None
             if steps_to_run:
                 from app.services.agent_primitives.pipeline_primitive import GenericPipelinePrimitive
                 pipeline_runner = GenericPipelinePrimitive()
                 res = await pipeline_runner.execute({"steps": steps_to_run}, state)
                 branch_output = res.output if res.success else {"error": res.error}
+                if hasattr(res, "steps"):
+                    child_steps = res.steps
             
             # Propagate realization flag if internal branch required it
             realization_required = isinstance(branch_output, dict) and branch_output.get("realization_required", False)
@@ -304,7 +351,8 @@ class LogicIfElsePrimitive(BasePrimitive):
                     "output": branch_output,
                     "realization_required": realization_required,
                     "ai_insight": reasoning
-                }
+                },
+                steps=child_steps
             )
 
 class CanvasQueryPrimitive(BasePrimitive):

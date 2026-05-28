@@ -93,7 +93,7 @@ class PDFService:
                         print(f"[PDFService] Error inspecting page {i}: {e}")
                         pass
                     
-            print(f"[PDFService] Identified {len(visual_pages)}/{len(pdf)} visual pages in {file_path}")
+                print(f"[PDFService] Identified {len(visual_pages)}/{len(pdf)} visual pages in {file_path}")
             return visual_pages
             
         except Exception as e:

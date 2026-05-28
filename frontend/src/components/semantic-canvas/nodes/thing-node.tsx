@@ -367,7 +367,15 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const toggleInspector = useCanvasStore((state) => state.toggleInspector);
     // Processing State for Visual Feedback
     const processingThings = useCanvasStore((state) => state.processingThings);
-    const processingMessage = processingThings?.[thing.id];
+    const storeProcessingMessage = processingThings?.[thing.id];
+    const automationProgress = thing.content?.automation_progress;
+    
+    const processingMessage = React.useMemo(() => {
+        if (automationProgress && automationProgress.status === "running") {
+            return `Automation: ${automationProgress.current_step} (${automationProgress.step_index + 1}/${automationProgress.total_steps})`;
+        }
+        return storeProcessingMessage;
+    }, [automationProgress, storeProcessingMessage]);
     const activeScenario = useCanvasStore((state) => state.activeScenario);
     const accessLevel = useCanvasStore((state) => state.accessLevel);
     const isReadOnly = accessLevel === "read";
@@ -754,14 +762,23 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                     if (res.ok) {
                         const updatedThing = await res.json();
-                        if (updatedThing && updatedThing.rag_status !== localStatus) {
-                            setLocalStatus(updatedThing.rag_status);
-                            // Also update store to persist this changes globally AND update content (description)
-                            // Use syncThing to avoid PATCHing back to server (prevent overwrite race conditions)
-                            useCanvasStore.getState().syncThing(currentThing.id, {
-                                rag_status: updatedThing.rag_status,
-                                content: updatedThing.content
-                            });
+                        if (updatedThing) {
+                            if (updatedThing.rag_status !== localStatus) {
+                                setLocalStatus(updatedThing.rag_status);
+                            }
+                            
+                            // Always sync if position, domain, or status changed, to catch backend automations
+                            if (
+                                updatedThing.rag_status !== localStatus ||
+                                updatedThing.position_x !== currentThing.position_x ||
+                                updatedThing.position_y !== currentThing.position_y ||
+                                updatedThing.domain_id !== currentThing.domain_id ||
+                                updatedThing.updated_at !== currentThing.updated_at
+                            ) {
+                                // Use refreshThings() instead of syncThing to catch ALL automation side effects 
+                                // (e.g. links created, domain updates) and ensure React Flow properly animates.
+                                useCanvasStore.getState().refreshThings();
+                            }
                         }
                     } else {
                         console.warn(`[ThingNode] Failed to poll status for thing ${currentThing.id}: ${res.status} ${res.statusText}`);
@@ -848,10 +865,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // --- Progress Bar Logic (for documents/slideshows) ---
     const [progressThing, setProgressThing] = React.useState<CanvasThing>(currentThing);
 
-    // Poll for progress updates if status is "processing"
+    // Poll for progress updates if status is processing or pending
     React.useEffect(() => {
         let intervalId: NodeJS.Timeout;
-        const shouldPoll = progressThing.rag_status === "processing";
+        const shouldPoll = progressThing.rag_status === "processing" || progressThing.rag_status === "pending";
 
         if (shouldPoll) {
             intervalId = setInterval(async () => {
@@ -877,10 +894,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             // Fix: Sync to store immediately to prevent race condition where
                             // this loop finishes (completed), stops polling, falls into 'else',
                             // and reverts to stale 'processing' state from store.
-                            useCanvasStore.getState().syncThing(currentThing.id, {
-                                rag_status: updatedThing.rag_status,
-                                content: updatedThing.content
-                            });
+                            // Sync the ENTIRE updatedThing so that backend position changes
+                            // (e.g. from Automations) are caught and animated on the canvas!
+                            useCanvasStore.getState().syncThing(currentThing.id, updatedThing);
                         }
                     }
                 } catch (e) {
@@ -2501,8 +2517,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 )}
                 title={thing.title || getDefaultTitle()}
                 style={{
-                    backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
-                    borderColor: (canvasSettings?.tool_colors?.[thing.type] || thing.color) ? 'rgba(0,0,0,0.1)' : undefined
+                    backgroundColor: thing.color || canvasSettings?.tool_colors?.[thing.type],
+                    borderColor: (thing.color || canvasSettings?.tool_colors?.[thing.type]) ? 'rgba(0,0,0,0.1)' : undefined
                 }}
                 onDoubleClick={handleDoubleClick}
             >
@@ -2568,7 +2584,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             : "border-slate-200 dark:border-slate-700"
                     )}
                     style={{
-                        backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
+                        backgroundColor: thing.color || canvasSettings?.tool_colors?.[thing.type],
                     }}
                 >
                     {/* Massive 320px Icon (20x 16px) */}
@@ -2665,8 +2681,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         "select-none"
                     )}
                         style={{
-                            backgroundColor: canvasSettings?.tool_colors?.[thing.type] || thing.color,
-                            backgroundImage: (canvasSettings?.tool_colors?.[thing.type] || thing.color) ? 'none' : undefined
+                            backgroundColor: thing.color || canvasSettings?.tool_colors?.[thing.type],
+                            backgroundImage: (thing.color || canvasSettings?.tool_colors?.[thing.type]) ? 'none' : undefined
                         }}
                         onDoubleClick={handleDoubleClick}
                         title={thing.type === "conversation" ? "Double-click to open in chat" : undefined}

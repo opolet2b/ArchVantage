@@ -39,10 +39,13 @@ async def handle_async_vectorization(
                 owner_id = canvas.owner_id
                 if canvas.owner_config:
                     settings = canvas.owner_config
+                    toolbar_conf = settings.get("toolbar_config", {})
                     print(f"[CanvasWorker] Resolving models from Canvas {canvas_id} settings: {settings}")
                     
                     # Resolve Primary LLM Model
                     canvas_model = (
+                        toolbar_conf.get("llm_model") or
+                        settings.get("llm_model") or
                         settings.get("model") or 
                         settings.get("selectedModel") or 
                         "default"
@@ -54,6 +57,7 @@ async def handle_async_vectorization(
                     print(f"[CanvasWorker] Resolving models with owner_config keys: {list(settings.keys())}")
                     
                     canvas_vision_model = (
+                        toolbar_conf.get("vision_model") or
                         settings.get("vision_model") or
                         settings.get("visionModel") or
                         settings.get("selectedVisionModel") or
@@ -790,7 +794,7 @@ async def handle_async_vectorization(
             # Check for "Scanned PDF" (Low text density)
             # CRITICAL FIX: Only run this on actual PDF files!
             if result.get("status") == "success" and file_path.lower().endswith(".pdf"):
-                text_len = result.get("text_length", 0)
+                text_len = result.get("text_length") or len(result.get("full_text", ""))
                 doc_count = result.get("doc_count", 1) # Default to 1 to avoid div by zero
                 
                 if doc_count <= 0: doc_count = 1
@@ -981,8 +985,7 @@ async def handle_async_vectorization(
         print(f"[CanvasWorker] Reloaded thing {thing_id}. Content keys: {thing.content.keys() if thing and thing.content else 'None'}")
         
         if result and result.get("status") == "success":
-            thing.rag_status = RAGStatus.COMPLETED
-            print(f"[CanvasWorker] Vectorization COMPLETED for thing {thing_id}")
+            print(f"[CanvasWorker] Vectorization successful, proceeding to cleanup and automations for thing {thing_id}")
             
             # 2-Phase Sync Cleanup
             if mode == "sync" and active_batch_id:
@@ -998,11 +1001,10 @@ async def handle_async_vectorization(
                     flag_modified(thing, "content")
                     db.commit()
             
-            # CRITICAL FIX: Ensure we commit the COMPLETED status for normal mode too!
-            if mode != "sync":
-                db.commit()
-
-            # Trigger Document Processed Automation
+            # Trigger Document Processed Automation FIRST
+            # We must run automation BEFORE we set RAGStatus.COMPLETED.
+            # Otherwise, intermediate commits in the pipeline will commit the COMPLETED status
+            # and the frontend will stop polling before the position is actually updated!
             try:
                 from app.services.automation_service import automation_service
                 canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
@@ -1026,6 +1028,14 @@ async def handle_async_vectorization(
                 )
             except Exception as auto_err:
                 print(f"[CanvasWorker] Failed to trigger automation: {auto_err}")
+                
+            # NOW mark as completed and commit
+            thing.rag_status = RAGStatus.COMPLETED
+            print(f"[CanvasWorker] Vectorization and automations COMPLETED for thing {thing_id}")
+                
+            # CRITICAL FIX: Ensure we commit the COMPLETED status for normal mode too!
+            if mode != "sync":
+                db.commit()
         else:
             # Check if it was "no_documents_found" or error
             thing.rag_status = RAGStatus.FAILED

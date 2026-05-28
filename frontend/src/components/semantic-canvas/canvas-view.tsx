@@ -2722,6 +2722,12 @@ function CanvasViewInner() {
             const formData = new FormData();
             formData.append("file", file);
 
+            // Include currently selected model for backend ingestion
+            const currentModel = useCanvasStore.getState().selectedModel;
+            if (currentModel) {
+                formData.append("model", currentModel);
+            }
+
             const token = localStorage.getItem("token");
             const headers: HeadersInit = {};
             if (token) {

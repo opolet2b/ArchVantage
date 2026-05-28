@@ -430,10 +430,12 @@ def update_canvas(
     if request.viewport is not None:
         canvas.viewport = request.viewport.model_dump()
 
+    # Update owner_config if provided
     if request.owner_config is not None:
-        model = request.owner_config.get('llm_model') or request.owner_config.get('model')
-        vision_model = request.owner_config.get('vision_model')
-        
+        toolbar_conf = request.owner_config.get('toolbar_config', {})
+        model = request.owner_config.get('llm_model') or request.owner_config.get('model') or toolbar_conf.get('llm_model')
+        vision_model = request.owner_config.get('vision_model') or toolbar_conf.get('vision_model')
+        print(f"[CanvasRouter] Saving canvas {canvas_id} config. LLM: {model}, Vision: {vision_model}")
         if model or vision_model:
             print(f"[CanvasRouter] MODEL SELECTION CHANGE for {canvas_id}:")
             if model: print(f"  - LLM Model: {model}")

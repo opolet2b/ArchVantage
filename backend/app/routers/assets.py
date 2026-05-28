@@ -6,7 +6,7 @@ Handles uploading and secure streaming.
 
 PEP 8 Compliant
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -48,6 +48,7 @@ class AssetUploadResponse(BaseModel):
 async def upload_asset(
     file: UploadFile,
     background_tasks: BackgroundTasks,
+    model: str | None = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -60,13 +61,14 @@ async def upload_asset(
         
         # Trigger Background RAG Ingestion
         # This fixes the "Sidebar Chat Hallucination" issue by ensuring standard uploads are vectorized.
-        def ingest_asset_for_user(asset_id, file_path, user_id):
+        def ingest_asset_for_user(asset_id, file_path, user_id, selected_model):
             try:
-                print(f"[AssetRouter] Starting background ingestion for asset {asset_id}")
+                print(f"[AssetRouter] Starting background ingestion for asset {asset_id} with model {selected_model}")
                 
                 # Metadata: Tag with asset_id and owner_id so the generic chat can find it
                 result = rag_service.ingest_file(
                     file_path,
+                    model_name=selected_model,
                     metadata={
                         "asset_id": asset_id, 
                         "owner_id": user_id, 
@@ -107,7 +109,7 @@ async def upload_asset(
                 print(f"[AssetRouter] Failed to process PPTX: {e}")
                 # Don't fail the upload, just log error
 
-        background_tasks.add_task(ingest_asset_for_user, asset.id, full_path, current_user.id)
+        background_tasks.add_task(ingest_asset_for_user, asset.id, full_path, current_user.id, model)
         
         return {
             "id": asset.id,

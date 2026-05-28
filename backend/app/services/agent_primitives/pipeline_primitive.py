@@ -1,5 +1,6 @@
 
 from typing import Any, Dict, List
+from datetime import datetime
 from app.services.agent_primitives.base import BasePrimitive, PrimitiveResult
 
 class GenericPipelinePrimitive(BasePrimitive):
@@ -44,7 +45,31 @@ class GenericPipelinePrimitive(BasePrimitive):
     ) -> PrimitiveResult:
         steps = params.get("steps", [])
         results = {}
+        executed_steps = []
         
+        thing_id = state.get("variables", {}).get("thing_id") or state.get("trigger_event", {}).get("thing_id")
+        db = state.get("db")
+        
+        def _update_progress(status: str, current_step_label: str, idx: int):
+            if not (db and thing_id): return
+            try:
+                from app.models.canvas_models import CanvasThing
+                from sqlalchemy.orm.attributes import flag_modified
+                thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+                if thing:
+                    content = dict(thing.content or {})
+                    content["automation_progress"] = {
+                        "status": status,
+                        "current_step": current_step_label,
+                        "step_index": idx,
+                        "total_steps": len(steps)
+                    }
+                    thing.content = content
+                    flag_modified(thing, "content")
+                    db.commit()
+            except Exception as e:
+                self._log_debug(f"Failed to update progress: {e}", state)
+
         self._log_debug(f"Starting pipeline with {len(steps)} steps.", state)
         
         for i, step in enumerate(steps):
@@ -52,6 +77,15 @@ class GenericPipelinePrimitive(BasePrimitive):
             step_inputs = step.get("inputs", {})
             step_id = step.get("id", f"step_{i}")
             node_label = step.get("metadata", {}).get("label") or step.get("label") or f"Step {i+1}"
+            
+            _update_progress("running", node_label, i)
+            
+            step_record = {
+                "node_id": step_id,
+                "node_type": primitive_name,
+                "inputs": step_inputs,
+                "status": "running"
+            }
             
             self._log_debug(f"Executing [{node_label}]: {primitive_name}", state)
             
@@ -73,12 +107,22 @@ class GenericPipelinePrimitive(BasePrimitive):
             # Execute
             try:
                 result = await primitive.execute(resolved_inputs, state)
+                
+                step_record["completed_at"] = datetime.utcnow().isoformat()
+                step_record["status"] = "completed" if result.success else "failed"
+                step_record["output_data"] = result.output or {}
+                if not result.success:
+                    step_record["error"] = result.error
+                if hasattr(result, "steps") and result.steps:
+                    step_record["sub_steps"] = result.steps
+                executed_steps.append(step_record)
+                
                 if not result.success:
                     self._log_debug(f"FAILED [{node_label}]: {result.error}", state)
                     if state.get("db"):
                         state["db"].rollback()
                         self._log_debug(f"Database session rolled back after failure at [{node_label}]", state)
-                    return PrimitiveResult(success=False, error=f"Step {i} ({primitive_name}) failed: {result.error}")
+                    return PrimitiveResult(success=False, error=f"Step {i} ({primitive_name}) failed: {result.error}", steps=executed_steps)
                 
                 # --- HANDLE FOREACH HANDOFF ---
                 if isinstance(result.output, dict) and "_foreach_subprocess" in result.output:
@@ -169,10 +213,14 @@ class GenericPipelinePrimitive(BasePrimitive):
                     
             except Exception as e:
                 self._log_debug(f"EXCEPTION at [{node_label}]: {e}", state)
+                step_record["status"] = "failed"
+                step_record["error"] = str(e)
+                step_record["completed_at"] = datetime.utcnow().isoformat()
+                executed_steps.append(step_record)
                 if state.get("db"):
                     state["db"].rollback()
                     self._log_debug(f"Database session rolled back after exception at [{node_label}]", state)
-                return PrimitiveResult(success=False, error=f"Exception at step {i} ({primitive_name}): {str(e)}")
+                return PrimitiveResult(success=False, error=f"Exception at step {i} ({primitive_name}): {str(e)}", steps=executed_steps)
                 
         # Check if any step required visual realization
         realization_required = False
@@ -180,11 +228,26 @@ class GenericPipelinePrimitive(BasePrimitive):
             if isinstance(step_res, dict) and step_res.get("realization_required"):
                 realization_required = True
                 break
+        for step in executed_steps:
+            if isinstance(step.get("output_data"), dict) and step["output_data"].get("realization_required"):
+                realization_required = True
+                break
+            for sub in step.get("sub_steps", []):
+                if isinstance(sub.get("output_data"), dict) and sub["output_data"].get("realization_required"):
+                    realization_required = True
+                    break
                 
+        final_output = {
+            "pipeline_results": results,
+            "realization_required": realization_required
+        }
+        if "current_output" in state:
+            final_output["_final_current_output"] = state["current_output"]
+            
+        _update_progress("completed", "Done", len(steps))
+            
         return PrimitiveResult(
             success=True, 
-            output={
-                "pipeline_results": results,
-                "realization_required": realization_required
-            }
+            output=final_output,
+            steps=executed_steps
         )

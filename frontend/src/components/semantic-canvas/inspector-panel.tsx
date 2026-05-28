@@ -18,7 +18,8 @@ import { Separator } from "@/components/ui/separator";
 import {
     X, Info, Database, Sparkles, Pin, List, Box,
     Calendar as CalendarIcon, Clock, Palette,
-    Settings, Save, RotateCcw, GripVertical
+    Settings, Save, RotateCcw, GripVertical,
+    Bot, Activity
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HexColorPicker } from "react-colorful";
@@ -709,8 +710,40 @@ export function InspectorPanel() {
                                                                 <Box className="w-3 h-3 text-muted-foreground" />
                                                             </Button>
                                                         </div>
-                                                        <div className="text-slate-800 dark:text-slate-200">
-                                                            {renderMarkdown(aiInsight)}
+                                                        <div className="text-slate-800 dark:text-slate-200 mt-4">
+                                                            <div className="relative space-y-6 before:absolute before:inset-0 before:ml-4 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-purple-200 dark:before:via-purple-800 before:to-transparent">
+                                                                {aiInsight.split(/\n---\n/).map((eventText: string, idx: number) => {
+                                                                    if (!eventText.trim()) return null;
+                                                                    
+                                                                    // Extract timestamp (### YYYY-MM-DD ...)
+                                                                    const timeMatch = eventText.match(/###\s*(.*?)\n/);
+                                                                    const timestamp = timeMatch ? timeMatch[1].trim() : '';
+                                                                    
+                                                                    // Extract automation name (**Name**)
+                                                                    const nameMatch = eventText.match(/\*\*(.*?)\*\*/);
+                                                                    const autoName = nameMatch ? nameMatch[1].trim() : 'Automation Event';
+                                                                    
+                                                                    // Clean up the text for markdown rendering
+                                                                    let cleanText = eventText.replace(/###.*?\n/, '').replace(/\*\*.*?\*\*/, '').trim();
+                                                                    
+                                                                    return (
+                                                                        <div key={idx} className="relative flex items-start gap-4">
+                                                                            <div className="flex items-center justify-center w-8 h-8 rounded-full border-4 border-white dark:border-slate-950 bg-purple-100 dark:bg-purple-900 shadow-sm shrink-0 z-10 mt-1">
+                                                                                <Bot className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                                                                            </div>
+                                                                            <div className="flex-1 p-3 rounded-xl border border-purple-100 dark:border-purple-800/50 bg-white/50 dark:bg-slate-900/50 shadow-sm hover:shadow-md transition-shadow relative before:absolute before:top-4 before:-left-2 before:w-2 before:h-2 before:bg-white/50 dark:before:bg-slate-900/50 before:border-l before:border-b before:border-purple-100 dark:before:border-purple-800/50 before:rotate-45">
+                                                                                <div className="flex items-center justify-between mb-2 pb-2 border-b border-purple-50 dark:border-purple-900/30">
+                                                                                    <h3 className="font-bold text-slate-800 dark:text-slate-100 text-[11px] uppercase tracking-wider">{autoName}</h3>
+                                                                                    <time className="text-[9px] font-mono text-purple-500/70">{timestamp}</time>
+                                                                                </div>
+                                                                                <div className="text-slate-700 dark:text-slate-300">
+                                                                                    {renderMarkdown(cleanText)}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div className="h-1 bg-gradient-to-r from-purple-400 via-indigo-400 to-blue-400 opacity-30" />

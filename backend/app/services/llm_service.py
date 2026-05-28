@@ -17,6 +17,12 @@ class LLMService:
             model_name = "default"
 
         print(f"[LLM_SERVICE] Resolving preset for: {model_name}")
+        if model_name == "default":
+            import traceback
+            print("--- TRACE: Who called for 'default' model? ---")
+            # Print a concise stack trace to identify the caller
+            traceback.print_stack(limit=6)
+            print("----------------------------------------------")
 
         from app.services.config_service import config_service
         

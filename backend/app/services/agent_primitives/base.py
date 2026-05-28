@@ -501,7 +501,9 @@ class BasePrimitive(ABC):
                     from app.models.canvas_models import Canvas
                     canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
                     if canvas and canvas.owner_config:
-                        candidate = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
+                        # Look in root or in toolbar_config
+                        toolbar_conf = canvas.owner_config.get("toolbar_config", {})
+                        candidate = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model") or toolbar_conf.get("llm_model")
                         print(f"[DEBUG_MODELS] Using canvas config: {candidate}")
                 except Exception as e:
                     print(f"[BasePrimitive] Config lookup failed: {e}")

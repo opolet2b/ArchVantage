@@ -22,7 +22,7 @@ def read_users(
     no_roles_only: Optional[bool] = None,
     auth_type: Optional[str] = None,
     db: Session = Depends(get_db), 
-    current_user: User = Depends(PermissionChecker("user:manage"))
+    current_user: User = Depends(get_current_active_user)
 ):
     query = db.query(User)
     

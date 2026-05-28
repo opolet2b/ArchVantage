@@ -220,6 +220,8 @@ class DocumentIngestor:
                     "status": "success",
                     "count": len(nodes),
                     "full_text": text,
+                    "text_length": len(text),
+                    "doc_count": len(documents),
                     "structured_data": structured_data
                 }
             

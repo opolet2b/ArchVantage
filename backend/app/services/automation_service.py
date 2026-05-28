@@ -510,7 +510,8 @@ class AutomationService:
             try:
                 canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
                 if canvas and canvas.owner_config:
-                    llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
+                    toolbar_conf = canvas.owner_config.get("toolbar_config", {})
+                    llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model") or toolbar_conf.get("llm_model")
                     print(f"[AutomationService] Retrieved model from canvas {canvas_id}: {llm_model}")
             except Exception as e:
                 print(f"[AutomationService] Failed to retrieve/inject canvas model info: {e}")
@@ -593,7 +594,8 @@ class AutomationService:
             try:
                 canvas = db.query(Canvas).filter(Canvas.id == canvas_id).first()
                 if canvas and canvas.owner_config:
-                    llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model")
+                    toolbar_conf = canvas.owner_config.get("toolbar_config", {})
+                    llm_model = canvas.owner_config.get("llm_model") or canvas.owner_config.get("model") or toolbar_conf.get("llm_model")
             except Exception as e:
                 self._log(f"Failed to retrieve canvas model for automation: {e}", "WARNING")
             

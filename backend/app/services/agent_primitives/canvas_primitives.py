@@ -374,7 +374,14 @@ class CanvasMoveToZonePrimitive(BasePrimitive):
             
             # Find Zone
             drop_zones = domain.drop_zones or []
-            target_zone = next((z for z in drop_zones if z.get("id") == zone_id), None)
+            if isinstance(drop_zones, str):
+                import json
+                try:
+                    drop_zones = json.loads(drop_zones)
+                except Exception:
+                    drop_zones = []
+            
+            target_zone = next((z for z in drop_zones if isinstance(z, dict) and z.get("id") == zone_id), None)
             
             if not target_zone:
                 return PrimitiveResult(success=False, error=f"Zone '{zone_id}' not found in domain '{domain.name}'.")

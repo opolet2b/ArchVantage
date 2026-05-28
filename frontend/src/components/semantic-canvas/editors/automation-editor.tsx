@@ -790,10 +790,25 @@ function WorkflowBuilder({
                 </div>
             )}
 
-            <div className="space-y-2">
-                {steps.map((step, idx) => (
-                    <div key={step.id || idx} className="border rounded-md p-3 bg-background text-sm relative group">
-                        {/* Header */}
+            <div className="space-y-4 relative">
+                {steps.map((step, idx) => {
+                    let colorClass = "border-l-4 border-l-slate-400 bg-background";
+                    if (step.primitive === "LOGIC_IF_ELSE") colorClass = "border-l-4 border-l-indigo-500 bg-indigo-50/20";
+                    else if (step.primitive === "FOREACH") colorClass = "border-l-4 border-l-amber-500 bg-amber-50/20";
+                    else if (step.primitive === "LLM_GENERATION") colorClass = "border-l-4 border-l-purple-500 bg-purple-50/20";
+                    else if (step.primitive?.startsWith("CANVAS_")) colorClass = "border-l-4 border-l-blue-500 bg-blue-50/20";
+                    else if (step.primitive === "LOGIC_SET_VARIABLE") colorClass = "border-l-4 border-l-emerald-500 bg-emerald-50/20";
+
+                    return (
+                    <React.Fragment key={step.id || idx}>
+                        {idx > 0 && (
+                            <div className="flex justify-center relative z-10 h-8 -my-1">
+                                <div className="absolute top-0 w-[4px] h-[calc(100%-8px)] bg-slate-400"></div>
+                                <svg className="absolute bottom-0 text-slate-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                            </div>
+                        )}
+                        <div className={`border rounded-md p-3 text-sm relative group transition-all shadow-sm ${colorClass}`}>
+                            {/* Header */}
                         <div className="flex items-center justify-between mb-2">
                             <span className="font-semibold flex items-center gap-1.5 opacity-90">
                                 <span className="text-base">{PRIMITIVES.find(p => p.value === step.primitive)?.icon}</span>
@@ -808,9 +823,14 @@ function WorkflowBuilder({
                         <div className="space-y-2">
                             {/* ... CANVAS_MOVE_TO_ZONE ... (Keep existing) */}
                             {step.primitive === "CANVAS_MOVE_TO_ZONE" && (
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <Label className="text-[10px]">Domain</Label>
+                                <div className="space-y-3">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Moves the currently handled item into a specific Drop Zone of a given Domain.</p>
+                                        <p><strong>Syntax:</strong> Select a target Domain and one of its defined Drop Zones.</p>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Domain</Label>
                                         <Select
                                             value={step.inputs.domain_id}
                                             onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, domain_id: val } })}
@@ -836,10 +856,16 @@ function WorkflowBuilder({
                                         </Select>
                                     </div>
                                 </div>
+                                </div>
                             )}
 
                             {step.primitive === "LLM_GENERATION" && (
                                 <div className="space-y-3 bg-muted/10 p-4 rounded-md border border-primary/10">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Sends context and your prompt to an AI model to extract or generate data.</p>
+                                        <p><strong>Syntax:</strong> Pick a variable to read from (e.g. <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{query_results.combined_content}}"}</code>), provide instructions, and specify an output variable.</p>
+                                        <p><strong>Returns:</strong> The model's response saved into the output variable you named.</p>
+                                    </div>
                                     <div className="flex flex-col gap-3 text-sm">
                                         <div className="flex items-center gap-2 flex-wrap text-foreground font-medium">
                                             Read 
@@ -885,27 +911,52 @@ function WorkflowBuilder({
 
                             {/* ... Other Steps ... */}
                             {step.primitive === "CANVAS_SET_PROPERTY" && (
-                                <div>
-                                    <Label className="text-[10px]">Color</Label>
-                                    <div className="flex gap-2">
-                                        <Input
-                                            className="h-7 w-20 text-xs"
-                                            type="color"
-                                            value={step.inputs.color}
-                                            onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, color: e.target.value } })}
-                                        />
-                                        <Input
-                                            className="h-7 text-xs flex-1"
-                                            value={step.inputs.title || ""}
-                                            placeholder="Optional New Title"
-                                            onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, title: e.target.value } })}
-                                        />
+                                <div className="space-y-3">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Visually updates properties (like color or title) of the target canvas item.</p>
+                                        <p><strong>Syntax:</strong> Pick a new hex color or enter a new title string.</p>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Target Canvas Item ID</Label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                className="h-7 text-xs flex-1 font-mono"
+                                                value={step.inputs.id || ""}
+                                                placeholder="e.g. {{thing_id}} or {{item.id}}"
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, id: e.target.value } })}
+                                            />
+                                            <ContextVariableSelector
+                                                onInsert={(val) => updateStep(idx, { inputs: { ...step.inputs, id: (step.inputs.id || "") + val } })}
+                                                availableVariables={parentVariables}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Color & Title</Label>
+                                        <div className="flex gap-2 mt-1.5">
+                                            <Input
+                                                className="h-7 w-20 text-xs"
+                                                type="color"
+                                                value={step.inputs.color}
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, color: e.target.value } })}
+                                            />
+                                            <Input
+                                                className="h-7 text-xs flex-1"
+                                                value={step.inputs.title || ""}
+                                                placeholder="Optional New Title"
+                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, title: e.target.value } })}
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             )}
 
                             {step.primitive === "LOGIC_IF_ELSE" && (
                                 <div className="space-y-4">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Branches the workflow based on a logical condition using AI or strict rules.</p>
+                                        <p><strong>Syntax:</strong> Provide context data (like a variable), specify a condition, and optionally set a compare value.</p>
+                                    </div>
                                     <div className="bg-muted/30 p-4 rounded-lg border border-dashed space-y-4 shadow-inner">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
@@ -914,11 +965,11 @@ function WorkflowBuilder({
                                                 </div>
                                                 <Label className="text-[11px] font-bold text-foreground uppercase tracking-tight">Structured Comparison</Label>
                                             </div>
-                                            <div className="flex items-center gap-2 bg-background/50 px-2 py-1 rounded border">
-                                                <Label className="text-[10px] text-muted-foreground font-medium uppercase">Evaluation Type</Label>
-                                                <div className="flex items-center gap-1 bg-muted/50 p-0.5 rounded">
-                                                    <button type="button" onClick={() => updateStep(idx, { inputs: { ...step.inputs, eval_type: "ai" } })} className={`px-2 py-0.5 text-[10px] rounded font-bold ${step.inputs.eval_type === 'ai' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background'}`}>✨ AI Prompt</button>
-                                                    <button type="button" onClick={() => updateStep(idx, { inputs: { ...step.inputs, eval_type: "strict" } })} className={`px-2 py-0.5 text-[10px] rounded font-bold ${step.inputs.eval_type !== 'ai' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background'}`}>🔢 Strict Rules</button>
+                                            <div className="flex items-center gap-3 bg-background/50 px-3 py-2 rounded-md border shadow-sm">
+                                                <Label className="text-sm text-muted-foreground font-bold uppercase tracking-wider">Evaluation Type:</Label>
+                                                <div className="flex items-center gap-2 bg-muted/60 p-1.5 rounded-lg">
+                                                    <button type="button" onClick={() => updateStep(idx, { inputs: { ...step.inputs, eval_type: "ai" } })} className={`px-5 py-2.5 text-sm rounded-md font-bold transition-all ${step.inputs.eval_type === 'ai' ? 'bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/50' : 'text-muted-foreground hover:bg-background hover:text-foreground'}`}>✨ AI Prompt</button>
+                                                    <button type="button" onClick={() => updateStep(idx, { inputs: { ...step.inputs, eval_type: "strict" } })} className={`px-5 py-2.5 text-sm rounded-md font-bold transition-all ${step.inputs.eval_type !== 'ai' ? 'bg-primary text-primary-foreground shadow-lg ring-2 ring-primary/50' : 'text-muted-foreground hover:bg-background hover:text-foreground'}`}>🔢 Strict Rules</button>
                                                 </div>
                                             </div>
                                             
@@ -1018,6 +1069,8 @@ function WorkflowBuilder({
                                                             <SelectItem value="does not contain">does not contain</SelectItem>
                                                             <SelectItem value="is greater than">is greater than</SelectItem>
                                                             <SelectItem value="is less than">is less than</SelectItem>
+                                                            <SelectItem value="is greater than or equal">is greater than or equal</SelectItem>
+                                                            <SelectItem value="is less than or equal">is less than or equal</SelectItem>
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
@@ -1047,34 +1100,41 @@ function WorkflowBuilder({
                                             <span>AI will evaluate if <b>{step.inputs.eval_type === 'ai' ? 'the condition is met' : `${step.inputs.context || "(Check Value)"} ${step.inputs.condition || "(Condition)"} ${step.inputs.compare_value || "(Target Value)"}`}</b>.</span>
                                         </div>
                                     </div>
-                                    
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-green-600 uppercase transition-all duration-300">
-                                                <div className="w-2 h-2 rounded-full bg-green-600 shadow-[0_0_8px_rgba(22,163,74,0.5)] animate-pulse" /> 
-                                                If Evaluates to TRUE
+                                    <div className="relative pt-10 mt-2">
+                                        <div className="absolute top-0 left-1/2 -ml-[2px] w-[4px] h-6 bg-indigo-400"></div>
+                                        <div className="absolute top-6 left-[calc(25%-4px)] right-[calc(25%-4px)] h-[4px] bg-indigo-400"></div>
+                                        <div className="absolute top-6 left-[calc(25%-4px)] -ml-[2px] w-[4px] h-4 bg-indigo-400"></div>
+                                        <svg className="absolute top-[28px] left-[calc(25%-4px)] -ml-[8px] text-indigo-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                        <div className="absolute top-6 right-[calc(25%-4px)] -mr-[2px] w-[4px] h-4 bg-indigo-400"></div>
+                                        <svg className="absolute top-[28px] right-[calc(25%-4px)] -mr-[8px] text-indigo-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2 relative">
+                                                <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-green-600 uppercase bg-green-50 border border-green-200 rounded-full py-1 px-3 w-fit mx-auto shadow-sm">
+                                                    <div className="w-2 h-2 rounded-full bg-green-600 shadow-[0_0_8px_rgba(22,163,74,0.5)] animate-pulse" /> 
+                                                    TRUE Branch
+                                                </div>
+                                                <div className="border-2 border-green-100 p-2 bg-green-50/40 rounded-md min-h-[60px] relative">
+                                                    <WorkflowBuilder
+                                                        steps={step.inputs.then_steps || []}
+                                                        onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, then_steps: s } })}
+                                                        domains={domains}
+                                                        linkTypes={linkTypes}
+                                                        selectedModel={selectedModel}
+                                                        canvases={canvases}
+                                                        parentVariables={[...parentVariables, 
+                                                            ...(step.inputs.mode === "iterative" ? [{ value: `{{${step.inputs.iterator_var || 'item'}}}`, label: `Loop Item (${step.inputs.iterator_var || 'item'})`, category: "Iteration" }] : [])
+                                                        ]}
+                                                    />
+                                                </div>
                                             </div>
-                                            <div className="border-l-2 border-green-200/50 pl-3 py-1 bg-green-50/10 rounded-r-md">
-                                                <WorkflowBuilder
-                                                    steps={step.inputs.then_steps || []}
-                                                    onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, then_steps: s } })}
-                                                    domains={domains}
-                                                    linkTypes={linkTypes}
-                                                    selectedModel={selectedModel}
-                                                    canvases={canvases}
-                                                    parentVariables={[...parentVariables, 
-                                                        ...(step.inputs.mode === "iterative" ? [{ value: `{{${step.inputs.iterator_var || 'item'}}}`, label: `Loop Item (${step.inputs.iterator_var || 'item'})`, category: "Iteration" }] : [])
-                                                    ]}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="space-y-2">
-                                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-red-600 uppercase">
-                                                <div className="w-2 h-2 rounded-full bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.5)]" /> 
-                                                If Evaluates to FALSE
-                                            </div>
-                                            <div className="border-l-2 border-red-200/50 pl-3 py-1 bg-red-50/10 rounded-r-md">
-                                                <WorkflowBuilder
+                                            <div className="space-y-2 relative">
+                                                <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-red-600 uppercase bg-red-50 border border-red-200 rounded-full py-1 px-3 w-fit mx-auto shadow-sm">
+                                                    <div className="w-2 h-2 rounded-full bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.5)]" /> 
+                                                    FALSE Branch
+                                                </div>
+                                                <div className="border-2 border-red-100 p-2 bg-red-50/40 rounded-md min-h-[60px] relative">
+                                                    <WorkflowBuilder
                                                     steps={step.inputs.else_steps || []}
                                                     onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, else_steps: s } })}
                                                     domains={domains}
@@ -1088,44 +1148,55 @@ function WorkflowBuilder({
                                             </div>
                                         </div>
                                     </div>
+                                    </div>
                                 </div>
                             )}
 
                             {step.primitive === "CANVAS_QUERY" && (
-                                <div className="space-y-2">
-                                    <div className="grid grid-cols-2 gap-2">
-
-                                        <div>
-                                            <Label className="text-[10px]">Target Canvas</Label>
+                                <div className="space-y-3">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Performs a text search across the Titles and Contents of all items in the target canvas.</p>
+                                        <p><strong>Syntax:</strong> Just enter a simple keyword or phrase (e.g. <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">invoice</code>).</p>
+                                        <p><strong>Returns:</strong> <code className="font-mono text-blue-900 bg-white/50 px-1 py-0.5 rounded">{"{{query_results.things}}"}</code> (a list containing ID, title, and content) and <code className="font-mono text-blue-900 bg-white/50 px-1 py-0.5 rounded">{"{{query_results.combined_content}}"}</code> (a single text block of all results).</p>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Target Canvas</Label>
                                             <Select
                                                 value={step.inputs.target_canvas_id}
                                                 onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, target_canvas_id: val } })}
                                             >
-                                                <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select Canvas" /></SelectTrigger>
+                                                <SelectTrigger className="h-8 text-xs bg-background"><SelectValue placeholder="Select Canvas" /></SelectTrigger>
                                                 <SelectContent>
                                                     {canvases.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                        <div>
-                                            <Label className="text-[10px]">Query</Label>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Search Query</Label>
                                             <Input
-                                                className="h-7 text-xs"
+                                                className="h-8 text-xs bg-background"
+                                                placeholder="e.g. invoice"
                                                 value={step.inputs.query}
                                                 onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, query: e.target.value } })}
                                             />
                                         </div>
                                     </div>
-                                    <p className="text-[10px] text-muted-foreground italic">
-                                        Results will be available as {"{{query_results}}"} in subsequent steps.
-                                    </p>
+                                    <div className="flex items-center gap-2 p-2 bg-background border rounded text-xs text-muted-foreground shadow-sm">
+                                        <div className="w-5 h-5 rounded bg-slate-100 flex items-center justify-center border text-[10px] font-mono text-slate-500">{"{}"}</div>
+                                        <span>Output is stored in the <code className="font-mono text-primary font-medium">{"{{query_results}}"}</code> variable</span>
+                                    </div>
                                 </div>
                             )}
 
                             {step.primitive === "CANVAS_CREATE_LINK" && (
                                 <div className="space-y-3">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Draws a visual and semantic link between two items on the canvas.</p>
+                                        <p><strong>Syntax:</strong> Provide the ID of a source item and a target item. IDs must be resolved using variables like <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{item.id}}"}</code>.</p>
+                                    </div>
                                     <div className="space-y-1">
-                                        <Label className="text-[10px]">Source Item (Link Origin)</Label>
+                                        <Label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Source Item (Link Origin)</Label>
                                         <div className="flex gap-2">
                                             <Input
                                                 className="h-7 text-xs flex-1 font-mono"
@@ -1198,6 +1269,11 @@ function WorkflowBuilder({
 
                             {step.primitive === "CANVAS_QUERY_THINGS" && (
                                 <div className="space-y-3">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Finds specific items on the canvas matching domain, type, or custom criteria filters.</p>
+                                        <p><strong>Syntax:</strong> Select a target domain or type. Optionally specify search text or JSON criteria.</p>
+                                        <p><strong>Returns:</strong> The filtered items as <code className="font-mono text-blue-900 bg-white/50 px-1 py-0.5 rounded">{"{{query_results.things}}"}</code> and their IDs as <code className="font-mono text-blue-900 bg-white/50 px-1 py-0.5 rounded">{"{{query_results.thing_ids}}"}</code>.</p>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-2">
                                         <div>
                                             <Label className="text-[10px]">Search in Domain</Label>
@@ -1258,6 +1334,10 @@ function WorkflowBuilder({
 
                             {step.primitive === "CANVAS_BATCH_LINK" && (
                                 <div className="space-y-3">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Creates links from a single source item to multiple target items at once.</p>
+                                        <p><strong>Syntax:</strong> Provide one source ID and a list/array of target IDs (e.g. <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{query_results.thing_ids}}"}</code>).</p>
+                                    </div>
                                     <div className="space-y-1">
                                         <Label className="text-[10px]">Source Item (Link Origin)</Label>
                                         <div className="flex gap-2">
@@ -1325,6 +1405,10 @@ function WorkflowBuilder({
                             
                             {step.primitive === "LOGIC_SET_VARIABLE" && (
                                 <div className="space-y-3">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Creates or updates variables in the workflow state for later steps to use.</p>
+                                        <p><strong>Syntax:</strong> Provide a variable name (like <code>status</code>) and its new value (like <code>completed</code> or <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{item.title}}"}</code>).</p>
+                                    </div>
                                     <div className="flex items-center justify-between">
                                         <Label className="text-[10px] font-semibold text-muted-foreground uppercase">Define Variables / Flags</Label>
                                         <Button 
@@ -1409,6 +1493,10 @@ function WorkflowBuilder({
 
                             {step.primitive === "FOREACH" && (
                                 <div className="space-y-4">
+                                    <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
+                                        <p><strong>How it works:</strong> Loops over a list of items and runs a sub-workflow for each one.</p>
+                                        <p><strong>Syntax:</strong> Provide an array (e.g. <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{query_results.things}}"}</code>). Inside the loop, you can refer to the current item using <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{item}}"}</code>.</p>
+                                    </div>
                                     <div className="bg-muted/10 p-4 rounded-md border border-primary/10 space-y-4">
                                         <div className="flex items-center gap-2 flex-wrap text-sm text-foreground font-medium">
                                             For each item in the list
@@ -1428,8 +1516,11 @@ function WorkflowBuilder({
                                             />
                                         </div>
                                         
-                                        <div className="border-l-[3px] border-primary/40 pl-4 py-2 ml-2 bg-background/50 rounded-r-md shadow-sm">
-                                            <WorkflowBuilder
+                                        <div className="relative pt-6 mt-2">
+                                            <div className="absolute top-0 left-1/2 -ml-[2px] w-[4px] h-4 bg-amber-400"></div>
+                                            <svg className="absolute top-[10px] left-1/2 -ml-[8px] text-amber-500" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                            <div className="border-2 border-amber-200 p-3 bg-amber-50/40 rounded-md shadow-sm relative min-h-[60px]">
+                                                <WorkflowBuilder
                                                 steps={step.inputs.steps || []}
                                                 onChange={(s) => updateStep(idx, { inputs: { ...step.inputs, steps: s } })}
                                                 domains={domains}
@@ -1438,6 +1529,7 @@ function WorkflowBuilder({
                                                 canvases={canvases}
                                                 parentVariables={[...parentVariables, { value: `{{${step.inputs.iterator_var || 'item'}}}`, label: `Current Loop Item`, category: "Iteration" }]}
                                             />
+                                            </div>
                                         </div>
                                         
                                         <div className="flex items-center gap-2 text-sm text-foreground font-medium pt-3 border-t">
@@ -1453,8 +1545,15 @@ function WorkflowBuilder({
                                 </div>
                             )}
                         </div>
-                    </div>
-                ))}
+                        </div>
+                    </React.Fragment>
+                    );
+                })}
+            </div>
+
+            <div className="flex justify-center relative z-10 h-8 -mt-1 mb-2">
+                <div className="absolute top-0 w-[4px] h-[calc(100%-8px)] bg-slate-400 opacity-50"></div>
+                <svg className="absolute bottom-0 text-slate-500 opacity-50" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
             </div>
 
             <Select onValueChange={addStep}>

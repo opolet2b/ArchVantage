@@ -74,7 +74,7 @@ class LLMGenerationPrimitive(BasePrimitive):
             print(f"[LLM_PRIM] Resolved Model: {model}")
             # Smart Template Fix: Some templates pass 'systemPrompt' or 'prompt' instead of 'instruction'
             instruction = params.get("instruction") or params.get("prompt") or params.get("systemPrompt") or ""
-            input_context_var = params.get("input_context", "")
+            input_context_var = params.get("input_context") or params.get("context", "")
             send_context_to_llm = params.get("send_context_to_llm", True)
             output_var = params.get("output_variable", "llm_output")
             
@@ -121,12 +121,26 @@ class LLMGenerationPrimitive(BasePrimitive):
             # This handles the case where this is the FIRST node and needed input is in 'inputs'/'variables'
             if not input_context:
                 variables = state.get("variables", {})
+                inputs = state.get("inputs", {})
+                
+                # Check variables first
                 if "combined_context" in variables:
                      input_context = variables["combined_context"]
-                     print(f"[LLM_PRIM] Using 'combined_context' from global state.")
+                     print(f"[LLM_PRIM] Using 'combined_context' from global state variables.")
                 elif "text" in variables:
                      input_context = variables["text"]
-                     print(f"[LLM_PRIM] Using 'text' from global state.")
+                     print(f"[LLM_PRIM] Using 'text' from global state variables.")
+                
+                # Check initial inputs (e.g., from an Automation trigger like 'onDrop')
+                elif "thing_content" in inputs:
+                     input_context = inputs["thing_content"]
+                     print(f"[LLM_PRIM] Using 'thing_content' from automation inputs.")
+                elif "combined_context" in inputs:
+                     input_context = inputs["combined_context"]
+                     print(f"[LLM_PRIM] Using 'combined_context' from inputs.")
+                elif "text" in inputs:
+                     input_context = inputs["text"]
+                     print(f"[LLM_PRIM] Using 'text' from inputs.")
 
             print(f"[LLM_PRIM] Input Context Length: {len(input_context) if input_context else 0}")
             if input_context:
