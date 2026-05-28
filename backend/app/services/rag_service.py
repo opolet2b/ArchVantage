@@ -541,13 +541,19 @@ class RAGService:
             # HYBRID VLM ENRICHMENT (Post-Text Ingestion)
             if enable_vision and result.get("status") == "success" and file_path.lower().endswith(".pdf"):
                 try:
-                    from app.services.pdf_service import pdf_service
+                    from app.services.config_service import config_service
                     
-                    # 1. Identify visual pages
-                    visual_pages = pdf_service.identify_visual_pages(file_path)
-                    
-                    if visual_pages:
-                        print(f"[RAGService] Found {len(visual_pages)} visual pages. Triggering Hybrid VLM...")
+                    # Prevent execution if no vision model is configured
+                    if not config_service.get_default_vision_preset() and not vision_model_name:
+                        print("[RAGService] Skipping Hybrid VLM: No default vision model configured.")
+                    else:
+                        from app.services.pdf_service import pdf_service
+                        
+                        # 1. Identify visual pages
+                        visual_pages = pdf_service.identify_visual_pages(file_path)
+                        
+                        if visual_pages:
+                            print(f"[RAGService] Found {len(visual_pages)} visual pages. Triggering Hybrid VLM...")
                         from app.services.vision_service import vision_service
                         import asyncio
                         

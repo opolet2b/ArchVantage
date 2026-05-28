@@ -71,7 +71,7 @@ class OpenAIVisionProvider(VisionProvider):
             openai_api_key=final_api_key,
             openai_api_base=base_url,
             max_tokens=1024,
-            request_timeout=600.0, # 10m timeout for thinking models
+            request_timeout=120.0, # 2m timeout
             model_kwargs=model_kwargs or {}
         )
         
@@ -120,8 +120,8 @@ class OpenAIVisionProvider(VisionProvider):
 class OllamaVisionProvider(VisionProvider):
     """Provider for Ollama-hosted vision models (Llama 3.2 Vision, LLaVA, etc)."""
     
-    def __init__(self, base_url: str = "http://localhost:11434"):
-        self.base_url = base_url
+    def __init__(self, base_url: Optional[str] = None):
+        self.base_url = base_url or os.environ.get("OLLAMA_URL", "http://localhost:11434")
         
     async def analyze_image(
         self, 
@@ -295,9 +295,8 @@ class VisionService:
         
         if model_name == "default":
             target_preset = config_service.get_default_vision_preset()
-            # If no vision-specific default, try LLM default
             if not target_preset:
-                target_preset = config_service.get_default_llm_preset()
+                print("[VisionService] Warning: No default vision preset configured. Image processing may fail.")
         else:
             # Try to get the preset by name
             target_preset = config_service.get_preset_config(model_name)
@@ -326,7 +325,7 @@ class VisionService:
                 if not actual_model_tag:
                     raise ValueError(f"Preset '{preset_name}' is missing 'model_name' (tag) for Ollama")
                 # Use configured API URL for local Ollama if provided
-                base_url = target_preset.get("api_url") or "http://localhost:11434"
+                base_url = target_preset.get("api_url") or os.environ.get("OLLAMA_URL", "http://localhost:11434")
             else:
                 provider = self._providers["openai"]
                 actual_model_tag = target_preset.get("model_name")
