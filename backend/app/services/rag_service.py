@@ -463,14 +463,15 @@ class RAGService:
             from llama_index.embeddings.ollama import OllamaEmbedding
             from llama_index.core import Settings
             
+            ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+            
             # Conservative settings to prevent "cannot decode batches" and infinite retries
-            # 1. Very small batch size (1) means we send one chunk at a time. Slower but stable.
-            Settings.embed_batch_size = 1
+            Settings.embed_batch_size = 10
             
             Settings.embed_model = OllamaEmbedding(
                 model_name=model_name,
-                base_url="http://localhost:11434",
-                embed_batch_size=1,
+                base_url=ollama_url,
+                embed_batch_size=10,
                 request_timeout=120.0,
                 ollama_additional_kwargs={
                     "num_ctx": 8192, # Ensure context is large enough for chunks
