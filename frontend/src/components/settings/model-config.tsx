@@ -251,7 +251,32 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                     alert("Connection Failed: " + data.message)
                 }
             } else {
-                alert("Test for remote API models: Ensure your Service API Key (" + (serviceKey ? "provided" : "MISSING") + ") is valid.")
+                try {
+                    const cleanUrl = remoteUrl.endsWith('/') ? remoteUrl.slice(0, -1) : remoteUrl;
+                    // Standard OpenAI compatibility test endpoint
+                    const testUrl = `${cleanUrl}/models`;
+                    const apiRes = await fetch(testUrl, {
+                        method: "GET",
+                        headers: {
+                            "Authorization": `Bearer ${serviceKey || "dummy"}`
+                        }
+                    });
+                    if (apiRes.ok) {
+                        const data = await apiRes.json();
+                        const models = data.data?.map((m: any) => m.id) || [];
+                        if (models.includes(remoteModelName)) {
+                            alert(`Success! Connected to Remote API and model '${remoteModelName}' is available.`);
+                        } else if (models.length > 0) {
+                            alert(`Connected to API, but model '${remoteModelName}' was not found. Available models: ${models.slice(0, 5).join(', ')}...`);
+                        } else {
+                            alert("Connected to API successfully, but no models were returned.");
+                        }
+                    } else {
+                        alert(`Remote API Error: Received status ${apiRes.status} from ${testUrl}`);
+                    }
+                } catch (e) {
+                    alert(`Connection Failed: Could not reach ${remoteUrl}. Please check your network and URL.`);
+                }
             }
         } catch (error) {
             alert("Error: Could not reach the backend test endpoint.")
