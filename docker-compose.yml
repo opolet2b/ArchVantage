@@ -18,7 +18,9 @@ services:
       - DATABASE_URL=sqlite:///./db/sql_app.db
       - NEXT_PUBLIC_API_URL=/api/v1
       - ARCADEDB_HOST=http://arcadedb:2480
-      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OLLAMA_HOST=http://192.168.30.35:11434
+      - OLLAMA_URL=http://192.168.30.35:11434
+      - OPENAI_BASE_URL=http://192.168.30.35:11434/v1
     restart: unless-stopped
     depends_on:
       - arcadedb
