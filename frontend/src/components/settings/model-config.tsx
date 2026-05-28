@@ -56,6 +56,7 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
 
     const [loading, setLoading] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [testing, setTesting] = useState(false)
 
     useEffect(() => {
         const init = async () => {
@@ -226,6 +227,36 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
             alert("Error deleting configuration")
         } finally {
             setSaving(false)
+        }
+    }
+
+    const handleTestConnection = async () => {
+        setTesting(true)
+        try {
+            const token = localStorage.getItem("token")
+            if (type === "local") {
+                const payload = {
+                    embedding_provider: "ollama",
+                    embedding_model: localModel || "nomic-embed-text"
+                }
+                const res = await fetch(`${API_URL}/config/rag/test`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                    body: JSON.stringify(payload),
+                })
+                const data = await res.json()
+                if (data.status === "success" || data.status === "warning") {
+                    alert(data.message)
+                } else {
+                    alert("Connection Failed: " + data.message)
+                }
+            } else {
+                alert("Test for remote API models: Ensure your Service API Key (" + (serviceKey ? "provided" : "MISSING") + ") is valid.")
+            }
+        } catch (error) {
+            alert("Error: Could not reach the backend test endpoint.")
+        } finally {
+            setTesting(false)
         }
     }
 
@@ -590,7 +621,11 @@ export function ModelConfig({ onSave }: ModelConfigProps) {
                     )}
 
                     <div className="flex gap-4">
-                        <Button onClick={handleSave} disabled={saving} className="flex-1">
+                        <Button onClick={handleTestConnection} disabled={testing || saving} variant="outline" className="flex-1">
+                            {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+                            Test Connection
+                        </Button>
+                        <Button onClick={handleSave} disabled={saving || testing} className="flex-1">
                             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                             Save Configuration
                         </Button>

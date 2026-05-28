@@ -290,6 +290,37 @@ def save_rag_config(request: RagConfigRequest, user: User = Depends(PermissionCh
         
     return {"status": "success", "config": config_dict, "message": msg}
 
+@router.post("/config/rag/test")
+def test_rag_config(request: RagConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
+    """Test the embedding provider connection before saving or vectorizing."""
+    import os, httpx
+    
+    provider = request.embedding_provider.lower()
+    
+    if provider == "ollama":
+        # Check standard Ollama connection
+        url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        try:
+            response = httpx.get(f"{url}/api/tags", timeout=5.0)
+            if response.status_code == 200:
+                models = [m["name"] for m in response.json().get("models", [])]
+                if request.embedding_model in models:
+                    return {"status": "success", "message": f"Successfully connected to Ollama! Model '{request.embedding_model}' is available."}
+                else:
+                    return {"status": "warning", "message": f"Connected to Ollama, but model '{request.embedding_model}' is NOT downloaded! Available models: {', '.join(models)}. Please run 'docker exec -it ollama ollama pull {request.embedding_model}'"}
+            else:
+                return {"status": "error", "message": f"Connected to Ollama at {url}, but got unexpected status {response.status_code}."}
+        except httpx.ConnectError:
+             return {"status": "error", "message": f"Failed to connect to Ollama at {url}. Name or service not known (Check Docker networking)."}
+        except Exception as e:
+            return {"status": "error", "message": f"Error connecting to Ollama at {url}: {str(e)}"}
+            
+    elif provider == "openai":
+        return {"status": "info", "message": "OpenAI embedding selected. Make sure your API key is valid."}
+    
+    return {"status": "error", "message": f"Unknown provider: {provider}"}
+
+
 
 class QueryingConfigRequest(BaseModel):
     # Retrieval

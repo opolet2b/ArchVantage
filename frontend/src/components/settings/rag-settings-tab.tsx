@@ -38,6 +38,7 @@ export function RagSettingsTab() {
     const [isLoadingConfig, setIsLoadingConfig] = useState(true)
     const [isSaving, setIsSaving] = useState(false)
     const [isResetting, setIsResetting] = useState(false)
+    const [isTesting, setIsTesting] = useState(false)
     const [ingesting, setIngesting] = useState(false)
     const [status, setStatus] = useState<string | null>(null)
     const [availableModels, setAvailableModels] = useState<string[]>([])
@@ -112,6 +113,38 @@ export function RagSettingsTab() {
             })
         } finally {
             setIsSaving(false)
+        }
+    }
+
+    const handleTestConfig = async () => {
+        setIsTesting(true)
+        setStatus("Testing connection...")
+        const token = localStorage.getItem("token")
+        try {
+            const res = await fetch(`${API_URL}/config/rag/test`, {
+                method: "POST",
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify(config),
+            })
+            const data = await res.json()
+            if (data.status === "success") {
+                toast({ title: "Connection Successful", description: data.message })
+                setStatus(data.message)
+            } else if (data.status === "warning") {
+                toast({ title: "Warning", description: data.message })
+                setStatus(`Warning: ${data.message}`)
+            } else {
+                toast({ title: "Connection Failed", description: data.message, variant: "destructive" })
+                setStatus(`Error: ${data.message}`)
+            }
+        } catch (error) {
+            toast({ title: "Error", description: "Failed to reach backend test endpoint.", variant: "destructive" })
+            setStatus("Error: Failed to reach backend.")
+        } finally {
+            setIsTesting(false)
         }
     }
 
@@ -313,10 +346,18 @@ export function RagSettingsTab() {
                                     </div>
                                 )}
 
-                                <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
+                                <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
+                                    <Button
+                                        onClick={handleTestConfig}
+                                        disabled={isTesting || isSaving}
+                                        variant="outline"
+                                    >
+                                        {isTesting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                                        Test Connection
+                                    </Button>
                                     <Button
                                         onClick={handleResetAndReindex}
-                                        disabled={isResetting || ingesting || isSaving}
+                                        disabled={isResetting || ingesting || isSaving || isTesting}
                                         variant="default"
                                     >
                                         {isResetting ? (
