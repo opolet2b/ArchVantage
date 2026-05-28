@@ -21,6 +21,7 @@ services:
       - OLLAMA_HOST=http://192.168.30.35:11434
       - OLLAMA_URL=http://192.168.30.35:11434
       - OPENAI_BASE_URL=http://192.168.30.35:11434/v1
+      - OPENAI_API_KEY=sk-dummy
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
