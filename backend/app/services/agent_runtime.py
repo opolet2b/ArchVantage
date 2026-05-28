@@ -769,6 +769,9 @@ class AgentRuntime:
                             "outputs": state["variables"],
                             "steps": [step.to_dict(self._sanitize_for_json) for step in self.steps],
                             "gui_schema": result.output.get("gui_schema"),
+                            "initial_values": result.output.get("initial_values"),
+                            "tool_name": result.output.get("tool_name"),
+                            "description": result.output.get("description"),
                             "waiting_node": current_node
                         })
                     }
@@ -848,6 +851,15 @@ class AgentRuntime:
                 "started_at": started_at.isoformat(),
                 "completed_at": completed_at.isoformat()
             }
+            
+            if current_status == "waiting_for_input":
+                if isinstance(last_output, dict):
+                    final_result["gui_schema"] = last_output.get("gui_schema")
+                    final_result["initial_values"] = last_output.get("initial_values")
+                    final_result["tool_name"] = last_output.get("tool_name")
+                    final_result["description"] = last_output.get("description")
+                    final_result["waiting_node"] = state.get("current_node")
+                    
             yield {"type": "complete", "data": self._sanitize_for_json(final_result)}
 
     async def execute(self, inputs: Dict[str, Any], initial_state: Optional[Dict[str, Any]] = None, steps_limit: Optional[int] = None) -> Dict[str, Any]:

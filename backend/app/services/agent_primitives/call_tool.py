@@ -162,7 +162,7 @@ class CallToolPrimitive(BasePrimitive):
                     # if it contains components at the top level
                     gui_schema = config.get("gui_schema")
                     if gui_schema is None:
-                        if "components" in config or "widgets" in config:
+                        if "components" in config or "widgets" in config or "properties" in config:
                             gui_schema = config
                         else:
                             gui_schema = {}

@@ -4,6 +4,8 @@ import { Play, RotateCcw, Loader2, ArrowRight, CheckCircle2, AlertCircle, Maximi
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
     Sheet,
     SheetContent,
@@ -758,6 +760,69 @@ export function DryRunPanel() {
                                             context={(waitingNodeInfo as any)?.initial_values || {}}
                                             onChange={(id, val) => setFormValues(prev => ({ ...prev, [id]: val }))}
                                         />
+                                    );
+                                }
+
+                                if (guiConfig?.properties) {
+                                    return (
+                                        <div className="flex flex-col gap-2.5">
+                                            {Object.entries(guiConfig.properties).map(([key, valObj]) => {
+                                                const prop = valObj as any;
+                                                const label = prop.title || key;
+                                                const required = Array.isArray(guiConfig.required) && guiConfig.required.includes(key);
+                                                const propType = prop.type;
+                                                const val = formValues[key] !== undefined ? formValues[key] : "";
+                            
+                                                return (
+                                                    <div key={key} className="flex flex-col gap-1">
+                                                        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
+                                                            {label} {required && <span className="text-rose-500">*</span>}
+                                                        </Label>
+                                                        {prop.enum ? (
+                                                            <Select
+                                                                value={val}
+                                                                onValueChange={(v) => setFormValues(prev => ({ ...prev, [key]: v }))}
+                                                            >
+                                                                <SelectTrigger className="bg-popover border-border text-popover-foreground h-8 text-xs rounded">
+                                                                    <SelectValue placeholder="Select..." />
+                                                                </SelectTrigger>
+                                                                <SelectContent className="bg-popover border-border text-foreground">
+                                                                    {prop.enum.map((opt: string) => (
+                                                                        <SelectItem key={opt} value={opt} className="text-xs hover:bg-accent focus:bg-accent">
+                                                                            {opt}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        ) : propType === "boolean" ? (
+                                                            <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer py-0.5">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={!!val}
+                                                                    onChange={(e) => setFormValues(prev => ({ ...prev, [key]: e.target.checked }))}
+                                                                    className="rounded bg-card border-border text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                                                />
+                                                                {label}
+                                                            </label>
+                                                        ) : propType === "string" && (key.includes("comment") || key.includes("note") || key.includes("desc")) ? (
+                                                            <Textarea
+                                                                value={val}
+                                                                onChange={(e) => setFormValues(prev => ({ ...prev, [key]: e.target.value }))}
+                                                                className="bg-card border-border text-xs focus:ring-indigo-500 text-foreground min-h-[50px] rounded"
+                                                                rows={2}
+                                                            />
+                                                        ) : (
+                                                            <Input
+                                                                type={propType === "number" || propType === "integer" ? "number" : "text"}
+                                                                value={val}
+                                                                onChange={(e) => setFormValues(prev => ({ ...prev, [key]: propType === "number" || propType === "integer" ? parseFloat(e.target.value) || 0 : e.target.value }))}
+                                                                className="bg-card border-border text-xs h-8 focus:ring-indigo-500 text-foreground rounded"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
                                     );
                                 }
 
