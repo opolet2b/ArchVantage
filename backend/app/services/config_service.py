@@ -36,15 +36,21 @@ class ConfigService:
             raise e
 
     async def get_ollama_models(self) -> List[str]:
+        ollama_url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+        print(f"[ConfigService] Attempting to fetch Ollama models from: {ollama_url}/api/tags")
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get("http://localhost:11434/api/tags")
+                response = await client.get(f"{ollama_url}/api/tags", timeout=5.0)
                 if response.status_code == 200:
                     data = response.json()
-                    return [model["name"] for model in data.get("models", [])]
-                return []
+                    models = [model["name"] for model in data.get("models", [])]
+                    print(f"[ConfigService] Successfully fetched models: {models}")
+                    return models
+                else:
+                    print(f"[ConfigService] Failed to fetch models. Status code: {response.status_code}, Response: {response.text}")
+                    return []
         except Exception as e:
-            print(f"Error fetching Ollama models: {e}")
+            print(f"[ConfigService] Connection error when fetching Ollama models from {ollama_url}: {str(e)}")
             return []
 
     def get_default_llm_preset(self) -> Optional[Dict[str, Any]]:
