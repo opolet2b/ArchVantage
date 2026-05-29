@@ -446,12 +446,22 @@ async def chat_endpoint(
         # 'compact' mode packs as many nodes as possible, and iterates if they don't fit.
         from llama_index.core import Settings, get_response_synthesizer, PromptHelper
         
-        # Determine appropriate response mode
+        llm = llm_service._get_llama_index_model(active_model)
+        
+        # Determine appropriate response mode intelligently
         rmode = "compact"
         if last_msg.lower() in ["summary", "summarize", "what is this", "tell me about this"]:
-            rmode = "tree_summarize"
+            # Estimate total tokens in retrieved nodes (roughly 4 chars per token)
+            total_chars = sum(len(node.get_content()) for node in total_nodes)
+            estimated_tokens = total_chars / 4
+            # Reserve 2500 tokens for output & prompt overhead
+            safe_window = llm.metadata.context_window - 2500
             
-        llm = llm_service._get_llama_index_model(active_model)
+            if estimated_tokens > safe_window:
+                print(f"[ChatEndpoint] Context ({estimated_tokens} tokens) exceeds safe window ({safe_window}). Using tree_summarize.")
+                rmode = "tree_summarize"
+            else:
+                print(f"[ChatEndpoint] Context ({estimated_tokens} tokens) fits in safe window. Using fast compact mode.")
         
         # Explicit PromptHelper ensures synthesis respects our safe context window
         # We also budget 2048 for output tokens to avoid squeezing the response.

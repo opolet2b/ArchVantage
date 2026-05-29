@@ -125,7 +125,7 @@ class LLMService:
             if preset.get("type") == "local":
                 from llama_index.llms.ollama import Ollama
                 ollama_url = api_url or "http://localhost:11434"
-                return Ollama(model=m_name, base_url=ollama_url, context_window=window)
+                return Ollama(model=m_name, base_url=ollama_url, context_window=window, request_timeout=300.0)
             elif preset.get("type") == "remote":
                 # Use OpenAI class ONLY for real OpenAI models to avoid name validation crashes
                 is_openai = m_name.startswith("gpt-") or "api.openai.com" in api_url
