@@ -249,8 +249,11 @@ class LLMService:
                 # Post-processing: Remove <think> tags (Reasoning Models)
                 import re
                 content = response.content
-                if strip_think and "<think>" in content:
-                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                if strip_think:
+                    if "<think>" in content:
+                        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                    elif "</think>" in content:
+                        content = content.split("</think>", 1)[-1].strip()
                 
                 print(f"[LLMService] DEBUG: llm.ainvoke returned. Content len: {len(content) if content else 0}")
                 
@@ -326,69 +329,115 @@ class LLMService:
         import re
         import json
         import ast
-        
+        from typing import List
+
         # 1. Primary Extraction: Try backticks first
         mj = re.search(r"```[^\n]*\n([\s\S]*?)```", text)
         if not mj:
             mj = re.search(r"```([\s\S]*?)```", text)
         content = mj.group(1).strip() if mj else text.strip()
-        
-        # 2. Secondary Extraction: Finding the outermost { } or [ ]
-        # Always try to find the outermost brackets to strip any remaining prepended/appended conversational text
-        m = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", content)
-        if m:
-            content = m.group(1).strip()
-        
+
+        def find_balanced_candidates(s: str) -> List[str]:
+            """
+            Extract all balanced JSON object ({}) or array ([]) structures
+            from the text by scanning with bracket matching and string tracking.
+            """
+            found_candidates = []
+            # Gather all indexes of potential opening brackets/braces
+            start_indices = [i for i, c in enumerate(s) if c in ('{', '[')]
+
+            for start_idx in start_indices:
+                start_char = s[start_idx]
+                end_char = '}' if start_char == '{' else ']'
+
+                depth = 0
+                in_string = False
+                escape = False
+                string_char = None
+
+                for j in range(start_idx, len(s)):
+                    char = s[j]
+                    if escape:
+                        escape = False
+                        continue
+                    if char == '\\':
+                        escape = True
+                        continue
+                    if in_string:
+                        if char == string_char:
+                            in_string = False
+                        continue
+                    if char in ('"', "'"):
+                        in_string = True
+                        string_char = char
+                        continue
+
+                    # If outside strings, track open/close matching depth
+                    if char == start_char:
+                        depth += 1
+                    elif char == end_char:
+                        depth -= 1
+                        if depth == 0:
+                            found_candidates.append(s[start_idx:j+1])
+                            break
+            return found_candidates
+
         def repair_json(s: str) -> str:
+            """Attempts automatic syntax fixes for common LLM generation mistakes."""
             # Remove trailing commas in objects/arrays
             s = re.sub(r',\s*\}', '}', s)
             s = re.sub(r',\s*\]', ']', s)
             
-            # Handle single-quoted property names and strings (Python-style)
-            # This is risky but often necessary. We look for 'key': or 'string'
-            # Heuristic: only replace ' if it's likely a delimiter (start of string or end of string)
-            # and not an apostrophe inside a word.
-            # Convert {'key': 'value'} -> {"key": "value"}
+            # Handle single-quoted property names and strings (Python-style dicts)
             if s.startswith("{") or s.startswith("["):
-                # Basic single-to-double quote swap for keys
+                # Basic single-to-double quote swap for dict keys
                 s = re.sub(r"'(\w+)':", r'"\1":', s)
-                # Swap remaining single quotes to double quotes if they look like string delimiters
-                # but NOT apostrophes like "don't"
+                # Swap remaining single quotes to double quotes if they act as delimiters
                 s = re.sub(r"(?<=[\s\[\{\,])'|'(?=[\s\]\}\,])", '"', s)
-            
             return s
 
-        candidates = [content]
-        # Try to find innermost blocks if outermost fails
+        # Find all structural candidates using the balanced scanner
+        candidates = find_balanced_candidates(content)
+        
+        # Include original parsed content as a fallback candidate
+        if content not in candidates:
+            candidates.append(content)
+            
+        # Include regex-based outermost match as a fallback candidate
         m_outer = re.search(r"(\{[\s\S]*\}|\[[\s\S]*\])", content)
         if m_outer:
-            candidates.append(m_outer.group(1).strip())
+            outer_match = m_outer.group(1).strip()
+            if outer_match not in candidates:
+                candidates.append(outer_match)
+
+        # Sort by length descending so that we attempt to parse
+        # the most complete outer-most structures first
+        candidates.sort(key=len, reverse=True)
 
         for cand in candidates:
-            # Attempt 1: Raw parse
+            # Attempt 1: Raw JSON parsing
             try:
                 json.loads(cand, strict=False)
                 return cand
-            except:
+            except Exception:
                 pass
             
-            # Attempt 2: Repaired parse
+            # Attempt 2: Parsing after applying repairs
             repaired = repair_json(cand)
             try:
                 json.loads(repaired, strict=False)
-                print(f"[LLMService] JSON repaired successfully")
+                print("[LLMService] JSON repaired successfully")
                 return repaired
-            except:
+            except Exception:
                 pass
 
-            # Attempt 3: AST Fallback (for Python dict style)
+            # Attempt 3: AST Fallback (evaluates Python literal structures safely)
             try:
-                # ast.literal_eval is safe for literal structures
                 py_data = ast.literal_eval(cand)
                 if isinstance(py_data, (dict, list)):
-                    print(f"[LLMService] Parsed as Python literal successfully")
+                    print("[LLMService] Parsed as Python literal successfully")
                     return json.dumps(py_data)
-            except:
+            except Exception:
                 continue
                 
         # If all valid parse attempts fail, return the best effort

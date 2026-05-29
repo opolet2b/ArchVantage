@@ -299,6 +299,8 @@ class RAGService:
                 self.vector_store = None
                 self.storage_context = None
                 self.index = None
+
+    def _get_postprocessors(self, config: dict) -> list:
         """Factory for creating postprocessors based on config."""
         from llama_index.core.postprocessor import SimilarityPostprocessor, KeywordNodePostprocessor
         from llama_index.core import Settings
