@@ -142,7 +142,34 @@ class DocumentIngestor:
                         print(f"[DocumentIngestor] Failed structured extraction for {file_path}: {e}")
                         documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
                 else:
-                    documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+                    # PDF Document Handling (Optimized via pypdfium2)
+                    if file_path.lower().endswith('.pdf'):
+                        try:
+                            import pypdfium2 as pdfium
+                            print(f"[DocumentIngestor] Extracting PDF text via fast pypdfium2...")
+                            
+                            documents = []
+                            with pdfium.PdfDocument(file_path) as pdf:
+                                for i, page in enumerate(pdf):
+                                    textpage = page.get_textpage()
+                                    page_text = textpage.get_text_bounded()
+                                    
+                                    # Create a LlamaIndex Document for each page
+                                    doc = Document(
+                                        text=page_text or "",
+                                        metadata={
+                                            "page_label": str(i + 1),
+                                            "file_name": os.path.basename(file_path)
+                                        }
+                                    )
+                                    documents.append(doc)
+                            
+                            print(f"[DocumentIngestor] Fast PDF extraction successful: {len(documents)} pages extracted.")
+                        except Exception as e:
+                            print(f"[DocumentIngestor] Fast PDF extraction failed, falling back: {e}")
+                            documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
+                    else:
+                        documents = SimpleDirectoryReader(input_files=[file_path]).load_data()
                 
                 # Metadata sanitization
                 if documents:

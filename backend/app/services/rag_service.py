@@ -166,12 +166,14 @@ class RAGService:
                         embed_args = {
                             "model_name": model,
                             "api_key": api_key,
+                            "embed_batch_size": 128,
                         }
                         if api_base:
                             embed_args["api_base"] = api_base
                             
                         Settings.embed_model = OpenAIEmbedding(**embed_args)
-                        print(f"[RAGService] Configured OpenAI Embedding: {model}")
+                        Settings.embed_batch_size = 128
+                        print(f"[RAGService] Configured OpenAI Embedding: {model} with batch size 128")
                     except ImportError:
                         msg = "OpenAI provider selected but `llama-index-embeddings-openai` not installed."
                         print(f"[RAGService] Error: {msg}")
@@ -512,101 +514,159 @@ class RAGService:
              print(f"[RAGService] Skipping ingestion: File already exists in index: {file_path}")
              return {"status": "success", "detail": "already_ingested"}
 
-        try:
-            # Check magic bytes for legacy OLE files first
-            with open(file_path, 'rb') as f:
-                header = f.read(8)
-            is_ole = header.startswith(b'\xd0\xcf\x11\xe0')
+        # Thread Synchronization: Prevent duplicate concurrent ingestion of the same file
+        event = None
+        is_owner = False
+        with self._lock:
+            if not hasattr(self, 'active_ingestions'):
+                self.active_ingestions = {}
             
-            if is_ole:
-                print(f"[RAGService] Detected binary OLE file (legacy .doc): {file_path}")
-                return {"status": "error", "error": "Legacy .doc format detected. Please save as .docx and try again."}
-
-            # Delegate to DocumentIngestor
-            from app.services.rag.document_ingestor import document_ingestor
+            if file_path in self.active_ingestions:
+                event = self.active_ingestions[file_path]
+            else:
+                event = threading.Event()
+                self.active_ingestions[file_path] = event
+                is_owner = True
+                
+        if not is_owner:
+            print(f"[RAGService] Ingestion for {file_path} is already in progress in another thread. Skipping duplicate indexing to run in parallel.")
             
-            # Resolve LLM
-            llm_instance = self.create_llm_instance(model_name)
-            
-            result = document_ingestor.ingest_document(
-                file_path=file_path,
-                index=self.index,
-                storage_context=self.storage_context,
-                conversation_id=conversation_id,
-                metadata=metadata,
-                progress_callback=progress_callback,
-                llm=llm_instance
-            )
-            
-            # HYBRID VLM ENRICHMENT (Post-Text Ingestion)
-            if enable_vision and result.get("status") == "success" and file_path.lower().endswith(".pdf"):
+            # Fast-extract text to return "full_text" to the caller immediately
+            full_text = ""
+            if file_path.lower().endswith('.pdf'):
                 try:
-                    from app.services.config_service import config_service
+                    import pypdfium2 as pdfium
+                    text_parts = []
+                    with pdfium.PdfDocument(file_path) as pdf:
+                        for page in pdf:
+                            textpage = page.get_textpage()
+                            text_parts.append(textpage.get_text_bounded() or "")
+                    full_text = "\n".join(text_parts)
+                except:
+                    pass
+            elif file_path.lower().endswith('.docx'):
+                try:
+                    from docx2txt import process
+                    full_text = process(file_path)
+                except:
+                    pass
+            else:
+                try:
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        full_text = f.read()
+                except:
+                    pass
                     
-                    # Prevent execution if no vision model is configured
-                    if not config_service.get_default_vision_preset() and not vision_model_name:
-                        print("[RAGService] Skipping Hybrid VLM: No default vision model configured.")
-                    else:
-                        from app.services.pdf_service import pdf_service
-                        
-                        # 1. Identify visual pages
-                        visual_pages = pdf_service.identify_visual_pages(file_path)
-                        
-                        if visual_pages:
-                            print(f"[RAGService] Found {len(visual_pages)} visual pages. Triggering Hybrid VLM...")
-                        from app.services.vision_service import vision_service
-                        import asyncio
-                        
-                        # 2. Convert visual pages
-                        images = pdf_service.convert_pdf_to_images(file_path, page_indices=visual_pages)
-                        
-                        hybrid_descriptions = []
-                        # Use a small loop with timeout safeguard
-                        for idx, (real_page_num, img_b64) in enumerate(zip(visual_pages, images)):
-                            display_page = real_page_num + 1
-                             
-                            try:
-                                prompt = f"Analyze the visual elements (charts, diagrams, graphs) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe text."
-                                # We can't await easily if this function is sync?
-                                # Wait, ingest_file is NOT async def. It is synchronous.
-                                # But vision_service.analyze IS async.
-                                # We need to run it synchronously.
-                                
-                                # Helper to run async in sync context
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                                page_desc = loop.run_until_complete(vision_service.analyze(
-                                     image_data=img_b64,
-                                     prompt=prompt,
-                                     model_name=vision_model_name or model_name or "default" # Use specific vision model, or fallback to LLM model, or default
-                                ))
-                                loop.close()
-                                
-                                hybrid_descriptions.append(f"--- Page {display_page} Visual Charts ---\n{page_desc}")
-                                
-                            except Exception as ve:
-                                print(f"[RAGService] VLM Error Page {display_page}: {ve}")
-                        
-                        if hybrid_descriptions:
-                            combined_visuals = "\n\n".join(hybrid_descriptions)
-                            print(f"[RAGService] Ingesting {len(combined_visuals)} chars of Visual Context.")
-                            
-                            # Ingest Visual Context
-                            v_meta = metadata.copy() if metadata else {}
-                            v_meta.update({"type": "visual_context", "source": file_path, "conversation_id": conversation_id})
-                            self.ingest_text(combined_visuals, metadata=v_meta)
-                            
-                            # Verification: Append to result for debug
-                            result["visual_context_extracted"] = True
-                            
-                except Exception as he:
-                    print(f"[RAGService] Hybrid VLM Failed: {he}")
+            return {
+                "status": "success",
+                "detail": "already_ingested",
+                "full_text": full_text,
+                "text_length": len(full_text),
+                "doc_count": 1
+            }
 
-            return result
+        try:
+            try:
+                # Check magic bytes for legacy OLE files first
+                with open(file_path, 'rb') as f:
+                    header = f.read(8)
+                is_ole = header.startswith(b'\xd0\xcf\x11\xe0')
+                
+                if is_ole:
+                    print(f"[RAGService] Detected binary OLE file (legacy .doc): {file_path}")
+                    return {"status": "error", "error": "Legacy .doc format detected. Please save as .docx and try again."}
 
-        except Exception as e:
-            print(f"Error ingesting file {file_path}: {e}")
-            raise e
+                # Delegate to DocumentIngestor
+                from app.services.rag.document_ingestor import document_ingestor
+                
+                # Resolve LLM
+                llm_instance = self.create_llm_instance(model_name)
+                
+                result = document_ingestor.ingest_document(
+                    file_path=file_path,
+                    index=self.index,
+                    storage_context=self.storage_context,
+                    conversation_id=conversation_id,
+                    metadata=metadata,
+                    progress_callback=progress_callback,
+                    llm=llm_instance
+                )
+                
+                # HYBRID VLM ENRICHMENT (Post-Text Ingestion)
+                if enable_vision and result.get("status") == "success" and file_path.lower().endswith(".pdf"):
+                    try:
+                        from app.services.config_service import config_service
+                        
+                        # Prevent execution if no vision model is configured
+                        if not config_service.get_default_vision_preset() and not vision_model_name:
+                            print("[RAGService] Skipping Hybrid VLM: No default vision model configured.")
+                        else:
+                            from app.services.pdf_service import pdf_service
+                            
+                            # 1. Identify visual pages
+                            visual_pages = pdf_service.identify_visual_pages(file_path)
+                            
+                            if visual_pages:
+                                print(f"[RAGService] Found {len(visual_pages)} visual pages. Triggering Hybrid VLM...")
+                            from app.services.vision_service import vision_service
+                            import asyncio
+                            
+                            # 2. Convert visual pages
+                            images = pdf_service.convert_pdf_to_images(file_path, page_indices=visual_pages)
+                            
+                            hybrid_descriptions = []
+                            # Use a small loop with timeout safeguard
+                            for idx, (real_page_num, img_b64) in enumerate(zip(visual_pages, images)):
+                                display_page = real_page_num + 1
+                                 
+                                try:
+                                    prompt = f"Analyze the visual elements (charts, diagrams, graphs) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe text."
+                                    # We can't await easily if this function is sync?
+                                    # Wait, ingest_file is NOT async def. It is synchronous.
+                                    # But vision_service.analyze IS async.
+                                    # We need to run it synchronously.
+                                    
+                                    # Helper to run async in sync context
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    page_desc = loop.run_until_complete(vision_service.analyze(
+                                         image_data=img_b64,
+                                         prompt=prompt,
+                                         model_name=vision_model_name or model_name or "default" # Use specific vision model, or fallback to LLM model, or default
+                                    ))
+                                    loop.close()
+                                    
+                                    hybrid_descriptions.append(f"--- Page {display_page} Visual Charts ---\n{page_desc}")
+                                    
+                                except Exception as ve:
+                                    print(f"[RAGService] VLM Error Page {display_page}: {ve}")
+                            
+                            if hybrid_descriptions:
+                                combined_visuals = "\n\n".join(hybrid_descriptions)
+                                print(f"[RAGService] Ingesting {len(combined_visuals)} chars of Visual Context.")
+                                
+                                # Ingest Visual Context
+                                v_meta = metadata.copy() if metadata else {}
+                                v_meta.update({"type": "visual_context", "source": file_path, "conversation_id": conversation_id})
+                                self.ingest_text(combined_visuals, metadata=v_meta)
+                                
+                                # Verification: Append to result for debug
+                                result["visual_context_extracted"] = True
+                                
+                    except Exception as he:
+                        print(f"[RAGService] Hybrid VLM Failed: {he}")
+
+                return result
+
+            except Exception as e:
+                print(f"Error ingesting file {file_path}: {e}")
+                raise e
+        finally:
+            if is_owner:
+                with self._lock:
+                    if hasattr(self, 'active_ingestions') and file_path in self.active_ingestions:
+                        del self.active_ingestions[file_path]
+                event.set()
 
     def ingest_slideshow(self, file_path: str, conversation_id: Optional[str] = None, metadata: Optional[dict] = None, progress_callback=None):
         """

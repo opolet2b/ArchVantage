@@ -3,6 +3,32 @@ from app.services.rag_service import rag_service
 from app.services.llm_service import llm_service
 from app.services.scraper_service import scraper_service
 
+def _prepare_slide_image_for_vlm(path: str) -> str:
+    """Load, convert transparent background, resize, and encode image to base64."""
+    from PIL import Image
+    import io
+    import base64
+    
+    img_bytes = io.BytesIO()
+    with Image.open(path) as img:
+        # Ensure we have a white background for transparency
+        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+            img = img.convert('RGBA')
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3]) # 3 is the alpha channel
+            img = background
+        else:
+            img = img.convert('RGB')
+            
+        # Resize to max 1024px (Best stability for Llama 3.2 Vision)
+        max_dim = 1024
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        
+        # High quality info for text reading
+        img.save(img_bytes, format='JPEG', quality=95)
+        return base64.b64encode(img_bytes.getvalue()).decode('utf-8')
+
 async def handle_async_vectorization(
     thing_id: str, 
     file_path: str, 
@@ -286,29 +312,9 @@ async def handle_async_vectorization(
                          try:
                              print(f"[CanvasWorker] Analyzing Slide {i+1} at {path}...")
                              
-                             # Resize and Optimize Image for VLM
-                             img_bytes = io.BytesIO()
-                             with Image.open(path) as img:
-                                 # Ensure we have a white background for transparency
-                                 # (Standard PIL convert('RGB') from RGBA turns transparent pixels BLACK, 
-                                 # which makes black text unreadable)
-                                 if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
-                                     img = img.convert('RGBA')
-                                     background = Image.new('RGB', img.size, (255, 255, 255))
-                                     background.paste(img, mask=img.split()[3]) # 3 is the alpha channel
-                                     img = background
-                                 else:
-                                     img = img.convert('RGB')
-                                     
-                                 # Resize to max 1024px (Best stability for Llama 3.2 Vision)
-                                 max_dim = 1024
-                                 if max(img.size) > max_dim:
-                                     img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
-                                 
-                             # High quality info for text reading
-                             img.save(img_bytes, format='JPEG', quality=95)
-                             
-                             b64_data = base64.b64encode(img_bytes.getvalue()).decode('utf-8')
+                             # Resize and Optimize Image for VLM (run in threadpool to prevent blocking)
+                             from starlette.concurrency import run_in_threadpool
+                             b64_data = await run_in_threadpool(_prepare_slide_image_for_vlm, path)
                              
                              item_model = thing.content.get("vision_model")
                              vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
@@ -802,11 +808,12 @@ async def handle_async_vectorization(
                      
                      from app.services.vision_service import vision_service
                      from app.services.pdf_service import pdf_service
+                     from starlette.concurrency import run_in_threadpool
                      
                      try:
                          import asyncio
-                         # 1. Convert to images
-                         images = pdf_service.convert_pdf_to_images(file_path)
+                         # 1. Convert to images (run in threadpool to prevent blocking)
+                         images = await run_in_threadpool(pdf_service.convert_pdf_to_images, file_path)
                          print(f"[CanvasWorker] Rendered {len(images)} pages from PDF.")
                          
                          # 2. Transcribe each page
@@ -889,9 +896,10 @@ async def handle_async_vectorization(
                      # PHASE 3: Hybrid Mode (High Text Density + Visuals)
                      print(f"[CanvasWorker] Text density normal. Checking for Visual Pages (Hybrid Mode)...")
                      from app.services.pdf_service import pdf_service
+                     from starlette.concurrency import run_in_threadpool
                      
-                     # 1. Identify visual pages (Charts/Images)
-                     visual_pages = pdf_service.identify_visual_pages(file_path)
+                     # 1. Identify visual pages (Charts/Images) (run in threadpool to prevent blocking)
+                     visual_pages = await run_in_threadpool(pdf_service.identify_visual_pages, file_path)
                      
                      if visual_pages:
                          print(f"[CanvasWorker] Found {len(visual_pages)} visual pages: {visual_pages}. Triggering Hybrid VLM...")
@@ -899,9 +907,9 @@ async def handle_async_vectorization(
                          
                          try:
                              import asyncio
-                             # 2. Convert ONLY visual pages to images
+                             # 2. Convert ONLY visual pages to images (run in threadpool to prevent blocking)
                              # Note: convert_pdf_to_images returns list corresponding to indices
-                             images = pdf_service.convert_pdf_to_images(file_path, page_indices=visual_pages)
+                             images = await run_in_threadpool(pdf_service.convert_pdf_to_images, file_path, page_indices=visual_pages)
                              
                              item_model = thing.content.get("vision_model")
                              vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
