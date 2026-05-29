@@ -2211,6 +2211,15 @@ async def analyze_selection(
                 )
 
             from app.models.chat import Message
+            
+            # Intelligent prompt truncation to prevent vLLM 400 Bad Request errors
+            llm_obj = llm_service._get_llama_index_model(active_model)
+            safe_window = (llm_obj.metadata.context_window or 4096) - 1000
+            max_chars = safe_window * 4
+            if len(user_prompt) > max_chars:
+                print(f"[Analyze] Truncating user prompt from {len(user_prompt)} to {max_chars} chars to fit in {safe_window} tokens.")
+                user_prompt = user_prompt[:max_chars] + "\n\n...[CONTENT TRUNCATED TO FIT MODEL CONTEXT WINDOW]"
+            
             response = await llm_service.chat(
                 messages=[
                     Message(role="system", content=system_prompt),

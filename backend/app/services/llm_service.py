@@ -123,9 +123,21 @@ class LLMService:
             api_url = preset.get("api_url") or ""
             
             if preset.get("type") == "local":
-                from llama_index.llms.ollama import Ollama
-                ollama_url = api_url or "http://localhost:11434"
-                return Ollama(model=m_name, base_url=ollama_url, context_window=window, request_timeout=300.0)
+                # Detect if the local server is vLLM/LMStudio (OpenAI compatible) vs Ollama
+                if api_url and ("/v1" in api_url or "8000" in api_url):
+                    from llama_index.llms.openai_like import OpenAILike
+                    return OpenAILike(
+                        model=m_name,
+                        api_key=preset.get("service_api_key") or "EMPTY",
+                        api_base=api_url,
+                        context_window=window,
+                        is_chat_model=True,
+                        timeout=300.0
+                    )
+                else:
+                    from llama_index.llms.ollama import Ollama
+                    ollama_url = api_url or "http://localhost:11434"
+                    return Ollama(model=m_name, base_url=ollama_url, context_window=window, request_timeout=300.0)
             elif preset.get("type") == "remote":
                 # Use OpenAI class ONLY for real OpenAI models to avoid name validation crashes
                 is_openai = m_name.startswith("gpt-") or "api.openai.com" in api_url
@@ -146,7 +158,8 @@ class LLMService:
                         api_key=preset.get("service_api_key"),
                         api_base=api_url,
                         context_window=window,
-                        is_chat_model=True
+                        is_chat_model=True,
+                        timeout=300.0
                     )
         
         # Fallbacks for LlamaIndex
