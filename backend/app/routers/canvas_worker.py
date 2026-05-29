@@ -781,16 +781,6 @@ async def handle_async_vectorization(
                 flag_modified(thing, "content")
                 db.commit()
 
-            # Generate Zoom Summaries for Document (Standard Text Mode)
-            print(f"[CanvasWorker] Generating Zoom Summaries for Document...")
-            text_for_summary = result.get("full_text") or result.get("text") or thing.content.get("text_content")
-            if text_for_summary:
-                summaries = await llm_service.generate_zoom_summaries(text_for_summary, model_name=canvas_model)
-                thing.summaries = summaries
-                from sqlalchemy.orm.attributes import flag_modified
-                flag_modified(thing, "summaries")
-                db.commit()
-            
             # Check for "Scanned PDF" (Low text density)
             # CRITICAL FIX: Only run this on actual PDF files!
             if result.get("status") == "success" and file_path.lower().endswith(".pdf"):
@@ -827,32 +817,43 @@ async def handle_async_vectorization(
                          full_description = []
                          total_pages = len(images)
                          
-                         for i, img_b64 in enumerate(images):
-                             print(f"[CanvasWorker] Transcribing Page {i+1}/{len(images)}...")
-                             update_progress(i, total_pages) 
-                             
-                             try:
-                                 # 120 second timeout for VLM per page
-                                 page_desc = await asyncio.wait_for(
-                                     vision_service.analyze(
-                                     image_data=img_b64,
-                                     prompt=f"Transcribe all text on this page exactly. Also describe any diagrams, tables, or images in detail. (Page {i+1})",
-                                     model_name=vision_model
-                                     ),
-                                     timeout=120.0
+                         # Check for sequential processing preference
+                         from app.services.config_service import config_service
+                         default_preset = config_service.get_default_llm_preset()
+                         concurrency_limit = 1 if (default_preset and default_preset.get("is_sequential")) else 3
+                         semaphore = asyncio.Semaphore(concurrency_limit)
+                         
+                         full_description = [None] * total_pages
+                         
+                         async def process_page(i, img_b64):
+                             async with semaphore:
+                                 print(f"[CanvasWorker] Transcribing Page {i+1}/{total_pages}...")
+                                 try:
+                                     # 120 second timeout for VLM per page
+                                     page_desc = await asyncio.wait_for(
+                                         vision_service.analyze(
+                                         image_data=img_b64,
+                                         prompt=f"Transcribe all text on this page exactly. Also describe any diagrams, tables, or images in detail. (Page {i+1})",
+                                         model_name=vision_model
+                                         ),
+                                         timeout=120.0
                                      )
-                             except asyncio.TimeoutError:
-                                 print(f"[CanvasWorker] VLM Timeout on Page {i+1}")
-                                 page_desc = "(Analysis timed out for this page)"
-                             except Exception as e:
-                                 print(f"[CanvasWorker] VLM Error on Page {i+1}: {e}")
-                                 page_desc = f"(Analysis failed: {e})"
-
-                             if not page_desc or not page_desc.strip():
-                                 page_desc = "(No text content returned from Vision Model)"
-                             
-                             full_description.append(f"--- Page {i+1} ---\n{page_desc}")
-                             
+                                 except asyncio.TimeoutError:
+                                     print(f"[CanvasWorker] VLM Timeout on Page {i+1}")
+                                     page_desc = "(Analysis timed out for this page)"
+                                 except Exception as e:
+                                     print(f"[CanvasWorker] VLM Error on Page {i+1}: {e}")
+                                     page_desc = f"(Analysis failed: {e})"
+                                 
+                                 if not page_desc or not page_desc.strip():
+                                     page_desc = "(No text content returned from Vision Model)"
+                                 
+                                 full_description[i] = f"--- Page {i+1} ---\n{page_desc}"
+                                 update_progress(i, total_pages)
+                                 
+                         tasks = [process_page(i, img) for i, img in enumerate(images)]
+                         await asyncio.gather(*tasks)
+                         
                          combined_text = "\n\n".join(full_description)
                          print(f"[CanvasWorker] Scanned PDF Transcription Complete ({len(combined_text)} chars).")
                          
@@ -866,14 +867,6 @@ async def handle_async_vectorization(
                          
                          db.commit()
                          print(f"[CanvasWorker] Scanned PDF content committed. Keys: {new_content.keys()}")
-                         
-                         # 3. Generate Zoom Summaries for Scanned PDF (Immediately)
-                         print(f"[CanvasWorker] Generating Zoom Summaries for Scanned PDF...")
-                         summaries = await llm_service.generate_zoom_summaries(combined_text, model_name=canvas_model)
-                         thing.summaries = summaries
-                         from sqlalchemy.orm.attributes import flag_modified
-                         flag_modified(thing, "summaries")
-                         db.commit()
 
                          # 4. Re-ingest as text (Appending to index)
                          try:
@@ -913,29 +906,36 @@ async def handle_async_vectorization(
                              item_model = thing.content.get("vision_model")
                              vision_model = item_model if item_model and item_model != "default" else canvas_vision_model
                              hybrid_descriptions = []
+                             # Check for sequential processing preference
+                             from app.services.config_service import config_service
+                             default_preset = config_service.get_default_llm_preset()
+                             concurrency_limit = 1 if (default_preset and default_preset.get("is_sequential")) else 3
+                             semaphore = asyncio.Semaphore(concurrency_limit)
                              
-                             for idx, (real_page_num, img_b64) in enumerate(zip(visual_pages, images)):
-                                 display_page = real_page_num + 1
-                                 print(f"[CanvasWorker] Analyzing Visual Page {display_page}...")
-                                 
-                                 # Send progress update (using 100% base since text is done, maybe just log?)
-                                 # Or maybe 90-99 wait state?
-                                 
-                                 try:
-                                     prompt = f"Analyze the visual elements (charts, diagrams, graphs, images) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe the main text blocks as they are already extracted."
-                                     page_desc = await asyncio.wait_for(
-                                         vision_service.analyze(
-                                         image_data=img_b64,
-                                         prompt=prompt,
-                                         model_name=vision_model
-                                         ),
-                                         timeout=120.0
-                                     )
-                                 except Exception as ve:
-                                     print(f"[CanvasWorker] Hybrid VLM Error on Page {display_page}: {ve}")
-                                     page_desc = f"(Visual Analysis Failed: {ve})"
-                                 
-                                 hybrid_descriptions.append(f"--- Page {display_page} Visuals ---\n{page_desc}")
+                             hybrid_descriptions = [None] * len(visual_pages)
+                             
+                             async def process_hybrid_page(idx, real_page_num, img_b64):
+                                 async with semaphore:
+                                     display_page = real_page_num + 1
+                                     print(f"[CanvasWorker] Analyzing Visual Page {display_page}...")
+                                     try:
+                                         prompt = f"Analyze the visual elements (charts, diagrams, graphs, images) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe the main text blocks as they are already extracted."
+                                         page_desc = await asyncio.wait_for(
+                                             vision_service.analyze(
+                                             image_data=img_b64,
+                                             prompt=prompt,
+                                             model_name=vision_model
+                                             ),
+                                             timeout=120.0
+                                         )
+                                     except Exception as ve:
+                                         print(f"[CanvasWorker] Hybrid VLM Error on Page {display_page}: {ve}")
+                                         page_desc = f"(Visual Analysis Failed: {ve})"
+                                     
+                                     hybrid_descriptions[idx] = f"--- Page {display_page} Visuals ---\n{page_desc}"
+                             
+                             tasks = [process_hybrid_page(idx, rp, img) for idx, (rp, img) in enumerate(zip(visual_pages, images))]
+                             await asyncio.gather(*tasks)
                              
                              combined_visuals = "\n\n".join(hybrid_descriptions)
                              print(f"[CanvasWorker] Hybrid Analysis Complete ({len(combined_visuals)} chars).")
@@ -952,32 +952,51 @@ async def handle_async_vectorization(
                              flag_modified(thing, "content")
                              db.commit()
 
-                             # 4. Generate/Update Zoom Summaries for Hybrid PDF (using full text + visual descriptions)
-                             print(f"[CanvasWorker] Generating Zoom Summaries for Hybrid PDF...")
+                             # 4 & 5. Generate Zoom Summaries & Ingest Visual Context Concurrently
+                             print(f"[CanvasWorker] Generating Zoom Summaries & Ingesting Visual Context concurrently...")
                              summary_input = (result.get("full_text", "") + "\n\n" + combined_visuals).strip()
-                             summaries = await llm_service.generate_zoom_summaries(summary_input, model_name=canvas_model)
-                             thing.summaries = summaries
-                             from sqlalchemy.orm.attributes import flag_modified
-                             flag_modified(thing, "summaries")
-                             db.commit()
                              
-                             # 5. Ingest Visual Context
-                             try:
-                                 meta = base_metadata.copy()
-                                 meta.update({"type": "visual_context", "source": file_path})
-                                 rag_service.ingest_text(
-                                     combined_visuals,
-                                     metadata=meta
-                                 )
-                                 print("[CanvasWorker] Visual Context Ingested.")
-                             except Exception as rag_err:
-                                 print(f"[CanvasWorker] RAG Ingestion Failed for Hybrid Visuals: {rag_err}")
+                             async def generate_summaries():
+                                 summaries = await llm_service.generate_zoom_summaries(summary_input, model_name=canvas_model)
+                                 thing.summaries = summaries
+                                 from sqlalchemy.orm.attributes import flag_modified
+                                 flag_modified(thing, "summaries")
+                                 db.commit()
+                             
+                             async def ingest_visuals():
+                                 try:
+                                     meta = base_metadata.copy()
+                                     meta.update({"type": "visual_context", "source": file_path})
+                                     from starlette.concurrency import run_in_threadpool
+                                     await run_in_threadpool(
+                                         rag_service.ingest_text,
+                                         combined_visuals,
+                                         metadata=meta
+                                     )
+                                     print("[CanvasWorker] Visual Context Ingested.")
+                                 except Exception as rag_err:
+                                     print(f"[CanvasWorker] RAG Ingestion Failed for Hybrid Visuals: {rag_err}")
+                                     
+                             await asyncio.gather(generate_summaries(), ingest_visuals())
                              
                          except Exception as he:
                              print(f"[CanvasWorker] Hybrid Mode Failed: {he}")
                              # Do not fail the whole job, as text is valid. Just log error.
                      else:
                          print("[CanvasWorker] No visual pages detected. Skipping VLM.")
+                         
+            # 6. Generate Zoom Summaries for Document ONLY if not handled concurrently in Hybrid mode
+            # If no visual pages were found (or VLM failed), we need to generate summaries here.
+            # Hybrid mode already updates `thing.summaries`, so we only run this if they are empty.
+            if not thing.summaries or thing.summaries.get("label") == "Not available" or not getattr(thing, 'summaries', None):
+                 print(f"[CanvasWorker] Generating Zoom Summaries for Document (Standard Text or Scanned PDF Mode)...")
+                 text_for_summary = result.get("full_text") or result.get("text") or thing.content.get("text_content") or thing.content.get("generated_description", "")
+                 if text_for_summary:
+                     summaries = await llm_service.generate_zoom_summaries(text_for_summary, model_name=canvas_model)
+                     thing.summaries = summaries
+                     from sqlalchemy.orm.attributes import flag_modified
+                     flag_modified(thing, "summaries")
+                     db.commit()
         
         # Reload thing 
         thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
