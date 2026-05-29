@@ -516,52 +516,36 @@ class RAGService:
 
         # Thread Synchronization: Prevent duplicate concurrent ingestion of the same file
         event = None
+        entry = None
         is_owner = False
         with self._lock:
             if not hasattr(self, 'active_ingestions'):
                 self.active_ingestions = {}
             
             if file_path in self.active_ingestions:
-                event = self.active_ingestions[file_path]
+                entry = self.active_ingestions[file_path]
+                event = entry["event"]
             else:
                 event = threading.Event()
-                self.active_ingestions[file_path] = event
+                entry = {"event": event, "result": None}
+                self.active_ingestions[file_path] = entry
                 is_owner = True
                 
         if not is_owner:
-            print(f"[RAGService] Ingestion for {file_path} is already in progress in another thread. Skipping duplicate indexing to run in parallel.")
+            print(f"[RAGService] Ingestion for {file_path} is already in progress in another thread. Waiting for parallel indexing to complete...")
+            event.wait()
             
-            # Fast-extract text to return "full_text" to the caller immediately
-            full_text = ""
-            if file_path.lower().endswith('.pdf'):
-                try:
-                    import pypdfium2 as pdfium
-                    text_parts = []
-                    with pdfium.PdfDocument(file_path) as pdf:
-                        for page in pdf:
-                            textpage = page.get_textpage()
-                            text_parts.append(textpage.get_text_bounded() or "")
-                    full_text = "\n".join(text_parts)
-                except:
-                    pass
-            elif file_path.lower().endswith('.docx'):
-                try:
-                    from docx2txt import process
-                    full_text = process(file_path)
-                except:
-                    pass
-            else:
-                try:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        full_text = f.read()
-                except:
-                    pass
-                    
+            # The reference 'entry' is local to this thread, so it is 100% safe
+            result = entry.get("result") if entry else None
+            if result:
+                print(f"[RAGService] Shared result retrieved successfully for duplicate thread.")
+                return result
+                
             return {
                 "status": "success",
                 "detail": "already_ingested",
-                "full_text": full_text,
-                "text_length": len(full_text),
+                "full_text": "",
+                "text_length": 0,
                 "doc_count": 1
             }
 
@@ -574,7 +558,11 @@ class RAGService:
                 
                 if is_ole:
                     print(f"[RAGService] Detected binary OLE file (legacy .doc): {file_path}")
-                    return {"status": "error", "error": "Legacy .doc format detected. Please save as .docx and try again."}
+                    result = {"status": "error", "error": "Legacy .doc format detected. Please save as .docx and try again."}
+                    if entry:
+                        with self._lock:
+                            entry["result"] = result
+                    return result
 
                 # Delegate to DocumentIngestor
                 from app.services.rag.document_ingestor import document_ingestor
@@ -621,10 +609,6 @@ class RAGService:
                                  
                                 try:
                                     prompt = f"Analyze the visual elements (charts, diagrams, graphs) on this page (Page {display_page}). Describe the data, trends, or visual content in detail. Do NOT transcribe text."
-                                    # We can't await easily if this function is sync?
-                                    # Wait, ingest_file is NOT async def. It is synchronous.
-                                    # But vision_service.analyze IS async.
-                                    # We need to run it synchronously.
                                     
                                     # Helper to run async in sync context
                                     loop = asyncio.new_event_loop()
@@ -632,7 +616,7 @@ class RAGService:
                                     page_desc = loop.run_until_complete(vision_service.analyze(
                                          image_data=img_b64,
                                          prompt=prompt,
-                                         model_name=vision_model_name or model_name or "default" # Use specific vision model, or fallback to LLM model, or default
+                                         model_name=vision_model_name or model_name or "default"
                                     ))
                                     loop.close()
                                     
@@ -656,10 +640,17 @@ class RAGService:
                     except Exception as he:
                         print(f"[RAGService] Hybrid VLM Failed: {he}")
 
+                if entry:
+                    with self._lock:
+                        entry["result"] = result
                 return result
 
             except Exception as e:
                 print(f"Error ingesting file {file_path}: {e}")
+                err_result = {"status": "error", "error": str(e)}
+                if entry:
+                    with self._lock:
+                        entry["result"] = err_result
                 raise e
         finally:
             if is_owner:

@@ -1,7 +1,11 @@
 import pypdfium2 as pdfium
 import base64
 import io
+import threading
 from typing import List
+
+if not hasattr(pdfium, "_global_thread_lock"):
+    pdfium._global_thread_lock = threading.Lock()
 
 class PDFService:
     def convert_pdf_to_images(self, file_path: str, page_indices: List[int] = None) -> List[str]:
@@ -19,7 +23,8 @@ class PDFService:
         images_b64 = []
         try:
             # Load the PDF document
-            with pdfium.PdfDocument(file_path) as pdf:
+            with pdfium._global_thread_lock:
+                with pdfium.PdfDocument(file_path) as pdf:
                 # Determine pages to process
                 if page_indices is not None:
                     pages_to_process = page_indices
@@ -53,8 +58,9 @@ class PDFService:
         """
         visual_pages = []
         try:
-            with pdfium.PdfDocument(file_path) as pdf:
-                for i in range(len(pdf)):
+            with pdfium._global_thread_lock:
+                with pdfium.PdfDocument(file_path) as pdf:
+                    for i in range(len(pdf)):
                     page = pdf[i]
                     has_visuals = False
                     
