@@ -464,10 +464,11 @@ async def chat_endpoint(
                 print(f"[ChatEndpoint] Context ({estimated_tokens} tokens) fits in safe window. Using fast compact mode.")
         
         # Explicit PromptHelper ensures synthesis respects our safe context window
-        # We also budget 2048 for output tokens to avoid squeezing the response.
+        # Setup custom prompt helper to respect the model's true context limit
+        dynamic_num_output = min(2048, max(512, llm.metadata.context_window // 4))
         prompt_helper = PromptHelper(
             context_window=llm.metadata.context_window,
-            num_output=2048,
+            num_output=dynamic_num_output,
             chunk_overlap_ratio=0.1
         )
             

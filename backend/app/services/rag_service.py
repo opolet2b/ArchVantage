@@ -92,8 +92,7 @@ class RAGService:
                 # Sync LlamaIndex Global Settings with User Config
                 if llm_preset:
                     raw_window = llm_preset.get("context_window", 4096)
-                    # Apply safety buffer of 4000 tokens to account for tokenizer discrepancies
-                    window = max(2048, raw_window - 4000)
+                    window = raw_window
                     print(f"[RAGService] Syncing Settings.context_window to {window} (raw: {raw_window}) from preset '{llm_preset['name']}'")
                     Settings.context_window = window
                     

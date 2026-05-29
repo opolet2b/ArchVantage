@@ -113,10 +113,8 @@ class LLMService:
         window = 4096
         window = 4096
         if d_preset := preset:
-            # Window safety buffer: 4000 tokens to account for tokenizer discrepancies 
-            # (e.g. tiktoken vs Gemini) and prompt overhead.
             raw_window = d_preset.get("context_window", 4096)
-            window = max(2048, raw_window - 4000)
+            window = raw_window
             print(f"[LLMService] Creating LlamaIndex model '{model_name}' with context_window={window} (raw: {raw_window})")
             
             m_name = d_preset.get("model_name") or "gpt-3.5-turbo"
