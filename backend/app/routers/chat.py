@@ -456,7 +456,7 @@ async def chat_endpoint(
         # Explicit PromptHelper ensures synthesis respects our safe context window
         # We also budget 2048 for output tokens to avoid squeezing the response.
         prompt_helper = PromptHelper(
-            context_window=llm.context_window,
+            context_window=llm.metadata.context_window,
             num_output=2048,
             chunk_overlap_ratio=0.1
         )
