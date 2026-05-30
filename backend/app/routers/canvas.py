@@ -2033,18 +2033,18 @@ async def analyze_selection(
     # Get the selected content
     selected_content = request.fragment.content or ""
     
-    # Phase 2: RAG Integration for Slideshows
-    # If this is a slideshow and the content looks like metadata (JSON), 
-    # we should fetch relevant text from the Vector Store to give the LLM context.
-    if thing.type.value == "slideshow":
+    # Phase 2: RAG Integration for Slideshows and Documents
+    # If this is a slideshow or document and the content is large, 
+    # we can fetch relevant text from the Vector Store to give the LLM context.
+    if thing.type.value in ["slideshow", "document"]:
         # Check if RAG is available
         # Note: thing.rag_status is a DB Column enum (or string in some contexts?)
         # Enum comparison should work if imports are correct.
         if thing.rag_status == RAGStatus.COMPLETED or str(thing.rag_status) == "completed":
-             print(f"[Analyze] Detected Slideshow with RAG. Fetching context...")
+             print(f"[Analyze] Detected {thing.type.value} with RAG. Fetching context...")
              
              # If action is ASK, search for the user's prompt. Otherwise summarize.
-             query_text = "Summarize this presentation"
+             query_text = f"Summarize this {thing.type.value}"
              if request.action == AnalyzeAction.ASK and request.custom_prompt:
                  query_text = request.custom_prompt
              
@@ -2063,25 +2063,44 @@ async def analyze_selection(
  
                  # Resolve model for RAG search
                  active_model = _resolve_active_model(db, canvas_id, request.model)
-                 results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
                  
-                 if results:
-                     # Join chunks to form context
-                     context_texts = [r['text'] for r in results]
+                 # Only override selected_content with RAG if the text is huge OR the action is ASK.
+                 # If it's a summarize action and the text fits, it's often better to just send the text,
+                 # but for huge texts or targeted asks, RAG is better.
+                 # For simplicity, we'll use RAG for all ASK actions, or if it's a slideshow (because slideshows need spatial extraction).
+                 use_rag = True
+                 if thing.type.value == "document" and request.action != AnalyzeAction.ASK:
+                     # For document summarization, only use RAG if the raw text is very big (e.g. > 10000 chars)
+                     if selected_content and len(selected_content) < 15000:
+                         use_rag = False
+                         print("[Analyze] Document is small enough, skipping RAG for full-text summary.")
+
+                 if use_rag:
+                     results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
                      
-                     # PREPEND SYSTEM INSTRUCTION FOR SPATIAL AWARENESS
-                     system_note = (
-                        "SYSTEM NOTE: The following context describes slides with spatial coordinates (x,y,w,h normalized 0.0-1.0) "
-                        "and visual attributes (Shape Type, Colors). "
-                        "Use this to mentally reconstruct the visual layout and hierarchy. "
-                        "Coordinates: x=0 (left), y=0 (top). "
-                        "Visuals are described as [TYPE] (Layout...) (Color...) \"Text\"."
-                     )
-                     
-                     selected_content = f"{system_note}\n\nRelevant Slides/Context:\n" + "\n---\n".join(context_texts)
-                     print(f"[Analyze] Retrieved {len(results)} chunks from RAG for context.")
-                 else:
-                     selected_content = "No relevant context found in RAG index for this query."
+                     if results:
+                         # Join chunks to form context
+                         context_texts = [r['text'] for r in results]
+                         
+                         if thing.type.value == "slideshow":
+                             # PREPEND SYSTEM INSTRUCTION FOR SPATIAL AWARENESS
+                             system_note = (
+                                "SYSTEM NOTE: The following context describes slides with spatial coordinates (x,y,w,h normalized 0.0-1.0) "
+                                "and visual attributes (Shape Type, Colors). "
+                                "Use this to mentally reconstruct the visual layout and hierarchy. "
+                                "Coordinates: x=0 (left), y=0 (top). "
+                                "Visuals are described as [TYPE] (Layout...) (Color...) \"Text\"."
+                             )
+                             selected_content = f"{system_note}\n\nRelevant Slides/Context:\n" + "\n---\n".join(context_texts)
+                         else:
+                             selected_content = "Relevant Document Context:\n" + "\n---\n".join(context_texts)
+                             
+                         print(f"[Analyze] Retrieved {len(results)} chunks from RAG for context.")
+                     else:
+                         if thing.type.value == "slideshow" or not selected_content:
+                             selected_content = "No relevant context found in RAG index for this query."
+                         else:
+                             print("[Analyze] RAG returned nothing, falling back to raw text content.")
              except Exception as e:
                  print(f"[Analyze] RAG Search failed: {e}")
                  # Fallback to existing content (metadata)
@@ -2277,7 +2296,7 @@ async def analyze_batch(
         if thing.type.value == "text":
             content_text = thing.content.get("text", "")
         elif thing.type.value == "document":
-            content_text = thing.content.get("content", "")
+            content_text = thing.content.get("text_content") or thing.content.get("content", "")
             if not content_text and thing.content.get("summary"):
                  content_text = f"Summary: {thing.content.get('summary')}"
         elif thing.type.value == "url":

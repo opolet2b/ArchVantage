@@ -1125,6 +1125,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         const c = thing.content;
 
         if (typeof c.text === "string") contentStr = c.text;
+        else if (typeof c.text_content === "string") contentStr = c.text_content;
         else if (typeof c.content === "string") contentStr = c.content;
         else if (c.messages) contentStr = JSON.stringify(c.messages);
         else contentStr = JSON.stringify(c);
