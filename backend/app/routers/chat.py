@@ -163,7 +163,13 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                 
                 for cand in rag_candidates:
                     tid = cand["thing_id"]
-                    results = rag_service.search(query, filters={"thing_id": tid}, k=3, model_name=active_model)
+                    aid = cand["asset_id"]
+                    
+                    # Use asset_id if available, as sidebar uploads are ingested with asset_id only.
+                    # Canvas uploads are ingested with both asset_id and thing_id.
+                    search_filter = {"asset_id": aid} if aid else {"thing_id": tid}
+                    
+                    results = rag_service.search(query, filters=search_filter, k=3, model_name=active_model)
                     
                     if results:
                         used_citation_ids.add(tid)
@@ -173,9 +179,9 @@ def resolve_conversation_context(db: Session, conversation_id: str, last_user_me
                                 score=res.get('score', 1.0)
                             ))
                     else:
-                        # Fallback
+                        # Fallback query if initial query fails
                         fallback_results = rag_service.search(
-                            "Summary Introduction Abstract", filters={"thing_id": tid}, k=2, model_name=active_model
+                            "Summary Introduction Abstract", filters=search_filter, k=2, model_name=active_model
                         )
                         if fallback_results:
                             used_citation_ids.add(tid)
@@ -374,14 +380,18 @@ async def chat_endpoint(
                 print(f"[Chat] Using canvas-specific preset: {active_model}")
 
     # --- KB Context Enrichment ---
+    # Keep the original user message for RAG and synthesis
+    original_user_msg = last_msg
+
+    # --- KB Context Enrichment ---
     from app.services.context_enrichment_service import context_enrichment_service
     kb_context, kb_citations = await context_enrichment_service.enrich_context(last_msg, request.kb_id, db, active_model)
     if kb_context:
-        # Augment the last message content with the KB context
+        # Augment the last message content with the KB context in the message history (for non-synthesizer fallback)
         for m in reversed(final_messages):
             if m.role == "user":
-                m.content = f"{kb_context}\n\n=== PRIMARY SUBJECT (USER QUERY) ===\n{last_msg}\n======================================\n\nCRITICAL INSTRUCTION: The Knowledge Base Context above is STRICTLY for reference. Your primary task is to answer the User Query inside the PRIMARY SUBJECT block."
-                last_msg = m.content
+                m.content = f"{kb_context}\n\n=== PRIMARY SUBJECT (USER QUERY) ===\n{original_user_msg}\n======================================\n\nCRITICAL INSTRUCTION: The Knowledge Base Context above is STRICTLY for reference. Your primary task is to answer the User Query inside the PRIMARY SUBJECT block."
+                # DO NOT overwrite last_msg here so RAG gets the clean query
                 break
 
     total_nodes = []
@@ -392,13 +402,13 @@ async def chat_endpoint(
 
     if request.conversation_id:
         # Resolve Canvas Context (Nodes)
-        ctx_result = resolve_conversation_context(db, request.conversation_id, last_msg, active_model)
+        ctx_result = resolve_conversation_context(db, request.conversation_id, original_user_msg, active_model)
         total_nodes.extend(ctx_result.get("nodes", []))
         citations.extend(ctx_result.get("citations", []))
         
         # FALLBACK: Check for direct RAG content
         if not ctx_result.get("linked_items"):
-            direct_results = rag_service.search(last_msg, conversation_id=request.conversation_id, k=3, model_name=active_model)
+            direct_results = rag_service.search(original_user_msg, conversation_id=request.conversation_id, k=3, model_name=active_model)
             for res in direct_results:
                 meta = res.get('metadata', {})
                 total_nodes.append(NodeWithScore(
@@ -420,7 +430,7 @@ async def chat_endpoint(
                 })
     else:
         # Sidebar Generic Fallback
-        results = rag_service.search(last_msg, filters={"owner_id": current_user.id, "source": "sidebar_upload"}, k=3, model_name=active_model)
+        results = rag_service.search(original_user_msg, filters={"owner_id": current_user.id, "source": "sidebar_upload"}, k=3, model_name=active_model)
         for res in results:
             meta = res.get('metadata', {})
             total_nodes.append(NodeWithScore(
@@ -450,7 +460,7 @@ async def chat_endpoint(
         
         # Determine appropriate response mode intelligently
         rmode = "compact"
-        if last_msg.lower() in ["summary", "summarize", "what is this", "tell me about this"]:
+        if original_user_msg.lower() in ["summary", "summarize", "what is this", "tell me about this"]:
             # Estimate total tokens in retrieved nodes (roughly 4 chars per token)
             total_chars = sum(len(node.get_content()) for node in total_nodes)
             estimated_tokens = total_chars / 4
@@ -488,10 +498,15 @@ async def chat_endpoint(
         
         manifest_text = ctx_result.get("manifest_text") if request.conversation_id else ""
         
+        # Inject kb_context into full_query if it exists, so synthesizer doesn't lose it
+        full_user_query = original_user_msg
+        if kb_context:
+            full_user_query = f"{kb_context}\n\n=== PRIMARY SUBJECT (USER QUERY) ===\n{original_user_msg}\n======================================\n\nCRITICAL INSTRUCTION: The Knowledge Base Context above is STRICTLY for reference."
+        
         full_query = (
             f"{history_summary}\n\n"
             f"{manifest_text}\n\n"
-            f"USER QUESTION: {last_msg}\n\n"
+            f"USER QUESTION: {full_user_query}\n\n"
             f"CRITICAL CONTEXT INSTRUCTION: Over the course of a conversation, items may be added or removed from the domain. "
             f"The 'CURRENT ACTIVITY INVENTORY' above represents the authoritative list of items currently in the conversation's scope. "
             f"If the user asks about 'how many' items there are, or refers to 'these items', ONLY consider those in the CURRENT ACTIVITY INVENTORY. "
