@@ -262,9 +262,19 @@ class LLMService:
                 content = response.content
                 if strip_think:
                     if "<think>" in content:
-                        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                        content = re.sub(r"<think>.*</think>", "", content, flags=re.DOTALL).strip()
                     elif "</think>" in content:
-                        content = content.split("</think>", 1)[-1].strip()
+                        content = content.split("</think>")[-1].strip()
+                    
+                    if "<thinking>" in content:
+                        content = re.sub(r"<thinking>.*</thinking>", "", content, flags=re.DOTALL).strip()
+                    elif "</thinking>" in content:
+                        content = content.split("</thinking>")[-1].strip()
+
+                    if "<thought>" in content:
+                        content = re.sub(r"<thought>.*</thought>", "", content, flags=re.DOTALL).strip()
+                    elif "</thought>" in content:
+                        content = content.split("</thought>")[-1].strip()
                 
                 print(f"[LLMService] DEBUG: llm.ainvoke returned. Content len: {len(content) if content else 0}")
                 

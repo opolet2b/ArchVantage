@@ -813,14 +813,71 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
         if (!rawText) return { thinkingContent: null, cleanContent: rawText, hasThinking: false };
 
-        const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/);
-        if (thinkMatch) {
-            return {
-                thinkingContent: thinkMatch[1].trim(),
-                cleanContent: rawText.replace(thinkMatch[0], "").trim(),
-                hasThinking: true
-            };
+        // Check for standard thinking tags (case-insensitive)
+        const patterns = [
+            { start: /<think\b[^>]*>/i, end: /<\/think>/gi },
+            { start: /<thinking\b[^>]*>/i, end: /<\/thinking>/gi },
+            { start: /<thought\b[^>]*>/i, end: /<\/thought>/gi }
+        ]
+
+        for (const pat of patterns) {
+            const startMatch = rawText.match(pat.start)
+            if (startMatch && startMatch.index !== undefined) {
+                const startIdx = startMatch.index
+                const startTagLen = startMatch[0].length
+                
+                // Find the LAST occurrence of the closing tag to handle nested/multiple blocks robustly
+                const endMatches = Array.from(rawText.matchAll(pat.end))
+                if (endMatches.length > 0) {
+                    const lastEndMatch = endMatches[endMatches.length - 1]
+                    if (lastEndMatch.index !== undefined && lastEndMatch.index > startIdx) {
+                        const endIdx = lastEndMatch.index
+                        const endTagLen = lastEndMatch[0].length
+                        
+                        const thinking = rawText.substring(startIdx + startTagLen, endIdx).trim()
+                        const clean = (rawText.substring(0, startIdx) + rawText.substring(endIdx + endTagLen)).trim()
+                        return {
+                            thinkingContent: thinking,
+                            cleanContent: clean,
+                            hasThinking: true
+                        }
+                    }
+                }
+                
+                // Incomplete block
+                const thinking = rawText.substring(startIdx + startTagLen).trim()
+                const clean = rawText.substring(0, startIdx).trim()
+                return {
+                    thinkingContent: thinking,
+                    cleanContent: clean,
+                    hasThinking: true
+                }
+            }
         }
+
+        // Check for a loose closing tag due to partial upstream stripping (e.g. </think>)
+        const loosePatterns = [
+            { end: /<\/think>/gi, tagLen: 8 },
+            { end: /<\/thinking>/gi, tagLen: 11 },
+            { end: /<\/thought>/gi, tagLen: 10 }
+        ]
+        for (const pat of loosePatterns) {
+            const matches = Array.from(rawText.matchAll(pat.end))
+            if (matches.length > 0) {
+                const lastMatch = matches[matches.length - 1]
+                if (lastMatch.index !== undefined) {
+                    const endIdx = lastMatch.index
+                    const thinking = rawText.substring(0, endIdx).trim()
+                    const clean = rawText.substring(endIdx + pat.tagLen).trim()
+                    return {
+                        thinkingContent: thinking,
+                        cleanContent: clean,
+                        hasThinking: true
+                    }
+                }
+            }
+        }
+
         return { thinkingContent: null, cleanContent: rawText, hasThinking: false };
     }, [thing.content]);
 

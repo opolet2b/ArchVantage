@@ -76,9 +76,9 @@ function parseMessageThinking(rawText: string): { cleanContent: string; thinking
 
     // Check for standard thinking tags (case-insensitive)
     const patterns = [
-        { start: /<think\b[^>]*>/i, end: /<\/think>/i },
-        { start: /<thinking\b[^>]*>/i, end: /<\/thinking>/i },
-        { start: /<thought\b[^>]*>/i, end: /<\/thought>/i }
+        { start: /<think\b[^>]*>/i, end: /<\/think>/gi },
+        { start: /<thinking\b[^>]*>/i, end: /<\/thinking>/gi },
+        { start: /<thought\b[^>]*>/i, end: /<\/thought>/gi }
     ]
 
     for (const pat of patterns) {
@@ -86,19 +86,25 @@ function parseMessageThinking(rawText: string): { cleanContent: string; thinking
         if (startMatch && startMatch.index !== undefined) {
             const startIdx = startMatch.index
             const startTagLen = startMatch[0].length
-            const endMatch = rawText.match(pat.end)
             
-            if (endMatch && endMatch.index !== undefined && endMatch.index > startIdx) {
-                // Complete thinking block found
-                const thinkingContent = rawText.substring(startIdx + startTagLen, endMatch.index).trim()
-                const cleanContent = (rawText.substring(0, startIdx) + rawText.substring(endMatch.index + endMatch[0].length)).trim()
-                return { cleanContent, thinkingContent }
-            } else {
-                // Incomplete/streaming thinking block
-                const thinkingContent = rawText.substring(startIdx + startTagLen).trim()
-                const cleanContent = rawText.substring(0, startIdx).trim()
-                return { cleanContent, thinkingContent }
+            // Find the LAST occurrence of the closing tag to handle nested/multiple blocks robustly
+            const endMatches = Array.from(rawText.matchAll(pat.end))
+            if (endMatches.length > 0) {
+                const lastEndMatch = endMatches[endMatches.length - 1]
+                if (lastEndMatch.index !== undefined && lastEndMatch.index > startIdx) {
+                    const endIdx = lastEndMatch.index
+                    const endTagLen = lastEndMatch[0].length
+                    
+                    const thinkingContent = rawText.substring(startIdx + startTagLen, endIdx).trim()
+                    const cleanContent = (rawText.substring(0, startIdx) + rawText.substring(endMatch.index + endMatch[0].length)).trim()
+                    return { cleanContent, thinkingContent }
+                }
             }
+            
+            // Incomplete/streaming thinking block (no closing tag yet)
+            const thinkingContent = rawText.substring(startIdx + startTagLen).trim()
+            const cleanContent = rawText.substring(0, startIdx).trim()
+            return { cleanContent, thinkingContent }
         }
     }
 
@@ -111,6 +117,25 @@ function parseMessageThinking(rawText: string): { cleanContent: string; thinking
             const thinkingContent = rawText.substring(prefixLen, splitIdx).trim()
             const cleanContent = rawText.substring(splitIdx + 2).trim()
             return { cleanContent, thinkingContent }
+        }
+    }
+
+    // Check for a loose closing tag due to partial upstream stripping (e.g. </think>)
+    const loosePatterns = [
+        { end: /<\/think>/gi, tagLen: 8 },
+        { end: /<\/thinking>/gi, tagLen: 11 },
+        { end: /<\/thought>/gi, tagLen: 10 }
+    ]
+    for (const pat of loosePatterns) {
+        const matches = Array.from(rawText.matchAll(pat.end))
+        if (matches.length > 0) {
+            const lastMatch = matches[matches.length - 1]
+            if (lastMatch.index !== undefined) {
+                const endIdx = lastMatch.index
+                const thinkingContent = rawText.substring(0, endIdx).trim()
+                const cleanContent = rawText.substring(endIdx + pat.tagLen).trim()
+                return { cleanContent, thinkingContent }
+            }
         }
     }
 
