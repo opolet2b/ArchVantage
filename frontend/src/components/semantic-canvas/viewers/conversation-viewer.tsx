@@ -221,7 +221,12 @@ export function ConversationViewer({
                         return msg
                     })
                     setMessages(parsedMessages);
-                    setTitle(cleanTitle(data.title, "conversation"));
+                    let cleanedTitle = data.title || "";
+                    if (cleanedTitle.includes("<think>")) {
+                        cleanedTitle = cleanedTitle.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+                    }
+                    setTitle(cleanedTitle);
+                    setTimeout(scrollToBottom, 100);
                 }
             } catch (error) {
                 console.error("Failed to load conversation:", error);
@@ -255,10 +260,6 @@ export function ConversationViewer({
         }
     };
 
-    React.useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
-
     // Handle sending a message
     const handleSendMessage = async () => {
         if (!inputValue.trim() || isLoading || !conversationId) return;
@@ -270,6 +271,7 @@ export function ConversationViewer({
         // Optimistic update
         const userMessage: Message = { role: "user", content: userContent };
         setMessages((prev) => [...prev, userMessage]);
+        setTimeout(scrollToBottom, 50);
 
         try {
             const token = localStorage.getItem("token");

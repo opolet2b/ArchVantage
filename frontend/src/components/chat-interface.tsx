@@ -289,12 +289,14 @@ export function ChatInterface() {
                             return msg
                         })
                         setMessages(parsedMessages)
+                        setTimeout(scrollToBottom, 100)
                     }
                 } catch (error) {
                     console.error("Failed to load conversation", error)
                 }
             } else {
                 setMessages([{ role: "assistant", content: "Hello! How can I help you today?" }])
+                setTimeout(scrollToBottom, 100)
             }
         }
         loadConversation()
@@ -308,10 +310,6 @@ export function ChatInterface() {
             }
         }
     }
-
-    React.useEffect(() => {
-        scrollToBottom()
-    }, [messages])
 
     /**
      * Cancel the current LLM generation.
@@ -378,6 +376,7 @@ export function ChatInterface() {
             userMessage = { role: "user", content: userContent }
             setMessages((prev) => [...prev, userMessage!])
             setInput("")
+            setTimeout(scrollToBottom, 50)
         }
         setIsLoading(true)
 
