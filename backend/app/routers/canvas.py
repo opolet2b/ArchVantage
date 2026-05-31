@@ -2259,8 +2259,207 @@ async def analyze_selection(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+@router.post(
+    "/canvases/{canvas_id}/analyze/stream",
+)
+async def analyze_selection_stream(
+    canvas_id: str,
+    request: AnalyzeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(PermissionChecker("analysis:write"))
+):
+    """
+    Analyze selected content using LLM with real-time streaming to avoid timeouts.
+    Supports summarize, explain, extract_points, and ask actions.
+    """
+    # 1. Verify canvas access
+    canvas = _get_canvas_with_access(canvas_id, db, current_user, require_write=True)
+    if not canvas:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Canvas not found"
+        )
+    
+    # 2. Verify thing exists
+    thing = db.query(CanvasThing).filter(
+        CanvasThing.id == request.thing_id,
+        CanvasThing.canvas_id == canvas_id
+    ).first()
+    if not thing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Thing not found"
+        )
+    
+    # 3. Get the selected content
+    selected_content = request.fragment.content or ""
+    
+    # RAG integration (identical to sync analyze_selection)
+    if thing.type.value in ["slideshow", "document"]:
+        if thing.rag_status == RAGStatus.COMPLETED or str(thing.rag_status) == "completed":
+             print(f"[Analyze Stream] Detected {thing.type.value} with RAG. Fetching context...")
+             query_text = f"Summarize this {thing.type.value}"
+             if request.action == AnalyzeAction.ASK and request.custom_prompt:
+                 query_text = request.custom_prompt
+             
+             try:
+                 search_filters = {}
+                 asset_id = thing.content.get("asset_id")
+                 if asset_id:
+                     search_filters["asset_id"] = asset_id
+                 else:
+                     search_filters["canvas_id"] = canvas_id
+ 
+                 active_model = _resolve_active_model(db, canvas_id, request.model)
+                 
+                 use_rag = True
+                 if thing.type.value == "document" and request.action != AnalyzeAction.ASK:
+                     if selected_content and len(selected_content) < 15000:
+                         use_rag = False
+                         print("[Analyze Stream] Document is small enough, skipping RAG for full-text summary.")
+ 
+                 if use_rag:
+                     results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
+                     if results:
+                         context_texts = [r['text'] for r in results]
+                         if thing.type.value == "slideshow":
+                             system_note = (
+                                "SYSTEM NOTE: The following context describes slides with spatial coordinates (x,y,w,h normalized 0.0-1.0) "
+                                "and visual attributes (Shape Type, Colors). "
+                                "Use this to mentally reconstruct the visual layout and hierarchy. "
+                                "Coordinates: x=0 (left), y=0 (top). "
+                                "Visuals are described as [TYPE] (Layout...) (Color...) \"Text\"."
+                             )
+                             selected_content = f"{system_note}\n\nRelevant Slides/Context:\n" + "\n---\n".join(context_texts)
+                         else:
+                             selected_content = "Relevant Document Context:\n" + "\n---\n".join(context_texts)
+                             
+                         print(f"[Analyze Stream] Retrieved {len(results)} chunks from RAG for context.")
+                     else:
+                         if thing.type.value == "slideshow" or not selected_content:
+                             selected_content = "No relevant context found in RAG index for this query."
+                         else:
+                             print("[Analyze Stream] RAG returned nothing, falling back to raw text content.")
+             except Exception as e:
+                 print(f"[Analyze Stream] RAG Search failed: {e}")
+
+    if not selected_content:
+        if request.fragment.type == "region":
+            selected_content = (
+                f"[Selected Region]\n"
+                f"Coordinates: x={request.fragment.x:.2f}, y={request.fragment.y:.2f}, "
+                f"w={request.fragment.width:.2f}, h={request.fragment.height:.2f}\n"
+                "(Visual analysis unavailable due to missing image data)"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No content selected for analysis"
+            )
+    
+    content_for_prompt = selected_content
+    if "base64" in str(selected_content).lower() and len(selected_content) > 1000:
+         content_for_prompt = "[Image Content (Base64 Truncated)]"
+
+    # Build prompt based on action
+    if request.action == AnalyzeAction.SUMMARIZE:
+        system_prompt = "You are a helpful assistant. Provide concise, clear summaries."
+        user_prompt = prompt_service.get_prompt(
+            SUMMARIZE_PROMPT.key,
+            variables={"content": content_for_prompt},
+            user_id=current_user.id
+        )
+    elif request.action == AnalyzeAction.EXPLAIN:
+        system_prompt = "You are a helpful assistant. Explain concepts clearly and simply."
+        user_prompt = prompt_service.get_prompt(
+            EXPLAIN_PROMPT.key,
+            variables={"content": content_for_prompt},
+            user_id=current_user.id
+        )
+    elif request.action == AnalyzeAction.EXTRACT_POINTS:
+        system_prompt = "You are a helpful assistant. Extract key information as bullet points."
+        user_prompt = f"Please extract the key points from the following content as a bullet list:\n\n{content_for_prompt}"
+    elif request.action == AnalyzeAction.ASK:
+        if not request.custom_prompt:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Custom prompt required for 'ask' action"
+            )
+        system_prompt = "You are a helpful assistant. Answer questions based on the provided context."
+        user_prompt = f"{request.custom_prompt}\n\nContext:\n{content_for_prompt}"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown action: {request.action}"
+        )
+    
+    from app.services.llm_service import llm_service
+    from app.models.chat import Message
+    from app.services.vision_service import vision_service
+    import json
+
+    active_model = _resolve_active_model(db, canvas_id, request.model)
+    image_payload = request.image_data
+    if not image_payload and request.fragment.content:
+        content_str = str(request.fragment.content)
+        if "base64," in content_str[:100] or (len(content_str) > 5000 and not " " in content_str[:100]):
+            if not content_str.strip().startswith("{") and not content_str.strip().startswith("["):
+                image_payload = request.fragment.content
+
+    async def stream_generator():
+        try:
+            if image_payload:
+                print(f"[Analyze Stream] Processing visual analysis for {thing.id}")
+                final_system_prompt = system_prompt
+                final_user_prompt = user_prompt
+                if request.action == AnalyzeAction.EXPLAIN:
+                    final_system_prompt = "You are an expert technical analyst. Analyze structural relationships."
+                    final_user_prompt = f"Please explain the diagram structure based on this selection.\n\n{user_prompt}"
+                elif request.action == AnalyzeAction.ASK and request.custom_prompt:
+                    final_user_prompt = request.custom_prompt
+                elif request.action == AnalyzeAction.SUMMARIZE:
+                     final_user_prompt = "Summarize the visual content of this image."
+
+                response = await vision_service.analyze(
+                    image_data=image_payload,
+                    prompt=final_user_prompt,
+                    system_prompt=final_system_prompt,
+                    model_name=active_model
+                )
+                yield json.dumps({"type": "chunk", "content": response}) + "\n"
+                yield json.dumps({"type": "complete", "result": response}) + "\n"
+            else:
+                # Text LLM streaming
+                llm_obj = llm_service._get_llama_index_model(active_model)
+                safe_window = (llm_obj.metadata.context_window or 4096) - 1000
+                max_chars = safe_window * 4
+                truncated_prompt = user_prompt
+                if len(truncated_prompt) > max_chars:
+                    truncated_prompt = truncated_prompt[:max_chars] + "\n\n...[CONTENT TRUNCATED]"
+
+                full_response = ""
+                async for chunk in llm_service.astream_chat(
+                    messages=[
+                        Message(role="system", content=system_prompt),
+                        Message(role="user", content=truncated_prompt)
+                    ],
+                    model_name=active_model
+                ):
+                    full_response += chunk
+                    yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+                
+                yield json.dumps({"type": "complete", "result": full_response}) + "\n"
+        except Exception as ex:
+            print(f"[Analyze Stream] Streaming exception: {ex}")
+            yield json.dumps({"type": "error", "content": str(ex)}) + "\n"
+
+    return StreamingResponse(stream_generator(), media_type="application/x-ndjson")
+
+
 @router.post(
     "/canvases/{canvas_id}/analyze-batch",
+
     response_model=AnalyzeResponse
 )
 async def analyze_batch(

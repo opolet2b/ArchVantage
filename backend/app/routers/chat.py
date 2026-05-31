@@ -703,7 +703,169 @@ async def chat_endpoint(
         return ChatResponse(role="assistant", content=response_content, citations=[])
 
 
+
+@router.post("/chat/stream")
+async def chat_stream_endpoint(
+    request: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(PermissionChecker("chat:use"))
+):
+    """
+    Standard chat endpoint with context management and real-time streaming to prevent timeouts.
+    """
+    from app.services.rag_service import rag_service
+    from llama_index.core.schema import NodeWithScore, TextNode
+    from fastapi.responses import StreamingResponse
+    import uuid
+    import json
+    
+    final_messages = list(request.messages)
+    last_msg = ""
+    for m in reversed(request.messages):
+        if m.role == "user":
+            last_msg = m.content
+            break
+
+    active_model = request.model
+    if active_model == "default" and request.conversation_id:
+        from app.models.canvas_models import CanvasThing, Canvas
+        candidates = db.query(CanvasThing).filter(CanvasThing.type == "conversation").all()
+        convo_thing = next((t for t in candidates if str(t.content.get("conversation_id")) == request.conversation_id), None)
+        if convo_thing and convo_thing.canvas_id:
+            canvas = db.query(Canvas).filter(Canvas.id == convo_thing.canvas_id).first()
+            if canvas and canvas.owner_config and canvas.owner_config.get("selected_preset"):
+                active_model = canvas.owner_config["selected_preset"]
+
+    original_user_msg = last_msg
+
+    # KB Context Enrichment
+    from app.services.context_enrichment_service import context_enrichment_service
+    kb_context, kb_citations = await context_enrichment_service.enrich_context(last_msg, request.kb_id, db, active_model)
+    if kb_context:
+        for m in reversed(final_messages):
+            if m.role == "user":
+                m.content = f"{kb_context}\n\n=== PRIMARY SUBJECT (USER QUERY) ===\n{original_user_msg}\n======================================\n\nCRITICAL INSTRUCTION: The Knowledge Base Context above is STRICTLY for reference. Your primary task is to answer the User Query inside the PRIMARY SUBJECT block."
+                break
+
+    total_nodes = []
+    citations = []
+    
+    if kb_context:
+        citations.extend(kb_citations)
+
+    if request.conversation_id:
+        ctx_result = resolve_conversation_context(db, request.conversation_id, original_user_msg, active_model)
+        total_nodes.extend(ctx_result.get("nodes", []))
+        citations.extend(ctx_result.get("citations", []))
+        
+        if not ctx_result.get("linked_items"):
+            direct_results = rag_service.search(original_user_msg, conversation_id=request.conversation_id, k=3, model_name=active_model)
+            for res in direct_results:
+                meta = res.get('metadata', {})
+                total_nodes.append(NodeWithScore(
+                    node=TextNode(text=res['text'], metadata=meta),
+                    score=res.get('score', 1.0)
+                ))
+                asset_id = meta.get("asset_id") or meta.get("file_id") or f"rag-{uuid.uuid4().hex[:4]}"
+                title = meta.get("title") or meta.get("file_name") or meta.get("source_uri") or "Source"
+                citations.append({
+                    "id": str(asset_id),
+                    "title": title,
+                    "type": meta.get("type", "Document"),
+                    "matches": [{
+                        "text": res['text'],
+                        "score": res.get('score', 1.0),
+                        "page": meta.get("page_label") or meta.get("slide_number")
+                    }]
+                })
+    else:
+        results = rag_service.search(original_user_msg, filters={"owner_id": current_user.id, "source": "sidebar_upload"}, k=3, model_name=active_model)
+        for res in results:
+            meta = res.get('metadata', {})
+            total_nodes.append(NodeWithScore(
+                node=TextNode(text=res['text'], metadata=meta),
+                score=res.get('score', 1.0)
+            ))
+            asset_id = meta.get("asset_id") or meta.get("file_id") or f"side-{uuid.uuid4().hex[:4]}"
+            title = meta.get("title") or meta.get("file_name") or "Sidebar Upload"
+            citations.append({
+                "id": str(asset_id),
+                "title": title,
+                "type": "Document",
+                "matches": [{
+                    "text": res['text'],
+                    "score": res.get('score', 1.0),
+                    "page": meta.get("page_label") or meta.get("slide_number")
+                }]
+            })
+
+    async def chat_stream_generator():
+        try:
+            # Send citations first
+            yield json.dumps({"type": "citations", "citations": citations}) + "\n"
+
+            if total_nodes:
+                history_summary = ""
+                if len(final_messages) > 1:
+                    prev_msgs = final_messages[:-1]
+                    history_summary = "CONVERSATION HISTORY:\n" + "\n".join([f"{m.role}: {m.content[:200]}..." for m in prev_msgs[-5:]])
+                
+                manifest_text = ctx_result.get("manifest_text") if request.conversation_id else ""
+                
+                full_user_query = original_user_msg
+                if kb_context:
+                    full_user_query = f"{kb_context}\n\n=== PRIMARY SUBJECT (USER QUERY) ===\n{original_user_msg}\n======================================\n\nCRITICAL INSTRUCTION: The Knowledge Base Context above is STRICTLY for reference."
+                
+                context_str = "\n\n".join([f"Context Source: {node.node.metadata.get('title') or 'Source'}\n{node.node.get_content()}" for node in total_nodes])
+                
+                full_query = (
+                    f"{history_summary}\n\n"
+                    f"{manifest_text}\n\n"
+                    f"USER QUESTION: {full_user_query}\n\n"
+                    f"CRITICAL CONTEXT INSTRUCTION: Over the course of a conversation, items may be added or removed from the domain. "
+                    f"The 'CURRENT ACTIVITY INVENTORY' above represents the authoritative list of items currently in the conversation's scope. "
+                    f"If the user asks about 'how many' items there are, or refers to 'these items', ONLY consider those in the CURRENT ACTIVITY INVENTORY. "
+                    f"Items mentioned in the CONVERSATION HISTORY but MISSING from the CURRENT ACTIVITY INVENTORY should be treated as having been removed from the context. "
+                    f"\n\nIMPORTANT: You MUST cite the sources used in your answer. "
+                    f"Use inline citations in the format 【Source Name】 (e.g., 【Slide 7】 or 【E-Government Strategy】) as shown in the context blocks. "
+                    f"Place these markers immediately after the sentences or facts they support."
+                )
+                
+                prompt_with_context = (
+                    f"You are a helpful assistant. Answer questions based on the provided context.\n\n"
+                    f"=== CONTEXT SOURCES ===\n{context_str}\n========================\n\n"
+                    f"{full_query}"
+                )
+                
+                from app.services.llm_service import llm_service
+                from app.models.chat import Message
+                
+                async for chunk in llm_service.astream_chat(
+                    messages=[
+                        Message(role="system", content="You are a helpful assistant. Answer questions based on the provided context and citations."),
+                        Message(role="user", content=prompt_with_context)
+                    ],
+                    model_name=active_model
+                ):
+                    yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+            else:
+                from app.services.llm_service import llm_service
+                async for chunk in llm_service.astream_chat(
+                    messages=final_messages,
+                    model_name=active_model
+                ):
+                    yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+                    
+            yield json.dumps({"type": "complete"}) + "\n"
+        except Exception as ex:
+            print(f"[Chat Stream] Streaming exception: {ex}")
+            yield json.dumps({"type": "error", "content": str(ex)}) + "\n"
+
+    return StreamingResponse(chat_stream_generator(), media_type="application/x-ndjson")
+
+
 @router.post("/chat/match-agent", response_model=AgentMatchResponse)
+
 async def match_agent_endpoint(
     request: AgentMatchRequest,
     db: Session = Depends(get_db),

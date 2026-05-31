@@ -351,9 +351,9 @@ export function ChatInterface() {
                 ? [...messages, userMessage]
                 : messagesToSend
 
-            // Get AI response
+            // Get AI response (streaming)
             const token = localStorage.getItem("token")
-            const response = await fetch(`${API_URL}/chat`, {
+            const response = await fetch(`${API_URL}/chat/stream`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -372,21 +372,77 @@ export function ChatInterface() {
                 throw new Error("Failed to send message")
             }
 
-            const data = await response.json()
-            const assistantMessage: Message = {
-                role: "assistant",
-                content: data.content,
-                citations: data.citations
+            if (!response.body) {
+                throw new Error("No response body returned from server")
             }
 
-            // Save assistant message to backend
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ""
+            
+            // Create a blank assistant message in messages state so we can append to it in real-time
+            const initialAssistantMessage: Message = {
+                role: "assistant",
+                content: "",
+                citations: []
+            }
+            setMessages((prev) => [...prev, initialAssistantMessage])
+
+            let accumulatedContent = ""
+            let citationsReceived: any[] = []
+
+            while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split("\n")
+                buffer = lines.pop() || ""
+
+                for (const line of lines) {
+                    if (!line.trim()) continue
+                    try {
+                        const event = JSON.parse(line)
+                        if (event.type === "citations") {
+                            citationsReceived = event.citations || []
+                            setMessages((prev) => {
+                                const newMessages = [...prev]
+                                const lastMsg = newMessages[newMessages.length - 1]
+                                if (lastMsg && lastMsg.role === "assistant") {
+                                    lastMsg.citations = citationsReceived
+                                }
+                                return newMessages
+                            })
+                        } else if (event.type === "chunk" && event.content) {
+                            accumulatedContent += event.content
+                            setMessages((prev) => {
+                                const newMessages = [...prev]
+                                const lastMsg = newMessages[newMessages.length - 1]
+                                if (lastMsg && lastMsg.role === "assistant") {
+                                    lastMsg.content = accumulatedContent
+                                }
+                                return newMessages
+                            })
+                        } else if (event.type === "error") {
+                            throw new Error(event.content)
+                        }
+                    } catch (e) {
+                        console.error("Error parsing chat stream event:", e)
+                    }
+                }
+            }
+
+            // Save assistant message to backend now that it is fully completed
+            const assistantMessage: Message = {
+                role: "assistant",
+                content: accumulatedContent,
+                citations: citationsReceived
+            }
             await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ ...assistantMessage, model: selectedModel || "default" })
             })
-
-            setMessages((prev) => [...prev, assistantMessage])
 
             // Refresh list to update title if it changed (auto-title)
             refreshConversations()

@@ -515,4 +515,44 @@ class LLMService:
                 "paragraph": "Check your model configuration and connectivity."
             }
 
+    async def astream_chat(self, messages: List[Message], model_name: str = "gpt-3.5-turbo", **kwargs):
+        """
+        Stream the LLM chat tokens asynchronously.
+        Useful for preventing HTTP 504 gateway timeouts on slow models.
+        """
+        try:
+            llm, resolved_name = self._get_model(model_name)
+            
+            # Apply JSON mode if requested
+            if kwargs.get("response_format") == {"type": "json_object"}:
+                if hasattr(llm, "bind"):
+                    if isinstance(llm, ChatOpenAI):
+                        llm = llm.bind(response_format={"type": "json_object"})
+                    elif isinstance(llm, ChatOllama):
+                        llm = llm.bind(format="json")
+            
+            # Ollama temperature binding
+            if isinstance(llm, ChatOllama) and "temperature" in kwargs:
+                temp = kwargs.pop("temperature")
+                llm = llm.bind(temperature=temp)
+
+            # Cleanup kwargs
+            kwargs.pop("response_format", None)
+            langchain_messages = self._convert_messages(messages)
+            
+            invoke_kwargs = {k: v for k, v in kwargs.items() if k != "callbacks"}
+            
+            print(f"[LLMService] Streaming chat for model '{resolved_name}'...")
+            
+            # Stream chunk content
+            async for chunk in llm.astream(langchain_messages, **invoke_kwargs):
+                if hasattr(chunk, "content"):
+                    yield chunk.content
+                else:
+                    yield str(chunk)
+        except Exception as e:
+            print(f"[LLMService] Error in astream_chat: {e}")
+            raise e
+
 llm_service = LLMService()
+

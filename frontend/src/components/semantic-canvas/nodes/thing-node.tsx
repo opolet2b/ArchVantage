@@ -1356,6 +1356,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 cId // CRITICAL FIX: Pass cId explicitly to addLink
             );
         }
+        return newThing;
     }, [thing, addThing, addLink, canvasId]);
 
     // Helper to fetch image as base64
@@ -1456,7 +1457,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             }
 
             // If it's a region fragment (from ImageViewer), use vision model
-            // If it's a region fragment (from ImageViewer), use vision model
             if (fragment.type === "region") {
                 modelToUse = visionModel || selectedModel;
                 const regionFrag = fragment as RegionFragment;
@@ -1515,20 +1515,29 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 }
             }
 
-            const result = await analyze({
-                canvasId,
-                thingId: thing.id,
-                fragment: finalFragment,
-                action,
-                model: modelToUse || undefined,
-            });
+            // 1. Create a placeholder node and link it immediately
+            const placeholderText = "Thinking...";
+            const newThing = await createNodeAndLink(placeholderText, fragment, canvasId);
 
-            if (result && result.result) {
-                // Pass captured canvasId to ensure creation happens on the source canvas
-                await createNodeAndLink(result.result, fragment, canvasId);
+            if (newThing) {
+                // 2. Stream tokens directly into the placeholder node
+                let accumulatedText = "";
+                await analyze({
+                    canvasId,
+                    thingId: thing.id,
+                    fragment: finalFragment,
+                    action,
+                    model: modelToUse || undefined,
+                    onChunk: (chunk) => {
+                        accumulatedText += chunk;
+                        updateThing(newThing.id, {
+                            content: { text: accumulatedText }
+                        });
+                    }
+                });
             }
         },
-        [canvasId, thing, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64]
+        [canvasId, thing, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64, updateThing]
     );
 
     // Handle ask with custom prompt
@@ -1536,8 +1545,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         if (e) e.preventDefault();
 
         if (!canvasId || !customPrompt.trim()) return;
-
-        // Note: Dialog stays OPEN with loading state now
 
         try {
             let finalFragment = fullThingFragment;
@@ -1556,27 +1563,39 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 }
             }
 
-            const result = await analyze({
-                canvasId,
-                thingId: thing.id,
-                fragment: finalFragment,
-                action: "ask",
-                customPrompt: customPrompt.trim(),
-                model: modelToUse || undefined,
-            });
-            if (result && result.result) {
-                // Pass captured canvasId
-                await createNodeAndLink(result.result, fullThingFragment, canvasId);
-            }
+            // 1. Create a placeholder node and link it immediately
+            const placeholderText = "Thinking...";
+            const newThing = await createNodeAndLink(placeholderText, fullThingFragment, canvasId);
 
-            // Only close and clear on success/completion
-            setAskDialogOpen(false);
-            setCustomPrompt("");
+            if (newThing) {
+                // 2. Stream tokens directly into the placeholder node
+                let accumulatedText = "";
+                const result = await analyze({
+                    canvasId,
+                    thingId: thing.id,
+                    fragment: finalFragment,
+                    action: "ask",
+                    customPrompt: customPrompt.trim(),
+                    model: modelToUse || undefined,
+                    onChunk: (chunk) => {
+                        accumulatedText += chunk;
+                        updateThing(newThing.id, {
+                            content: { text: accumulatedText }
+                        });
+                    }
+                });
+                
+                if (result && result.result) {
+                    // Only close and clear on success/completion
+                    setAskDialogOpen(false);
+                    setCustomPrompt("");
+                }
+            }
         } catch (err) {
             console.error("[ThingNode] Ask failed:", err);
             setAskDialogOpen(false);
         }
-    }, [canvasId, thing, fullThingFragment, customPrompt, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64]);
+    }, [canvasId, thing, fullThingFragment, customPrompt, analyze, createNodeAndLink, selectedModel, visionModel, fetchImageAsBase64, updateThing]);
 
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {

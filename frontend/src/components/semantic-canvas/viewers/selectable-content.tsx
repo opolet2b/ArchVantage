@@ -53,6 +53,7 @@ export function SelectableContent({
     const canvasId = useCanvasStore((state) => state.canvasId);
     const addThing = useCanvasStore((state) => state.addThing);
     const addLink = useCanvasStore((state) => state.addLink);
+    const updateThing = useCanvasStore((state) => state.updateThing);
     const selectedModel = useCanvasStore((state) => state.selectedModel);
     const visionModel = useCanvasStore((state) => state.visionModel);
     // Remove direct subscription to prevent infinite render loops
@@ -270,6 +271,7 @@ export function SelectableContent({
                 undefined
             );
         }
+        return newThing;
     }, [thingId, addThing, addLink]);
 
     // Handle LLM action
@@ -290,21 +292,31 @@ export function SelectableContent({
             const isRegion = fragmentToAnalyze.type === "region";
             const modelToUse = isRegion ? (visionModel || selectedModel) : selectedModel;
 
-            const result = await analyze({
-                canvasId,
-                thingId,
-                fragment: fragmentToAnalyze,
-                action,
-                model: modelToUse || undefined,
-            });
+            // 1. Create a placeholder node and link it immediately
+            const placeholderText = "Thinking...";
+            const newThing = await createNodeAndLink(placeholderText, fragmentToAnalyze);
 
-            if (result && result.result) {
-                await createNodeAndLink(result.result, fragmentToAnalyze);
+            if (newThing) {
+                // 2. Stream tokens directly into the placeholder node
+                let accumulatedText = "";
+                await analyze({
+                    canvasId,
+                    thingId,
+                    fragment: fragmentToAnalyze,
+                    action,
+                    model: modelToUse || undefined,
+                    onChunk: (chunk) => {
+                        accumulatedText += chunk;
+                        updateThing(newThing.id, {
+                            content: { text: accumulatedText }
+                        });
+                    }
+                });
             }
 
             clearSelection();
         },
-        [canvasId, thingId, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis]
+        [canvasId, thingId, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis, updateThing]
     );
 
     // Handle ask with custom prompt
@@ -327,33 +339,48 @@ export function SelectableContent({
             const fragmentToAnalyze = await prepareFragmentForAnalysis(effectiveFragment);
             // Ensure we keep it saved
             if (!analysisSourceFragment) setAnalysisSourceFragment(effectiveFragment);
-            const result = await analyze({
-                canvasId,
-                thingId,
-                fragment: fragmentToAnalyze,
-                action: "ask",
-                customPrompt: customPrompt.trim(),
-                model: (fragmentToAnalyze.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
-            });
-            if (result && result.result) {
-                await createNodeAndLink(result.result, effectiveFragment);
-                // Only close on success
-                setAskDialogOpen(false);
-                setCustomPrompt("");
-                setAnalysisSourceFragment(null);
 
-                // Clearing selection only on success to effectively close the flow
-                clearSelection();
-            } else {
-                console.warn("[SelectableContent] Analysis failed or returned empty result");
-                // Do NOT close dialog, user can retry
+            // Create placeholder node first
+            const placeholderText = "Thinking...";
+            const newThing = await createNodeAndLink(placeholderText, fragmentToAnalyze);
+
+            if (newThing) {
+                let accumulatedText = "";
+                const result = await analyze({
+                    canvasId,
+                    thingId,
+                    fragment: fragmentToAnalyze,
+                    action: "ask",
+                    customPrompt: customPrompt.trim(),
+                    model: (fragmentToAnalyze.type === "region" ? (visionModel || selectedModel) : selectedModel) || undefined,
+                    onChunk: (chunk) => {
+                        accumulatedText += chunk;
+                        updateThing(newThing.id, {
+                            content: { text: accumulatedText }
+                        });
+                    }
+                });
+
+                if (result && result.result) {
+                    // Only close on success
+                    setAskDialogOpen(false);
+                    setCustomPrompt("");
+                    setAnalysisSourceFragment(null);
+
+                    // Clearing selection only on success to effectively close the flow
+                    clearSelection();
+                } else {
+                    console.warn("[SelectableContent] Analysis failed or returned empty result");
+                    // Do NOT close dialog, user can retry
+                }
             }
 
         } catch (err) {
             console.error("[SelectableContent] Ask failed:", err);
             // Do NOT clear selection here, let user see error in dialog
         }
-    }, [canvasId, thingId, selection, analysisSourceFragment, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis]);
+    }, [canvasId, thingId, selection, analysisSourceFragment, customPrompt, analyze, clearSelection, createNodeAndLink, visionModel, selectedModel, prepareFragmentForAnalysis, updateThing]);
+
 
     // Handle link action - open target selection dialog
     const handleLink = React.useCallback((fragment: Fragment) => {
