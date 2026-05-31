@@ -304,10 +304,59 @@ class LLMService:
             
             import re
             response = await llm.ainvoke([HumanMessage(content=prompt)])
-            title = response.content.strip().replace('"', '')
-            # Strip thinking tags if present
-            title = re.sub(r'<think>[\s\S]*?</think>', '', title).strip()
-            return title
+            raw_title = response.content.strip()
+            
+            # Sanitization helper function
+            def clean_title(title_str: str, node_type: str) -> str:
+                if not title_str:
+                    return "New " + node_type.capitalize()
+                
+                # 1. Strip <think> tags
+                title_str = re.sub(r'<think>[\s\S]*?</think>', '', title_str).strip()
+                
+                # 2. Check for "Thinking Process" or extremely long title (reasoning output)
+                if "thinking process" in title_str.lower() or len(title_str) > 60:
+                    lines = [line.strip() for line in title_str.split('\n') if line.strip()]
+                    found_short_title = False
+                    if lines:
+                        # Scan the last 3 lines for a short, non-bullet line representing the actual title
+                        for line in reversed(lines[-3:]):
+                            clean_line = re.sub(r'\*\*|__', '', line).strip()
+                            clean_line = re.sub(r'^\d+\.\s*', '', clean_line)
+                            clean_line = re.sub(r'^[-*+]\s*', '', clean_line)
+                            clean_line = clean_line.replace('"', '').replace("'", "").strip()
+                            
+                            words = clean_line.split()
+                            if 2 <= len(words) <= 6 and len(clean_line) < 40 and "thinking" not in clean_line.lower():
+                                title_str = clean_line
+                                found_short_title = True
+                                break
+                    
+                    if not found_short_title:
+                        if lines:
+                            fallback = lines[-1]
+                            fallback = re.sub(r'^\d+\.\s*', '', fallback)
+                            fallback = re.sub(r'^[-*+]\s*', '', fallback)
+                            fallback = re.sub(r'\*\*|__', '', fallback)
+                            fallback = fallback.replace('"', '').replace("'", "").strip()
+                            if len(fallback) > 40 or "thinking" in fallback.lower():
+                                title_str = "Document Overview" if node_type == "canvas" else "Conversation"
+                            else:
+                                title_str = fallback
+                        else:
+                            title_str = "Document Overview" if node_type == "canvas" else "Conversation"
+                            
+                # 3. Final cleanups
+                title_str = re.sub(r'\*\*|__', '', title_str)
+                title_str = title_str.replace('"', '').replace("'", "").strip()
+                
+                # 4. Truncation safety limit
+                if len(title_str) > 40:
+                    title_str = title_str[:37] + "..."
+                    
+                return title_str
+                
+            return clean_title(raw_title, type)
         except Exception as e:
             print(f"Error generating title: {e}")
             return "New " + type.capitalize()

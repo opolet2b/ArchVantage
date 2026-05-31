@@ -330,6 +330,61 @@ export interface Scenario {
  */
 export type ZoomLevel = "domain" | "label" | "summary" | "preview" | "paragraph" | "full";
 
+function cleanTitle(title: string | null | undefined, type: string = "conversation"): string | null {
+    if (title === null || title === undefined) return null;
+    if (!title) return type === "canvas" ? "Document Overview" : "Conversation";
+    
+    // Strip <think> tags
+    let cleaned = title.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    
+    // Check if title is corrupted by thinking process or extremely long
+    if (cleaned.toLowerCase().includes("thinking process") || cleaned.length > 60) {
+        const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+        let foundShort = false;
+        
+        if (lines.length > 0) {
+            const searchLines = lines.slice(-3);
+            for (let i = searchLines.length - 1; i >= 0; i--) {
+                let line = searchLines[i];
+                line = line.replace(/\*\*|__/g, "").trim();
+                line = line.replace(/^\d+\.\s*/, "");
+                line = line.replace(/^[-*+]\s*/, "");
+                line = line.replace(/['"]/g, "").trim();
+                
+                const words = line.split(/\s+/);
+                if (words.length >= 2 && words.length <= 6 && line.length < 40 && !line.toLowerCase().includes("thinking")) {
+                    cleaned = line;
+                    foundShort = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!foundShort) {
+            if (lines.length > 0) {
+                let fallback = lines[lines.length - 1];
+                fallback = fallback.replace(/\*\*|__/g, "").trim();
+                fallback = fallback.replace(/^\d+\.\s*/, "");
+                fallback = fallback.replace(/^[-*+]\s*/, "");
+                fallback = fallback.replace(/['"]/g, "").trim();
+                if (fallback.length > 40 || fallback.toLowerCase().includes("thinking")) {
+                    cleaned = type === "canvas" ? "Document Overview" : "Conversation";
+                } else {
+                    cleaned = fallback;
+                }
+            } else {
+                cleaned = type === "canvas" ? "Document Overview" : "Conversation";
+            }
+        }
+    }
+    
+    cleaned = cleaned.replace(/\*\*|__/g, "").replace(/['"]/g, "").trim();
+    if (cleaned.length > 40) {
+        cleaned = cleaned.substring(0, 37) + "...";
+    }
+    return cleaned;
+}
+
 /**
  * Determine zoom level category from zoom value.
  */
@@ -946,7 +1001,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             const sanitizedThings = (canvas.things || []).map(t => ({
                 ...t,
-                title: t.title ? t.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : t.title
+                title: cleanTitle(t.title, t.type)
             }));
 
             set({
@@ -1005,7 +1060,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 const config = canvas.owner_config || {};
                 const sanitizedThings = (canvas.things || []).map(t => ({
                     ...t,
-                    title: t.title ? t.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : t.title
+                    title: cleanTitle(t.title, t.type)
                 }));
                 // Update all canvas data silently
                 set({
@@ -1303,7 +1358,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     return {
                         ...t,
                         ...serverUpdated,
-                        title: serverUpdated.title ? serverUpdated.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : serverUpdated.title
+                        title: cleanTitle(serverUpdated.title, serverUpdated.type)
                     };
                 }
                 return t;
@@ -1351,7 +1406,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 t.id === thingId ? {
                     ...t,
                     ...serverThing,
-                    title: serverThing.title ? serverThing.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : (serverThing.title === undefined ? t.title : serverThing.title)
+                    title: serverThing.title !== undefined ? cleanTitle(serverThing.title, t.type) : t.title
                 } : t
             ),
         });
@@ -1365,7 +1420,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         set({
             things: [...get().things, {
                 ...thing,
-                title: thing.title ? thing.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : thing.title
+                title: cleanTitle(thing.title, thing.type)
             }]
         });
     },

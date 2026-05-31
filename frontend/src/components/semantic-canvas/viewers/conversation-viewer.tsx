@@ -63,6 +63,60 @@ interface ConversationViewerProps {
 // Conversation Viewer Component
 // =============================================================================
 
+function cleanTitle(title: string | null | undefined, type: string = "conversation"): string {
+    if (!title) return type === "canvas" ? "Document Overview" : "Conversation";
+    
+    // Strip <think> tags
+    let cleaned = title.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    
+    // Check if title is corrupted by thinking process or extremely long
+    if (cleaned.toLowerCase().includes("thinking process") || cleaned.length > 60) {
+        const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+        let foundShort = false;
+        
+        if (lines.length > 0) {
+            const searchLines = lines.slice(-3);
+            for (let i = searchLines.length - 1; i >= 0; i--) {
+                let line = searchLines[i];
+                line = line.replace(/\*\*|__/g, "").trim();
+                line = line.replace(/^\d+\.\s*/, "");
+                line = line.replace(/^[-*+]\s*/, "");
+                line = line.replace(/['"]/g, "").trim();
+                
+                const words = line.split(/\s+/);
+                if (words.length >= 2 && words.length <= 6 && line.length < 40 && !line.toLowerCase().includes("thinking")) {
+                    cleaned = line;
+                    foundShort = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!foundShort) {
+            if (lines.length > 0) {
+                let fallback = lines[lines.length - 1];
+                fallback = fallback.replace(/\*\*|__/g, "").trim();
+                fallback = fallback.replace(/^\d+\.\s*/, "");
+                fallback = fallback.replace(/^[-*+]\s*/, "");
+                fallback = fallback.replace(/['"]/g, "").trim();
+                if (fallback.length > 40 || fallback.toLowerCase().includes("thinking")) {
+                    cleaned = type === "canvas" ? "Document Overview" : "Conversation";
+                } else {
+                    cleaned = fallback;
+                }
+            } else {
+                cleaned = type === "canvas" ? "Document Overview" : "Conversation";
+            }
+        }
+    }
+    
+    cleaned = cleaned.replace(/\*\*|__/g, "").replace(/['"]/g, "").trim();
+    if (cleaned.length > 40) {
+        cleaned = cleaned.substring(0, 37) + "...";
+    }
+    return cleaned;
+}
+
 /**
  * Utility function to extract thinking process and clean content from raw LLM output.
  * Handles both complete and incomplete <think> blocks gracefully.
@@ -167,11 +221,7 @@ export function ConversationViewer({
                         return msg
                     })
                     setMessages(parsedMessages);
-                    let cleanedTitle = data.title || "";
-                    if (cleanedTitle.includes("<think>")) {
-                        cleanedTitle = cleanedTitle.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-                    }
-                    setTitle(cleanedTitle);
+                    setTitle(cleanTitle(data.title, "conversation"));
                 }
             } catch (error) {
                 console.error("Failed to load conversation:", error);
