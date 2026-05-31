@@ -103,6 +103,17 @@ export function ConversationViewer({
     const [isLoading, setIsLoading] = React.useState(false);
     const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
     const scrollAreaRef = React.useRef<HTMLDivElement>(null);
+    const dialogScrollRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        if (activeThinkingMessage && activeThinkingMessage.thinking && dialogScrollRef.current) {
+            const scrollContainer = dialogScrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+            if (scrollContainer) {
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
+            }
+        }
+    }, [activeThinkingMessage?.thinking])
+
     const [isFetchingInfo, setIsFetchingInfo] = React.useState(false);
     const [title, setTitle] = React.useState<string>("");
 
@@ -608,7 +619,7 @@ export function ConversationViewer({
                     </div>
                 </DialogHeader>
 
-                <ScrollArea className="flex-1 max-h-[55vh] pr-2">
+                <ScrollArea ref={dialogScrollRef} className="flex-1 max-h-[55vh] pr-2">
                     <div className="prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300 font-mono text-xs whitespace-pre-wrap bg-slate-50 dark:bg-slate-950/50 p-4 rounded-lg border dark:border-slate-800 leading-relaxed max-h-[50vh] overflow-y-auto">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                             {activeThinkingMessage?.thinking || ""}

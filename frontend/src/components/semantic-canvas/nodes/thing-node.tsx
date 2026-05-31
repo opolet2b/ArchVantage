@@ -801,6 +801,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     // Thinking Visibility State
     const [isThinkingVisible, setIsThinkingVisible] = React.useState(false);
+    const thinkingScrollRef = React.useRef<HTMLDivElement>(null);
 
     // Parse content for <think> tags (Memoized)
     const { thinkingContent, cleanContent, hasThinking } = React.useMemo(() => {
@@ -822,6 +823,12 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         }
         return { thinkingContent: null, cleanContent: rawText, hasThinking: false };
     }, [thing.content]);
+
+    React.useEffect(() => {
+        if (thinkingScrollRef.current) {
+            thinkingScrollRef.current.scrollTop = thinkingScrollRef.current.scrollHeight;
+        }
+    }, [thinkingContent]);
 
     // Canvas store helpers
     const addThing = useCanvasStore((state) => state.addThing);
@@ -1912,7 +1919,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     <div className={cn("flex flex-col overflow-hidden", thing.height ? "h-full" : "max-h-[600px]")}>
                         {/* Thinking Block */}
                         {hasThinking && isThinkingVisible && (
-                            <div className="flex-none mb-3 p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-md border border-amber-100 dark:border-amber-900/30 text-sm text-slate-600 dark:text-slate-400 italic overflow-y-auto max-h-[150px]">
+                            <div ref={thinkingScrollRef} className="flex-none mb-3 p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-md border border-amber-100 dark:border-amber-900/30 text-sm text-slate-600 dark:text-slate-400 italic overflow-y-auto max-h-[150px]">
                                 <div className="flex items-center gap-2 font-semibold text-xs mb-1 not-italic text-amber-600 dark:text-amber-500 opacity-80">
                                     <BrainCircuit className="w-3 h-3" />
                                     Thinking Process
