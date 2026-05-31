@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink, Volume2, Download } from "lucide-react"
+import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink, Volume2, Download, BrainCircuit } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -32,6 +32,7 @@ import { speechService } from "@/lib/speech-service"
 interface Message {
     role: "user" | "assistant" | "agent"
     content: string
+    thinking?: string
     agentName?: string
     agentId?: string
     citations?: {
@@ -66,10 +67,37 @@ interface BlueprintListItem {
     inputs_schema: Record<string, unknown>
 }
 
+/**
+ * Utility function to extract thinking process and clean content from raw LLM output.
+ * Handles both complete and incomplete <think> blocks gracefully for real-time streaming.
+ */
+function parseMessageThinking(rawText: string): { cleanContent: string; thinkingContent?: string } {
+    if (!rawText) return { cleanContent: "" }
+
+    const thinkStartIdx = rawText.indexOf("<think>")
+    if (thinkStartIdx !== -1) {
+        const thinkEndIdx = rawText.indexOf("</think>", thinkStartIdx)
+        if (thinkEndIdx !== -1) {
+            // Complete thinking block found
+            const thinkingContent = rawText.substring(thinkStartIdx + 7, thinkEndIdx).trim()
+            const cleanContent = (rawText.substring(0, thinkStartIdx) + rawText.substring(thinkEndIdx + 8)).trim()
+            return { cleanContent, thinkingContent }
+        } else {
+            // Incomplete/streaming thinking block
+            const thinkingContent = rawText.substring(thinkStartIdx + 7).trim()
+            const cleanContent = rawText.substring(0, thinkStartIdx).trim()
+            return { cleanContent, thinkingContent }
+        }
+    }
+
+    return { cleanContent: rawText }
+}
+
 export function ChatInterface() {
     const { activeConversationId, createNewConversation, refreshConversations } = useConversation()
     const { setViewMode } = useViewMode()
     const [messages, setMessages] = React.useState<Message[]>([])
+    const [activeThinkingMessage, setActiveThinkingMessage] = React.useState<Message | null>(null)
     const [input, setInput] = React.useState("")
     const [isLoading, setIsLoading] = React.useState(false)
     const scrollAreaRef = React.useRef<HTMLDivElement>(null)
@@ -234,7 +262,19 @@ export function ChatInterface() {
                     const res = await fetch(`${API_URL}/conversations/${activeConversationId}`)
                     if (res.ok) {
                         const data = await res.json()
-                        setMessages(data.messages || [])
+                        // Parse thinking tags from loaded messages if present in content
+                        const parsedMessages = (data.messages || []).map((msg: Message) => {
+                            if (msg.role === "assistant" && msg.content && msg.content.includes("<think>")) {
+                                const { cleanContent, thinkingContent } = parseMessageThinking(msg.content)
+                                return {
+                                    ...msg,
+                                    content: cleanContent,
+                                    thinking: msg.thinking || thinkingContent
+                                }
+                            }
+                            return msg
+                        })
+                        setMessages(parsedMessages)
                     }
                 } catch (error) {
                     console.error("Failed to load conversation", error)
@@ -415,11 +455,13 @@ export function ChatInterface() {
                             })
                         } else if (event.type === "chunk" && event.content) {
                             accumulatedContent += event.content
+                            const { cleanContent, thinkingContent } = parseMessageThinking(accumulatedContent)
                             setMessages((prev) => {
                                 const newMessages = [...prev]
                                 const lastMsg = newMessages[newMessages.length - 1]
                                 if (lastMsg && lastMsg.role === "assistant") {
-                                    lastMsg.content = accumulatedContent
+                                    lastMsg.content = cleanContent
+                                    lastMsg.thinking = thinkingContent
                                 }
                                 return newMessages
                             })
@@ -433,9 +475,11 @@ export function ChatInterface() {
             }
 
             // Save assistant message to backend now that it is fully completed
+            const { cleanContent, thinkingContent } = parseMessageThinking(accumulatedContent)
             const assistantMessage: Message = {
                 role: "assistant",
-                content: accumulatedContent,
+                content: cleanContent,
+                thinking: thinkingContent,
                 citations: citationsReceived
             }
             await fetch(`${API_URL}/conversations/${currentConversationId}/messages`, {
@@ -781,19 +825,38 @@ export function ChatInterface() {
                                                 message.role === "user" ? "flex-row-reverse" : ""
                                             )}
                                         >
-                                            <Avatar className={cn("h-8 w-8 mt-1 border shadow-sm",
-                                                message.role === "user" ? "border-blue-700" :
-                                                    message.role === "agent" ? "border-purple-700" : "border-slate-950 dark:border-slate-200"
-                                            )}>
-                                                <AvatarFallback className={cn(
-                                                    "text-white",
-                                                    message.role === "user" ? "bg-blue-600" :
-                                                        message.role === "agent" ? "bg-purple-600" : "bg-slate-900 dark:bg-white dark:text-slate-900"
+                                            <div className="flex flex-col items-center gap-1.5 shrink-0">
+                                                <Avatar className={cn("h-8 w-8 mt-1 border shadow-sm",
+                                                    message.role === "user" ? "border-blue-700" :
+                                                        message.role === "agent" ? "border-purple-700" : "border-slate-950 dark:border-slate-200"
                                                 )}>
-                                                    {message.role === "user" ? <User className="h-4 w-4" /> :
-                                                        message.role === "agent" ? <Sparkles className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
-                                                </AvatarFallback>
-                                            </Avatar>
+                                                    <AvatarFallback className={cn(
+                                                        "text-white",
+                                                        message.role === "user" ? "bg-blue-600" :
+                                                            message.role === "agent" ? "bg-purple-600" : "bg-slate-900 dark:bg-white dark:text-slate-900"
+                                                    )}>
+                                                        {message.role === "user" ? <User className="h-4 w-4" /> :
+                                                            message.role === "agent" ? <Sparkles className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                                                    </AvatarFallback>
+                                                </Avatar>
+                                                
+                                                {message.role === "assistant" && message.thinking && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => setActiveThinkingMessage(message)}
+                                                        className={cn(
+                                                            "h-6 w-6 rounded-full transition-all duration-200 text-green-500 hover:text-green-600",
+                                                            isLoading && index === messages.length - 1
+                                                                ? "bg-green-50 dark:bg-green-950/20 animate-pulse border border-green-200 dark:border-green-800"
+                                                                : "hover:bg-green-100 dark:hover:bg-green-950/30"
+                                                        )}
+                                                        title="View AI reasoning/thinking"
+                                                    >
+                                                        <BrainCircuit className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                            </div>
 
                                             {/* Show edit input if editing this message */}
                                             {editingMessageIndex === index ? (
@@ -826,46 +889,53 @@ export function ChatInterface() {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <div
-                                                    className={cn(
-                                                        "rounded-2xl px-4 py-3 text-sm shadow-sm",
-                                                        message.role === "user"
-                                                            ? "bg-blue-600 text-white rounded-tr-none"
-                                                            : "bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none text-foreground"
-                                                    )}
-                                                >
-                                                    <div className="prose-sm dark:prose-invert break-words">
-                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                            {message.content}
-                                                        </ReactMarkdown>
-                                                    </div>
-
-                                                    {message.citations && message.citations.length > 0 && (
-                                                        <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700 text-foreground">
-                                                            <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Sources</p>
-                                                            <div className="flex flex-wrap gap-2">
-                                                                {message.citations.map((citation) => (
-                                                                    <button
-                                                                        key={citation.id}
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setHighlightTarget(citation.matches || null);
-
-                                                                            // Update URL and switch view
-                                                                            const newUrl = window.location.pathname + `?node=${citation.id}`;
-                                                                            window.history.replaceState({}, '', newUrl);
-                                                                            setViewMode("canvas");
-                                                                        }}
-                                                                        className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-                                                                    >
-                                                                        <ExternalLink className="h-3 w-3 text-blue-500" />
-                                                                        <span className="truncate max-w-[150px]">{citation.title}</span>
-                                                                    </button>
-                                                                ))}
-                                                            </div>
+                                                (message.content || !message.thinking) ? (
+                                                    <div
+                                                        className={cn(
+                                                            "rounded-2xl px-4 py-3 text-sm shadow-sm",
+                                                            message.role === "user"
+                                                                ? "bg-blue-600 text-white rounded-tr-none"
+                                                                : "bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-tl-none text-foreground"
+                                                        )}
+                                                    >
+                                                        <div className="prose-sm dark:prose-invert break-words">
+                                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                                {message.content}
+                                                            </ReactMarkdown>
                                                         </div>
-                                                    )}
-                                                </div>
+
+                                                        {message.citations && message.citations.length > 0 && (
+                                                            <div className="mt-3 pt-2 border-t border-slate-200 dark:border-slate-700 text-foreground">
+                                                                <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Sources</p>
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {message.citations.map((citation) => (
+                                                                        <button
+                                                                            key={citation.id}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setHighlightTarget(citation.matches || null);
+
+                                                                                // Update URL and switch view
+                                                                                const newUrl = window.location.pathname + `?node=${citation.id}`;
+                                                                                window.history.replaceState({}, '', newUrl);
+                                                                                setViewMode("canvas");
+                                                                            }}
+                                                                            className="flex items-center gap-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                                                        >
+                                                                            <ExternalLink className="h-3 w-3 text-blue-500" />
+                                                                            <span className="truncate max-w-[150px]">{citation.title}</span>
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2 text-xs text-muted-foreground italic px-4 py-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700/60 shadow-sm">
+                                                        <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                                                        Thinking... Click the green brain icon to view thoughts.
+                                                    </div>
+                                                )
                                             )}
                                         </div>
 
@@ -1186,6 +1256,50 @@ export function ChatInterface() {
                             disabled={execution.isLoading}
                         >
                             {execution.isLoading ? "Submitting..." : "Submit"}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* AI Thinking/Reasoning Dialog */}
+            <Dialog
+                open={!!activeThinkingMessage}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setActiveThinkingMessage(null)
+                    }
+                }}
+            >
+                <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col p-6 gap-4 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl shadow-2xl">
+                    <DialogHeader className="border-b pb-3 flex flex-row items-center gap-3">
+                        <div className="bg-green-100 dark:bg-green-950/30 p-2 rounded-full text-green-500">
+                            <BrainCircuit className="h-5 w-5 animate-pulse" />
+                        </div>
+                        <div>
+                            <DialogTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                                AI Reasoning & Thinking Process
+                            </DialogTitle>
+                            <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                                Real-time cognitive steps taken by the assistant to formulate the response
+                            </DialogDescription>
+                        </div>
+                    </DialogHeader>
+
+                    <ScrollArea className="flex-1 max-h-[55vh] pr-2">
+                        <div className="prose prose-sm dark:prose-invert max-w-none text-slate-700 dark:text-slate-300 font-mono text-xs whitespace-pre-wrap bg-slate-50 dark:bg-slate-950/50 p-4 rounded-lg border dark:border-slate-800 leading-relaxed max-h-[50vh] overflow-y-auto">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {activeThinkingMessage?.thinking || ""}
+                            </ReactMarkdown>
+                        </div>
+                    </ScrollArea>
+
+                    <div className="flex justify-end pt-2 border-t">
+                        <Button
+                            variant="outline"
+                            onClick={() => setActiveThinkingMessage(null)}
+                            className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-800"
+                        >
+                            Close
                         </Button>
                     </div>
                 </DialogContent>
