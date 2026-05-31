@@ -124,18 +124,42 @@ function cleanTitle(title: string | null | undefined, type: string = "conversati
 function parseMessageThinking(rawText: string): { cleanContent: string; thinkingContent?: string } {
     if (!rawText) return { cleanContent: "" }
 
-    const thinkStartIdx = rawText.indexOf("<think>")
-    if (thinkStartIdx !== -1) {
-        const thinkEndIdx = rawText.indexOf("</think>", thinkStartIdx)
-        if (thinkEndIdx !== -1) {
-            // Complete thinking block found
-            const thinkingContent = rawText.substring(thinkStartIdx + 7, thinkEndIdx).trim()
-            const cleanContent = (rawText.substring(0, thinkStartIdx) + rawText.substring(thinkEndIdx + 8)).trim()
-            return { cleanContent, thinkingContent }
-        } else {
-            // Incomplete/streaming thinking block
-            const thinkingContent = rawText.substring(thinkStartIdx + 7).trim()
-            const cleanContent = rawText.substring(0, thinkStartIdx).trim()
+    // Check for standard thinking tags (case-insensitive)
+    const patterns = [
+        { start: /<think\b[^>]*>/i, end: /<\/think>/i },
+        { start: /<thinking\b[^>]*>/i, end: /<\/thinking>/i },
+        { start: /<thought\b[^>]*>/i, end: /<\/thought>/i }
+    ]
+
+    for (const pat of patterns) {
+        const startMatch = rawText.match(pat.start)
+        if (startMatch && startMatch.index !== undefined) {
+            const startIdx = startMatch.index
+            const startTagLen = startMatch[0].length
+            const endMatch = rawText.match(pat.end)
+            
+            if (endMatch && endMatch.index !== undefined && endMatch.index > startIdx) {
+                // Complete thinking block found
+                const thinkingContent = rawText.substring(startIdx + startTagLen, endMatch.index).trim()
+                const cleanContent = (rawText.substring(0, startIdx) + rawText.substring(endMatch.index + endMatch[0].length)).trim()
+                return { cleanContent, thinkingContent }
+            } else {
+                // Incomplete/streaming thinking block
+                const thinkingContent = rawText.substring(startIdx + startTagLen).trim()
+                const cleanContent = rawText.substring(0, startIdx).trim()
+                return { cleanContent, thinkingContent }
+            }
+        }
+    }
+
+    // Check for "Thinking Process:" or "Thought Process:" or "Reasoning Process:" prefix
+    const prefixMatch = rawText.match(/^(Thinking Process|Thought Process|Reasoning Process):\s*\n?/i)
+    if (prefixMatch) {
+        const prefixLen = prefixMatch[0].length
+        const splitIdx = rawText.indexOf("\n\n", prefixLen)
+        if (splitIdx !== -1) {
+            const thinkingContent = rawText.substring(prefixLen, splitIdx).trim()
+            const cleanContent = rawText.substring(splitIdx + 2).trim()
             return { cleanContent, thinkingContent }
         }
     }
@@ -159,18 +183,7 @@ export function ConversationViewer({
     const scrollAreaRef = React.useRef<HTMLDivElement>(null);
     const dialogScrollRef = React.useRef<HTMLDivElement>(null);
 
-    React.useEffect(() => {
-        if (activeThinkingMessage && activeThinkingMessage.thinking && dialogScrollRef.current) {
-            const scrollContainer = dialogScrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
-            if (scrollContainer) {
-                scrollContainer.scrollTop = scrollContainer.scrollHeight;
-            }
-            const innerScroll = dialogScrollRef.current.querySelector('.overflow-y-auto');
-            if (innerScroll) {
-                innerScroll.scrollTop = innerScroll.scrollHeight;
-            }
-        }
-    }, [activeThinkingMessage?.thinking])
+
 
     const [isFetchingInfo, setIsFetchingInfo] = React.useState(false);
     const [title, setTitle] = React.useState<string>("");
@@ -210,21 +223,23 @@ export function ConversationViewer({
                     const data = await res.json();
                     // Parse thinking tags from loaded messages if present in content
                     const parsedMessages = (data.messages || []).map((msg: Message) => {
-                        if (msg.role === "assistant" && msg.content && msg.content.includes("<think>")) {
+                        if (msg.role === "assistant" && msg.content) {
                             const { cleanContent, thinkingContent } = parseMessageThinking(msg.content)
-                            return {
-                                ...msg,
-                                content: cleanContent,
-                                thinking: msg.thinking || thinkingContent
+                            if (thinkingContent) {
+                                return {
+                                    ...msg,
+                                    content: cleanContent,
+                                    thinking: msg.thinking || thinkingContent
+                                }
                             }
                         }
                         return msg
                     })
                     setMessages(parsedMessages);
                     let cleanedTitle = data.title || "";
-                    if (cleanedTitle.includes("<think>")) {
-                        cleanedTitle = cleanedTitle.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
-                    }
+                    // Strip any think-related tags or prefixes from title
+                    cleanedTitle = cleanedTitle.replace(/<(think|thinking|thought)\b[^>]*>[\s\S]*?<\/\1>/gi, "").trim();
+                    cleanedTitle = cleanedTitle.replace(/^(Thinking Process|Thought Process|Reasoning Process):\s*/i, "").trim();
                     setTitle(cleanedTitle);
                     setTimeout(scrollToBottom, 100);
                 }

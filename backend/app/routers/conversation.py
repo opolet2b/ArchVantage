@@ -29,6 +29,7 @@ class AddMessageRequest(BaseModel):
     content: str
     citations: Optional[List[Dict[str, Any]]] = None
     model: Optional[str] = "default"
+    thinking: Optional[str] = None
     
 @router.post("/conversations", response_model=CreateConversationResponse)
 def create_conversation():

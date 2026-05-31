@@ -824,11 +824,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         return { thinkingContent: null, cleanContent: rawText, hasThinking: false };
     }, [thing.content]);
 
-    React.useEffect(() => {
-        if (thinkingScrollRef.current) {
-            thinkingScrollRef.current.scrollTop = thinkingScrollRef.current.scrollHeight;
-        }
-    }, [thinkingContent]);
+
 
     // Canvas store helpers
     const addThing = useCanvasStore((state) => state.addThing);
