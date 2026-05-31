@@ -112,6 +112,10 @@ export function ChatInterface() {
             if (scrollContainer) {
                 scrollContainer.scrollTop = scrollContainer.scrollHeight;
             }
+            const innerScroll = dialogScrollRef.current.querySelector('.overflow-y-auto');
+            if (innerScroll) {
+                innerScroll.scrollTop = innerScroll.scrollHeight;
+            }
         }
     }, [activeThinkingMessage?.thinking])
 

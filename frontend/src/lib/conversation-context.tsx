@@ -43,7 +43,11 @@ export function ConversationProvider({ children }: { children: React.ReactNode }
             })
             if (res.ok) {
                 const data = await res.json()
-                setConversations(data)
+                const sanitizedData = (data || []).map((c: Conversation) => ({
+                    ...c,
+                    title: c.title ? c.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : ""
+                }))
+                setConversations(sanitizedData)
             }
         } catch (error) {
             console.error("Failed to fetch conversations", error)

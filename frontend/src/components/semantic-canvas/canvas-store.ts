@@ -944,10 +944,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             const config = canvas.owner_config || {};
 
+            const sanitizedThings = (canvas.things || []).map(t => ({
+                ...t,
+                title: t.title ? t.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : t.title
+            }));
+
             set({
                 canvasId: canvas.id,
                 canvasName: canvas.name,
-                things: canvas.things,
+                things: sanitizedThings,
                 links: canvas.links,
                 domains: canvas.domains,
                 canvasSettings: config,
@@ -998,9 +1003,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             if (res.ok) {
                 const canvas: Canvas = await res.json();
                 const config = canvas.owner_config || {};
+                const sanitizedThings = (canvas.things || []).map(t => ({
+                    ...t,
+                    title: t.title ? t.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : t.title
+                }));
                 // Update all canvas data silently
                 set({
-                    things: canvas.things,
+                    things: sanitizedThings,
                     links: canvas.links,
                     domains: canvas.domains,
                     canvasName: canvas.name,
@@ -1291,7 +1300,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             const target = oldThings.find(t => t.id === thingId);
             const newThings = oldThings.map((t) => {
                 if (t.id === thingId) {
-                    return { ...t, ...serverUpdated };
+                    return {
+                        ...t,
+                        ...serverUpdated,
+                        title: serverUpdated.title ? serverUpdated.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : serverUpdated.title
+                    };
                 }
                 return t;
             });
@@ -1335,7 +1348,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     syncThing: (thingId: string, serverThing: Partial<CanvasThing>) => {
         set({
             things: get().things.map((t) =>
-                t.id === thingId ? { ...t, ...serverThing } : t
+                t.id === thingId ? {
+                    ...t,
+                    ...serverThing,
+                    title: serverThing.title ? serverThing.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : (serverThing.title === undefined ? t.title : serverThing.title)
+                } : t
             ),
         });
     },
@@ -1346,7 +1363,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         if (thing.canvas_id !== get().canvasId) return;
 
         set({
-            things: [...get().things, thing]
+            things: [...get().things, {
+                ...thing,
+                title: thing.title ? thing.title.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : thing.title
+            }]
         });
     },
 

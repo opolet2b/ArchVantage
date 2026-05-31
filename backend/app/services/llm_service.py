@@ -302,8 +302,11 @@ class LLMService:
             {content[:2000]} 
             """
             
+            import re
             response = await llm.ainvoke([HumanMessage(content=prompt)])
             title = response.content.strip().replace('"', '')
+            # Strip thinking tags if present
+            title = re.sub(r'<think>[\s\S]*?</think>', '', title).strip()
             return title
         except Exception as e:
             print(f"Error generating title: {e}")

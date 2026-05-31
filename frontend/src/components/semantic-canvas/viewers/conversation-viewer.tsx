@@ -111,6 +111,10 @@ export function ConversationViewer({
             if (scrollContainer) {
                 scrollContainer.scrollTop = scrollContainer.scrollHeight;
             }
+            const innerScroll = dialogScrollRef.current.querySelector('.overflow-y-auto');
+            if (innerScroll) {
+                innerScroll.scrollTop = innerScroll.scrollHeight;
+            }
         }
     }, [activeThinkingMessage?.thinking])
 
@@ -163,7 +167,11 @@ export function ConversationViewer({
                         return msg
                     })
                     setMessages(parsedMessages);
-                    setTitle(data.title || "");
+                    let cleanedTitle = data.title || "";
+                    if (cleanedTitle.includes("<think>")) {
+                        cleanedTitle = cleanedTitle.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+                    }
+                    setTitle(cleanedTitle);
                 }
             } catch (error) {
                 console.error("Failed to load conversation:", error);
@@ -193,10 +201,7 @@ export function ConversationViewer({
     // Auto-scroll to bottom
     const scrollToBottom = () => {
         if (scrollAreaRef.current) {
-            const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-            if (scrollContainer) {
-                scrollContainer.scrollTop = scrollContainer.scrollHeight;
-            }
+            scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
         }
     };
 
