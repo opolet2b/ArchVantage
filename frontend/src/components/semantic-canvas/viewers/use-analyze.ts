@@ -12,6 +12,7 @@ import * as React from "react";
 import { API_URL } from "@/lib/utils";
 import type { Fragment } from "./types";
 import type { LLMAction } from "./selection-toolbar";
+import { useToast } from "@/components/ui/use-toast";
 
 // =============================================================================
 // Types
@@ -48,6 +49,7 @@ export function useAnalyze(): UseAnalyzeReturn {
     const [isLoading, setIsLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [result, setResult] = React.useState<AnalyzeResult | null>(null);
+    const { toast } = useToast();
 
     const analyze = React.useCallback(
         async (params: AnalyzeParams): Promise<AnalyzeResult | null> => {
@@ -97,7 +99,10 @@ export function useAnalyze(): UseAnalyzeReturn {
                     console.error(`[useAnalyze] Request failed with status: ${response.status} ${response.statusText}`);
                     const errorText = await response.text();
                     console.error(`[useAnalyze] Error body: ${errorText}`);
-                    let detail = "Analysis failed";
+                    let detail = `Request failed with status ${response.status}`;
+                    if (response.status === 504) {
+                        detail = "504 Gateway Timeout: The LLM took too long to respond. Please increase the proxy timeout (e.g. Nginx proxy_read_timeout) or use a faster model.";
+                    }
                     try {
                         const json = JSON.parse(errorText);
                         if (json.detail) detail = json.detail;
@@ -120,6 +125,13 @@ export function useAnalyze(): UseAnalyzeReturn {
                 const errorMessage = err instanceof Error ? err.message : "Unknown error";
                 setError(errorMessage);
                 console.error("[useAnalyze] Error:", errorMessage);
+                
+                toast({
+                    title: "Analysis Failed",
+                    description: errorMessage,
+                    variant: "destructive"
+                });
+                
                 return null;
             } finally {
                 setIsLoading(false);
