@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink, Volume2, Download, BrainCircuit } from "lucide-react"
+import { Paperclip, Mic, Square, Pencil, Copy, Check, X, Sparkles, Zap, Bot, User, Send, ExternalLink, Volume2, Download, BrainCircuit, Brain, Eye, Loader2, Database } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 
@@ -12,6 +12,14 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useConversation } from "@/lib/conversation-context"
 import { uploadFile, UploadProgress } from "@/lib/upload-service"
@@ -67,6 +75,16 @@ interface BlueprintListItem {
     inputs_schema: Record<string, unknown>
 }
 
+interface ModelPreset {
+    id?: number | string;
+    name: string;
+    type: "local" | "remote";
+    model_name?: string;
+    is_vision?: boolean;
+    is_speech?: boolean;
+    is_browser_native?: boolean;
+}
+
 /**
  * Utility function to extract thinking process and clean content from raw LLM output.
  * Handles both complete and incomplete <think> blocks gracefully for real-time streaming.
@@ -96,7 +114,7 @@ function parseMessageThinking(rawText: string): { cleanContent: string; thinking
                     const endTagLen = lastEndMatch[0].length
                     
                     const thinkingContent = rawText.substring(startIdx + startTagLen, endIdx).trim()
-                    const cleanContent = (rawText.substring(0, startIdx) + rawText.substring(endMatch.index + endMatch[0].length)).trim()
+                    const cleanContent = (rawText.substring(0, startIdx) + rawText.substring(endIdx + endTagLen)).trim()
                     return { cleanContent, thinkingContent }
                 }
             }
@@ -187,7 +205,30 @@ export function ChatInterface() {
     const [currentParamIndex, setCurrentParamIndex] = React.useState(0)
 
     // Canvas Store
-    const { flyToNode, setHighlightTarget, selectedModel, selectedKbId } = useCanvasStore()
+    const selectedModel = useCanvasStore(state => state.selectedModel)
+    const setSelectedModel = useCanvasStore(state => state.setSelectedModel)
+    const visionModel = useCanvasStore(state => state.visionModel)
+    const setVisionModel = useCanvasStore(state => state.setVisionModel)
+    const selectedSttModel = useCanvasStore(state => state.selectedSttModel)
+    const setSelectedSttModel = useCanvasStore(state => state.setSelectedSttModel)
+    const sttProfiles = useCanvasStore(state => state.sttProfiles)
+    const setSttProfiles = useCanvasStore(state => state.setSttProfiles)
+    const selectedKbId = useCanvasStore(state => state.selectedKbId)
+    const setSelectedKbId = useCanvasStore(state => state.setSelectedKbId)
+    const enableThinking = useCanvasStore(state => state.enableThinking)
+    const setEnableThinking = useCanvasStore(state => state.setEnableThinking)
+    const updateCanvasSettings = useCanvasStore(state => state.updateCanvasSettings)
+    const accessLevel = useCanvasStore(state => state.accessLevel)
+    const canvasId = useCanvasStore(state => state.canvasId)
+    const isReadOnly = accessLevel === "read" && !!canvasId
+    const flyToNode = useCanvasStore(state => state.flyToNode)
+    const setHighlightTarget = useCanvasStore(state => state.setHighlightTarget)
+
+    // Local model presets and knowledge bases states
+    const [models, setModels] = React.useState<ModelPreset[]>([])
+    const [isLoadingModels, setIsLoadingModels] = React.useState(true)
+    const [kbs, setKbs] = React.useState<any[]>([])
+    const [isLoadingKbs, setIsLoadingKbs] = React.useState(true)
 
     // Hook for agent execution
     const execution = useAgentExecution({
@@ -253,6 +294,83 @@ export function ChatInterface() {
         }
     });
     const [guiFormValues, setGuiFormValues] = React.useState<Record<string, unknown>>({})
+
+    React.useEffect(() => {
+        const fetchModels = async () => {
+            try {
+                const token = localStorage.getItem("token");
+                const headers: HeadersInit = token ? { "Authorization": `Bearer ${token}` } : {};
+
+                const [presetsRes, defaultsRes, kbsRes, sttConfigsRes] = await Promise.all([
+                    fetch(`${API_URL}/config/presets`, { headers }),
+                    fetch(`${API_URL}/config/defaults`, { headers }),
+                    fetch(`${API_URL}/knowledge/kb`, { headers }),
+                    fetch(`${API_URL}/stt/configs`, { headers })
+                ]);
+
+                if (presetsRes.ok) {
+                    const data = await presetsRes.json();
+                    const presetList: ModelPreset[] = data.presets || [];
+                    setModels(presetList);
+
+                    let defaultLlmName: string | null = null;
+                    let defaultVisionName: string | null = null;
+
+                    if (defaultsRes.ok) {
+                        const defaults = await defaultsRes.json();
+                        defaultLlmName = defaults.default_llm;
+                        defaultVisionName = defaults.default_vision;
+                    }
+
+                    if (!selectedModel) {
+                        if (defaultLlmName && presetList.some(p => p.name === defaultLlmName)) {
+                            setSelectedModel(defaultLlmName);
+                        } else if (presetList.length > 0) {
+                            setSelectedModel(presetList[0].name);
+                        }
+                    }
+
+                    if (!visionModel) {
+                        if (defaultVisionName && presetList.some(p => p.name === defaultVisionName)) {
+                            setVisionModel(defaultVisionName);
+                        } else {
+                            const firstVision = presetList.find(p => p.is_vision);
+                            if (firstVision) {
+                                setVisionModel(firstVision.name);
+                            }
+                        }
+                    }
+                }
+
+                // Handle STT Profiles
+                if (sttConfigsRes && sttConfigsRes.ok) {
+                    const sttList = await sttConfigsRes.json();
+                    setSttProfiles(sttList);
+
+                    if (!selectedSttModel) {
+                        const defaultStt = sttList.find((p: any) => p.is_default);
+                        if (defaultStt) {
+                            setSelectedSttModel(defaultStt.id?.toString() || defaultStt.name);
+                        } else if (sttList.length > 0) {
+                            const firstStt = sttList[0];
+                            setSelectedSttModel(firstStt.id?.toString() || firstStt.name);
+                        }
+                    }
+                }
+
+                if (kbsRes && kbsRes.ok) {
+                    const kbData = await kbsRes.json();
+                    setKbs(kbData);
+                }
+            } catch (error) {
+                console.error("Failed to fetch model presets or kbs:", error);
+            } finally {
+                setIsLoadingModels(false);
+                setIsLoadingKbs(false);
+            }
+        };
+        fetchModels();
+    }, [selectedModel, visionModel, selectedSttModel, setSelectedModel, setVisionModel, setSelectedSttModel, setSttProfiles]);
 
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -456,7 +574,8 @@ export function ChatInterface() {
                     messages: allMessages,
                     model: selectedModel || "default",
                     conversation_id: currentConversationId,
-                    kb_id: selectedKbId || undefined
+                    kb_id: selectedKbId || undefined,
+                    enable_thinking: enableThinking
                 }),
                 signal: abortController.signal
             })
@@ -860,6 +979,185 @@ export function ChatInterface() {
                             </div>
                         </div>
                     </CardHeader>
+
+                    {/* Model & Config Selectors Toolbar */}
+                    <div className="px-6 py-2 border-b bg-white dark:bg-slate-900/60 flex flex-wrap items-center gap-y-2 gap-x-6 text-sm shrink-0">
+                        {/* LLM Selector */}
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <Brain className="h-4 w-4 text-slate-500" />
+                            <span className="text-xs font-medium">Model:</span>
+                            {isLoadingModels ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <Select
+                                    value={selectedModel || ""}
+                                    onValueChange={(value) => {
+                                        setSelectedModel(value);
+                                        // Auto-sync vision model if the selected model is vision-capable
+                                        const modelConfig = models.find(m => m.name === value);
+                                        if (modelConfig?.is_vision) {
+                                            setVisionModel(value);
+                                            if (!isReadOnly) {
+                                                updateCanvasSettings({ 
+                                                    model: value,
+                                                    vision_model: value 
+                                                });
+                                            }
+                                        } else if (!isReadOnly) {
+                                            updateCanvasSettings({ model: value });
+                                        }
+                                    }}
+                                    disabled={isReadOnly}
+                                >
+                                    <SelectTrigger className="w-[160px] h-7 text-xs">
+                                        <SelectValue placeholder="Select LLM..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {models.map((model) => (
+                                            <SelectItem key={model.name} value={model.name} className="text-xs">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>{model.name}</span>
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        ({model.type})
+                                                    </span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+
+                        {/* Thinking Switch Toggle */}
+                        <div className="flex items-center gap-2 text-muted-foreground border-l pl-4 dark:border-slate-800">
+                            <Sparkles className={cn("h-4 w-4 transition-colors duration-300", enableThinking ? "text-green-500 fill-green-500/20" : "text-slate-400")} />
+                            <Label htmlFor="main-thinking-toggle" className="text-xs font-medium cursor-pointer select-none">
+                                Thinking
+                            </Label>
+                            <Switch
+                                id="main-thinking-toggle"
+                                checked={enableThinking}
+                                onCheckedChange={(value) => {
+                                    setEnableThinking(value);
+                                    if (!isReadOnly) {
+                                        updateCanvasSettings({ enable_thinking: value });
+                                    }
+                                }}
+                                disabled={isReadOnly}
+                                className="scale-75 h-4 w-7"
+                            />
+                        </div>
+
+                        {/* VLM (Vision) Selector */}
+                        <div className="flex items-center gap-2 text-muted-foreground border-l pl-4 dark:border-slate-800">
+                            <Eye className="h-4 w-4 text-slate-500" />
+                            <span className="text-xs font-medium">Vision:</span>
+                            {isLoadingModels ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <Select
+                                    value={visionModel || ""}
+                                    onValueChange={(value) => {
+                                        setVisionModel(value);
+                                        if (!isReadOnly) updateCanvasSettings({ vision_model: value });
+                                    }}
+                                    disabled={isReadOnly}
+                                >
+                                    <SelectTrigger className="w-[150px] h-7 text-xs">
+                                        <SelectValue placeholder="Select VLM..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {models.filter(m => m.is_vision).map((model) => (
+                                            <SelectItem key={model.name} value={model.name} className="text-xs">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>{model.name}</span>
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        ({model.type})
+                                                    </span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                        {models.filter(m => m.is_vision).length === 0 && (
+                                            <div className="p-2 text-[10px] text-muted-foreground">
+                                                No vision models configured
+                                            </div>
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+
+                        {/* Voice (STT) Selector */}
+                        <div className="flex items-center gap-2 text-muted-foreground border-l pl-4 dark:border-slate-800">
+                            <Mic className="h-4 w-4 text-slate-500" />
+                            <span className="text-xs font-medium">Voice:</span>
+                            {isLoadingModels ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <Select
+                                    value={selectedSttModel || ""}
+                                    onValueChange={(value) => {
+                                        setSelectedSttModel(value);
+                                        if (!isReadOnly) updateCanvasSettings({ speech_model: value });
+                                    }}
+                                    disabled={isReadOnly}
+                                >
+                                    <SelectTrigger className="w-[140px] h-7 text-xs">
+                                        <SelectValue placeholder="Select Voice..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {sttProfiles.map((profile: any) => (
+                                            <SelectItem key={profile.id?.toString() || profile.name} value={profile.id?.toString() || profile.name} className="text-xs">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>{profile.name}</span>
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        ({profile.is_browser_native ? "Native" : (profile.provider_type || "Remote")})
+                                                    </span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                        {sttProfiles.length === 0 && (
+                                            <div className="p-2 text-[10px] text-muted-foreground">
+                                                No voice models configured
+                                            </div>
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+
+                        {/* Knowledge Base Selector */}
+                        <div className="flex items-center gap-2 text-muted-foreground border-l pl-4 dark:border-slate-800">
+                            <Database className="h-4 w-4 text-slate-500" />
+                            <span className="text-xs font-medium">KB:</span>
+                            {isLoadingKbs ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <Select
+                                    value={selectedKbId || "none"}
+                                    onValueChange={(value) => {
+                                        setSelectedKbId(value === "none" ? null : value);
+                                        if (!isReadOnly) updateCanvasSettings({ kb_id: value === "none" ? null : value });
+                                    }}
+                                    disabled={isReadOnly}
+                                >
+                                    <SelectTrigger className="w-[160px] h-7 text-xs">
+                                        <SelectValue placeholder="Select KB..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none" className="text-xs">
+                                            <span className="text-muted-foreground italic">None</span>
+                                        </SelectItem>
+                                        {kbs.map((kb) => (
+                                            <SelectItem key={kb.id} value={kb.id} className="text-xs">
+                                                <span>{kb.name}</span>
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        </div>
+                    </div>
 
                     <CardContent className="flex-1 p-0 overflow-hidden relative bg-muted/10">
                         <ScrollArea ref={scrollAreaRef} className="h-full p-6">

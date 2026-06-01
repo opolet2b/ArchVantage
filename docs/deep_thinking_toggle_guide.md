@@ -67,7 +67,8 @@ The backend `LLMService` maps the `enable_thinking` parameter to provider-specif
 
 - **Zustand Store:** `frontend/src/components/semantic-canvas/canvas-store.ts`
 - **Toolbar UI:** `frontend/src/components/semantic-canvas/canvas-toolbar.tsx`
+- **Main Chatbot UI:** `frontend/src/components/chat-interface.tsx`
 - **Chat Viewer UI:** `frontend/src/components/semantic-canvas/viewers/conversation-viewer.tsx`
 - **Backend Model Schema:** `backend/app/models/chat.py` (`ChatRequest` extended with `enable_thinking`)
 - **Backend Router:** `backend/app/routers/chat.py` (passes parameter to stream handler)
-- **Backend LLM Service:** `backend/app/services/llm_service.py` (dynamically builds API request pay-load)
+- **Backend LLM Service:** `backend/app/services/llm_service.py` (dynamically builds API request payload)
