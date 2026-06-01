@@ -861,7 +861,17 @@ async def chat_stream_endpoint(
             print(f"[Chat Stream] Streaming exception: {ex}")
             yield json.dumps({"type": "error", "content": str(ex)}) + "\n"
 
-    return StreamingResponse(chat_stream_generator(), media_type="application/x-ndjson")
+    # Return a StreamingResponse with headers to disable proxy buffering (Nginx) and caching,
+    # ensuring smooth HTTP/2 real-time streaming on remote servers.
+    return StreamingResponse(
+        chat_stream_generator(),
+        media_type="application/x-ndjson",
+        headers={
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+        }
+    )
+
 
 
 @router.post("/chat/match-agent", response_model=AgentMatchResponse)
