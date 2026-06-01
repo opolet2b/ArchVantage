@@ -606,12 +606,41 @@ class LLMService:
             
             print(f"[LLMService] Streaming chat for model '{resolved_name}'...")
             
-            # Stream chunk content
+            # Stream chunk content, intercepting and wrapping reasoning tokens
+            # in <think> tags to support remote models that output reasoning
+            in_thinking = False
             async for chunk in llm.astream(langchain_messages, **invoke_kwargs):
+                content = ""
+                reasoning = None
+                
+                # Check if reasoning_content is returned in additional_kwargs or response_metadata
+                if hasattr(chunk, "additional_kwargs") and chunk.additional_kwargs:
+                    reasoning = chunk.additional_kwargs.get("reasoning_content") or chunk.additional_kwargs.get("reasoning")
+                
+                if reasoning is None and hasattr(chunk, "response_metadata") and chunk.response_metadata:
+                    reasoning = chunk.response_metadata.get("reasoning_content") or chunk.response_metadata.get("reasoning")
+                
+                # Extract the standard content chunk
                 if hasattr(chunk, "content"):
-                    yield chunk.content
+                    content = chunk.content
                 else:
-                    yield str(chunk)
+                    content = str(chunk)
+                
+                if reasoning:
+                    if not in_thinking:
+                        yield "<think>\n"
+                        in_thinking = True
+                    yield reasoning
+                else:
+                    if in_thinking:
+                        yield "\n</think>\n"
+                        in_thinking = False
+                    if content:
+                        yield content
+            
+            # Ensure the think tag is closed if stream ended while in thinking state
+            if in_thinking:
+                yield "\n</think>\n"
         except Exception as e:
             print(f"[LLMService] Error in astream_chat: {e}")
             raise e

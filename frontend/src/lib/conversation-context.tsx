@@ -30,8 +30,14 @@ interface ConversationContextType {
 
 const ConversationContext = createContext<ConversationContextType | undefined>(undefined)
 
-function cleanTitle(title: string, type: string = "conversation"): string {
-    if (!title) return type === "canvas" ? "Document Overview" : "Conversation";
+function cleanTitle(title: string | null | undefined, type: string = "conversation"): string {
+    const getTypeDefault = (): string => {
+        if (type === "canvas") return "Document Overview";
+        if (type === "conversation") return "Conversation";
+        return type.charAt(0).toUpperCase() + type.slice(1);
+    };
+
+    if (!title) return getTypeDefault();
     
     // Strip <think> tags
     let cleaned = title.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
@@ -66,13 +72,13 @@ function cleanTitle(title: string, type: string = "conversation"): string {
                 fallback = fallback.replace(/^\d+\.\s*/, "");
                 fallback = fallback.replace(/^[-*+]\s*/, "");
                 fallback = fallback.replace(/['"]/g, "").trim();
-                if (fallback.length > 40 || fallback.toLowerCase().includes("thinking")) {
-                    cleaned = type === "canvas" ? "Document Overview" : "Conversation";
+                if (fallback.toLowerCase().includes("thinking")) {
+                    cleaned = getTypeDefault();
                 } else {
                     cleaned = fallback;
                 }
             } else {
-                cleaned = type === "canvas" ? "Document Overview" : "Conversation";
+                cleaned = getTypeDefault();
             }
         }
     }
