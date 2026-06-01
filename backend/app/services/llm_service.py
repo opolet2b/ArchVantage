@@ -73,9 +73,20 @@ class LLMService:
                 # Generic OpenAI-compatible client (remote or default)
                 from langchain_openai import ChatOpenAI
                 model_kwargs = {}
+                extra_body = {}
+                
                 sort_strategy = preset.get("sort")
                 if sort_strategy:
-                    model_kwargs["extra_body"] = {"provider": {"sort": sort_strategy}}
+                    extra_body["provider"] = {"sort": sort_strategy}
+                
+                # Check if calling OpenRouter or a reasoning-capable model,
+                # and request the reasoning/thinking trace explicitly.
+                api_url = preset.get("api_url") or ""
+                if "openrouter.ai" in api_url or "thinking" in target_model_id.lower() or "reasoning" in target_model_id.lower():
+                    extra_body["include_reasoning"] = True
+                
+                if extra_body:
+                    model_kwargs["extra_body"] = extra_body
 
                 return ChatOpenAI(
                     model=target_model_id, 
@@ -100,6 +111,7 @@ class LLMService:
                 model=model_name.replace("openrouter/", ""),
                 openai_api_key=os.getenv("OPENROUTER_API_KEY"),
                 openai_api_base="https://openrouter.ai/api/v1",
+                model_kwargs={"extra_body": {"include_reasoning": True}}
             ), model_name
         else:
             # Final system default if everything else fails
