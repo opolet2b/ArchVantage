@@ -565,6 +565,92 @@ class RAGService:
                             entry["result"] = result
                     return result
 
+                is_image = file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))
+                if is_image:
+                    print(f"[RAGService] Intercepting image file ingestion: {file_path}")
+                    try:
+                        import base64
+                        import asyncio
+                        from app.services.vision_service import vision_service
+                        from app.services.config_service import config_service
+                        
+                        # Resolve VLM to use from conversation's active canvas if possible
+                        resolved_vision_model = vision_model_name
+                        if not resolved_vision_model and conversation_id:
+                            try:
+                                from app.core.database import SessionLocal
+                                from app.models.canvas_models import CanvasThing, Canvas
+                                db = SessionLocal()
+                                try:
+                                    candidates = db.query(CanvasThing).filter(CanvasThing.type == "conversation").all()
+                                    convo_thing = next((t for t in candidates if str(t.content.get("conversation_id")) == conversation_id), None)
+                                    if convo_thing and convo_thing.canvas_id:
+                                        canvas = db.query(Canvas).filter(Canvas.id == convo_thing.canvas_id).first()
+                                        if canvas and canvas.owner_config:
+                                            resolved_vision_model = canvas.owner_config.get("vision_model")
+                                            print(f"[RAGService] Resolved vision model from canvas settings: {resolved_vision_model}")
+                                finally:
+                                    db.close()
+                            except Exception as db_err:
+                                print(f"[RAGService] Failed to resolve canvas vision config: {db_err}")
+                        
+                        if not resolved_vision_model:
+                            resolved_vision_model = "default"
+                            
+                        # 1. Read and encode image file
+                        with open(file_path, "rb") as img_f:
+                            img_b64 = base64.b64encode(img_f.read()).decode("utf-8")
+                        
+                        # 2. Setup VLM prompt
+                        prompt = (
+                            "Analyze this image in detail. Describe what the image is about, "
+                            "identify the key subjects, elements, charts, diagrams, text, and overall context. "
+                            "Provide a comprehensive textual description that can be searched via RAG query."
+                        )
+                        
+                        # 3. Call vision_service
+                        print(f"[RAGService] Triggering VLM '{resolved_vision_model}' for image: {os.path.basename(file_path)}")
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        image_desc = loop.run_until_complete(vision_service.analyze(
+                             image_data=img_b64,
+                             prompt=prompt,
+                             model_name=resolved_vision_model
+                        ))
+                        loop.close()
+                        
+                        # 4. Ingest description text with metadata
+                        filename = os.path.basename(file_path)
+                        img_metadata = metadata.copy() if metadata else {}
+                        img_metadata.update({
+                            "type": "visual_context", 
+                            "source": file_path, 
+                            "file_name": filename,
+                            "title": filename,
+                            "conversation_id": conversation_id
+                        })
+                        
+                        full_description = f"Image File: {filename}\nDescription of visual content:\n{image_desc}"
+                        ingest_res = self.ingest_text(full_description, metadata=img_metadata)
+                        
+                        result = {
+                            "status": "success",
+                            "count": ingest_res.get("count", 1),
+                            "full_text": full_description,
+                            "text_length": len(full_description),
+                            "doc_count": 1,
+                            "visual_context_extracted": True
+                        }
+                        
+                        if entry:
+                            with self._lock:
+                                entry["result"] = result
+                        return result
+                        
+                    except Exception as img_err:
+                        print(f"[RAGService] Image VLM Ingestion failed: {img_err}")
+                        raise img_err
+
                 # Delegate to DocumentIngestor
                 from app.services.rag.document_ingestor import document_ingestor
                 
