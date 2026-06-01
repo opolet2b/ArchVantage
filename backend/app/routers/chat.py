@@ -858,8 +858,17 @@ async def chat_stream_endpoint(
                     
             yield json.dumps({"type": "complete"}) + "\n"
         except Exception as ex:
-            print(f"[Chat Stream] Streaming exception: {ex}")
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"[Chat Stream] Streaming exception: {ex}\nTraceback:\n{error_trace}")
+            try:
+                # Log traceback to a local file in the backend directory on Blackwell
+                with open("stream_error.log", "a", encoding="utf-8") as f:
+                    f.write(f"=== STREAM EXCEPTION ===\n{error_trace}\n========================\n\n")
+            except Exception as log_ex:
+                print(f"Failed to write to stream_error.log: {log_ex}")
             yield json.dumps({"type": "error", "content": str(ex)}) + "\n"
+
 
     # Return a StreamingResponse with headers to disable proxy buffering (Nginx) and caching,
     # and use 'text/event-stream' to notify proxies that this is a real-time stream.
