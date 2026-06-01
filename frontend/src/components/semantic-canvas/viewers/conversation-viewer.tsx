@@ -225,6 +225,11 @@ export function ConversationViewer({
     const setHighlightTarget = useCanvasStore(state => state.setHighlightTarget);
     const selectedKbId = useCanvasStore(state => state.selectedKbId);
     const selectedModel = useCanvasStore(state => state.selectedModel);
+    const enableThinking = useCanvasStore(state => state.enableThinking);
+    const setEnableThinking = useCanvasStore(state => state.setEnableThinking);
+    const updateCanvasSettings = useCanvasStore(state => state.updateCanvasSettings);
+    const accessLevel = useCanvasStore(state => state.accessLevel);
+    const isReadOnly = accessLevel === "read";
 
     // Voice Recognition Hook
     const { isListening, isSupported, toggleListening } = useSpeechRecognition({
@@ -347,7 +352,8 @@ export function ConversationViewer({
                     messages: [...messages, userMessage],
                     model: selectedModel || "default",
                     conversation_id: conversationId,
-                    kb_id: selectedKbId || undefined
+                    kb_id: selectedKbId || undefined,
+                    enable_thinking: enableThinking
                 }),
             });
 
@@ -704,6 +710,27 @@ export function ConversationViewer({
                             title={isListening ? "Stop listening" : "Voice input"}
                         >
                             <Mic className={cn("h-4 w-4", isListening && "animate-pulse")} />
+                        </Button>
+                        <Button
+                            size="icon"
+                            variant="ghost"
+                            className={cn(
+                                "h-8 w-8 shrink-0 transition-all duration-200",
+                                enableThinking
+                                    ? "text-green-500 hover:text-green-600 bg-green-50 dark:bg-green-950/20"
+                                    : "text-slate-400 hover:text-slate-500"
+                            )}
+                            onClick={() => {
+                                const nextValue = !enableThinking;
+                                setEnableThinking(nextValue);
+                                if (!isReadOnly) {
+                                    updateCanvasSettings({ enable_thinking: nextValue });
+                                }
+                            }}
+                            disabled={isReadOnly}
+                            title={enableThinking ? "Deep Thinking Enabled" : "Deep Thinking Disabled"}
+                        >
+                            <BrainCircuit className="h-4 w-4" />
                         </Button>
                     </div>
                 </div>

@@ -73,6 +73,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const activeScenario = useCanvasStore((s) => s.activeScenario);
     const toolbarConfig = activeScenario?.configuration?.ui_overrides?.toolbar_config;
     const selectedKbId = useCanvasStore((s) => s.selectedKbId);
+    const enableThinking = useCanvasStore((s) => s.enableThinking);
     // Viewport moved to ZoomIndicator for performance
 
     // Actions
@@ -89,6 +90,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const refreshThings = useCanvasStore((s) => s.refreshThings);
     const updateCanvasSettings = useCanvasStore((s) => s.updateCanvasSettings);
     const setSelectedKbId = useCanvasStore((s) => s.setSelectedKbId);
+    const setEnableThinking = useCanvasStore((s) => s.setEnableThinking);
 
     // @ts-ignore
     const showStandardTools = !toolbarConfig || toolbarConfig.keep_standard_tools !== false;
@@ -304,6 +306,31 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                             </SelectContent>
                         </Select>
                     )}
+                </div>
+
+                {/* Thinking Toggle next to Model Select */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mr-4 border-l pl-4">
+                    <Sparkles className={cn("h-4 w-4 transition-colors duration-300", enableThinking ? "text-green-500 fill-green-500/20" : "text-slate-400")} />
+                    <Label htmlFor="thinking-toggle" className="text-xs font-semibold cursor-pointer select-none">
+                        Thinking
+                    </Label>
+                    <Switch
+                        id="thinking-toggle"
+                        checked={enableThinking}
+                        onCheckedChange={(value) => {
+                            console.log("[CanvasToolbar] Thinking Toggle Change:", value);
+                            setEnableThinking(value);
+                            if (!isReadOnly) {
+                                updateCanvasSettings({ enable_thinking: value });
+                            }
+                            toast({
+                                title: value ? "Deep Thinking Enabled" : "Fast Responses Enabled",
+                                description: value ? "Reasoning processes will be requested and rendered." : "LLM answers will be generated immediately."
+                            });
+                        }}
+                        disabled={isReadOnly}
+                        className="scale-90"
+                    />
                 </div>
 
                 <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">

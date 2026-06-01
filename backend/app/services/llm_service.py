@@ -53,7 +53,7 @@ class LLMService:
         preset = self._resolve_preset(model_name)
         return preset.get("name") if preset else model_name
 
-    def _get_model(self, model_name: str):
+    def _get_model(self, model_name: str, enable_thinking: bool = True):
         """
         Identify the corresponding model and use it based on settings configuration.
         Returns a tuple of (langchain_model, resolved_display_name).
@@ -80,10 +80,20 @@ class LLMService:
                     extra_body["provider"] = {"sort": sort_strategy}
                 
                 # Check if calling OpenRouter or a reasoning-capable model,
-                # and request the reasoning/thinking trace explicitly.
+                # and request or disable the reasoning/thinking trace explicitly.
                 api_url = preset.get("api_url") or ""
-                if "openrouter.ai" in api_url or "thinking" in target_model_id.lower() or "reasoning" in target_model_id.lower():
-                    extra_body["include_reasoning"] = True
+                if enable_thinking:
+                    if "openrouter.ai" in api_url or "thinking" in target_model_id.lower() or "reasoning" in target_model_id.lower():
+                        extra_body["include_reasoning"] = True
+                    
+                    if "openrouter.ai" not in api_url and ("qwen" in target_model_id.lower() or "deepseek" in target_model_id.lower() or "thinking" in target_model_id.lower() or "reasoning" in target_model_id.lower()):
+                        extra_body["enable_thinking"] = True
+                else:
+                    if "openrouter.ai" in api_url or "thinking" in target_model_id.lower() or "reasoning" in target_model_id.lower():
+                        extra_body["include_reasoning"] = False
+                    
+                    if "openrouter.ai" not in api_url and ("qwen" in target_model_id.lower() or "deepseek" in target_model_id.lower() or "thinking" in target_model_id.lower() or "reasoning" in target_model_id.lower()):
+                        extra_body["enable_thinking"] = False
                 
                 if extra_body:
                     model_kwargs["extra_body"] = extra_body
@@ -107,11 +117,12 @@ class LLMService:
             model_id = model_name.replace("ollama/", "")
             return ChatOllama(model=model_id), model_name
         elif model_name.startswith("openrouter"):
+             include_reasoning = enable_thinking
              return ChatOpenAI(
                 model=model_name.replace("openrouter/", ""),
                 openai_api_key=os.getenv("OPENROUTER_API_KEY"),
                 openai_api_base="https://openrouter.ai/api/v1",
-                model_kwargs={"extra_body": {"include_reasoning": True}}
+                model_kwargs={"extra_body": {"include_reasoning": include_reasoning}}
             ), model_name
         else:
             # Final system default if everything else fails
@@ -203,8 +214,9 @@ class LLMService:
         return converted
 
     async def chat(self, messages: List[Message], model_name: str = "gpt-3.5-turbo", strip_think: bool = True, **kwargs) -> str:
+        enable_thinking = kwargs.pop("enable_thinking", True)
         try:
-            llm, resolved_name = self._get_model(model_name)
+            llm, resolved_name = self._get_model(model_name, enable_thinking=enable_thinking)
             
             # Handle JSON mode and Temperature for Ollama
             # canvas.py sends response_format={"type": "json_object"}
@@ -594,8 +606,9 @@ class LLMService:
         Stream the LLM chat tokens asynchronously.
         Useful for preventing HTTP 504 gateway timeouts on slow models.
         """
+        enable_thinking = kwargs.pop("enable_thinking", True)
         try:
-            llm, resolved_name = self._get_model(model_name)
+            llm, resolved_name = self._get_model(model_name, enable_thinking=enable_thinking)
             
             # Apply JSON mode if requested
             if kwargs.get("response_format") == {"type": "json_object"}:

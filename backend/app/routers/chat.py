@@ -881,14 +881,16 @@ async def chat_stream_endpoint(
                         Message(role="system", content="You are a helpful assistant. Answer questions based on the provided context and citations."),
                         Message(role="user", content=prompt_with_context)
                     ],
-                    model_name=active_model
+                    model_name=active_model,
+                    enable_thinking=request.enable_thinking
                 )):
                     yield event
             else:
                 from app.services.llm_service import llm_service
                 async for event in wrap_with_keepalive(llm_service.astream_chat(
                     messages=final_messages,
-                    model_name=active_model
+                    model_name=active_model,
+                    enable_thinking=request.enable_thinking
                 )):
                     yield event
                     

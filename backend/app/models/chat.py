@@ -14,6 +14,7 @@ class ChatRequest(BaseModel):
     model: Optional[str] = "gpt-3.5-turbo"
     conversation_id: Optional[str] = None
     kb_id: Optional[str] = None
+    enable_thinking: Optional[bool] = True
 
 
 class CitationMatch(BaseModel):

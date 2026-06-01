@@ -453,6 +453,10 @@ interface CanvasState {
     selectedModel: string | null;
     setSelectedModel: (model: string | null) => void;
 
+    // Toggle thinking/reasoning process (LLM deep thinking)
+    enableThinking: boolean;
+    setEnableThinking: (enabled: boolean) => void;
+
     // Selected Knowledge Base for semantic enrichment
     selectedKbId: string | null;
     setSelectedKbId: (id: string | null) => void;
@@ -749,6 +753,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedModel: null,
     setSelectedModel: (model) => set({ selectedModel: model }),
 
+    // Thinking/reasoning process toggle
+    enableThinking: true,
+    setEnableThinking: (enabled) => set({ enableThinking: enabled }),
+
     // Selected Knowledge Base
     selectedKbId: null,
     setSelectedKbId: (id) => set({ selectedKbId: id }),
@@ -1022,6 +1030,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 selectedModel: config.model || null,
                 visionModel: config.vision_model || null,
                 selectedKbId: config.kb_id || null,
+                enableThinking: config.enable_thinking !== undefined ? config.enable_thinking : true,
                 viewport: canvas.viewport,
                 zoomLevel: getZoomLevel(canvas.viewport.zoom),
                 isLoading: false,
@@ -1079,7 +1088,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     accessLevel: canvas.access_level || "read",
                     // SYNC selection fields with backend to avoid "stale" UI state
                     selectedModel: config.model || null,
-                    visionModel: config.vision_model || null
+                    visionModel: config.vision_model || null,
+                    enableThinking: config.enable_thinking !== undefined ? config.enable_thinking : true
                 });
 
                 // Also refresh Active Scenario if one is linked (to catch schema updates)
