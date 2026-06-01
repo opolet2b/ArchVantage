@@ -862,15 +862,19 @@ async def chat_stream_endpoint(
             yield json.dumps({"type": "error", "content": str(ex)}) + "\n"
 
     # Return a StreamingResponse with headers to disable proxy buffering (Nginx) and caching,
-    # ensuring smooth HTTP/2 real-time streaming on remote servers.
+    # and use 'text/event-stream' to notify proxies that this is a real-time stream.
+    # We also specify 'Content-Encoding: identity' to disable gzip/brotli buffering.
     return StreamingResponse(
         chat_stream_generator(),
-        media_type="application/x-ndjson",
+        media_type="text/event-stream",
         headers={
             "X-Accel-Buffering": "no",
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "Content-Encoding": "identity",
         }
     )
+
 
 
 
