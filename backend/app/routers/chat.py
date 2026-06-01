@@ -803,17 +803,38 @@ async def chat_stream_endpoint(
         import asyncio
         
         # Define keepalive wrapper to send periodic ping events during long thinking phases
+        # Uses a robust queue-based producer-consumer pattern to avoid PEP 479 RuntimeError issues
         async def wrap_with_keepalive(async_gen, interval=1.5):
-            iterator = async_gen.__aiter__()
-            while True:
+            queue = asyncio.Queue()
+            
+            async def producer():
                 try:
-                    chunk = await asyncio.wait_for(iterator.__anext__(), timeout=interval)
-                    yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
-                except asyncio.TimeoutError:
-                    # Ignored by frontend, but keeps connection alive for proxies
-                    yield json.dumps({"type": "ping"}) + "\n"
-                except StopAsyncIteration:
-                    break
+                    async for item in async_gen:
+                        await queue.put(("item", item))
+                except Exception as e:
+                    await queue.put(("error", e))
+                finally:
+                    await queue.put(("done", None))
+
+            # Start producer task
+            task = asyncio.create_task(producer())
+            
+            try:
+                while True:
+                    try:
+                        # Wait for an item from the queue with a timeout
+                        status, val = await asyncio.wait_for(queue.get(), timeout=interval)
+                        if status == "item":
+                            yield json.dumps({"type": "chunk", "content": val}) + "\n"
+                        elif status == "error":
+                            raise val
+                        elif status == "done":
+                            break
+                    except asyncio.TimeoutError:
+                        yield json.dumps({"type": "ping"}) + "\n"
+            finally:
+                # Cancel the producer task if it's still running
+                task.cancel()
 
         try:
             # Send citations first
