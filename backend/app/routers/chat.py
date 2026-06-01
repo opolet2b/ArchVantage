@@ -800,6 +800,21 @@ async def chat_stream_endpoint(
             })
 
     async def chat_stream_generator():
+        import asyncio
+        
+        # Define keepalive wrapper to send periodic ping events during long thinking phases
+        async def wrap_with_keepalive(async_gen, interval=1.5):
+            iterator = async_gen.__aiter__()
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(iterator.__anext__(), timeout=interval)
+                    yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+                except asyncio.TimeoutError:
+                    # Ignored by frontend, but keeps connection alive for proxies
+                    yield json.dumps({"type": "ping"}) + "\n"
+                except StopAsyncIteration:
+                    break
+
         try:
             # Send citations first
             yield json.dumps({"type": "citations", "citations": citations}) + "\n"
@@ -840,21 +855,21 @@ async def chat_stream_endpoint(
                 from app.services.llm_service import llm_service
                 from app.models.chat import Message
                 
-                async for chunk in llm_service.astream_chat(
+                async for event in wrap_with_keepalive(llm_service.astream_chat(
                     messages=[
                         Message(role="system", content="You are a helpful assistant. Answer questions based on the provided context and citations."),
                         Message(role="user", content=prompt_with_context)
                     ],
                     model_name=active_model
-                ):
-                    yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+                )):
+                    yield event
             else:
                 from app.services.llm_service import llm_service
-                async for chunk in llm_service.astream_chat(
+                async for event in wrap_with_keepalive(llm_service.astream_chat(
                     messages=final_messages,
                     model_name=active_model
-                ):
-                    yield json.dumps({"type": "chunk", "content": chunk}) + "\n"
+                )):
+                    yield event
                     
             yield json.dumps({"type": "complete"}) + "\n"
         except Exception as ex:
