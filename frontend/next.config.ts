@@ -10,6 +10,7 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyTimeout: 300000, // 5 minutes
   },
+  turbopack: {},
   webpack: (config, { isServer }) => {
     config.watchOptions = {
       ignored: [
