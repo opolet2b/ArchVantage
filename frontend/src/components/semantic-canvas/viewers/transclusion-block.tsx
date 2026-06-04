@@ -160,7 +160,7 @@ export function TransclusionBlock({
         console.log("[TransclusionBlock] Resolving fragment", { nodeId, fragmentId, hasContent: !!effectiveContent });
 
         if (!fragmentId || !effectiveContent) {
-            console.log("[TransclusionBlock] No fragmentId or content", { fragmentId, effectiveContent });
+            console.log("[TransclusionBlock] No fragmentId or content", { fragmentId, hasContent: !!effectiveContent });
             return undefined;
         }
 
@@ -169,7 +169,13 @@ export function TransclusionBlock({
             console.log("[TransclusionBlock] Checking regions", { count: effectiveContent.regions.length, fragmentId });
             const region = effectiveContent.regions.find((r: any) => r.id === fragmentId);
             if (region) {
-                console.log("[TransclusionBlock] Found region fragment", { region });
+                const logRegion = region ? {
+                    ...region,
+                    content: typeof region.content === "string" && region.content.length > 200
+                        ? `${region.content.substring(0, 100)}... [truncated ${region.content.length} chars]`
+                        : region.content
+                } : region;
+                console.log("[TransclusionBlock] Found region fragment", { region: logRegion });
                 return region;
             }
         }
@@ -183,7 +189,13 @@ export function TransclusionBlock({
             });
             const saved = effectiveContent.saved_fragments.find((f: any) => f.id === fragmentId);
             if (saved) {
-                console.log("[TransclusionBlock] Found saved fragment", { saved });
+                const logSaved = saved ? {
+                    ...saved,
+                    content: typeof saved.content === "string" && saved.content.length > 200
+                        ? `${saved.content.substring(0, 100)}... [truncated ${saved.content.length} chars]`
+                        : saved.content
+                } : saved;
+                console.log("[TransclusionBlock] Found saved fragment", { saved: logSaved });
                 return saved;
             }
         }
@@ -272,9 +284,15 @@ export function TransclusionBlock({
 
                             // For PDF documents, use PDFViewer with viewFragment
                             if (thingType === "document" && effectiveContent.asset_id) {
+                                const logFragment = targetFragment ? {
+                                    ...targetFragment,
+                                    content: typeof targetFragment.content === "string" && targetFragment.content.length > 200
+                                        ? `${targetFragment.content.substring(0, 100)}... [truncated ${targetFragment.content.length} chars]`
+                                        : targetFragment.content
+                                } : targetFragment;
                                 console.log("[TransclusionBlock] Rendering PDF region", {
                                     assetId: effectiveContent.asset_id,
-                                    fragment: targetFragment
+                                    fragment: logFragment
                                 });
                                 return (
                                     <span className="w-full relative block">

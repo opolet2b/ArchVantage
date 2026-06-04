@@ -348,6 +348,10 @@ class BasePrimitive(ABC):
         Resolve a nested value from a data structure using a dot-separated path.
         Example: "user.profile.name" or "items[0].id"
         """
+        # First check if the path exists as a direct flat key in the dictionary
+        if isinstance(data, dict) and path in data:
+            return data[path]
+
         import re
         # Split by dots or brackets
         parts = re.split(r'\.|\[|\]', path)

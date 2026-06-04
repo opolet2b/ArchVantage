@@ -10,6 +10,18 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyTimeout: 300000, // 5 minutes
   },
+  webpack: (config, { isServer }) => {
+    config.watchOptions = {
+      ignored: [
+        '**/node_modules/**',
+        '**/backend/**',
+        '**/db/**',
+        '**/data/**',
+        '**/temp/**',
+      ],
+    };
+    return config;
+  },
   async rewrites() {
     return [
       {

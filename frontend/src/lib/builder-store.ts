@@ -291,7 +291,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
             // -----------------------------------------------------------------
 
             setBlueprint: (blueprint) => {
-                console.log("[Load] setBlueprint called with:", blueprint);
+                console.log("[Load] setBlueprint called for ID:", blueprint.id, "Name:", blueprint.name);
                 const { nodes, edges } = graphToFlow(blueprint.graph);
                 set({
                     blueprintId: blueprint.id,
@@ -327,7 +327,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
 
                 try {
                     const graph = flowToGraph(state.nodes, state.edges);
-                    console.log("[Save] Converted graph:", graph);
+                    console.log("[Save] Converted graph nodes count:", graph.nodes?.length, "edges count:", graph.edges?.length);
 
                     const payload: BlueprintCreate = {
                         name: state.blueprintName,
@@ -340,7 +340,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                         }
                     };
 
-                    console.log("[Save] Payload:", payload);
+                    console.log("[Save] Payload details - Name:", payload.name, "Secrets count:", payload.secrets_requirements?.length);
 
                     const method = state.blueprintId ? "PUT" : "POST";
                     const url = state.blueprintId
@@ -367,7 +367,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                     }
 
                     const saved = await res.json();
-                    console.log("[Save] Response data:", saved);
+                    console.log("[Save] Response data saved ID:", saved.id);
 
                     set({
                         blueprintId: saved.id,
@@ -578,7 +578,7 @@ export const useBuilderStore = create<BuilderState & BuilderActions>()(
                     // ==== DEBUG: Log canvas context being sent ====
                     console.group("[ARCHITECT DEBUG] Sending to Backend");
                     console.log("User prompt:", content);
-                    console.log("Canvas context:", canvasContext);
+                    console.log("Canvas context details - Nodes count:", canvasContext.nodes?.length, "Edges count:", canvasContext.edges?.length);
                     console.log("Nodes:", canvasContext.nodes.map(n => `${n.id} (${n.type})`));
                     console.log("Edges:", canvasContext.edges.map(e => `${e.source} → ${e.target}`));
                     console.log("Inputs Schema:", canvasContext.inputs_schema);

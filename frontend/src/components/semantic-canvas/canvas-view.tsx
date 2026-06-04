@@ -125,8 +125,6 @@ function CanvasViewInner() {
         nodesCount: useCanvasStore.getState().things.length + useCanvasStore.getState().domains.length,
         zoomLevel: useCanvasStore.getState().zoomLevel,
         nodeTypesKeys: Object.keys(nodeTypesMemo),
-        storeThings: useCanvasStore.getState().things,
-        storeDomains: useCanvasStore.getState().domains
     });
 
     // Canvas store state - Using selectors to minimize re-renders
@@ -812,6 +810,104 @@ function CanvasViewInner() {
         []
     );
 
+    // Bounding-box overlap check for drop zones (detects if any part of the thing enters the zone)
+    const getOverlappingDropZone = React.useCallback((nodeId: string, posX: number, posY: number, width?: number, height?: number) => {
+        const freshDomains = useCanvasStore.getState().domains;
+        const freshThings = useCanvasStore.getState().things;
+        const activeScenario = useCanvasStore.getState().activeScenario;
+
+        const thing = freshThings.find(t => t.id === nodeId);
+        const w = width ?? thing?.width ?? 400;
+        const h = height ?? thing?.height ?? 300;
+
+        const thing_xMin = posX;
+        const thing_xMax = posX + w;
+        const thing_yMin = posY;
+        const thing_yMax = posY + h;
+
+        for (const domain of freshDomains) {
+            const definition = activeScenario?.configuration?.domain_definitions?.find(d =>
+                (domain.type && d.id === domain.type) || d.name === domain.name
+            );
+            const availableZones = (domain.drop_zones && domain.drop_zones.length > 0)
+                ? domain.drop_zones
+                : (definition?.drop_zones || []);
+            if (availableZones.length === 0) continue;
+
+            const PADDING_TOP = 32;
+            const PADDING_X = 8;
+            const PADDING_BOTTOM = 8;
+            const GAP = 8;
+
+            const domainW = domain.width || 400;
+            const domainH = domain.height || 300;
+
+            const availW = domainW - (PADDING_X * 2);
+            const availH = domainH - PADDING_TOP - PADDING_BOTTOM;
+
+            const zoneCount = availableZones.length;
+            const cols = zoneCount === 1 ? 1 : 2;
+            const rows = Math.ceil(zoneCount / cols);
+
+            const cellW = (availW - ((cols - 1) * GAP)) / cols;
+            const cellH = (availH - ((rows - 1) * GAP)) / rows;
+
+            for (let idx = 0; idx < availableZones.length; idx++) {
+                const zone = availableZones[idx];
+                const colIndex = idx % cols;
+                const rowIndex = Math.floor(idx / cols);
+
+                const zx = PADDING_X + (colIndex * (cellW + GAP));
+                const zy = PADDING_TOP + (rowIndex * (cellH + GAP));
+                const zw = cellW;
+                const zh = cellH;
+
+                const zone_xMin = domain.position_x + zx;
+                const zone_xMax = domain.position_x + zx + zw;
+                const zone_yMin = domain.position_y + zy;
+                const zone_yMax = domain.position_y + zy + zh;
+
+                console.log(`[getOverlappingDropZone] Checking Zone: ${zone.label} (${zone.id})`);
+                console.log(`  Zone Bounds: X[${zone_xMin.toFixed(1)}, ${zone_xMax.toFixed(1)}] Y[${zone_yMin.toFixed(1)}, ${zone_yMax.toFixed(1)}]`);
+                console.log(`  Thing Bounds: X[${thing_xMin.toFixed(1)}, ${thing_xMax.toFixed(1)}] Y[${thing_yMin.toFixed(1)}, ${thing_yMax.toFixed(1)}]`);
+
+                if (
+                    thing_xMin <= zone_xMax &&
+                    thing_xMax >= zone_xMin &&
+                    thing_yMin <= zone_yMax &&
+                    thing_yMax >= zone_yMin
+                ) {
+                    console.log(`  -> OVERLAP DETECTED!`);
+                    return {
+                        domainId: domain.id,
+                        dropZoneId: zone.id
+                    };
+                }
+            }
+        }
+        return null;
+    }, []);
+
+    // Track active drop zone state dynamically during dragging
+    const onNodeDrag = React.useCallback(
+        (_e: React.MouseEvent, node: Node) => {
+            if (node.type === "thing" || node.type === "sticky") {
+                const hit = getOverlappingDropZone(node.id, node.position.x, node.position.y, node.width, node.height);
+                const currentActive = useCanvasStore.getState().activeDropZoneId;
+                if (hit) {
+                    if (currentActive !== hit.dropZoneId) {
+                        useCanvasStore.setState({ activeDropZoneId: hit.dropZoneId });
+                    }
+                } else {
+                    if (currentActive !== null) {
+                        useCanvasStore.setState({ activeDropZoneId: null });
+                    }
+                }
+            }
+        },
+        [getOverlappingDropZone]
+    );
+
     // Track domain drag start position
     const dragStartPosRef = React.useRef<{ id: string; x: number; y: number } | null>(null);
 
@@ -834,6 +930,7 @@ function CanvasViewInner() {
     const onNodeDragStop = React.useCallback(
         async (_: React.MouseEvent, node: Node) => {
             setIsDraggingNode(false);
+            useCanvasStore.setState({ activeDropZoneId: null });
 
             if (node.type === "thing" || node.type === "sticky") {
                 const startPos = dragStartPosRef.current;
@@ -893,120 +990,13 @@ function CanvasViewInner() {
 
                     // Drop Zone Detection
                     if (targetDomainId) {
-                        const domain = domains.find(d => d.id === targetDomainId);
-
-                        // Check Definition for Drop Zones
-                        const activeScenario = useCanvasStore.getState().activeScenario;
-                        const definition = activeScenario?.configuration?.domain_definitions?.find(d =>
-                            (domain?.type && d.id === domain.type) || d.name === domain?.name
-                        );
-
-                        console.log("[CanvasView] Debug Drop: Definition Found", definition);
-
-                        const availableZones = domain?.drop_zones || definition?.drop_zones || [];
-                        console.log("[CanvasView] Debug Drop: Available Zones", availableZones);
-
-                        if (domain && availableZones.length > 0) {
-                            // shouldIconify = true; // REMOVED: Aggressive default
-
-                            // Calculate Hit (Center of Item relative to Domain)
-                            const thing = things.find(t => t.id === n.id);
-                            const w = thing?.width ?? 400;
-                            const h = thing?.height ?? 300;
-                            const cx = n.x + w / 2;
-                            const cy = n.y + h / 2;
-
-                            const rx = cx - domain.position_x;
-                            const ry = cy - domain.position_y;
-
-                            console.log(`[CanvasView] Debug Drop: Hit Test rx=${rx} ry=${ry} (Domain Pos: ${domain.position_x}, ${domain.position_y})`);
-
-                            // --- GEOMETRY CALCULATION START ---
-                            // Replicate CSS Grid Layout logic
-                            const PADDING_TOP = 32;
-                            const PADDING_X = 8;
-                            const PADDING_BOTTOM = 8;
-                            const GAP = 8;
-
-                            const domainW = domain.width || 400;
-                            const domainH = domain.height || 300;
-
-                            const availW = domainW - (PADDING_X * 2);
-                            const availH = domainH - PADDING_TOP - PADDING_BOTTOM;
-
-                            const zoneCount = availableZones.length;
-                            const cols = zoneCount === 1 ? 1 : 2;
-                            const rows = Math.ceil(zoneCount / cols);
-
-                            const cellW = (availW - ((cols - 1) * GAP)) / cols;
-                            const cellH = (availH - ((rows - 1) * GAP)) / rows;
-
-                            console.log(`[CanvasView] Geom: Domain ${domainW}x${domainH}. Cell ${cellW}x${cellH}. Zones=${zoneCount}`);
-
-                            const hitZone = availableZones.find((z, idx) => {
-                                const colIndex = idx % cols;
-                                const rowIndex = Math.floor(idx / cols);
-
-                                const zx = PADDING_X + (colIndex * (cellW + GAP));
-                                const zy = PADDING_TOP + (rowIndex * (cellH + GAP));
-                                const zw = cellW;
-                                const zh = cellH;
-
-                                // Debug individual zone geometry
-                                console.log(`[CanvasView] Zone ${z.id} Check: [${zx}, ${zy}, ${zw}, ${zh}] vs Hit[${rx}, ${ry}]`);
-
-                                return (
-                                    rx >= zx && rx <= (zx + zw) &&
-                                    ry >= zy && ry <= (zy + zh)
-                                );
-                            });
-                            // --- GEOMETRY CALCULATION END ---
-
-                            // Hit check logic
-                            let currentDropZoneId: string | undefined = undefined;
-                            let isInsideDomainBounds = rx >= 0 && rx <= domainW && ry >= 0 && ry <= domainH;
-                            
-                            console.log(`[CanvasView] Hit detection: domain=${targetDomainId}, rx=${rx.toFixed(1)}, ry=${ry.toFixed(1)}, inside=${isInsideDomainBounds}`);
-
-                            if (isInsideDomainBounds) {
-                                // Iterate drop zones to find hit
-                                for (const zone of availableZones) {
-                                    const colIndex = availableZones.indexOf(zone) % cols;
-                                    const rowIndex = Math.floor(availableZones.indexOf(zone) / cols);
-
-                                    const zx = PADDING_X + (colIndex * (cellW + GAP));
-                                    const zy = PADDING_TOP + (rowIndex * (cellH + GAP));
-                                    const zw = cellW;
-                                    const zh = cellH;
-
-                                    // Debug individual zone geometry
-                                    console.log(`[CanvasView] Zone ${zone.id} Check: [${zx.toFixed(1)}, ${zy.toFixed(1)}, ${zw.toFixed(1)}, ${zh.toFixed(1)}] vs Hit[${rx.toFixed(1)}, ${ry.toFixed(1)}]`);
-
-                                    const hit = (
-                                        rx >= zx &&
-                                        rx <= zx + zw &&
-                                        ry >= zy &&
-                                        ry <= zy + zh
-                                    );
-
-                                    if (hit) {
-                                        currentDropZoneId = zone.id;
-                                        console.log(`[CanvasView] HIT Drop Zone: ${zone.label || zone.id} at relative ({${rx.toFixed(1)}, ${ry.toFixed(1)}})`);
-                                        break;
-                                    }
-                                }
-
-                                if (currentDropZoneId) {
-                                    dropZoneId = currentDropZoneId;
-                                    shouldIconify = true; // Only iconify if we actually HIT a zone
-                                    useCanvasStore.getState().flashDropZone(dropZoneId);
-                                } else {
-                                    console.log(`[CanvasView] Debug Drop: No zone hit in domain ${targetDomainId}`);
-                                }
-                            } else {
-                                console.log("[CanvasView] Debug Drop: Not inside domain bounds");
-                            }
-                            // --- GEOMETRY CALCULATION END ---
+                        const thing = things.find(t => t.id === n.id);
+                        const hit = getOverlappingDropZone(n.id, n.x, n.y, thing?.width, thing?.height);
+                        
+                        if (hit && hit.domainId === targetDomainId) {
+                            dropZoneId = hit.dropZoneId;
+                            shouldIconify = true;
+                            useCanvasStore.getState().flashDropZone(dropZoneId);
                         }
                     }
 
@@ -1764,72 +1754,14 @@ function CanvasViewInner() {
         const DEFAULT_W = 400;
         const DEFAULT_H = 300;
 
-        const { findEnclosingDomain, activeScenario, domains: freshDomains } = useCanvasStore.getState();
+        const { findEnclosingDomain } = useCanvasStore.getState();
         const targetDomainId = findEnclosingDomain(position.x, position.y, DEFAULT_W, DEFAULT_H);
 
         if (targetDomainId) {
-            const domain = freshDomains.find(d => d.id === targetDomainId);
-            const definition = activeScenario?.configuration?.domain_definitions?.find(d =>
-                (domain?.type && d.id === domain.type) || d.name === domain?.name
-            );
-            const availableZones = domain?.drop_zones || definition?.drop_zones || [];
-
-            if (domain && availableZones.length > 0) {
-                // Calculate Hit (Center of Item relative to Domain)
-                const cx = position.x + DEFAULT_W / 2;
-                const cy = position.y + DEFAULT_H / 2;
-
-                const rx = cx - domain.position_x;
-                const ry = cy - domain.position_y;
-
-                // --- GEOMETRY CALCULATION START ---
-                // Replicate CSS Grid Layout logic
-                const PADDING_TOP = 32;
-                const PADDING_X = 8;
-                const PADDING_BOTTOM = 8;
-                const GAP = 8;
-
-                const domainW = domain.width || 400;
-                const domainH = domain.height || 300;
-
-                const availW = domainW - (PADDING_X * 2);
-                const availH = domainH - PADDING_TOP - PADDING_BOTTOM;
-
-                const zoneCount = availableZones.length;
-                const cols = zoneCount === 1 ? 1 : 2;
-                const rows = Math.ceil(zoneCount / cols);
-
-                // W: (Total - (cols-1)*gap) / cols
-                const cellW = (availW - ((cols - 1) * GAP)) / cols;
-
-                // H: (Total - (rows-1)*gap) / rows
-                const cellH = (availH - ((rows - 1) * GAP)) / rows;
-
-                console.log(`[CanvasView] Geom: Domain ${domainW}x${domainH}. Cell ${cellW}x${cellH}. Zones=${zoneCount}`);
-
-                // Find Hit
-                const hitZone = availableZones.find((z, idx) => {
-                    const colIndex = idx % cols;
-                    const rowIndex = Math.floor(idx / cols);
-
-                    const zx = PADDING_X + (colIndex * (cellW + GAP));
-                    const zy = PADDING_TOP + (rowIndex * (cellH + GAP));
-                    const zw = cellW;
-                    const zh = cellH;
-
-                    // Debug individual zone geometry
-                    console.log(`[CanvasView] Zone ${z.id} Check: [${zx}, ${zy}, ${zw}, ${zh}] vs Hit[${rx}, ${ry}]`);
-
-                    return (
-                        rx >= zx && rx <= (zx + zw) &&
-                        ry >= zy && ry <= (zy + zh)
-                    );
-                });
-                // --- GEOMETRY CALCULATION END ---
-                if (hitZone) {
-                    dropZoneId = hitZone.id;
-                    console.log(`[CanvasView] File Drop Hit Zone: ${dropZoneId}`);
-                }
+            const hit = getOverlappingDropZone("", position.x, position.y, DEFAULT_W, DEFAULT_H);
+            if (hit && hit.domainId === targetDomainId) {
+                dropZoneId = hit.dropZoneId;
+                console.log(`[CanvasView] File Drop Hit Zone: ${dropZoneId}`);
             }
         }
 
@@ -2905,7 +2837,7 @@ function CanvasViewInner() {
             if (!containerNode) return;
 
             const dataUrlContainer = await domToImage.toPng(containerNode, {
-                bgcolor: '#f8fafc',
+                bgcolor: activeScenario?.theme_color ? `${activeScenario.theme_color}10` : '#f8fafc',
                 quality: 0.8,
                 width: 800, // Force a reasonable thumbnail size? No, dom-to-image uses node size. 
                 // We can scale it down if needed, but let's just store the screenshot.
@@ -3028,6 +2960,7 @@ function CanvasViewInner() {
                                 snapGrid={[20, 20]} // Standard 20px grid
                                 onConnect={isReadOnly ? undefined : onConnect}
                                 onNodeDragStart={onNodeDragStart}
+                                onNodeDrag={onNodeDrag}
                                 onNodeDragStop={onNodeDragStop}
                                 onNodeClick={onNodeClick}
                                 onEdgeClick={onEdgeClick}
@@ -3052,9 +2985,10 @@ function CanvasViewInner() {
                                 nodesConnectable={!isReadOnly}
                                 elementsSelectable={true}
                                 className={cn(
-                                    "bg-slate-50 dark:bg-slate-950",
+                                    !activeScenario?.theme_color && "bg-slate-50 dark:bg-slate-950",
                                     !isDraggingNode && "animate-movement"
                                 )}
+                                style={activeScenario?.theme_color ? { backgroundColor: `${activeScenario.theme_color}10` } : {}}
                                 onInit={(instance) => {
                                     instance.fitView();
                                 }}

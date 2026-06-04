@@ -252,7 +252,10 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const isReadOnly = accessLevel === "read";
 
     return (
-        <div className="flex flex-wrap items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0 gap-y-2">
+        <div 
+            className="flex flex-wrap items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0 gap-y-2 transition-all"
+            style={activeScenario?.theme_color ? { borderTop: `4px solid ${activeScenario.theme_color}` } : { borderTop: '4px solid transparent' }}
+        >
             <div id="canvas-model-selectors" className="flex flex-wrap items-center gap-y-2">
                 {isReadOnly && (
                     <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 rounded-full text-[10px] font-bold border border-amber-200 dark:border-amber-800 mr-4 shadow-sm">
@@ -478,15 +481,21 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
 
                 <div className="flex items-center gap-1 border-l pl-4">
                     <Button
-                        variant="ghost"
+                        variant={activeScenario ? "secondary" : "ghost"}
                         size="sm"
-                        className="h-8 text-slate-500 hover:text-primary"
+                        className="h-8 transition-colors"
                         onClick={() => setScenarioSelectorOpen(true)}
                         title="Scenarios (Vertical Modes)"
                         disabled={isReadOnly}
+                        style={activeScenario?.theme_color ? { 
+                            backgroundColor: `${activeScenario.theme_color}15`, 
+                            color: activeScenario.theme_color, 
+                            borderColor: `${activeScenario.theme_color}30`,
+                            borderWidth: '1px'
+                        } : undefined}
                     >
                         <Layers className="h-4 w-4 mr-2" />
-                        Scenarios
+                        {activeScenario ? activeScenario.name : "Scenarios"}
                     </Button>
                     {!isReadOnly && (
                         <ScenarioSelector

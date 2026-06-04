@@ -115,6 +115,7 @@ export function CanvasList() {
     // Permissions dialog state
     const [permissionsOpen, setPermissionsOpen] = useState(false);
     const [permissionTarget, setPermissionTarget] = useState<CanvasSummary | null>(null);
+    const activeScenario = useCanvasStore(s => s.activeScenario);
 
     // Get auth token
     const getToken = () => {
@@ -769,9 +770,13 @@ export function CanvasList() {
                                 key={canvas.id}
                                 className={cn(
                                     "group flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer",
-                                    activeCanvasId === canvas.id &&
+                                    activeCanvasId === canvas.id && !activeScenario?.theme_color &&
                                     "bg-accent text-accent-foreground"
                                 )}
+                                style={activeCanvasId === canvas.id && activeScenario?.theme_color ? {
+                                    backgroundColor: `${activeScenario.theme_color}25`,
+                                    color: activeScenario.theme_color,
+                                } : {}}
                                 onClick={() => handleSelectCanvas(canvas.id)}
                             >
                                 {isSelectionMode && (

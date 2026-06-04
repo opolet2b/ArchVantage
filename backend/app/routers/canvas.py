@@ -2061,19 +2061,34 @@ async def analyze_selection(
                      # Fallback if asset_id is missing
                      search_filters["canvas_id"] = canvas_id
  
-                 # Resolve model for RAG search
                  active_model = _resolve_active_model(db, canvas_id, request.model)
                  
-                 # Only override selected_content with RAG if the text is huge OR the action is ASK.
-                 # If it's a summarize action and the text fits, it's often better to just send the text,
-                 # but for huge texts or targeted asks, RAG is better.
-                 # For simplicity, we'll use RAG for all ASK actions, or if it's a slideshow (because slideshows need spatial extraction).
+                 # Dynamically resolve context window to avoid unneeded RAG lossiness
+                 llm_obj = llm_service._get_llama_index_model(active_model)
+                 context_window = getattr(llm_obj.metadata, "context_window", None) or 4096
+                 safe_char_limit = (context_window - 1000) * 4
+                 if safe_char_limit < 4000:
+                     safe_char_limit = 12000
+
+                 # Detect if custom prompt asks to translate or analyze the whole/entire document
+                 has_entire_instruction = False
+                 if request.action == AnalyzeAction.ASK and request.custom_prompt:
+                     cp_lower = request.custom_prompt.lower()
+                     has_entire_instruction = any(
+                         word in cp_lower 
+                         for word in ["translate", "entire", "whole", "full content", "complete content", "preserv"]
+                     )
+
+                 # Skip RAG if content fits in context or entire document processing is requested
                  use_rag = True
-                 if thing.type.value == "document" and request.action != AnalyzeAction.ASK:
-                     # For document summarization, only use RAG if the raw text is very big (e.g. > 10000 chars)
-                     if selected_content and len(selected_content) < 15000:
-                         use_rag = False
-                         print("[Analyze] Document is small enough, skipping RAG for full-text summary.")
+                 if thing.type.value == "document":
+                     if selected_content and (len(selected_content) < safe_char_limit or has_entire_instruction):
+                         if len(selected_content) < safe_char_limit:
+                             use_rag = False
+                             print(f"[Analyze] Document is small enough ({len(selected_content)} chars < {safe_char_limit} limit), skipping RAG.")
+                         elif has_entire_instruction and len(selected_content) < safe_char_limit * 1.5:
+                             use_rag = False
+                             print(f"[Analyze] Custom prompt instructs to process entire document, skipping RAG (len={len(selected_content)}).")
 
                  if use_rag:
                      results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
@@ -2151,8 +2166,20 @@ async def analyze_selection(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Custom prompt required for 'ask' action"
             )
-        system_prompt = "You are a helpful assistant. Answer questions based on the provided context."
-        user_prompt = f"{request.custom_prompt}\n\nContext:\n{content_for_prompt}"
+        
+        # Route custom instructions/personas to system prompt, otherwise standard Q&A
+        cp_lower = request.custom_prompt.lower()
+        looks_like_instruction = (
+            len(request.custom_prompt) > 100 
+            or "\n" in request.custom_prompt
+            or any(p in cp_lower for p in ["you act as", "you are", "objective:", "constraints:", "formatting rules:"])
+        )
+        if looks_like_instruction:
+            system_prompt = request.custom_prompt
+            user_prompt = content_for_prompt
+        else:
+            system_prompt = "You are a helpful assistant. Answer questions based on the provided context."
+            user_prompt = f"{request.custom_prompt}\n\nContext:\n{content_for_prompt}"
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2313,12 +2340,33 @@ async def analyze_selection_stream(
  
                  active_model = _resolve_active_model(db, canvas_id, request.model)
                  
+                 # Dynamically resolve context window to avoid unneeded RAG lossiness
+                 llm_obj = llm_service._get_llama_index_model(active_model)
+                 context_window = getattr(llm_obj.metadata, "context_window", None) or 4096
+                 safe_char_limit = (context_window - 1000) * 4
+                 if safe_char_limit < 4000:
+                     safe_char_limit = 12000
+
+                 # Detect if custom prompt asks to translate or analyze the whole/entire document
+                 has_entire_instruction = False
+                 if request.action == AnalyzeAction.ASK and request.custom_prompt:
+                     cp_lower = request.custom_prompt.lower()
+                     has_entire_instruction = any(
+                         word in cp_lower 
+                         for word in ["translate", "entire", "whole", "full content", "complete content", "preserv"]
+                     )
+
+                 # Skip RAG if content fits in context or entire document processing is requested
                  use_rag = True
-                 if thing.type.value == "document" and request.action != AnalyzeAction.ASK:
-                     if selected_content and len(selected_content) < 15000:
-                         use_rag = False
-                         print("[Analyze Stream] Document is small enough, skipping RAG for full-text summary.")
- 
+                 if thing.type.value == "document":
+                     if selected_content and (len(selected_content) < safe_char_limit or has_entire_instruction):
+                         if len(selected_content) < safe_char_limit:
+                             use_rag = False
+                             print(f"[Analyze Stream] Document is small enough ({len(selected_content)} chars < {safe_char_limit} limit), skipping RAG.")
+                         elif has_entire_instruction and len(selected_content) < safe_char_limit * 1.5:
+                             use_rag = False
+                             print(f"[Analyze Stream] Custom prompt instructs to process entire document, skipping RAG (len={len(selected_content)}).")
+
                  if use_rag:
                      results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
                      if results:
@@ -2386,8 +2434,20 @@ async def analyze_selection_stream(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Custom prompt required for 'ask' action"
             )
-        system_prompt = "You are a helpful assistant. Answer questions based on the provided context."
-        user_prompt = f"{request.custom_prompt}\n\nContext:\n{content_for_prompt}"
+        
+        # Route custom instructions/personas to system prompt, otherwise standard Q&A
+        cp_lower = request.custom_prompt.lower()
+        looks_like_instruction = (
+            len(request.custom_prompt) > 100 
+            or "\n" in request.custom_prompt
+            or any(p in cp_lower for p in ["you act as", "you are", "objective:", "constraints:", "formatting rules:"])
+        )
+        if looks_like_instruction:
+            system_prompt = request.custom_prompt
+            user_prompt = content_for_prompt
+        else:
+            system_prompt = "You are a helpful assistant. Answer questions based on the provided context."
+            user_prompt = f"{request.custom_prompt}\n\nContext:\n{content_for_prompt}"
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -128,8 +128,14 @@ export function SelectionToolbar({
         return { x, y };
     }, [position, positionMode]);
 
-    // Close on click outside (Only for fixed mode usually, but applicable to absolute too if clicked elsewhere)
+    // Close on click outside — only when NOT loading
+    // Reason: during loading, the toolbar stays mounted showing "Processing..."
+    // Firing onClose() from an outside mousedown would interfere with:
+    //   a) Scrolling content in other nodes (mousedown on scrollbar triggers this listener)
+    //   b) Dropping files onto the canvas (preventDefault during drag breaks the drop zone)
     React.useEffect(() => {
+        if (isLoading) return; // Don't close while an action is running
+
         const handleClickOutside = (e: MouseEvent) => {
             if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
                 onClose();
@@ -138,7 +144,7 @@ export function SelectionToolbar({
 
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [onClose]);
+    }, [onClose, isLoading]);
 
     // Close on escape
     React.useEffect(() => {
@@ -166,11 +172,16 @@ export function SelectionToolbar({
                     "animate-in fade-in-0 zoom-in-95 duration-150"
                 )}
                 onMouseDown={(e) => {
-                    e.preventDefault();
+                    // stopPropagation: prevent ReactFlow from treating toolbar clicks as canvas pan/drag
+                    // NOTE: We intentionally do NOT call e.preventDefault() here.
+                    // preventDefault() on a pointerdown/mousedown signals to the browser drag API
+                    // that this element does NOT accept drops, causing a "forbidden" cursor
+                    // when the user tries to drag files onto the canvas while a toolbar is visible.
                     e.stopPropagation();
                 }}
                 onPointerDown={(e) => {
-                    e.preventDefault();
+                    // Same rationale: stopPropagation only, no preventDefault.
+                    // preventDefault would block scroll events on nearby content scrollbars.
                     e.stopPropagation();
                 }}
                 style={{
@@ -200,8 +211,8 @@ export function SelectionToolbar({
                                             variant="ghost"
                                             size="sm"
                                             className="h-8 w-8 p-0"
-                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onMouseDown={(e) => { e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.stopPropagation(); }}
                                             onClick={(e) => {
                                                 e.preventDefault();
                                                 e.stopPropagation();
@@ -221,8 +232,8 @@ export function SelectionToolbar({
                                             variant="ghost"
                                             size="sm"
                                             className="h-8 w-8 p-0"
-                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onMouseDown={(e) => { e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.stopPropagation(); }}
                                             onClick={(e) => {
                                                 e.preventDefault();
                                                 e.stopPropagation();
@@ -242,8 +253,8 @@ export function SelectionToolbar({
                                             variant="ghost"
                                             size="sm"
                                             className="h-8 w-8 p-0"
-                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onMouseDown={(e) => { e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.stopPropagation(); }}
                                             onClick={(e) => {
                                                 e.preventDefault();
                                                 e.stopPropagation();
@@ -263,8 +274,8 @@ export function SelectionToolbar({
                                             variant="ghost"
                                             size="sm"
                                             className="h-8 w-8 p-0"
-                                            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                            onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                            onMouseDown={(e) => { e.stopPropagation(); }}
+                                            onPointerDown={(e) => { e.stopPropagation(); }}
                                             onClick={(e) => {
                                                 e.preventDefault();
                                                 e.stopPropagation();
@@ -297,8 +308,8 @@ export function SelectionToolbar({
                                                     "h-8 w-8 p-0 hover:bg-blue-50",
                                                     isThingContext ? "text-indigo-600 hover:text-indigo-700" : "text-blue-600 hover:text-blue-700"
                                                 )}
-                                                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                                onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                onMouseDown={(e) => { e.stopPropagation(); }}
+                                                onPointerDown={(e) => { e.stopPropagation(); }}
                                                 onClick={(e) => {
                                                     e.preventDefault();
                                                     e.stopPropagation();
@@ -324,12 +335,18 @@ export function SelectionToolbar({
                                         variant="ghost"
                                         size="sm"
                                         className="h-8 w-8 p-0"
-                                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onMouseDown={(e) => { e.stopPropagation(); }}
+                                        onPointerDown={(e) => { e.stopPropagation(); }}
                                         onClick={async (e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            console.log("[SelectionToolbar] Transclude Clicked", { fragment });
+                                            const logFragment = fragment ? {
+                                                ...fragment,
+                                                content: typeof fragment.content === "string" && fragment.content.length > 200
+                                                    ? `${fragment.content.substring(0, 100)}... [truncated ${fragment.content.length} chars]`
+                                                    : fragment.content
+                                            } : fragment;
+                                            console.log("[SelectionToolbar] Transclude Clicked", { fragment: logFragment });
                                             let finalFragmentId = fragment.id;
                                             const store = useCanvasStore.getState();
 
@@ -427,8 +444,8 @@ export function SelectionToolbar({
                                         variant="ghost"
                                         size="sm"
                                         className="h-8 w-8 p-0"
-                                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                        onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                        onMouseDown={(e) => { e.stopPropagation(); }}
+                                        onPointerDown={(e) => { e.stopPropagation(); }}
                                         onClick={(e) => {
                                             e.preventDefault();
                                             e.stopPropagation();
@@ -449,8 +466,8 @@ export function SelectionToolbar({
                                     variant="ghost"
                                     size="sm"
                                     className="h-8 w-8 p-0"
-                                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onMouseDown={(e) => { e.stopPropagation(); }}
+                                    onPointerDown={(e) => { e.stopPropagation(); }}
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
@@ -469,8 +486,8 @@ export function SelectionToolbar({
                                     variant="ghost"
                                     size="sm"
                                     className="h-8 w-8 p-0"
-                                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onMouseDown={(e) => { e.stopPropagation(); }}
+                                    onPointerDown={(e) => { e.stopPropagation(); }}
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();
@@ -490,8 +507,8 @@ export function SelectionToolbar({
                                     variant="ghost"
                                     size="sm"
                                     className="h-8 w-8 p-0 text-muted-foreground"
-                                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                    onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onMouseDown={(e) => { e.stopPropagation(); }}
+                                    onPointerDown={(e) => { e.stopPropagation(); }}
                                     onClick={(e) => {
                                         e.preventDefault();
                                         e.stopPropagation();

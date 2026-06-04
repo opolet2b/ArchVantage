@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import {
     MoreHorizontal, GripHorizontal, FolderOpen, Maximize2, LayoutGrid, Layers,
     Settings, List, Plus, X, Calendar as CalendarIcon, Clock, Hash,
-    Pencil, Palette, Sparkles, Target, Zap, Trash2, CheckCircle, AlertTriangle, Repeat
+    Pencil, Palette, Sparkles, Target, Zap, Trash2, CheckCircle, AlertTriangle, Repeat, FileJson
 } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -135,6 +135,12 @@ interface AutomationEditorProps {
     linkTypes: any[];
     onChange: (automations: any[]) => void;
     disabled?: boolean;
+    /**
+     * The scenario-level builder LLM (set in the General tab of the Scenario Editor).
+     * Used to pre-populate the model selector so AI features work immediately.
+     * This is NOT the execution LLM — it only affects builder AI helpers.
+     */
+    buildingLlm?: string;
 }
 
 const HOOKS = [
@@ -146,11 +152,22 @@ const HOOKS = [
     { value: "onMetadataChange", label: "When metadata updates" },
 ];
 
-export function AutomationEditor({ automations, domains, linkTypes, onChange, disabled }: AutomationEditorProps) {
+export function AutomationEditor({ automations, domains, linkTypes, onChange, disabled, buildingLlm }: AutomationEditorProps) {
     const [blueprints, setBlueprints] = React.useState<any[]>([]);
     const [presets, setPresets] = React.useState<any[]>([]);
     const [canvases, setCanvases] = React.useState<any[]>([]);
-    const [selectedPreset, setSelectedPreset] = React.useState<string>("");
+    // selectedPreset: model used for AI-assisted workflow building in this editor session.
+    // Initialized from the scenario-level buildingLlm if provided; otherwise defaults
+    // to the first available preset once presets are loaded.
+    const [selectedPreset, setSelectedPreset] = React.useState<string>(buildingLlm || "");
+
+    // Sync selectedPreset when the parent buildingLlm prop changes
+    // (e.g. user edits the builder LLM in the General tab and comes back here)
+    React.useEffect(() => {
+        if (buildingLlm) {
+            setSelectedPreset(buildingLlm);
+        }
+    }, [buildingLlm]);
 
     React.useEffect(() => {
         const fetchData = async () => {
@@ -163,14 +180,17 @@ export function AutomationEditor({ automations, domains, linkTypes, onChange, di
                 });
                 if (bpRes.ok) setBlueprints(await bpRes.json());
 
-                // Fetch Presets
+                // Fetch Presets for the session-level model override dropdown
                 const preRes = await fetch(`${API_URL}/config/presets`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 if (preRes.ok) {
                     const data = await preRes.json();
                     setPresets(data.presets || []);
-                    if (data.presets?.length > 0) setSelectedPreset(data.presets[0].name);
+                    // Only fall back to first preset when no buildingLlm is set
+                    if (!buildingLlm && data.presets?.length > 0) {
+                        setSelectedPreset(data.presets[0].name);
+                    }
                 }
 
                 // Fetch Canvases
@@ -218,7 +238,7 @@ export function AutomationEditor({ automations, domains, linkTypes, onChange, di
                 <div className="flex items-center gap-4">
                     <h3 className="text-lg font-medium">Spatial Automations</h3>
                     <div className="flex items-center gap-2">
-                        <Label className="text-xs whitespace-nowrap text-muted-foreground">Model Config:</Label>
+                        <Label className="text-xs whitespace-nowrap text-muted-foreground">Builder Model:</Label>
                         <Select value={selectedPreset} onValueChange={setSelectedPreset}>
                             <SelectTrigger className="h-8 w-[200px] text-xs">
                                 <SelectValue placeholder="Select Configuration..." />
@@ -229,6 +249,13 @@ export function AutomationEditor({ automations, domains, linkTypes, onChange, di
                                 ))}
                             </SelectContent>
                         </Select>
+                        {/* Visual indicator of the model source */}
+                        {selectedPreset && buildingLlm && selectedPreset === buildingLlm && (
+                            <span className="text-[10px] text-muted-foreground italic">(from General tab)</span>
+                        )}
+                        {!selectedPreset && (
+                            <span className="text-[10px] text-amber-500">⚠ No model — set in General tab</span>
+                        )}
                     </div>
                 </div>
                 <Button type="button" onClick={addAutomation} disabled={disabled} size="sm">
@@ -409,17 +436,36 @@ export function AutomationEditor({ automations, domains, linkTypes, onChange, di
                                                 </p>
                                             </div>
                                         ) : (
-                                            <WorkflowBuilder
-                                                isRoot
-                                                steps={auto.action.steps || []}
-                                                onChange={(steps) => updateAutomation(auto.id, {
-                                                    action: { ...auto.action, steps }
-                                                })}
-                                                domains={domains}
-                                                linkTypes={linkTypes}
-                                                selectedModel={selectedPreset}
-                                                canvases={canvases}
-                                            />
+                                            <div className="space-y-4">
+                                                <AIWorkflowGenerator
+                                                    domains={domains}
+                                                    selectedModel={selectedPreset}
+                                                    initialPrompt={auto.action.ai_prompt || ""}
+                                                    onPromptChange={(prompt) => updateAutomation(auto.id, {
+                                                        action: { ...auto.action, ai_prompt: prompt }
+                                                    })}
+                                                    onGenerated={(steps) => updateAutomation(auto.id, {
+                                                        action: { ...auto.action, steps }
+                                                    })}
+                                                    disabled={disabled}
+                                                    steps={auto.action.steps || []}
+                                                />
+                                                <WorkflowBuilder
+                                                    isRoot
+                                                    steps={auto.action.steps || []}
+                                                    onChange={(steps) => updateAutomation(auto.id, {
+                                                        action: { ...auto.action, steps }
+                                                    })}
+                                                    domains={domains}
+                                                    linkTypes={linkTypes}
+                                                    selectedModel={selectedPreset}
+                                                    canvases={canvases}
+                                                    initialPrompt={auto.action.ai_prompt || ""}
+                                                    onPromptChange={(prompt) => updateAutomation(auto.id, {
+                                                        action: { ...auto.action, ai_prompt: prompt }
+                                                    })}
+                                                />
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -428,6 +474,290 @@ export function AutomationEditor({ automations, domains, linkTypes, onChange, di
                     ))}
                 </div>
             </div>
+        </div>
+    );
+}
+
+interface AIWorkflowGeneratorProps {
+    domains: DomainDefinition[];
+    selectedModel: string;
+    initialPrompt?: string;
+    onPromptChange?: (prompt: string) => void;
+    onGenerated: (steps: any[]) => void;
+    disabled?: boolean;
+    steps?: any[];
+}
+
+function AIWorkflowGenerator({ domains, selectedModel, initialPrompt = "", onPromptChange = () => {}, onGenerated, disabled, steps = [] }: AIWorkflowGeneratorProps) {
+    const [localPrompt, setLocalPrompt] = React.useState(initialPrompt);
+    const [isLoading, setIsLoading] = React.useState(false);
+    const [isSuggesting, setIsSuggesting] = React.useState(false);
+    const [loadingStep, setLoadingStep] = React.useState(0);
+    const [error, setError] = React.useState<string | null>(null);
+    const [copied, setCopied] = React.useState(false);
+
+    React.useEffect(() => {
+        setLocalPrompt(initialPrompt);
+    }, [initialPrompt]);
+
+    const loadingTexts = [
+        "Analyzing scenario domains & criteria...",
+        "Consulting AI on the best automation path...",
+        "Building logical branches and canvas queries...",
+        "Structuring actions and parameter schemas...",
+        "Validating step connections..."
+    ];
+
+    React.useEffect(() => {
+        let interval: any;
+        if (isLoading) {
+            setLoadingStep(0);
+            interval = setInterval(() => {
+                setLoadingStep(prev => (prev + 1) % loadingTexts.length);
+            }, 3000);
+        }
+        return () => clearInterval(interval);
+    }, [isLoading]);
+
+    const handleSuggest = async () => {
+        if (!localPrompt.trim()) return;
+        setIsSuggesting(true);
+        setError(null);
+
+        const token = localStorage.getItem("token");
+        try {
+            const res = await fetch(`${API_URL}/scenarios/suggest-prompt`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    prompt: localPrompt,
+                    domains,
+                    model: selectedModel
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.detail || "Failed to optimize prompt");
+            }
+
+            const data = await res.json();
+            if (data.suggested_prompt) {
+                setLocalPrompt(data.suggested_prompt);
+                onPromptChange(data.suggested_prompt);
+            } else {
+                throw new Error("Invalid response format from server");
+            }
+        } catch (err: any) {
+            console.error("Prompt optimization failed", err);
+            setError(err.message || "An unexpected error occurred during prompt optimization.");
+        } finally {
+            setIsSuggesting(false);
+        }
+    };
+
+    const handleGenerate = async () => {
+        if (!localPrompt.trim()) return;
+        setIsLoading(true);
+        setError(null);
+
+        // Ensure we save the prompt state to the parent config too
+        onPromptChange(localPrompt);
+
+        const token = localStorage.getItem("token");
+        try {
+            const res = await fetch(`${API_URL}/scenarios/generate-workflow`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    prompt: localPrompt,
+                    domains,
+                    model: selectedModel
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.detail || "Failed to generate workflow");
+            }
+
+            const data = await res.json();
+            if (data.steps && Array.isArray(data.steps)) {
+                onGenerated(data.steps);
+                // Keep the prompt as requested: do not empty it!
+            } else {
+                throw new Error("Invalid response format from server");
+            }
+        } catch (err: any) {
+            console.error("AI workflow generation failed", err);
+            setError(err.message || "An unexpected error occurred during generation.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4 shadow-md backdrop-blur-md mb-2 transition-all duration-300 hover:border-primary/45">
+            {/* Background glowing orb */}
+            <div className="absolute -top-16 -right-16 w-32 h-32 rounded-full bg-primary/10 blur-2xl pointer-events-none" />
+
+            <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                </div>
+                <div>
+                    <h4 className="text-xs font-bold text-foreground">AI Workflow Assistant</h4>
+                    <p className="text-[10px] text-muted-foreground">Describe your automation in plain language</p>
+                </div>
+            </div>
+
+            {isLoading ? (
+                <div className="py-6 flex flex-col items-center justify-center space-y-4">
+                    <div className="relative w-12 h-12 flex items-center justify-center">
+                        <div className="absolute inset-0 rounded-full border-4 border-primary/10 border-t-primary animate-spin" />
+                        <Sparkles className="w-5 h-5 text-primary animate-bounce" />
+                    </div>
+                    <div className="space-y-1.5 text-center px-4 max-w-[280px]">
+                        <p className="text-xs font-bold text-foreground animate-pulse">
+                            {loadingTexts[loadingStep]}
+                        </p>
+                        <div className="w-full bg-muted h-1 rounded-full overflow-hidden">
+                            <div 
+                                className="bg-primary h-full rounded-full transition-all duration-500"
+                                style={{ width: `${((loadingStep + 1) / loadingTexts.length) * 100}%` }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    <div className="relative">
+                        <Textarea
+                            value={localPrompt}
+                            onChange={(e) => setLocalPrompt(e.target.value)}
+                            onBlur={() => onPromptChange(localPrompt)}
+                            placeholder="e.g., When an item drops on 'Invoices', extract the vendor and invoice amount using AI. If the amount is over $10,000, move it to 'High Value' dropzone and search the canvas for a matching contract..."
+                            className="min-h-[80px] text-xs resize-none bg-background/50 border-muted focus-visible:ring-primary/30 pr-40"
+                            disabled={disabled || isSuggesting}
+                        />
+                        {localPrompt.trim() && (
+                            <div className="absolute bottom-2 right-2 flex gap-1.5">
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleSuggest}
+                                    disabled={disabled || isSuggesting}
+                                    className="h-7 px-2.5 text-[10px] font-bold border-primary/20 hover:bg-primary/5 text-primary transition-all duration-200"
+                                >
+                                    {isSuggesting ? (
+                                        <div className="w-3.5 h-3.5 rounded-full border border-primary/30 border-t-primary animate-spin mr-1" />
+                                    ) : (
+                                        <Sparkles className="w-3.5 h-3.5 mr-1" />
+                                    )}
+                                    Suggest
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleGenerate}
+                                    disabled={disabled || isSuggesting}
+                                    className="h-7 px-3 text-[10px] font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-md transition-all duration-200 hover:shadow-primary/25 hover:translate-y-[-1px] active:translate-y-0"
+                                >
+                                    Generate
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+
+                    {error && (
+                        <div className="flex items-start gap-2 p-2 rounded bg-destructive/10 border border-destructive/20 text-[10px] text-destructive leading-normal">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>{error}</span>
+                        </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-1.5">
+                        <span className="text-[9px] text-muted-foreground/80 py-0.5 uppercase font-bold mr-1">Suggestions:</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const p = "AI analyze the document and if it contains a contract signature, set its color to green and move to 'Signed Contracts' dropzone.";
+                                setLocalPrompt(p);
+                                onPromptChange(p);
+                            }}
+                            className="text-[9px] bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground px-2 py-0.5 rounded-full transition-colors font-medium border"
+                        >
+                            Contract Route
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const p = "Search the canvas for other items with the same title as this item. If any are found, batch link them as 'duplicate' and add a description saying why.";
+                                setLocalPrompt(p);
+                                onPromptChange(p);
+                            }}
+                            className="text-[9px] bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground px-2 py-0.5 rounded-full transition-colors font-medium border"
+                        >
+                            Find duplicates & link
+                        </button>
+                    </div>
+
+                    {steps && steps.length > 0 && (
+                        <div className="border-t pt-2.5 mt-2 flex items-center justify-between animate-in fade-in duration-300">
+                            <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1">
+                                📋 Workflow JSON Definition ready ({steps.length} {steps.length === 1 ? 'step' : 'steps'})
+                            </span>
+                            <Dialog>
+                                <DialogTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1 hover:bg-primary/10 hover:text-primary font-bold transition-all duration-200">
+                                        <FileJson className="w-3.5 h-3.5" /> View JSON
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="w-[90vw] sm:max-w-2xl max-h-[85vh] flex flex-col p-6 rounded-xl">
+                                    <DialogHeader className="pb-3 border-b">
+                                        <DialogTitle className="flex items-center gap-2 text-lg">
+                                            <FileJson className="w-5 h-5 text-primary" /> Workflow JSON Definition
+                                        </DialogTitle>
+                                        <DialogDescription className="text-xs">
+                                            Below is the formal, compiled JSON representational structure of the active workflow's step list.
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="flex-1 overflow-auto rounded-lg bg-muted/40 border p-4 font-mono text-[10px] whitespace-pre-wrap select-all max-h-[50vh] relative shadow-inner mt-4">
+                                        {JSON.stringify(steps, null, 2)}
+                                    </div>
+                                    <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(JSON.stringify(steps, null, 2));
+                                                setCopied(true);
+                                                setTimeout(() => setCopied(false), 2000);
+                                            }}
+                                            className="h-8 px-4 font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all duration-200"
+                                        >
+                                            {copied ? (
+                                                <>
+                                                    <CheckCircle className="w-3.5 h-3.5 text-green-500" /> Copied!
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <FolderOpen className="w-3.5 h-3.5" /> Copy JSON
+                                                </>
+                                            )}
+                                        </Button>
+                                    </div>
+                                </DialogContent>
+                            </Dialog>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -554,7 +884,27 @@ function SpecificReferencePicker({ domains, onInsert }: { domains: DomainDefinit
     );
 }
 
-function WorkflowPopup({ children, title, description }: { children: React.ReactNode, title: string, description?: string }) {
+function WorkflowPopup({
+    children,
+    title,
+    description,
+    domains,
+    selectedModel,
+    onGenerated,
+    initialPrompt,
+    onPromptChange,
+    disabled
+}: {
+    children: React.ReactNode;
+    title: string;
+    description?: string;
+    domains: DomainDefinition[];
+    selectedModel: string;
+    onGenerated: (steps: any[]) => void;
+    initialPrompt: string;
+    onPromptChange: (prompt: string) => void;
+    disabled?: boolean;
+}) {
     return (
         <Dialog>
             <DialogTrigger asChild>
@@ -572,7 +922,15 @@ function WorkflowPopup({ children, title, description }: { children: React.React
                     </div>
                     {description && <DialogDescription className="mt-1">{description}</DialogDescription>}
                 </DialogHeader>
-                <div className="flex-1 overflow-y-auto py-4 pr-2">
+                <div className="flex-1 overflow-y-auto py-4 pr-2 space-y-4">
+                    <AIWorkflowGenerator
+                        domains={domains}
+                        selectedModel={selectedModel}
+                        initialPrompt={initialPrompt}
+                        onPromptChange={onPromptChange}
+                        onGenerated={onGenerated}
+                        disabled={disabled}
+                    />
                     {children}
                 </div>
             </DialogContent>
@@ -696,6 +1054,76 @@ function VariablesHelpDialog() {
     );
 }
 
+function normalizeSteps(steps: any[]): any[] {
+    if (!Array.isArray(steps)) return [];
+    let changed = false;
+    const nextSteps = steps.map(step => {
+        let updatedStep = step;
+        if (step.primitive === "LOGIC_SET_VARIABLE") {
+            if (step.inputs && ('name' in step.inputs || 'value' in step.inputs)) {
+                const { name, value, ...rest } = step.inputs;
+                const variables = { ...step.inputs.variables };
+                if (name !== undefined) {
+                    variables[name] = value !== undefined ? value : "";
+                }
+                updatedStep = {
+                    ...step,
+                    inputs: {
+                        ...rest,
+                        variables
+                    }
+                };
+                changed = true;
+            }
+        }
+        
+        // Recursively normalize children steps
+        if (step.inputs) {
+            if (step.inputs.steps && Array.isArray(step.inputs.steps)) {
+                const normalizedInner = normalizeSteps(step.inputs.steps);
+                if (normalizedInner !== step.inputs.steps) {
+                    updatedStep = {
+                        ...updatedStep,
+                        inputs: {
+                            ...updatedStep.inputs,
+                            steps: normalizedInner
+                        }
+                    };
+                    changed = true;
+                }
+            }
+            if (step.inputs.then_steps && Array.isArray(step.inputs.then_steps)) {
+                const normalizedInner = normalizeSteps(step.inputs.then_steps);
+                if (normalizedInner !== step.inputs.then_steps) {
+                    updatedStep = {
+                        ...updatedStep,
+                        inputs: {
+                            ...updatedStep.inputs,
+                            then_steps: normalizedInner
+                        }
+                    };
+                    changed = true;
+                }
+            }
+            if (step.inputs.else_steps && Array.isArray(step.inputs.else_steps)) {
+                const normalizedInner = normalizeSteps(step.inputs.else_steps);
+                if (normalizedInner !== step.inputs.else_steps) {
+                    updatedStep = {
+                        ...updatedStep,
+                        inputs: {
+                            ...updatedStep.inputs,
+                            else_steps: normalizedInner
+                        }
+                    };
+                    changed = true;
+                }
+            }
+        }
+        return updatedStep;
+    });
+    return changed ? nextSteps : steps;
+}
+
 function WorkflowBuilder({
     steps,
     onChange,
@@ -704,7 +1132,10 @@ function WorkflowBuilder({
     selectedModel,
     canvases = [],
     isRoot = false,
-    parentVariables = []
+    parentVariables = [],
+    initialPrompt = "",
+    onPromptChange,
+    disabled
 }: {
     steps: any[],
     onChange: (s: any[]) => void,
@@ -713,8 +1144,20 @@ function WorkflowBuilder({
     selectedModel: string,
     canvases?: any[],
     isRoot?: boolean,
-    parentVariables?: { value: string, label: string, category: string, description?: string }[]
+    parentVariables?: { value: string, label: string, category: string, description?: string }[],
+    initialPrompt?: string,
+    onPromptChange?: (prompt: string) => void,
+    disabled?: boolean
 }) {
+    const stepsArray = Array.isArray(steps) ? steps : [];
+
+    React.useEffect(() => {
+        const normalized = normalizeSteps(stepsArray);
+        if (normalized !== steps) {
+            onChange(normalized);
+        }
+    }, [steps, onChange, stepsArray]);
+
     // ... addStep ... (Keep existing implementation)
     const addStep = (primitive: string) => {
         const newStep: any = {
@@ -752,17 +1195,17 @@ function WorkflowBuilder({
         } else if (primitive === "FOREACH") {
             newStep.inputs = { items: "{{query_results.thing_ids}}", iterator_var: "item_id", steps: [] };
         }
-        onChange([...steps, newStep]);
+        onChange([...stepsArray, newStep]);
     };
 
     const updateStep = (index: number, updates: any) => {
-        const newSteps = [...steps];
+        const newSteps = [...stepsArray];
         newSteps[index] = { ...newSteps[index], ...updates };
         onChange(newSteps);
     };
 
     const removeStep = (index: number) => {
-        onChange(steps.filter((_, i) => i !== index));
+        onChange(stepsArray.filter((_, i) => i !== index));
     };
 
     return (
@@ -775,7 +1218,17 @@ function WorkflowBuilder({
                     </span>
                     <div className="flex items-center gap-1">
                         <VariablesHelpDialog />
-                        <WorkflowPopup title="Automation Workflow Editor" description="A larger space to build complex multi-step and conditional automations.">
+                        <WorkflowPopup 
+                            title="Automation Workflow Editor" 
+                            description="A larger space to build complex multi-step and conditional automations."
+                            domains={domains}
+                            selectedModel={selectedModel}
+                            onGenerated={onChange}
+                            initialPrompt={initialPrompt}
+                            onPromptChange={onPromptChange || (() => {})}
+                            disabled={disabled}
+                            steps={steps}
+                        >
                             <WorkflowBuilder
                                 steps={steps}
                                 onChange={onChange}
@@ -791,7 +1244,7 @@ function WorkflowBuilder({
             )}
 
             <div className="space-y-4 relative">
-                {steps.map((step, idx) => {
+                {stepsArray.map((step, idx) => {
                     let colorClass = "border-l-4 border-l-slate-400 bg-background";
                     if (step.primitive === "LOGIC_IF_ELSE") colorClass = "border-l-4 border-l-indigo-500 bg-indigo-50/20";
                     else if (step.primitive === "FOREACH") colorClass = "border-l-4 border-l-amber-500 bg-amber-50/20";
@@ -813,6 +1266,11 @@ function WorkflowBuilder({
                             <span className="font-semibold flex items-center gap-1.5 opacity-90">
                                 <span className="text-base">{PRIMITIVES.find(p => p.value === step.primitive)?.icon}</span>
                                 {PRIMITIVES.find(p => p.value === step.primitive)?.label || step.primitive}
+                                {step.id && (
+                                    <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-muted-foreground/20">
+                                        ID: {step.id}
+                                    </span>
+                                )}
                             </span>
                             <Button variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeStep(idx)}>
                                 <Trash2 className="w-3 h-3" />
@@ -843,17 +1301,24 @@ function WorkflowBuilder({
                                     </div>
                                     <div>
                                         <Label className="text-[10px]">Zone</Label>
-                                        <Select
-                                            value={step.inputs.zone_id}
-                                            onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, zone_id: val } })}
-                                        >
-                                            <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select Zone" /></SelectTrigger>
-                                            <SelectContent>
-                                                {domains.find(d => d.id === step.inputs.domain_id)?.drop_zones?.map(z => (
-                                                    <SelectItem key={z.id} value={z.id}>{z.label}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        {(() => {
+                                            const domainZones = domains.find(d => d.id === step.inputs.domain_id)?.drop_zones || [];
+                                            const matchedZone = domainZones.find(z => z.id === step.inputs.zone_id || z.label?.toLowerCase() === step.inputs.zone_id?.toLowerCase());
+                                            const resolvedZoneId = matchedZone ? matchedZone.id : step.inputs.zone_id;
+                                            return (
+                                                <Select
+                                                    value={resolvedZoneId || ""}
+                                                    onValueChange={(val) => updateStep(idx, { inputs: { ...step.inputs, zone_id: val } })}
+                                                >
+                                                    <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select Zone" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        {domainZones.map(z => (
+                                                            <SelectItem key={z.id} value={z.id}>{z.label}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                                 </div>
@@ -1495,7 +1960,7 @@ function WorkflowBuilder({
                                 <div className="space-y-4">
                                     <div className="bg-blue-50/50 p-3 rounded-md border border-blue-100 text-[11px] text-blue-800 space-y-1.5 leading-relaxed">
                                         <p><strong>How it works:</strong> Loops over a list of items and runs a sub-workflow for each one.</p>
-                                        <p><strong>Syntax:</strong> Provide an array (e.g. <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{query_results.things}}"}</code>). Inside the loop, you can refer to the current item using <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{item}}"}</code>.</p>
+                                        <p><strong>Syntax:</strong> Provide an array (e.g. <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{"{{query_results.things}}"}</code>). Inside the loop, you can refer to the current item using <code className="bg-white/80 px-1 py-0.5 rounded border border-blue-200">{`{{${step.inputs.iterator_var || 'item'}}}`}</code>.</p>
                                     </div>
                                     <div className="bg-muted/10 p-4 rounded-md border border-primary/10 space-y-4">
                                         <div className="flex items-center gap-2 flex-wrap text-sm text-foreground font-medium">
@@ -1507,13 +1972,16 @@ function WorkflowBuilder({
                                                     availableVariables={parentVariables}
                                                 />
                                             </div>
+                                            as
+                                            <div className="flex items-center w-36">
+                                                <Input
+                                                    className="h-8 text-xs font-mono font-bold text-primary bg-background border-primary/20 px-2"
+                                                    value={step.inputs.iterator_var || "item"}
+                                                    onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, iterator_var: e.target.value } })}
+                                                    placeholder="item alias"
+                                                />
+                                            </div>
                                             , do the following:
-                                        </div>
-                                        <div className="hidden">
-                                            <Input
-                                                value={step.inputs.iterator_var}
-                                                onChange={(e) => updateStep(idx, { inputs: { ...step.inputs, iterator_var: e.target.value } })}
-                                            />
                                         </div>
                                         
                                         <div className="relative pt-6 mt-2">

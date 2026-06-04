@@ -361,7 +361,7 @@ export function TtsConfigTab() {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="gemini">Gemini 3.1 Flash (Multimodal)</SelectItem>
+                                                <SelectItem value="gemini">Google Gemini AI</SelectItem>
                                                 <SelectItem value="openai">OpenAI / Compatible</SelectItem>
                                             </SelectContent>
                                         </Select>
@@ -385,15 +385,15 @@ export function TtsConfigTab() {
                                     />
                                 </div>
 
-                                {!form.api_url?.includes("generativelanguage.googleapis.com") && (
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <Label>Model Name (e.g. tts-1, openai/whisper-1)</Label>
-                                            <Input
-                                                value={form.model_name}
-                                                onChange={(e) => setForm({ ...form, model_name: e.target.value })}
-                                            />
-                                        </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Model Name (e.g. tts-1, gemini-2.5-flash)</Label>
+                                        <Input
+                                            value={form.model_name}
+                                            onChange={(e) => setForm({ ...form, model_name: e.target.value })}
+                                        />
+                                    </div>
+                                    {!form.api_url?.includes("generativelanguage.googleapis.com") && (
                                         <div className="space-y-2">
                                             <Label>Audio Format</Label>
                                             <Select
@@ -413,8 +413,8 @@ export function TtsConfigTab() {
                                                 </SelectContent>
                                             </Select>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </>
                         )}
 

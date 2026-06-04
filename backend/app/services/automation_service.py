@@ -170,6 +170,11 @@ class AutomationService:
                     self._log(f"  [BRIDGE] Bridged onDrop -> onEntry for rule '{auto_name}'", "DEBUG")
                 else:
                     self._log(f"  [BRIDGE SKIP] hook={hook}, auto_hook={auto_hook}, is_new={is_new}", "DEBUG")
+            
+            # BRIDGE LOGIC: treat onEntry as onDrop when dropping/dragging items into domains
+            elif not is_hook_match and hook == "onEntry" and auto_hook == "onDrop":
+                is_hook_match = True
+                self._log(f"  [BRIDGE] Bridged onEntry -> onDrop for rule '{auto_name}'", "DEBUG")
 
             # Log every rule check
             self._log(f"  Rule '{auto_name}': Target={auto_hook}, Current={hook}, Match={is_hook_match}", "DEBUG")
@@ -460,8 +465,61 @@ class AutomationService:
                     if d and (d.type == str(expected_val) or d.name == str(expected_val)):
                         self._log(f"  [PASS] Filter 'domain_id' matched domain type/name for {d.id}", "DEBUG")
                         continue # Matched by type/name, so this filter passes
+
+                # Resolve Drop Zone Label/Name for "drop_zone_id" criteria
+                elif key == "drop_zone_id":
+                    # Check direct ID/value match first
+                    if str(payload_val) == str(expected_val):
+                        continue
+
+                    # Fallback: check if matches drop zone label or name within target domain
+                    d_id = payload.get("domain_id")
+                    if d_id:
+                        d = db.query(Domain).filter(Domain.id == str(d_id)).first()
+                        if d:
+                            # Try to find drop zones defined on the domain itself first
+                            zones = d.drop_zones or []
+
+                            # If not found, fetch them from the domain definition in Canvas/Scenario config
+                            if not zones:
+                                canvas = db.query(Canvas).filter(Canvas.id == d.canvas_id).first()
+                                if canvas and canvas.owner_config:
+                                    domain_definitions = []
+                                    scenario_id = canvas.owner_config.get("scenario_id")
+                                    if scenario_id:
+                                        from app.models.scenario_models import Scenario
+                                        scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+                                        if scenario and scenario.configuration:
+                                            domain_definitions = scenario.configuration.get("domain_definitions", [])
+
+                                    # Fallback to local canvas config definitions
+                                    if not domain_definitions:
+                                        domain_definitions = canvas.owner_config.get("domain_definitions", [])
+
+                                    # Find matching definition by type/id or name
+                                    definition = None
+                                    for defn in domain_definitions:
+                                        if (d.type and defn.get("id") == d.type) or defn.get("name") == d.name:
+                                            definition = defn
+                                            break
+
+                                    if definition:
+                                        zones = definition.get("drop_zones") or []
+
+                            if zones:
+                                matched_zone = None
+                                for zone in zones:
+                                    if zone.get("id") == str(payload_val) and (
+                                        zone.get("label") == str(expected_val) or
+                                        zone.get("name") == str(expected_val)
+                                    ):
+                                        matched_zone = zone
+                                        break
+                                if matched_zone:
+                                    self._log(f"  [PASS] Filter 'drop_zone_id' matched drop zone label/name for {payload_val}", "DEBUG")
+                                    continue
                         
-                # General mismatch check for other keys or if domain_id didn't match by type/name
+                # General mismatch check for other keys or if domain_id/drop_zone_id didn't match
                 if str(payload_val) != str(expected_val):
                     return f"Criteria '{key}' mismatch: expected '{expected_val}', got '{payload_val}'"
             # If the filter key is in trigger but not in payload, it's a mismatch

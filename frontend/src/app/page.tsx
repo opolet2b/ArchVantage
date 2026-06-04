@@ -1,8 +1,32 @@
 "use client";
 
 import * as React from "react";
-import { ChatInterface } from "@/components/chat-interface";
-import { CanvasView } from "@/components/semantic-canvas";
+import dynamic from "next/dynamic";
+
+const ChatInterface = dynamic(
+  () => import("@/components/chat-interface").then((mod) => mod.ChatInterface),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Loading Chat Interface...
+      </div>
+    ),
+  }
+);
+
+const CanvasView = dynamic(
+  () => import("@/components/semantic-canvas").then((mod) => mod.CanvasView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        Loading Canvas...
+      </div>
+    ),
+  }
+);
+
 import { useViewMode } from "@/lib/view-mode-context";
 import { useConversation } from "@/lib/conversation-context";
 

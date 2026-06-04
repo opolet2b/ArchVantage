@@ -87,7 +87,7 @@ class GenericPipelinePrimitive(BasePrimitive):
                 "status": "running"
             }
             
-            self._log_debug(f"Executing [{node_label}]: {primitive_name}", state)
+            self._log_debug(f"Executing [{node_label}] (ID: {step_id}): {primitive_name}", state)
             
             # Resolve inputs with current state
             resolved_inputs = {}
@@ -118,11 +118,11 @@ class GenericPipelinePrimitive(BasePrimitive):
                 executed_steps.append(step_record)
                 
                 if not result.success:
-                    self._log_debug(f"FAILED [{node_label}]: {result.error}", state)
+                    self._log_debug(f"FAILED [{node_label}] (ID: {step_id}): {result.error}", state)
                     if state.get("db"):
                         state["db"].rollback()
-                        self._log_debug(f"Database session rolled back after failure at [{node_label}]", state)
-                    return PrimitiveResult(success=False, error=f"Step {i} ({primitive_name}) failed: {result.error}", steps=executed_steps)
+                        self._log_debug(f"Database session rolled back after failure at [{node_label}] (ID: {step_id})", state)
+                    return PrimitiveResult(success=False, error=f"Step {i} ({primitive_name}, ID: {step_id}) failed: {result.error}", steps=executed_steps)
                 
                 # --- HANDLE FOREACH HANDOFF ---
                 if isinstance(result.output, dict) and "_foreach_subprocess" in result.output:
@@ -212,15 +212,15 @@ class GenericPipelinePrimitive(BasePrimitive):
                     state["current_output"] = result.output
                     
             except Exception as e:
-                self._log_debug(f"EXCEPTION at [{node_label}]: {e}", state)
+                self._log_debug(f"EXCEPTION at [{node_label}] (ID: {step_id}): {e}", state)
                 step_record["status"] = "failed"
                 step_record["error"] = str(e)
                 step_record["completed_at"] = datetime.utcnow().isoformat()
                 executed_steps.append(step_record)
                 if state.get("db"):
                     state["db"].rollback()
-                    self._log_debug(f"Database session rolled back after exception at [{node_label}]", state)
-                return PrimitiveResult(success=False, error=f"Exception at step {i} ({primitive_name}): {str(e)}", steps=executed_steps)
+                    self._log_debug(f"Database session rolled back after exception at [{node_label}] (ID: {step_id})", state)
+                return PrimitiveResult(success=False, error=f"Exception at step {i} ({primitive_name}, ID: {step_id}): {str(e)}", steps=executed_steps)
                 
         # Check if any step required visual realization
         realization_required = False

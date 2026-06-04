@@ -3,6 +3,8 @@
  *
  * Form interface for creating and editing Scenarios.
  * Supports metadata editing and visual configuration of domains.
+ *
+ * PEP 8 style guide compliant.
  */
 "use client";
 
@@ -14,7 +16,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, Box, Share2, Wrench, FileJson, Lock, Zap, List } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { AlertCircle, Box, Share2, Wrench, FileJson, Lock, Zap, List, Brain } from "lucide-react";
+import { API_URL } from "@/lib/utils";
 
 import { Scenario, DomainDefinition, DomainGroup, MetadataField } from "./canvas-store";
 import { useToast } from "@/components/ui/use-toast";
@@ -69,12 +79,54 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
         }
     );
 
+    // -------------------------------------------------------------------------
+    // Builder LLM: the LLM used only for building THIS scenario
+    // (AI-assisted Suggest / Generate Workflow buttons in the scenario editor).
+    // This is NOT the execution LLM selected on the canvas at runtime.
+    // -------------------------------------------------------------------------
+    const [buildingLlm, setBuildingLlm] = React.useState<string>(
+        initialData?.configuration?.building_llm || ""
+    );
+    // Available LLM presets (fetched from /config/presets)
+    const [llmPresets, setLlmPresets] = React.useState<any[]>([]);
+
+    React.useEffect(() => {
+        // Fetch available LLM configuration presets for the builder dropdown
+        const fetchPresets = async () => {
+            try {
+                const token = localStorage.getItem("token");
+                const headers: HeadersInit = token
+                    ? { Authorization: `Bearer ${token}` }
+                    : {};
+                const res = await fetch(`${API_URL}/config/presets`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    setLlmPresets(data.presets || []);
+                }
+            } catch (e) {
+                console.error("Failed to load LLM presets for scenario editor", e);
+            }
+        };
+        fetchPresets();
+    }, []);
+
     // Advanced Config (JSON) - Excludes UI managed fields
     const [advancedConfig, setAdvancedConfig] = React.useState("");
 
     React.useEffect(() => {
         if (initialData?.configuration) {
-            const { domain_definitions, domain_groups, link_types, thing_metadata_schema, keep_standard_links, automations, ui_overrides, ...rest } = initialData.configuration;
+            // Exclude all UI-managed fields so they don't appear twice in the JSON editor
+            const {
+                domain_definitions,
+                domain_groups,
+                link_types,
+                thing_metadata_schema,
+                keep_standard_links,
+                automations,
+                ui_overrides,
+                building_llm,
+                ...rest
+            } = initialData.configuration;
             setAdvancedConfig(JSON.stringify(rest, null, 2));
         } else {
             setAdvancedConfig("{}");
@@ -117,6 +169,10 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     thing_metadata_schema: thingMetadata,
                     keep_standard_links: keepStandardLinks,
                     automations: automations,
+                    // Builder LLM is persisted per-scenario.
+                    // It is ONLY used for AI assistance while editing this scenario
+                    // (Suggest / Generate Workflow buttons). It does NOT affect execution.
+                    building_llm: buildingLlm || undefined,
                     ui_overrides: {
                         ...(initialData?.configuration?.ui_overrides || {}),
                         toolbar_config: toolbarConfig
@@ -134,7 +190,7 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
     };
 
     return (
-        <form onSubmit={handleSubmit} className="h-full flex flex-col gap-6 max-w-6xl mx-auto w-full">
+        <form onSubmit={handleSubmit} className="h-full flex flex-col gap-6 w-full">
             <div className="flex items-center justify-between border-b pb-4">
                 <div>
                     <div className="flex items-center gap-2">
@@ -184,14 +240,14 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                     <TabsTrigger value="metadata" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         <List className="w-4 h-4 mr-2" /> Thing Metadata
                     </TabsTrigger>
-                    <TabsTrigger value="domains" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
-                        <Box className="w-4 h-4 mr-2" /> Domains
-                    </TabsTrigger>
                     <TabsTrigger value="relationships" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         <Share2 className="w-4 h-4 mr-2" /> Relationships
                     </TabsTrigger>
                     <TabsTrigger value="tools" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         <Wrench className="w-4 h-4 mr-2" /> Tools & Agents
+                    </TabsTrigger>
+                    <TabsTrigger value="domains" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
+                        <Box className="w-4 h-4 mr-2" /> Domains
                     </TabsTrigger>
                     <TabsTrigger value="automations" className="relative h-9 px-4 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent">
                         <Zap className="w-4 h-4 mr-2" /> Automations
@@ -203,70 +259,127 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
 
                 {/* GENERAL TAB */}
                 <TabsContent value="general" className="flex-1 py-4">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Basic Information</CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid gap-4 max-w-2xl">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="name">Scenario Name</Label>
-                                    <Input
-                                        id="name"
-                                        value={name}
-                                        onChange={(e) => setName(e.target.value)}
-                                        disabled={isSystem}
-                                        required
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="color">Theme Color</Label>
-                                    <div className="flex gap-2">
+                    <div className="grid gap-6">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Basic Information</CardTitle>
+                            </CardHeader>
+                            <CardContent className="grid gap-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="name">Scenario Name</Label>
                                         <Input
-                                            type="color"
-                                            value={themeColor}
-                                            onChange={(e) => setThemeColor(e.target.value)}
+                                            id="name"
+                                            value={name}
+                                            onChange={(e) => setName(e.target.value)}
                                             disabled={isSystem}
-                                            className="w-12 h-10 p-1 cursor-pointer"
-                                        />
-                                        <Input
-                                            value={themeColor}
-                                            onChange={(e) => setThemeColor(e.target.value)}
-                                            disabled={isSystem}
-                                            className="font-mono uppercase"
+                                            required
                                         />
                                     </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="color">Theme Color</Label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                type="color"
+                                                value={themeColor}
+                                                onChange={(e) => setThemeColor(e.target.value)}
+                                                disabled={isSystem}
+                                                className="w-12 h-10 p-1 cursor-pointer"
+                                            />
+                                            <Input
+                                                value={themeColor}
+                                                onChange={(e) => setThemeColor(e.target.value)}
+                                                disabled={isSystem}
+                                                className="font-mono uppercase"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="description">Description</Label>
-                                <Textarea
-                                    id="description"
-                                    value={description}
-                                    onChange={(e) => setDescription(e.target.value)}
-                                    disabled={isSystem}
-                                    rows={3}
-                                />
-                            </div>
-                            <div className="flex items-center gap-2 mt-4 p-4 border rounded bg-muted/20">
-                                <Input
-                                    type="checkbox"
-                                    id="isDefault"
-                                    className="w-4 h-4"
-                                    checked={isDefault}
-                                    onChange={e => setIsDefault(e.target.checked)}
-                                />
-                                <div className="grid gap-1.5 leading-none">
-                                    <Label htmlFor="isDefault" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                                        Set as Default Scenario
-                                    </Label>
-                                    <p className="text-sm text-muted-foreground">
-                                        New canvases will use this scenario automatically if selected.
-                                    </p>
+                                <div className="space-y-2">
+                                    <Label htmlFor="description">Description</Label>
+                                    <Textarea
+                                        id="description"
+                                        value={description}
+                                        onChange={(e) => setDescription(e.target.value)}
+                                        disabled={isSystem}
+                                        rows={3}
+                                    />
                                 </div>
-                            </div>
-                        </CardContent>
-                    </Card>
+                                <div className="flex items-center gap-2 mt-4 p-4 border rounded bg-muted/20">
+                                    <Input
+                                        type="checkbox"
+                                        id="isDefault"
+                                        className="w-4 h-4"
+                                        checked={isDefault}
+                                        onChange={e => setIsDefault(e.target.checked)}
+                                    />
+                                    <div className="grid gap-1.5 leading-none">
+                                        <Label htmlFor="isDefault" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                            Set as Default Scenario
+                                        </Label>
+                                        <p className="text-sm text-muted-foreground">
+                                            New canvases will use this scenario automatically if selected.
+                                        </p>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* ----------------------------------------------------------------
+                            Builder LLM Selection
+                            The LLM chosen here is used EXCLUSIVELY when building/editing
+                            this scenario (Suggest prompts, Generate Workflow, etc.).
+                            It has NO effect on scenario execution — that uses the LLM
+                            selected in the canvas toolbar at runtime.
+                            Each scenario stores its own builder LLM independently.
+                        ---------------------------------------------------------------- */}
+                        <Card className="border-primary/20 bg-primary/3">
+                            <CardHeader className="pb-3">
+                                <CardTitle className="flex items-center gap-2 text-base">
+                                    <Brain className="w-4 h-4 text-primary" />
+                                    Scenario Builder LLM
+                                </CardTitle>
+                                <CardDescription>
+                                    Select the AI model used to assist while <strong>building</strong> this
+                                    scenario ("Suggest" and "Generate Workflow" buttons). This does{" "}
+                                    <strong>not</strong> affect which model runs the scenario at execution
+                                    time — that is always controlled by the canvas-level LLM selector.
+                                    Each scenario has its own independent builder LLM.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="space-y-2">
+                                    <Label htmlFor="building-llm">Builder LLM Configuration</Label>
+                                    <Select
+                                        value={buildingLlm}
+                                        onValueChange={setBuildingLlm}
+                                        disabled={isSystem}
+                                    >
+                                        <SelectTrigger id="building-llm" className="w-full max-w-sm">
+                                            <SelectValue placeholder="Select LLM for building this scenario..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {llmPresets.map((preset) => (
+                                                <SelectItem key={preset.name} value={preset.name}>
+                                                    {preset.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    {!buildingLlm && (
+                                        <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1 mt-1">
+                                            ⚠ No builder LLM selected — AI assist features (Suggest, Generate Workflow) will not work until one is chosen.
+                                        </p>
+                                    )}
+                                    {buildingLlm && (
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Using <strong>{buildingLlm}</strong> for Suggest &amp; Generate Workflow in this scenario.
+                                        </p>
+                                    )}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
                 </TabsContent>
 
                 {/* THINGS METADATA TAB */}
@@ -354,11 +467,23 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                             <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
                                 <p className="font-semibold mb-1">Scenario Toolbox</p>
                                 <p>Configure custom AI-powered actions and specialized tools that will be available in this scenario. These appear in the Scenario Toolbox overview.</p>
+                                {buildingLlm && (
+                                    <p className="mt-1 text-blue-600 dark:text-blue-400 text-xs">
+                                        Builder LLM: <strong>{buildingLlm}</strong> (set in General tab).
+                                    </p>
+                                )}
+                                {!buildingLlm && (
+                                    <p className="mt-1 text-amber-600 dark:text-amber-400 text-xs">
+                                        ⚠ No Builder LLM selected. Go to the <strong>General</strong> tab to pick one before using AI assist features.
+                                    </p>
+                                )}
                             </div>
+                            {/* Pass buildingLlm so the Suggest button uses the per-scenario builder LLM */}
                             <ToolbarConfigEditor
                                 config={toolbarConfig}
                                 onChange={setToolbarConfig}
                                 disabled={isSystem}
+                                buildingLlm={buildingLlm}
                             />
                         </TabsContent>
 
@@ -380,12 +505,14 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
                 <TabsContent value="automations" className="flex-1 py-4">
                     <Card>
                         <CardContent className="pt-6">
+                            {/* Pass buildingLlm so automations can use the per-scenario builder LLM */}
                             <AutomationEditor
                                 domains={domains}
                                 linkTypes={linkTypes}
                                 automations={automations}
                                 onChange={setAutomations}
                                 disabled={isSystem}
+                                buildingLlm={buildingLlm}
                             />
                         </CardContent>
                     </Card>
@@ -393,19 +520,63 @@ export function ScenarioEditor({ initialData, onSave, onCancel }: ScenarioEditor
 
                 {/* JSON TAB */}
                 <TabsContent value="json" className="flex-1 py-4">
-                    <Card className="h-full flex flex-col">
-                        <CardHeader>
-                            <CardTitle>Advanced JSON Configuration</CardTitle>
-                        </CardHeader>
-                        <CardContent className="flex-1">
-                            <Textarea
-                                value={advancedConfig}
-                                onChange={(e) => setAdvancedConfig(e.target.value)}
-                                disabled={isSystem}
-                                className="font-mono text-xs h-full resize-none"
-                            />
-                        </CardContent>
-                    </Card>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
+                        <div className="md:col-span-1 space-y-4 overflow-y-auto pr-1">
+                            <div className="bg-blue-50/60 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-100 dark:border-blue-800 space-y-3 leading-relaxed text-xs">
+                                <h4 className="font-semibold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                                    <AlertCircle className="w-4 h-4" /> About Advanced Config
+                                </h4>
+                                <p className="text-blue-800 dark:text-blue-300">
+                                    This JSON block stores additional custom properties for the scenario that are not directly controlled by the visual editor tabs. 
+                                </p>
+                            </div>
+                            
+                            <div className="bg-muted/30 p-4 rounded-lg border border-primary/10 space-y-3 text-xs leading-relaxed">
+                                <h4 className="font-semibold text-foreground">Concrete Examples</h4>
+                                
+                                <div className="space-y-2">
+                                    <p className="font-medium text-[10px] text-muted-foreground uppercase tracking-wider">Example 1: Styling & Grid Defaults</p>
+                                    <pre className="bg-background/80 p-2 rounded border font-mono text-[9px] overflow-x-auto text-primary">
+{`{
+  "canvas_styling": {
+    "grid_size": 20,
+    "default_node_width": 250,
+    "snap_to_grid": true
+  }
+}`}
+                                    </pre>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <p className="font-medium text-[10px] text-muted-foreground uppercase tracking-wider">Example 2: Custom Pipeline Limits</p>
+                                    <pre className="bg-background/80 p-2 rounded border font-mono text-[9px] overflow-x-auto text-primary">
+{`{
+  "pipeline_defaults": {
+    "temperature": 0.2,
+    "max_tokens": 1500,
+    "fallback_model": "gemini-1.5-pro"
+  }
+}`}
+                                    </pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        <Card className="md:col-span-2 h-full flex flex-col">
+                            <CardHeader className="py-3">
+                                <CardTitle className="text-sm">JSON Configuration Editor</CardTitle>
+                            </CardHeader>
+                            <CardContent className="flex-1 pb-4">
+                                <Textarea
+                                    value={advancedConfig}
+                                    onChange={(e) => setAdvancedConfig(e.target.value)}
+                                    disabled={isSystem}
+                                    className="font-mono text-xs h-full min-h-[350px] resize-none bg-muted/5 border-primary/20"
+                                    placeholder="{\n  \n}"
+                                />
+                            </CardContent>
+                        </Card>
+                    </div>
                 </TabsContent>
             </Tabs>
         </form>

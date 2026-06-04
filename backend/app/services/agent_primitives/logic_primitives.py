@@ -87,6 +87,7 @@ class LogicIfElsePrimitive(BasePrimitive):
         strict_operators = ["is", "is exactly", "contains", "is not", "does not contain", "is greater than", "is less than", "is greater than or equal", "is less than or equal"]
         if eval_type == "strict" or condition in strict_operators:
             is_true = False
+            reasoning = f"Strict check: Condition operator '{condition}' not recognized."
             c_str = str(context).strip().lower()
             cv_str = str(compare_value).strip().lower()
             if condition in ["is", "is exactly"]:
@@ -146,11 +147,12 @@ class LogicIfElsePrimitive(BasePrimitive):
                 warning_msg = f"Evaluation Caution: Context resolved to whitespace ('{context_str}'). Check if your variable is empty or if you have extra spaces in your template."
             else:
                 warning_msg = f"Evaluation skipped: Context resolved to empty/placeholder data. Check if your variable names are correct (current variables: {list(state.get('variables', {}).keys())})."
-            
+
             display_context = "[No Context Provided]"
             if not compare_value:
-                self._log_debug(f"[{label}] WARNING: {warning_msg}", state)
-                return False, warning_msg
+                if eval_type != "ai":
+                    self._log_debug(f"[{label}] WARNING: {warning_msg}", state)
+                    return False, warning_msg
 
         prompt = f"""
         System: You are an expert AI logic engine. Your task is to evaluate the truth of a logical statement based ON THE PROVIDED CONTEXT.
@@ -261,7 +263,8 @@ class LogicIfElsePrimitive(BasePrimitive):
                 
                 # Evaluate
                 eval_type = params.get("eval_type", "ai")
-                is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, sub_state, label=node_label, eval_type=eval_type)
+                resolved_condition = self.resolve_variables(condition, sub_state)
+                is_true, reasoning = await self._evaluate_condition(resolved_condition, context, compare_value, sub_state, label=node_label, eval_type=eval_type)
                 
                 # Execute branch
                 steps_to_run = then_steps if is_true else else_steps
@@ -321,7 +324,8 @@ class LogicIfElsePrimitive(BasePrimitive):
             eval_type = params.get("eval_type", "ai")
             
             # Evaluate
-            is_true, reasoning = await self._evaluate_condition(condition, context, compare_value, state, label=node_label, eval_type=eval_type)
+            resolved_condition = self.resolve_variables(condition, state)
+            is_true, reasoning = await self._evaluate_condition(resolved_condition, context, compare_value, state, label=node_label, eval_type=eval_type)
             
             # Execute branch
             steps_to_run = then_steps if is_true else else_steps

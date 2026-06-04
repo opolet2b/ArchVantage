@@ -126,6 +126,7 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
     }, [activeScenario, domain.type, domain.name]);
 
     const effectiveSchema = definition?.metadata_schema || domain.metadata_schema;
+    const effectiveDropZones = definition ? (definition.drop_zones || []) : (domain.drop_zones || []);
 
     // Extract Visual Config
     const visualConfig = domain.visual_config || {};
@@ -265,21 +266,23 @@ const DomainNode = React.memo(function DomainNode({ data, selected }: NodeProps<
                 />
 
                 {/* Visual Drop Zones - Grid Layout */}
-                {(domain.drop_zones && domain.drop_zones.length > 0 || definition?.drop_zones && definition.drop_zones.length > 0) && (
+                {effectiveDropZones.length > 0 && (
                     <div
                         className="absolute inset-0 pt-8 px-2 pb-2 grid gap-2 pointer-events-none z-10"
                         style={{
-                            gridTemplateColumns: (domain.drop_zones || definition?.drop_zones || []).length === 1 ? "1fr" : "repeat(2, 1fr)",
+                            gridTemplateColumns: effectiveDropZones.length === 1 ? "1fr" : "repeat(2, 1fr)",
                             gridAutoRows: "1fr"
                         }}
                     >
-                        {(domain.drop_zones || definition?.drop_zones || []).map((zone, idx) => (
+                        {effectiveDropZones.map((zone, idx) => (
                             <div
                                 key={zone.id || idx}
                                 className={cn(
                                     "group/zone pointer-events-auto rounded-md border text-xs flex flex-col items-center justify-center text-center gap-1 transition-all h-full w-full relative",
                                     zone.dashed_style ? "border-dashed" : "border-solid",
-                                    "bg-white/40 hover:bg-white/70 border-slate-400 dark:border-slate-500 text-slate-700 dark:text-slate-200 shadow-sm overflow-hidden"
+                                    activeDropZoneId === zone.id
+                                        ? "bg-emerald-500/20 border-emerald-500 ring-4 ring-emerald-500/30 dark:bg-emerald-500/30 dark:border-emerald-400 dark:ring-emerald-400/20 scale-[1.03] shadow-md z-30 animate-pulse text-emerald-900 dark:text-emerald-200 font-bold"
+                                        : "bg-white/40 hover:bg-white/70 border-slate-400 dark:border-slate-500 text-slate-700 dark:text-slate-200 shadow-sm overflow-hidden"
                                 )}
                                 title={zone.description}
                                 data-drop-zone-id={zone.id}

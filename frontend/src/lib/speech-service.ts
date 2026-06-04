@@ -31,8 +31,14 @@ class SpeechService {
 
         // 1. Fetch default or specific preset to check if it is browser native
         try {
-            const defaultsRes = await fetch(`${API_URL}/config/defaults`);
-            const defaults = await defaultsRes.json();
+            const token = localStorage.getItem("token") || "";
+            const headers = {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            };
+
+            const defaultsRes = await fetch(`${API_URL}/config/defaults`, { headers });
+            const defaults = defaultsRes.ok ? await defaultsRes.json() : {};
             const activePresetName = presetName || defaults.default_tts;
 
             if (!activePresetName) {
@@ -41,11 +47,12 @@ class SpeechService {
                     description: "Please select a default Text-to-Speech preset in Settings.",
                     variant: "destructive"
                 });
+                this.isGenerating = false;
                 return;
             }
 
-            const presetsRes = await fetch(`${API_URL}/config/presets`);
-            const presetsData = await presetsRes.json();
+            const presetsRes = await fetch(`${API_URL}/config/presets`, { headers });
+            const presetsData = presetsRes.ok ? await presetsRes.json() : {};
             const preset = presetsData.presets?.find((p: any) => p.name === activePresetName);
 
             if (!preset) {
@@ -54,6 +61,7 @@ class SpeechService {
                     description: `The TTS preset "${activePresetName}" could not be found.`,
                     variant: "destructive"
                 });
+                this.isGenerating = false;
                 return;
             }
 
@@ -99,14 +107,16 @@ class SpeechService {
                 title: "Generating Audio",
                 description: "Synthesizing speech with the remote provider...",
             });
+            const token = localStorage.getItem("token") || "";
             const res = await fetch(`${API_URL}/tts/generate`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { 
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
                 body: JSON.stringify({ text, config_name: presetName }),
                 signal: this.abortController?.signal
             });
-
-            this.isGenerating = false;
 
             if (res.ok) {
                 const blob = await res.blob();
@@ -124,6 +134,8 @@ class SpeechService {
             }
         } catch (error) {
             console.error("Failed to fetch remote speech:", error);
+        } finally {
+            this.isGenerating = false;
         }
     }
 
@@ -132,8 +144,13 @@ class SpeechService {
      */
     async download(text: string, presetName?: string) {
         try {
-            const defaultsRes = await fetch(`${API_URL}/config/defaults`);
-            const defaults = await defaultsRes.json();
+            const token = localStorage.getItem("token") || "";
+            const headers = {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json"
+            };
+            const defaultsRes = await fetch(`${API_URL}/config/defaults`, { headers });
+            const defaults = defaultsRes.ok ? await defaultsRes.json() : {};
             const activePresetName = presetName || defaults.default_tts;
 
             if (!activePresetName) {
@@ -147,7 +164,7 @@ class SpeechService {
 
             const res = await fetch(`${API_URL}/tts/generate`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: headers,
                 body: JSON.stringify({ text, config_name: activePresetName })
             });
 

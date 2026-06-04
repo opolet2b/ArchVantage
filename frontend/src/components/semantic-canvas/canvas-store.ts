@@ -1279,8 +1279,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             return;
         }
 
-        // Optimistic update
         const currentThings = get().things;
+        const target = currentThings.find(t => t.id === thingId);
+        if (!target) {
+            console.error(`[Store] Thing ${thingId} not found in store for updateThing`);
+            return;
+        }
+
         // Check for domain re-assignment if position/size changed
         let newDomainId: string | undefined | null = updates.domain_id;
 
@@ -1288,23 +1293,66 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         // UNLESS domain_id is explicitly being set (e.g. manual drop)
         if (updates.domain_id === undefined &&
             (updates.position_x !== undefined || updates.position_y !== undefined || updates.width !== undefined || updates.height !== undefined)) {
+            const x = updates.position_x ?? target.position_x;
+            const y = updates.position_y ?? target.position_y;
+            const w = updates.width ?? target.width ?? 400;
+            const h = updates.height ?? target.height ?? 300; // Use reasonable default if null
 
-            const target = currentThings.find(t => t.id === thingId);
-            if (target) {
-                const x = updates.position_x ?? target.position_x;
-                const y = updates.position_y ?? target.position_y;
-                const w = updates.width ?? target.width ?? 400;
-                const h = updates.height ?? target.height ?? 300; // Use reasonable default if null
+            const autoDomain = get().findEnclosingDomain(x, y, w, h);
 
-                const autoDomain = get().findEnclosingDomain(x, y, w, h);
+            // If assignment changed, include it in updates (null means removed from domain)
+            if (autoDomain !== target.domain_id) {
+                newDomainId = autoDomain;
+            }
+        }
 
-                // If assignment changed, include it in updates (null means removed from domain)
-                if (autoDomain !== target.domain_id) {
-                    newDomainId = autoDomain;
+        // Check if anything actually changed to prevent loops and unnecessary API calls
+        let hasChanges = false;
+        for (const [key, value] of Object.entries(updates)) {
+            if (key === "content" && value) {
+                if (JSON.stringify(target.content) !== JSON.stringify(value)) {
+                    hasChanges = true;
+                    break;
+                }
+            } else if (key === "technical_metadata" && value) {
+                if (JSON.stringify(target.technical_metadata) !== JSON.stringify(value)) {
+                    hasChanges = true;
+                    break;
+                }
+            } else if (key === "custom_metadata" && value) {
+                if (JSON.stringify(target.custom_metadata) !== JSON.stringify(value)) {
+                    hasChanges = true;
+                    break;
+                }
+            } else if (key === "pre_iconify_size" && value) {
+                if (JSON.stringify(target.pre_iconify_size) !== JSON.stringify(value)) {
+                    hasChanges = true;
+                    break;
+                }
+            } else if (key === "position_x" || key === "position_y" || key === "width" || key === "height") {
+                if (value !== undefined && (target as any)[key] !== value) {
+                    hasChanges = true;
+                    break;
+                }
+            } else if (key === "domain_id") {
+                // Checked separately below
+            } else {
+                if (value !== undefined && (target as any)[key] !== value) {
+                    hasChanges = true;
+                    break;
                 }
             }
         }
 
+        if (newDomainId !== undefined && newDomainId !== target.domain_id) {
+            hasChanges = true;
+        }
+
+        if (!hasChanges) {
+            return;
+        }
+
+        // Optimistic update
         const optimisticThings = currentThings.map((t) => {
             if (t.id === thingId) {
                 return {
@@ -1574,9 +1622,36 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         const token = localStorage.getItem("token");
         if (!token || !canvasId) return;
 
+        // Filter updates to only those that actually change properties
+        const filteredUpdates = updates.filter(({ id, updates: itemUpdates }) => {
+            const target = things.find(t => t.id === id);
+            if (!target) return false;
+
+            for (const [key, value] of Object.entries(itemUpdates)) {
+                if (key === "content" && value) {
+                    if (JSON.stringify(target.content) !== JSON.stringify(value)) return true;
+                } else if (key === "technical_metadata" && value) {
+                    if (JSON.stringify(target.technical_metadata) !== JSON.stringify(value)) return true;
+                } else if (key === "custom_metadata" && value) {
+                    if (JSON.stringify(target.custom_metadata) !== JSON.stringify(value)) return true;
+                } else if (key === "pre_iconify_size" && value) {
+                    if (JSON.stringify(target.pre_iconify_size) !== JSON.stringify(value)) return true;
+                } else if (key === "position_x" || key === "position_y" || key === "width" || key === "height") {
+                    if (value !== undefined && (target as any)[key] !== value) return true;
+                } else {
+                    if (value !== undefined && (target as any)[key] !== value) return true;
+                }
+            }
+            return false;
+        });
+
+        if (filteredUpdates.length === 0) {
+            return;
+        }
+
         // 1. Atomic Optimistic Update
-        const updatesMap = new Map(updates.map(u => [u.id, u.updates]));
-        const updatesMapExtras = new Map(updates.map(u => [u.id, u.transientExtras]));
+        const updatesMap = new Map(filteredUpdates.map(u => [u.id, u.updates]));
+        const updatesMapExtras = new Map(filteredUpdates.map(u => [u.id, u.transientExtras]));
 
         const newThings = things.map(t => {
             const update = updatesMap.get(t.id);
@@ -1593,7 +1668,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
         // 2. Parallel API Calls
         try {
-            await Promise.all(updates.map(async ({ id, updates }) => {
+            await Promise.all(filteredUpdates.map(async ({ id, updates }) => {
                 const res = await fetch(
                     `${API_URL}/canvases/${canvasId}/things/${id}`,
                     {

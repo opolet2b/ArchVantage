@@ -380,79 +380,120 @@ class CanvasMoveToZonePrimitive(BasePrimitive):
                     drop_zones = json.loads(drop_zones)
                 except Exception:
                     drop_zones = []
-            
-            target_zone = next((z for z in drop_zones if isinstance(z, dict) and z.get("id") == zone_id), None)
-            
-            if not target_zone:
-                return PrimitiveResult(success=False, error=f"Zone '{zone_id}' not found in domain '{domain.name}'.")
-            
-            # Calculate Target Position (Center of Zone)
-            # Frontend uses explicit coordinates or Grid Layout if missing.
-            # Mirror Frontend Grid Logic: 2 columns, specific padding
-            
-            zx = target_zone.get("x", 0)
-            zy = target_zone.get("y", 0)
-            zw = target_zone.get("width", 0)
-            zh = target_zone.get("height", 0)
 
-            # If no explicit geometry, calculate Grid Position
-            if zx == 0 and zy == 0:
-                d_w = getattr(domain, 'width', 300) or 300
-                d_h = getattr(domain, 'height', 400) or 400
-                
-                # Layout Constants (matching domain-node.tsx)
-                padding_top = 32
-                padding_bottom = 8
-                padding_x = 8
-                gap = 8 
-                
-                # Grid Setup
-                num_zones = len(drop_zones)
-                cols = 2 if num_zones > 1 else 1
-                import math
-                rows = math.ceil(num_zones / cols)
-                
-                # Find Zone Index
-                # Note: drop_zones is a list, we need the index of 'target_zone' in that list
-                # drop_zones could be JSON or dict list. target_zone is a dict ref? 
-                # Better to find index by ID.
-                zone_idx = 0
-                for i, z in enumerate(drop_zones):
-                    if z.get("id") == zone_id:
-                        zone_idx = i
+            # If no drop zones on the domain record, look up definitions in Canvas/Scenario config
+            if not drop_zones:
+                from app.models.canvas_models import Canvas
+                canvas = db.query(Canvas).filter(Canvas.id == domain.canvas_id).first()
+                if canvas and canvas.owner_config:
+                    domain_definitions = []
+                    scenario_id = canvas.owner_config.get("scenario_id")
+                    if scenario_id:
+                        from app.models.scenario_models import Scenario
+                        scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+                        if scenario and scenario.configuration:
+                            domain_definitions = scenario.configuration.get("domain_definitions", [])
+
+                    # Fallback to local canvas config definitions
+                    if not domain_definitions:
+                        domain_definitions = canvas.owner_config.get("domain_definitions", [])
+
+                    # Find matching definition by type/id or name
+                    definition = None
+                    for defn in domain_definitions:
+                        if (domain.type and defn.get("id") == domain.type) or defn.get("name") == domain.name:
+                            definition = defn
+                            break
+
+                    if definition:
+                        drop_zones = definition.get("drop_zones") or []
+
+            # Try to match zone by ID, Label, or Name (case-insensitive)
+            target_zone = None
+            if drop_zones:
+                for z in drop_zones:
+                    if not isinstance(z, dict):
+                        continue
+                    z_id = str(z.get("id", ""))
+                    z_label = str(z.get("label", ""))
+                    z_name = str(z.get("name", ""))
+
+                    if (z_id == str(zone_id) or
+                        z_label.lower() == str(zone_id).lower() or
+                        z_name.lower() == str(zone_id).lower()):
+                        target_zone = z
                         break
-                
-                # Grid Position (Row/Col)
-                row_idx = zone_idx // cols
-                col_idx = zone_idx % cols
-                
-                # Available Space
-                avail_w = d_w - (2 * padding_x)
-                avail_h = d_h - (padding_top + padding_bottom)
-                
-                # Cell Dimensions
-                total_gap_w = (cols - 1) * gap
-                total_gap_h = (rows - 1) * gap
-                
-                cell_w = max(1, (avail_w - total_gap_w) / cols)
-                cell_h = max(1, (avail_h - total_gap_h) / rows)
-                
-                # Center Relative to Domain (0,0)
-                rel_center_x = padding_x + (col_idx * (cell_w + gap)) + (cell_w / 2)
-                rel_center_y = padding_top + (row_idx * (cell_h + gap)) + (cell_h / 2)
-                
-                # Absolute Position
-                center_x = domain.position_x + rel_center_x
-                center_y = domain.position_y + rel_center_y
-                
-                print(f"[MoveToZone] Calculated Grid Target: idx={zone_idx} ({row_idx},{col_idx}) -> ({center_x:.1f}, {center_y:.1f})")
 
+            if not target_zone:
+                # Fallback: if no matching zone but domain exists, place in center of the domain
+                center_x = domain.position_x + (domain.width or 300) / 2
+                center_y = domain.position_y + (domain.height or 200) / 2
+                print(f"[MoveToZone] Zone '{zone_id}' not found in domain '{domain.name}'. "
+                      f"Falling back to domain center: ({center_x:.1f}, {center_y:.1f})")
             else:
-                # Use Explicit Geometry
-                zw = zw or 200
-                zh = zh or 100
-                center_x = domain.position_x + zx + (zw / 2)
-                center_y = domain.position_y + zy + (zh / 2)
+                # Calculate Target Position (Center of Zone)
+                # Frontend uses explicit coordinates or Grid Layout if missing.
+                # Mirror Frontend Grid Logic: 2 columns, specific padding
+                zx = target_zone.get("x", 0)
+                zy = target_zone.get("y", 0)
+                zw = target_zone.get("width", 0)
+                zh = target_zone.get("height", 0)
+
+                # If no explicit geometry, calculate Grid Position
+                if zx == 0 and zy == 0:
+                    d_w = getattr(domain, 'width', 300) or 300
+                    d_h = getattr(domain, 'height', 400) or 400
+
+                    # Layout Constants (matching domain-node.tsx)
+                    padding_top = 32
+                    padding_bottom = 8
+                    padding_x = 8
+                    gap = 8
+
+                    # Grid Setup
+                    num_zones = len(drop_zones)
+                    cols = 2 if num_zones > 1 else 1
+                    import math
+                    rows = math.ceil(num_zones / cols)
+
+                    # Find Zone Index
+                    zone_idx = 0
+                    for i, z in enumerate(drop_zones):
+                        if z.get("id") == target_zone.get("id"):
+                            zone_idx = i
+                            break
+
+                    # Grid Position (Row/Col)
+                    row_idx = zone_idx // cols
+                    col_idx = zone_idx % cols
+
+                    # Available Space
+                    avail_w = d_w - (2 * padding_x)
+                    avail_h = d_h - (padding_top + padding_bottom)
+
+                    # Cell Dimensions
+                    total_gap_w = (cols - 1) * gap
+                    total_gap_h = (rows - 1) * gap
+
+                    cell_w = max(1, (avail_w - total_gap_w) / cols)
+                    cell_h = max(1, (avail_h - total_gap_h) / rows)
+
+                    # Center Relative to Domain (0,0)
+                    rel_center_x = padding_x + (col_idx * (cell_w + gap)) + (cell_w / 2)
+                    rel_center_y = padding_top + (row_idx * (cell_h + gap)) + (cell_h / 2)
+
+                    # Absolute Position
+                    center_x = domain.position_x + rel_center_x
+                    center_y = domain.position_y + rel_center_y
+
+                    print(f"[MoveToZone] Calculated Grid Target: idx={zone_idx} ({row_idx},{col_idx}) -> ({center_x:.1f}, {center_y:.1f})")
+
+                else:
+                    # Use Explicit Geometry
+                    zw = zw or 200
+                    zh = zh or 100
+                    center_x = domain.position_x + zx + (zw / 2)
+                    center_y = domain.position_y + zy + (zh / 2)
                 print(f"[MoveToZone] Using Explicit Geometry: ({center_x}, {center_y})")
 
             # Logs for debug

@@ -322,7 +322,7 @@ const CitationList = ({ citations, onSelectThing, onHighlight }: {
 
 export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNodeData>) {
     const { id, data, selected: isSelected } = props;
-    console.log(`[ThingNode] Rendering ${id}`, { data });
+    console.log(`[ThingNode] Rendering ${id}`, { type: data.thing?.type, zoomLevel: data.zoomLevel });
     const { toast } = useToast();
     const hiddenNodeLinks = useCanvasStore(state => state.hiddenNodeLinks);
     const toggleNodeLinks = useCanvasStore(state => state.toggleNodeLinks);
@@ -767,14 +767,25 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 setLocalStatus(updatedThing.rag_status);
                             }
                             
+                            const updatedTime = updatedThing.updated_at ? Date.parse(updatedThing.updated_at) : 0;
+                            const currentTime = currentThing.updated_at ? Date.parse(currentThing.updated_at) : 0;
+                            const timeChanged = (isNaN(updatedTime) ? 0 : updatedTime) !== (isNaN(currentTime) ? 0 : currentTime);
+
                             // Always sync if position, domain, or status changed, to catch backend automations
                             if (
                                 updatedThing.rag_status !== localStatus ||
                                 updatedThing.position_x !== currentThing.position_x ||
                                 updatedThing.position_y !== currentThing.position_y ||
                                 updatedThing.domain_id !== currentThing.domain_id ||
-                                updatedThing.updated_at !== currentThing.updated_at
+                                timeChanged
                             ) {
+                                console.log(`[ThingNode RAG Polling Sync] Triggered for thing ${currentThing.id} (${currentThing.title || "No Title"}):`, {
+                                    ragStatus: { before: localStatus, after: updatedThing.rag_status, changed: updatedThing.rag_status !== localStatus },
+                                    posX: { before: currentThing.position_x, after: updatedThing.position_x, changed: updatedThing.position_x !== currentThing.position_x },
+                                    posY: { before: currentThing.position_y, after: updatedThing.position_y, changed: updatedThing.position_y !== currentThing.position_y },
+                                    domainId: { before: currentThing.domain_id, after: updatedThing.domain_id, changed: updatedThing.domain_id !== currentThing.domain_id },
+                                    updatedAt: { before: currentThing.updated_at, after: updatedThing.updated_at, changed: timeChanged }
+                                });
                                 // Use refreshThings() instead of syncThing to catch ALL automation side effects 
                                 // (e.g. links created, domain updates) and ensure React Flow properly animates.
                                 useCanvasStore.getState().refreshThings();
@@ -1398,7 +1409,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         const position = { x: thing.position_x + (thing.width || 200) + 50, y: thing.position_y };
 
         // Create new text thing with title derived from source fragment ID
-        const newThingTitle = sourceFragment.id || "Analysis Result";
+        const newThingTitle = (sourceFragment as any).tool_label || sourceFragment.id || "Analysis Result";
         // CRITICAL FIX: Pass cId explicitly to addThing
         const newThing = await addThing("text", { text }, position, 400, 300, newThingTitle, undefined, undefined);
 
@@ -1575,6 +1586,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 }
             }
 
+            // Handle custom tool mapping
+            const isCustomTool = action === "custom_tool";
+            const apiAction = isCustomTool ? "ask" : action;
+            const apiCustomPrompt = isCustomTool ? (fragment as any).tool_prompt : undefined;
+
             // 1. Create a placeholder node and link it immediately
             const placeholderText = "Thinking...";
             const newThing = await createNodeAndLink(placeholderText, fragment, canvasId);
@@ -1586,7 +1602,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     canvasId,
                     thingId: thing.id,
                     fragment: finalFragment,
-                    action,
+                    action: apiAction as any,
+                    customPrompt: apiCustomPrompt,
                     model: modelToUse || undefined,
                     onChunk: (chunk) => {
                         accumulatedText += chunk;
@@ -2591,7 +2608,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     "rounded-xl shadow-sm border",
                     // Ghost Node Styling
                     isGhost ? "opacity-70 border-dashed border-slate-400 bg-slate-50/50" : selected ? "ring-2 ring-primary border-primary shadow-md z-10" : "border-slate-200 dark:border-slate-800 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700",
-                    "overflow-hidden",
+                    "overflow-visible",
                     // Standard width/height for consistency
                     "w-[120px] h-[80px]"
                 )}

@@ -3,9 +3,12 @@
  *
  * Allows configuring custom toolbars for a scenario.
  * Supports:
- * - Selecting LLM/VLM for tool assistance
+ * - Selecting LLM/VLM for tool assistance (uses the scenario-level builder LLM
+ *   set in the General tab, with an optional per-toolbar override)
  * - Toggling standard tools
  * - Adding/Editing/Reordering custom tools for Main and Selection toolbars
+ *
+ * PEP 8 style guide compliant.
  */
 "use client";
 
@@ -78,7 +81,7 @@ export interface ToolbarTool {
 
 export interface ToolbarConfig {
     keep_standard_tools: boolean;
-    llm_model?: string; // Model used for "Suggest" and potentially for tool execution
+    llm_model?: string; // Optional per-toolbar model override
     tools: ToolbarTool[];
 }
 
@@ -86,6 +89,12 @@ interface ToolbarConfigEditorProps {
     config: ToolbarConfig;
     onChange: (config: ToolbarConfig) => void;
     disabled?: boolean;
+    /**
+     * The scenario-level builder LLM (set in the General tab).
+     * Used as the effective model for Suggest when config.llm_model is not set.
+     * This is NOT the execution LLM — it is only used for AI-assisted editing.
+     */
+    buildingLlm?: string;
 }
 
 const COMMON_ICONS = [
@@ -96,7 +105,7 @@ const COMMON_ICONS = [
     "Check", "AlertTriangle", "Info", "HelpCircle"
 ].sort();
 
-export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfigEditorProps) {
+export function ToolbarConfigEditor({ config, onChange, disabled, buildingLlm }: ToolbarConfigEditorProps) {
     const { toast } = useToast();
     const [models, setModels] = React.useState<any[]>([]);
 
@@ -104,6 +113,10 @@ export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfi
     const [editingTool, setEditingTool] = React.useState<ToolbarTool | null>(null);
     const [isDialogOpen, setIsDialogOpen] = React.useState(false);
     const [suggestLoading, setSuggestLoading] = React.useState(false);
+
+    // Effective model: use per-toolbar override first, then the scenario-level builder LLM.
+    // This ensures the Suggest button works as long as a builder LLM is configured anywhere.
+    const effectiveLlm = config.llm_model || buildingLlm || null;
 
     // Load Models
     React.useEffect(() => {
@@ -200,8 +213,13 @@ export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfi
     };
 
     const handleSuggest = async () => {
-        if (!config.llm_model) {
-            toast({ title: "No Model Selected", description: "Please select an LLM configuration first.", variant: "destructive" });
+        // Prefer the per-toolbar model override, then fall back to the scenario-level builder LLM
+        if (!effectiveLlm) {
+            toast({
+                title: "No Builder LLM Selected",
+                description: "Go to the General tab of the Scenario Editor and select a Builder LLM for this scenario.",
+                variant: "destructive"
+            });
             return;
         }
         if (!editingTool?.prompt) {
@@ -212,14 +230,15 @@ export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfi
         setSuggestLoading(true);
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch(`${API_URL}/ai/generate_system_prompt`, { // Assuming this endpoint exists or similar
+            const res = await fetch(`${API_URL}/ai/generate_system_prompt`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${token}`,
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    model: config.llm_model,
+                    // Use the effective LLM (toolbar override → scenario builder LLM)
+                    model: effectiveLlm,
                     task_description: editingTool.prompt
                 })
             });
@@ -229,7 +248,6 @@ export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfi
                 setEditingTool(prev => prev ? ({ ...prev, prompt: data.system_prompt || data.prompt || prev.prompt }) : null);
                 toast({ title: "Prompt Refined" });
             } else {
-                // If endpoint doesn't exist, mock it for now or rely on generic chat
                 toast({ title: "Suggestion Failed", description: "Could not refine prompt.", variant: "destructive" });
             }
         } catch (e) {
@@ -296,14 +314,14 @@ export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfi
                     {/* Header Config */}
                     <div className="grid grid-cols-2 gap-6">
                         <div className="space-y-2">
-                            <Label>AI Configuration</Label>
+                            <Label>AI Configuration Override</Label>
                             <Select
-                                value={config.llm_model}
-                                onValueChange={(val) => onChange({ ...config, llm_model: val })}
+                                value={config.llm_model || ""}
+                                onValueChange={(val) => onChange({ ...config, llm_model: val || undefined })}
                                 disabled={disabled}
                             >
                                 <SelectTrigger>
-                                    <SelectValue placeholder="Select LLM for tools..." />
+                                    <SelectValue placeholder={buildingLlm ? `Using: ${buildingLlm} (builder LLM)` : "Select LLM override..."} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {models.map(m => (
@@ -311,7 +329,19 @@ export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfi
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <p className="text-xs text-muted-foreground">Used for the "Suggest" features and executing tool prompts.</p>
+                            {/* Show which model will actually be used for Suggest */}
+                            {effectiveLlm ? (
+                                <p className="text-xs text-muted-foreground">
+                                    Suggest will use: <strong>{effectiveLlm}</strong>
+                                    {config.llm_model
+                                        ? " (toolbar override)"
+                                        : " (scenario builder LLM — set in General tab)"}
+                                </p>
+                            ) : (
+                                <p className="text-xs text-amber-600 dark:text-amber-400">
+                                    ⚠ No LLM configured. Set a Builder LLM in the General tab.
+                                </p>
+                            )}
                         </div>
 
                         <div className="space-y-2">
@@ -411,7 +441,7 @@ export function ToolbarConfigEditor({ config, onChange, disabled }: ToolbarConfi
                                     </Button>
                                 </div>
                                 <Textarea
-                                    className="min-h-[100px] font-mono text-xs"
+                                    className="min-h-[100px] max-h-[50vh] overflow-y-auto font-mono text-xs"
                                     value={editingTool.prompt}
                                     onChange={e => setEditingTool({ ...editingTool, prompt: e.target.value })}
                                     placeholder="Enter the system prompt or instructions for this tool..."
