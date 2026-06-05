@@ -25,6 +25,14 @@ import { useCanvasStore } from "../canvas-store";
 import { Button } from "@/components/ui/button";
 import { API_URL } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 /**
  * Vocal Note Node Component
@@ -141,6 +149,28 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
     const [isEditingText, setIsEditingText] = React.useState(false);
     const [editedText, setEditedText] = React.useState("");
     const [showTranscription, setShowTranscription] = React.useState(false);
+    const [isDialogOpen, setIsDialogOpen] = React.useState(false);
+
+    // Title editing states
+    const [isEditingTitle, setIsEditingTitle] = React.useState(false);
+    const [editedTitle, setEditedTitle] = React.useState(thing.title || "");
+
+    React.useEffect(() => {
+        setEditedTitle(thing.title || "");
+    }, [thing.title]);
+
+    const handleSaveTitle = async () => {
+        const trimmed = editedTitle.trim();
+        if (!trimmed) {
+            setEditedTitle(thing.title || "");
+            setIsEditingTitle(false);
+            return;
+        }
+        await updateThing(id, {
+            title: trimmed
+        });
+        setIsEditingTitle(false);
+    };
 
     React.useEffect(() => {
         setEditedText(thing.content?.text as string || "");
@@ -156,6 +186,9 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
     const playbackStartCtxTimeRef = React.useRef<number>(0);
     const playbackStartTimeOffsetRef = React.useRef<number>(0);
     const recordingTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+    const recognitionRef = React.useRef<any>(null);
+    const accumulatedTextRef = React.useRef<string>("");
+    const liveTranscriptRef = React.useRef<string>("");
 
     // Load and decode audio data from thing.content.audio
     React.useEffect(() => {
@@ -176,10 +209,14 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
                     bytes[i] = binaryString.charCodeAt(i);
                 }
                 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                const decodedBuffer = await audioContext.decodeAudioData(bytes.buffer);
-                setAudioBuffer(decodedBuffer);
-                setDuration(decodedBuffer.duration);
-                generatePeaks(decodedBuffer);
+                try {
+                    const decodedBuffer = await audioContext.decodeAudioData(bytes.buffer);
+                    setAudioBuffer(decodedBuffer);
+                    setDuration(decodedBuffer.duration);
+                    generatePeaks(decodedBuffer);
+                } finally {
+                    audioContext.close().catch(console.error);
+                }
             } catch (err) {
                 console.error("Error decoding audio buffer", err);
             }
@@ -230,6 +267,12 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
             if (sourceNodeRef.current) {
                 sourceNodeRef.current.stop();
             }
+            if (audioCtxRef.current) {
+                audioCtxRef.current.close().catch(console.error);
+            }
+            if (recognitionRef.current) {
+                recognitionRef.current.stop();
+            }
             if (recordingTimerRef.current) {
                 clearInterval(recordingTimerRef.current);
             }
@@ -237,7 +280,7 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
     }, []);
 
     // Perform AI transcription on audio Blob and update the Thing
-    const transcribeAndSave = async (audioBlob: Blob, updatedBuffer: AudioBuffer) => {
+    const transcribeAndSave = async (audioBlob: Blob, updatedBuffer: AudioBuffer, isEdit: boolean = false) => {
         setIsProcessing(true);
         try {
             // Convert buffer to base64 audio
@@ -246,36 +289,51 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
             reader.onloadend = async () => {
                 const base64Audio = reader.result as string;
 
-                // Transcribe
-                const token = localStorage.getItem("token");
-                const formData = new FormData();
-                formData.append("file", audioBlob, "vocal_note.wav");
-                
                 // Fetch current STT profile
                 const activeSttId = selectedSttModel;
                 const activeProfile = sttProfiles?.find((p: any) => p.id?.toString() === activeSttId || p.name === activeSttId);
-                const configId = activeProfile?.id?.toString() || activeProfile?.name || "default";
-                formData.append("config_id", configId);
+                const isBrowserSTT = activeProfile?.provider_type === "BROWSER" || activeProfile?.is_browser_native;
 
                 let transcriptText = "";
-                try {
-                    const res = await fetch(`${API_URL}/stt/transcribe`, {
-                        method: "POST",
-                        headers: token ? { "Authorization": `Bearer ${token}` } : {},
-                        body: formData
-                    });
-
-                    if (res.ok) {
-                        const resData = await res.json();
-                        transcriptText = resData.text || "";
+                if (isBrowserSTT) {
+                    if (isEdit) {
+                        // Keep current text but let user know editing is client-only
+                        transcriptText = thing.content?.text as string || "";
+                        toast({
+                            title: "Browser native dictation",
+                            description: "Modifying audio with Browser Native STT does not automatically re-transcribe. Please edit transcription text manually.",
+                            variant: "default"
+                        });
                     } else {
-                        const errorText = await res.text();
-                        console.error("Transcription failed", errorText);
-                        toast({ title: "Transcription Failed", description: errorText, variant: "destructive" });
+                        transcriptText = liveTranscriptRef.current || "";
                     }
-                } catch (err) {
-                    console.error("Network transcription error", err);
-                    toast({ title: "Transcription Error", description: "Failed to connect to STT server.", variant: "destructive" });
+                } else {
+                    // Transcribe via backend
+                    const token = localStorage.getItem("token");
+                    const formData = new FormData();
+                    formData.append("file", audioBlob, "vocal_note.wav");
+                    const configId = activeProfile?.id?.toString() || activeProfile?.name || "default";
+                    formData.append("config_id", configId);
+
+                    try {
+                        const res = await fetch(`${API_URL}/stt/transcribe`, {
+                            method: "POST",
+                            headers: token ? { "Authorization": `Bearer ${token}` } : {},
+                            body: formData
+                        });
+
+                        if (res.ok) {
+                            const resData = await res.json();
+                            transcriptText = resData.text || "";
+                        } else {
+                            const errorText = await res.text();
+                            console.error("Transcription failed", errorText);
+                            toast({ title: "Transcription Failed", description: errorText, variant: "destructive" });
+                        }
+                    } catch (err) {
+                        console.error("Network transcription error", err);
+                        toast({ title: "Transcription Error", description: "Failed to connect to STT server.", variant: "destructive" });
+                    }
                 }
 
                 // Save to canvas store
@@ -395,11 +453,64 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
             audioChunksRef.current = [];
             setRecordingTime(0);
 
+            let recognitionPromise = Promise.resolve();
+
             mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0) {
                     audioChunksRef.current.push(event.data);
                 }
             };
+
+            // Start browser native SpeechRecognition in parallel if browser native STT is selected
+            const activeSttId = selectedSttModel;
+            const activeProfile = sttProfiles?.find((p: any) => p.id?.toString() === activeSttId || p.name === activeSttId);
+            const isBrowserSTT = activeProfile?.provider_type === "BROWSER" || activeProfile?.is_browser_native;
+
+            if (isBrowserSTT) {
+                accumulatedTextRef.current = "";
+                liveTranscriptRef.current = "";
+                const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                    const recognition = new SpeechRecognition();
+                    recognition.lang = activeProfile.language_code || 'en-US';
+                    recognition.continuous = true;
+                    recognition.interimResults = true;
+                    
+                    let resolveRecognition: () => void;
+                    recognitionPromise = new Promise<void>((resolve) => {
+                        resolveRecognition = resolve;
+                    });
+                    
+                    recognition.onresult = (event: any) => {
+                        let finalTranscript = '';
+                        let interimTranscript = '';
+                        for (let i = event.resultIndex; i < event.results.length; ++i) {
+                            const transcript = event.results[i][0].transcript;
+                            if (event.results[i].isFinal) {
+                                finalTranscript += transcript;
+                            } else {
+                                interimTranscript += transcript;
+                            }
+                        }
+                        if (finalTranscript) {
+                            accumulatedTextRef.current += (accumulatedTextRef.current ? " " : "") + finalTranscript;
+                        }
+                        liveTranscriptRef.current = accumulatedTextRef.current + (interimTranscript ? (accumulatedTextRef.current ? " " : "") + interimTranscript : "");
+                    };
+                    
+                    recognition.onerror = (err: any) => {
+                        console.error("[STT] Browser SpeechRecognition error", err);
+                        resolveRecognition();
+                    };
+                    
+                    recognition.onend = () => {
+                        resolveRecognition();
+                    };
+
+                    recognitionRef.current = recognition;
+                    recognition.start();
+                }
+            }
 
             mediaRecorder.onstop = async () => {
                 stream.getTracks().forEach(track => track.stop());
@@ -412,37 +523,50 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
                 try {
                     // Decode recorded clip
                     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                    const arrayBuffer = await recordedBlob.arrayBuffer();
-                    const recordedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
                     let finalBuffer: AudioBuffer;
-                    if (insertAtCursor && audioBuffer && cursorTime !== null) {
-                        // Insert/splice buffer
-                        const original = audioBuffer;
-                        const toInsert = recordedBuffer;
-                        const sampleRate = original.sampleRate;
-                        const insertIndex = Math.floor(cursorTime * sampleRate);
-                        
-                        const newLength = original.length + toInsert.length;
-                        finalBuffer = audioCtx.createBuffer(original.numberOfChannels, newLength, sampleRate);
-                        
-                        for (let channel = 0; channel < original.numberOfChannels; channel++) {
-                            const originalData = original.getChannelData(channel);
-                            const insertData = toInsert.getChannelData(channel);
-                            const newData = finalBuffer.getChannelData(channel);
+                    try {
+                        const arrayBuffer = await recordedBlob.arrayBuffer();
+                        const recordedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+                        if (insertAtCursor && audioBuffer) {
+                            // Insert/splice buffer
+                            const original = audioBuffer;
+                            const toInsert = recordedBuffer;
+                            const sampleRate = original.sampleRate;
+                            const insertIndex = Math.floor(currentTime * sampleRate);
                             
-                            newData.set(originalData.subarray(0, insertIndex), 0);
-                            newData.set(insertData, insertIndex);
-                            newData.set(originalData.subarray(insertIndex), insertIndex + toInsert.length);
+                            const newLength = original.length + toInsert.length;
+                            finalBuffer = audioCtx.createBuffer(original.numberOfChannels, newLength, sampleRate);
+                            
+                            for (let channel = 0; channel < original.numberOfChannels; channel++) {
+                                const originalData = original.getChannelData(channel);
+                                const insertData = toInsert.getChannelData(channel);
+                                const newData = finalBuffer.getChannelData(channel);
+                                
+                                newData.set(originalData.subarray(0, insertIndex), 0);
+                                newData.set(insertData, insertIndex);
+                                newData.set(originalData.subarray(insertIndex), insertIndex + toInsert.length);
+                            }
+                        } else {
+                            // Fresh recording or appending
+                            finalBuffer = recordedBuffer;
                         }
-                    } else {
-                        // Fresh recording or appending
-                        finalBuffer = recordedBuffer;
+                    } finally {
+                        audioCtx.close().catch(console.error);
+                    }
+
+                    // Wait for recognition to finish processing
+                    if (isBrowserSTT && recognitionRef.current) {
+                        try {
+                            recognitionRef.current.stop();
+                        } catch (e) {}
+                        await recognitionPromise;
                     }
 
                     // Convert final buffer to WAV blob
                     const wavBlob = bufferToWav(finalBuffer);
-                    await transcribeAndSave(wavBlob, finalBuffer);
+                    const isEdit = insertAtCursor || !!audioBuffer;
+                    await transcribeAndSave(wavBlob, finalBuffer, isEdit);
 
                     // Reset positioning
                     setCursorTime(null);
@@ -479,6 +603,10 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
             clearInterval(recordingTimerRef.current);
             recordingTimerRef.current = null;
         }
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+            recognitionRef.current = null;
+        }
     };
 
     // Selection deletion
@@ -508,7 +636,7 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
             }
 
             const wavBlob = bufferToWav(finalBuffer);
-            await transcribeAndSave(wavBlob, finalBuffer);
+            await transcribeAndSave(wavBlob, finalBuffer, true);
 
             setSelectionStart(null);
             setSelectionEnd(null);
@@ -588,11 +716,51 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
         >
             {/* Header Title */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/70 border-b border-slate-800/80 shrink-0">
-                <div className="flex items-center gap-2 select-none">
-                    <Volume2 className="h-4 w-4 text-blue-400" />
-                    <span className="font-semibold text-sm truncate max-w-[200px]">
-                        {thing.title || "Vocal Note"}
-                    </span>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Volume2 className="h-4 w-4 text-blue-400 shrink-0" />
+                    {isEditingTitle ? (
+                        <div className="flex items-center gap-1 flex-1 min-w-0 nodrag">
+                            <input
+                                type="text"
+                                value={editedTitle}
+                                onChange={(e) => setEditedTitle(e.target.value)}
+                                onKeyDown={async (e) => {
+                                    if (e.key === "Enter") {
+                                        await handleSaveTitle();
+                                    } else if (e.key === "Escape") {
+                                        setEditedTitle(thing.title || "");
+                                        setIsEditingTitle(false);
+                                    }
+                                }}
+                                onBlur={handleSaveTitle}
+                                className="bg-slate-900 text-white border border-slate-700 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-blue-500 w-full font-medium"
+                                autoFocus
+                            />
+                        </div>
+                    ) : (
+                        <div 
+                            className="flex items-center gap-1.5 cursor-pointer group/title flex-1 min-w-0 select-none"
+                            onDoubleClick={() => {
+                                if (!isReadOnly) {
+                                    setIsEditingTitle(true);
+                                }
+                            }}
+                            title={isReadOnly ? undefined : "Double click to rename"}
+                        >
+                            <span className="font-semibold text-sm truncate max-w-[180px]">
+                                {thing.title || "Vocal Note"}
+                            </span>
+                            {!isReadOnly && (
+                                <Pencil 
+                                    className="h-3 w-3 text-slate-500 opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0" 
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setIsEditingTitle(true);
+                                    }}
+                                />
+                            )}
+                        </div>
+                    )}
                 </div>
                 {isProcessing && (
                     <div className="flex items-center gap-1.5 text-xs text-blue-400 animate-pulse font-medium">
@@ -603,7 +771,7 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
             </div>
 
             {/* Core Body Container */}
-            <div className="flex-1 flex flex-col p-4 justify-between min-h-0">
+            <div className="flex-1 flex flex-col p-4 justify-start gap-3 min-h-0 overflow-hidden">
                 {!audioBuffer && !isRecording && (
                     /* Initial Empty State - Big Red Recording Bubble */
                     <div className="flex-1 flex flex-col items-center justify-center gap-4 py-6">
@@ -679,16 +847,16 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
 
                 {audioBuffer && !isRecording && (
                     /* Waveform & Playback Area */
-                    <div className="flex-1 flex flex-col justify-between gap-3 min-h-0">
+                    <div className="flex-1 flex flex-col justify-start gap-2.5 min-h-[145px]">
                         {/* Audio Waveform */}
-                        <div className="relative bg-slate-950/40 border border-slate-800/40 rounded-lg p-2 flex flex-col justify-center min-h-[70px]">
+                        <div className="relative bg-slate-950/40 border border-slate-800/40 rounded-lg p-2 flex flex-col justify-center min-h-[70px] nodrag">
                             {/* Waveform Drag Handler Overlay */}
                             <div
                                 ref={waveformRef}
                                 onMouseDown={handleWaveformMouseDown}
                                 onMouseMove={handleWaveformMouseMove}
                                 onMouseUp={handleWaveformMouseUp}
-                                className="absolute inset-0 z-10 cursor-col-resize select-none"
+                                className="absolute inset-0 z-10 cursor-col-resize select-none nodrag"
                             />
                             
                             {/* Visual Bar Waves */}
@@ -758,22 +926,24 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
                                         Delete
                                     </Button>
                                 </div>
-                            ) : cursorTime !== null ? (
+                            ) : (
                                 <div className="flex items-center gap-1.5">
                                     <span className="text-[11px] text-blue-400 font-mono">
-                                        Cursor: {formatTime(cursorTime)}
+                                        Position: {formatTime(currentTime)}
                                     </span>
-                                    <Button
-                                        size="xs"
-                                        variant="outline"
-                                        onClick={() => startRecording(true)}
-                                        className="h-6 px-2 border-slate-700 text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white"
-                                    >
-                                        <Mic className="h-3 w-3 mr-1 text-red-400" />
-                                        Insert Recording
-                                    </Button>
+                                    {!isReadOnly && (
+                                        <Button
+                                            size="xs"
+                                            variant="outline"
+                                            onClick={() => startRecording(true)}
+                                            className="h-6 px-2 border-slate-700 text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white"
+                                        >
+                                            <Mic className="h-3 w-3 mr-1 text-red-400" />
+                                            Insert Recording
+                                        </Button>
+                                    )}
                                 </div>
-                            ) : null}
+                            )}
                         </div>
 
                         {/* Playback Controls & Action Buttons */}
@@ -808,10 +978,13 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
                                     variant="ghost"
                                     className={cn(
                                         "h-8 w-8 transition-colors",
-                                        showTranscription ? "text-blue-400 bg-blue-500/10 hover:text-blue-300" : "text-slate-400 hover:text-white hover:bg-slate-800"
+                                        isDialogOpen ? "text-blue-400 bg-blue-500/10 hover:text-blue-300" : "text-slate-400 hover:text-white hover:bg-slate-800"
                                     )}
-                                    onClick={() => setShowTranscription(!showTranscription)}
-                                    title="Toggle Transcription"
+                                    onClick={() => {
+                                        setEditedText(thing.content?.text as string || "");
+                                        setIsDialogOpen(true);
+                                    }}
+                                    title="View & Edit Transcription"
                                 >
                                     <FileText className="h-4 w-4" />
                                 </Button>
@@ -839,65 +1012,34 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
                     </div>
                 )}
 
-                {/* AI Transcription Result Area */}
-                {(showTranscription || isEditingText) && (
-                    <div className="mt-3.5 pt-3 border-t border-slate-800/80 flex flex-col gap-1.5 shrink-0 max-h-[110px] overflow-y-auto custom-scrollbar select-text text-left">
+                {/* AI Transcription Result Preview */}
+                {showTranscription && audioBuffer && !isRecording && (
+                    <div className="flex-1 min-h-[40px] pt-2 border-t border-slate-800/80 flex flex-col gap-1.5 overflow-y-auto custom-scrollbar select-text text-left">
                         <div className="flex items-center justify-between">
                             <span className="text-[10px] uppercase tracking-wider text-slate-500 font-bold select-none">
                                 AI Transcription
                             </span>
-                            {!isReadOnly && (
-                                <div className="flex items-center gap-1 select-none">
-                                    {isEditingText ? (
-                                        <>
-                                            <button
-                                                onClick={async () => {
-                                                    await updateThing(id, {
-                                                        content: { ...thing.content, text: editedText }
-                                                    });
-                                                    setIsEditingText(false);
-                                                }}
-                                                className="text-emerald-400 hover:text-emerald-300 p-0.5"
-                                                title="Save Transcription"
-                                            >
-                                                <Check className="h-3 w-3" />
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setEditedText(thing.content?.text as string || "");
-                                                    setIsEditingText(false);
-                                                }}
-                                                className="text-rose-400 hover:text-rose-300 p-0.5"
-                                                title="Cancel Editing"
-                                            >
-                                                <X className="h-3 w-3" />
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <button
-                                            onClick={() => setIsEditingText(true)}
-                                            className="text-slate-400 hover:text-white p-0.5"
-                                            title="Edit Transcription"
-                                        >
-                                            <Pencil className="h-3.5 w-3.5" />
-                                        </button>
-                                    )}
-                                </div>
-                            )}
+                            <button
+                                onClick={() => {
+                                    setEditedText(thing.content?.text as string || "");
+                                    setIsDialogOpen(true);
+                                }}
+                                className="text-xs text-blue-400 hover:text-blue-350 font-medium select-none"
+                                title="Open Full Screen / Edit"
+                            >
+                                Expand
+                            </button>
                         </div>
-                        {isEditingText ? (
-                            <textarea
-                                value={editedText}
-                                onChange={(e) => setEditedText(e.target.value)}
-                                className="w-full text-xs bg-slate-950 border border-slate-800 rounded p-1.5 focus:outline-none focus:border-blue-500 text-slate-200 font-sans leading-normal resize-none"
-                                rows={2}
-                                autoFocus
-                            />
-                        ) : (
-                            <p className="text-xs text-slate-300 leading-relaxed italic">
-                                {thing.content?.text ? `"${thing.content.text as string}"` : "No transcription yet. Click the edit icon to type manually."}
-                            </p>
-                        )}
+                        <p 
+                            className="text-xs text-slate-300 leading-relaxed italic cursor-pointer line-clamp-2"
+                            onClick={() => {
+                                setEditedText(thing.content?.text as string || "");
+                                setIsDialogOpen(true);
+                            }}
+                            title="Click to view full transcription"
+                        >
+                            {thing.content?.text ? `"${thing.content.text as string}"` : "No transcription yet. Click to add."}
+                        </p>
                     </div>
                 )}
             </div>
@@ -913,6 +1055,112 @@ export function VocalNoteNode({ id, data, selected }: NodeProps) {
                     onResizeEnd={(_, { width, height }) => onResizeEnd(id, width, height)}
                 />
             )}
+
+            {/* Full-screen Transcription Dialog */}
+            <Dialog open={isDialogOpen} onOpenChange={(open) => {
+                setIsDialogOpen(open);
+                if (!open) setIsEditingText(false);
+            }}>
+                <DialogContent className="max-w-2xl bg-slate-900 border-slate-800 text-white rounded-xl shadow-2xl nodrag">
+                    <DialogHeader>
+                        <DialogTitle className="text-lg font-bold flex items-center gap-2 text-slate-100">
+                            <FileText className="h-5 w-5 text-blue-400" />
+                            <span>Transcription - {thing.title || "Vocal Note"}</span>
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <div className="py-2 flex flex-col gap-4">
+                        {isEditingText ? (
+                            <div className="flex flex-col gap-2">
+                                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Edit Transcription</label>
+                                <Textarea
+                                    value={editedText}
+                                    onChange={(e) => setEditedText(e.target.value)}
+                                    placeholder="Type or edit the transcription here..."
+                                    className="bg-slate-950 border-slate-800 text-slate-200 text-sm p-3 focus:border-blue-500 rounded-lg min-h-[180px] font-sans resize-y focus:outline-none"
+                                    autoFocus
+                                />
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Transcription Content</label>
+                                    {thing.content?.text && (
+                                        <Button
+                                            size="xs"
+                                            variant="ghost"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(thing.content?.text as string);
+                                                toast({ title: "Copied!", description: "Transcription copied to clipboard." });
+                                            }}
+                                            className="h-7 px-2 text-xs text-slate-400 hover:text-white hover:bg-slate-800"
+                                        >
+                                            Copy Text
+                                        </Button>
+                                    )}
+                                </div>
+                                <div className="bg-slate-950 border border-slate-800 rounded-lg p-4 max-h-[300px] overflow-y-auto select-text">
+                                    <p className="text-sm text-slate-200 leading-relaxed font-sans whitespace-pre-wrap">
+                                        {thing.content?.text ? thing.content.text as string : "No transcription available yet. Speak during recording or edit to add text manually."}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <DialogFooter className="flex flex-row items-center justify-between sm:justify-between w-full border-t border-slate-800/80 pt-3">
+                        <div>
+                            {!isReadOnly && !isEditingText && (
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => {
+                                        setEditedText(thing.content?.text as string || "");
+                                        setIsEditingText(true);
+                                    }}
+                                    className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-500/20"
+                                >
+                                    <Pencil className="h-4 w-4 mr-1.5" />
+                                    Edit Text
+                                </Button>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {isEditingText ? (
+                                <>
+                                    <Button
+                                        variant="ghost"
+                                        onClick={() => {
+                                            setEditedText(thing.content?.text as string || "");
+                                            setIsEditingText(false);
+                                        }}
+                                        className="text-slate-400 hover:text-white"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={async () => {
+                                            await updateThing(id, {
+                                                content: { ...thing.content, text: editedText }
+                                            });
+                                            setIsEditingText(false);
+                                        }}
+                                        className="bg-emerald-600 text-white hover:bg-emerald-500 font-semibold"
+                                    >
+                                        Save Changes
+                                    </Button>
+                                </>
+                            ) : (
+                                <Button
+                                    onClick={() => setIsDialogOpen(false)}
+                                    className="bg-slate-850 text-white hover:bg-slate-800 font-semibold border border-slate-750"
+                                >
+                                    Close
+                                </Button>
+                            )}
+                        </div>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

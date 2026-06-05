@@ -1510,7 +1510,7 @@ function CanvasViewInner() {
             // Note: This fires on every selection change (click, drag, etc.)
             // We need to map the selected nodes to our store structure
             const thingIds = selectedNodes
-                .filter(n => n.type === 'thing')
+                .filter(n => n.type !== 'domain')
                 .map(n => n.id);
             const domainIds = selectedNodes
                 .filter(n => n.type === 'domain')
