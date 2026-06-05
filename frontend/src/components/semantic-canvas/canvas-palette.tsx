@@ -17,11 +17,17 @@ import {
     Wand2,
     ChevronLeft,
     ChevronRight,
-    GitBranch
+    GitBranch,
+    Settings,
+    Pin,
+    PinOff,
+    Mic
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
+import { useLayoutStore } from "@/lib/layout-store";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Popover,
     PopoverContent,
@@ -47,7 +53,8 @@ export type ToolType =
     | "archimate_tool"
     | "ocr_conversion"
     | "sticky"
-    | "workflow";
+    | "workflow"
+    | "vocal_note";
 
 export interface CanvasTool {
     id: ToolType;
@@ -84,6 +91,12 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         name: "Sticky Note",
         icon: <Palette className="h-4 w-4" />,
         description: "Add a quick note"
+    },
+    {
+        id: "vocal_note",
+        name: "Vocal Note",
+        icon: <Mic className="h-4 w-4" />,
+        description: "Record and transcribe voice"
     },
     {
         id: "url",
@@ -191,6 +204,9 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
 
     // Workflow - Violet
     workflow: "#f5f3ff",
+    
+    // Vocal note - Rose/Pink
+    vocal_note: "#ffe4e6",
 };
 
 
@@ -206,6 +222,9 @@ export function CanvasPalette() {
 
     const accessLevel = useCanvasStore(state => state.accessLevel);
     const isReadOnly = accessLevel === "read";
+    
+    const { rightPanelPinned, toggleRightPanelPin } = useLayoutStore();
+    const [isHovered, setIsHovered] = React.useState(false);
 
     // State to track custom colors for tools
     const [toolColors, setToolColors] = React.useState<Record<string, string>>(DEFAULT_TOOL_COLORS);
@@ -228,6 +247,23 @@ export function CanvasPalette() {
             }));
         }
     }, [canvasSettings]);
+
+    const visibleTools: string[] = canvasSettings?.visible_tools || CANVAS_TOOLS.map(t => t.id);
+
+    const toggleToolVisibility = (toolId: string) => {
+        if (isReadOnly) return;
+        const currentTools = new Set(visibleTools);
+        if (currentTools.has(toolId)) {
+            currentTools.delete(toolId);
+        } else {
+            currentTools.add(toolId);
+        }
+        
+        updateCanvasSettings({
+            ...(canvasSettings || {}),
+            visible_tools: Array.from(currentTools)
+        });
+    };
 
     const handleDragStart = (e: React.DragEvent, tool: CanvasTool) => {
         if (isReadOnly) {
@@ -284,11 +320,20 @@ export function CanvasPalette() {
 
 
     return (
+        <div 
+            className={cn(
+                "h-full flex-shrink-0 transition-all duration-300 relative z-40",
+                rightPanelPinned ? (isCollapsed ? "w-12" : "w-64") : "w-1"
+            )}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
         <div
             id="canvas-palette"
             className={cn(
-                "border-l bg-sidebar flex flex-col h-full transition-all duration-300 ease-in-out relative",
-                isCollapsed ? "w-12" : "w-64"
+                "border-l bg-sidebar flex flex-col h-full shadow-2xl transition-transform duration-300 ease-in-out relative",
+                isCollapsed ? "w-12" : "w-64",
+                rightPanelPinned ? "translate-x-0" : `absolute top-0 right-0 ${isHovered ? "translate-x-0" : "translate-x-[calc(100%-4px)]"}`
             )}
         >
             {/* Collapse Toggle Button */}
@@ -305,7 +350,7 @@ export function CanvasPalette() {
                 )}
             </Button>
 
-            <div className="p-4 border-b shrink-0">
+            <div className="p-4 border-b shrink-0 flex items-center justify-between">
                 {!isCollapsed && (
                     <h2 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                         <Layout className="h-4 w-4" />
@@ -313,8 +358,49 @@ export function CanvasPalette() {
                     </h2>
                 )}
                 {isCollapsed && (
-                    <div className="flex justify-center">
+                    <div className="flex justify-center w-full">
                         <Layout className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                )}
+                
+                {!isCollapsed && !isReadOnly && (
+                    <div className="flex items-center gap-1">
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={toggleRightPanelPin} 
+                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                        >
+                            {rightPanelPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+                        </Button>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
+                                    <Settings className="h-4 w-4" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-64 p-3" align="end">
+                                <h3 className="font-medium text-sm mb-3">Configure Tools</h3>
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                                    {CANVAS_TOOLS.map((tool) => (
+                                        <div key={`config-${tool.id}`} className="flex items-center space-x-2">
+                                            <Checkbox 
+                                                id={`config-check-${tool.id}`} 
+                                                checked={visibleTools.includes(tool.id)}
+                                                onCheckedChange={() => toggleToolVisibility(tool.id)}
+                                            />
+                                            <label 
+                                                htmlFor={`config-check-${tool.id}`}
+                                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2"
+                                            >
+                                                <span className="text-muted-foreground">{tool.icon}</span>
+                                                {tool.name}
+                                            </label>
+                                        </div>
+                                    ))}
+                                </div>
+                            </PopoverContent>
+                        </Popover>
                     </div>
                 )}
             </div>
@@ -326,7 +412,7 @@ export function CanvasPalette() {
                     </div>
                 )}
 
-                {CANVAS_TOOLS.map((tool) => (
+                {CANVAS_TOOLS.filter(tool => visibleTools.includes(tool.id)).map((tool) => (
                     <div
                         key={tool.id}
                         draggable={!isReadOnly}
@@ -388,6 +474,7 @@ export function CanvasPalette() {
                     </div>
                 ))}
             </div>
+        </div>
         </div>
     );
 }

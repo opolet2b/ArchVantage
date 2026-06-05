@@ -16,16 +16,22 @@ import { InteractiveOverlayLayer } from "./interactive-overlay-layer";
 
 // Configure PDF.js worker
 if (typeof Promise.withResolvers === "undefined") {
+    const polyfill = function () {
+        let resolve, reject;
+        const promise = new Promise((res, rej) => {
+            resolve = res;
+            reject = rej;
+        });
+        return { promise, resolve, reject };
+    };
+    if (typeof Promise !== "undefined") {
+        (Promise as any).withResolvers = polyfill;
+    }
     if (typeof window !== "undefined") {
-        // @ts-expect-error This does not exist on window.Promise
-        window.Promise.withResolvers = function () {
-            let resolve, reject;
-            const promise = new Promise((res, rej) => {
-                resolve = res;
-                reject = rej;
-            });
-            return { promise, resolve, reject };
-        };
+        (window.Promise as any).withResolvers = polyfill;
+    }
+    if (typeof globalThis !== "undefined") {
+        (globalThis.Promise as any).withResolvers = polyfill;
     }
 }
 

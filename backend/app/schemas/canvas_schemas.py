@@ -34,6 +34,7 @@ class ThingType(str, Enum):
     ARCHIMATE_ELEMENT = "archimate_element"
     STICKY = "sticky"
     WORKFLOW = "workflow"
+    VOCAL_NOTE = "vocal_note"
 
 
 class LinkType(str, Enum):

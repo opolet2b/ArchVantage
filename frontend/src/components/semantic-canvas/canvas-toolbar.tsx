@@ -10,6 +10,7 @@ import * as React from "react";
 import { Brain, Loader2, Eye, Hand, MousePointer2, Camera, RefreshCcw, Trash2, Bot, Sparkles, User, Layers, Wand2, Mic } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { useCanvasStore } from "./canvas-store";
+import { useLayoutStore } from "@/lib/layout-store";
 import { cn, API_URL } from "@/lib/utils";
 import { ScenarioSelector } from "./scenario-selector";
 import { CanvasSettingsDialog } from "./canvas-settings-dialog";
@@ -91,6 +92,9 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const updateCanvasSettings = useCanvasStore((s) => s.updateCanvasSettings);
     const setSelectedKbId = useCanvasStore((s) => s.setSelectedKbId);
     const setEnableThinking = useCanvasStore((s) => s.setEnableThinking);
+
+    const { topPanelPinned, toggleTopPanelPin } = useLayoutStore();
+    const [isHovered, setIsHovered] = React.useState(false);
 
     // @ts-ignore
     const showStandardTools = !toolbarConfig || toolbarConfig.keep_standard_tools !== false;
@@ -253,7 +257,23 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
 
     return (
         <div 
-            className="flex flex-wrap items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0 gap-y-2 transition-all"
+            className={cn(
+                "w-full flex-shrink-0 transition-all duration-300 relative z-50",
+                topPanelPinned ? "h-auto" : "h-1"
+            )}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            {!topPanelPinned && !isHovered && (
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-4 bg-white dark:bg-slate-800 border-b border-x border-slate-200 dark:border-slate-700 rounded-b-md shadow-md flex items-center justify-center cursor-pointer opacity-70 hover:opacity-100 transition-opacity z-50">
+                    <LucideIcons.ChevronDown className="h-3 w-3 text-slate-500 dark:text-slate-400" />
+                </div>
+            )}
+        <div 
+            className={cn(
+                "flex flex-wrap items-center justify-between px-4 py-2 border-b bg-white dark:bg-slate-900 shrink-0 gap-y-2 shadow-xl transition-transform duration-300",
+                topPanelPinned ? "relative translate-y-0" : `absolute top-0 left-0 w-full ${isHovered ? "translate-y-0" : "-translate-y-[calc(100%-4px)]"}`
+            )}
             style={activeScenario?.theme_color ? { borderTop: `4px solid ${activeScenario.theme_color}` } : { borderTop: '4px solid transparent' }}
         >
             <div id="canvas-model-selectors" className="flex flex-wrap items-center gap-y-2">
@@ -673,9 +693,19 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
             </div>
 
             <div className="flex items-center gap-2">
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={toggleTopPanelPin} 
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                    title={topPanelPinned ? "Unpin Header" : "Pin Header"}
+                >
+                    {topPanelPinned ? <LucideIcons.PinOff className="h-4 w-4" /> : <LucideIcons.Pin className="h-4 w-4" />}
+                </Button>
                 <CanvasSettingsDialog />
             </div>
         </div >
+        </div>
     );
 });
 

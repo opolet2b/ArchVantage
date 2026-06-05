@@ -34,7 +34,8 @@ export type ThingType =
     | "archimate_tool"
     | "archimate_element"
     | "sticky"
-    | "workflow";
+    | "workflow"
+    | "vocal_note";
 
 /**
  * Types of relationships between things.

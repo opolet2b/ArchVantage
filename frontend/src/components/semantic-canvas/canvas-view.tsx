@@ -38,6 +38,7 @@ import { CanvasToolbar } from "./canvas-toolbar";
 import { StickyNoteNode } from "./nodes/sticky-note-node";
 import { WorkflowInstanceNode } from "./nodes/workflow-instance-node";
 import { WorkflowTemplateDialog } from "./workflow-template-dialog";
+import { VocalNoteNode } from "./nodes/vocal-note-node";
 
 import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport, DomainDefinition } from "./canvas-store";
 
@@ -101,6 +102,7 @@ const nodeTypesMemo = {
     domain: DomainNode,
     sticky: StickyNoteNode,
     workflow: WorkflowInstanceNode,
+    vocal_note: VocalNoteNode,
 };
 
 const edgeTypesMemo: EdgeTypes = {
@@ -327,7 +329,7 @@ function CanvasViewInner() {
     // Convert things to React Flow nodes (memoized)
     const thingNodes: Node[] = React.useMemo(() => things.map((thing) => ({
         id: thing.id,
-        type: thing.type === "sticky" ? "sticky" : thing.type === "workflow" ? "workflow" : "thing",
+        type: thing.type === "sticky" ? "sticky" : thing.type === "workflow" ? "workflow" : thing.type === "vocal_note" ? "vocal_note" : "thing",
         selected: selectedThingIds.includes(thing.id),
         position: { x: thing.position_x, y: thing.position_y },
         data: {
@@ -891,7 +893,7 @@ function CanvasViewInner() {
     // Track active drop zone state dynamically during dragging
     const onNodeDrag = React.useCallback(
         (_e: React.MouseEvent, node: Node) => {
-            if (node.type === "thing" || node.type === "sticky") {
+            if (node.type === "thing" || node.type === "sticky" || node.type === "vocal_note") {
                 const hit = getOverlappingDropZone(node.id, node.position.x, node.position.y, node.width, node.height);
                 const currentActive = useCanvasStore.getState().activeDropZoneId;
                 if (hit) {
@@ -932,7 +934,7 @@ function CanvasViewInner() {
             setIsDraggingNode(false);
             useCanvasStore.setState({ activeDropZoneId: null });
 
-            if (node.type === "thing" || node.type === "sticky") {
+            if (node.type === "thing" || node.type === "sticky" || node.type === "vocal_note") {
                 const startPos = dragStartPosRef.current;
 
                 // Safety check: ensure we have a start position for the dragged node
@@ -1648,6 +1650,17 @@ function CanvasViewInner() {
                         300, // Default width
                         300, // Default height
                         "New Sticky", // title
+                        color // color from palette
+                    );
+                    break;
+                case "vocal_note":
+                    await addThing(
+                        "vocal_note",
+                        { audio: null, text: "" },
+                        position,
+                        400, // Default width
+                        250, // Default height
+                        "New Vocal Note", // title
                         color // color from palette
                     );
                     break;

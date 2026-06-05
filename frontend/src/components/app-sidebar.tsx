@@ -1,4 +1,5 @@
 "use client"
+import * as React from "react";
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
@@ -10,6 +11,8 @@ import { CanvasList } from "@/components/sidebar/canvas-list"
 import { useConversation } from "@/lib/conversation-context"
 import { useViewMode } from "@/lib/view-mode-context"
 import { useAuth } from "@/lib/auth-context"
+import { useLayoutStore } from "@/lib/layout-store"
+import { Pin, PinOff, ChevronRight } from "lucide-react"
 
 const navItems = [
     { href: "/workflow", icon: GitGraph, label: "Workflow Builder" },
@@ -31,7 +34,8 @@ export function AppSidebar() {
     const { createNewConversation, setActiveConversationId } = useConversation()
     const { viewMode, setViewMode } = useViewMode()
     const { user, logout } = useAuth()
-
+    const { leftPanelPinned, toggleLeftPanelPin } = useLayoutStore()
+    const [isHovered, setIsHovered] = React.useState(false)
 
     // Show canvas mode when on home page
     const isHomePage = pathname === "/"
@@ -51,13 +55,37 @@ export function AppSidebar() {
     }
 
     return (
-        <div className="flex flex-col h-screen w-64 border-r bg-sidebar border-sidebar-border py-4 gap-4 overflow-hidden text-sidebar-foreground">
-            <div className="px-4 flex items-center justify-between shrink-0">
-                <div className="font-bold text-xl flex items-center">
-                    <img src="/t2blogo.png" alt="Logo" className="h-8 w-auto mr-2" />
-                    Semantic Workbench
+        <div 
+            className={cn(
+                "h-screen flex-shrink-0 transition-all duration-300 ease-in-out relative z-[60]",
+                leftPanelPinned ? "w-64" : "w-1"
+            )}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+        >
+            {!leftPanelPinned && !isHovered && (
+                <div className="absolute top-1/2 left-0 -translate-y-1/2 w-4 h-16 bg-white dark:bg-slate-800 border-r border-y border-slate-200 dark:border-slate-700 rounded-r-md shadow-md flex items-center justify-center cursor-pointer opacity-70 hover:opacity-100 transition-opacity z-50">
+                    <ChevronRight className="h-3 w-3 text-slate-500 dark:text-slate-400" />
                 </div>
-            </div>
+            )}
+            <div className={cn(
+                "flex flex-col h-screen w-64 border-r bg-sidebar border-sidebar-border py-4 gap-4 overflow-hidden text-sidebar-foreground shadow-xl transition-transform duration-300",
+                leftPanelPinned ? "relative translate-x-0" : `absolute top-0 left-0 ${isHovered ? "translate-x-0" : "-translate-x-[calc(100%-4px)]"}`
+            )}>
+                <div className="px-4 flex items-center justify-between shrink-0">
+                    <div className="font-bold text-xl flex items-center overflow-hidden whitespace-nowrap">
+                        <img src="/t2blogo.png" alt="Logo" className="h-8 w-auto mr-2" />
+                        <span className="truncate">Semantic Workbench</span>
+                    </div>
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={toggleLeftPanelPin} 
+                        className="h-6 w-6 ml-1 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                        {leftPanelPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+                    </Button>
+                </div>
 
             {/* View Mode Toggle - Always Visible */}
             <div className="px-2 shrink-0">
@@ -131,6 +159,7 @@ export function AppSidebar() {
                     <LogOut className="h-4 w-4" />
                     Log out
                 </Button>
+            </div>
             </div>
         </div>
     )
