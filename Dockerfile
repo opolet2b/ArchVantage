@@ -13,6 +13,8 @@ COPY frontend/ ./
 
 # Build Next.js app (standalone mode)
 # Explicitly disable Turbopack if it was somehow triggered
+ARG NEXT_PUBLIC_BASE_PATH=""
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 ENV NEXT_TURBOPACK=0
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build

@@ -9,6 +9,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
     ReactFlow,
     Background,
@@ -3513,12 +3514,12 @@ export function CanvasView({ canvasId: propCanvasId }: CanvasViewProps) {
                     <div className="text-lg font-medium text-slate-600 dark:text-slate-400">
                         Please log in to use the canvas
                     </div>
-                    <a
+                    <Link
                         href="/login"
                         className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
                         Go to Login
-                    </a>
+                    </Link>
                 </div>
             </div>
         );

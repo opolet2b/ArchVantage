@@ -6,4 +6,5 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1"
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ""
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || `${basePath}/api/v1`
