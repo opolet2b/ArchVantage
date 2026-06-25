@@ -4,6 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_BASE_PATH=/semantic-canvas
     ports:
       - "3000:3000"
       - "8001:8000"
