@@ -24,6 +24,9 @@ RUN npm run build
 # ==========================================
 FROM python:3.11-slim-bookworm
 
+ARG NEXT_PUBLIC_BASE_PATH=""
+ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
+
 # Install system dependencies
 # - nodejs/npm: For running the frontend server
 # - supervisor: To manage both processes

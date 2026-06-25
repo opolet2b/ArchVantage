@@ -19,6 +19,7 @@ services:
       - HOSTNAME=0.0.0.0
       - DATABASE_URL=sqlite:///./db/sql_app.db
       - NEXT_PUBLIC_API_URL=/api/v1
+      - NEXT_PUBLIC_BASE_PATH=/semantic-canvas
       - ARCADEDB_HOST=http://arcadedb:2480
       - OLLAMA_HOST=http://192.168.30.35:11434
       - OLLAMA_URL=http://192.168.30.35:11434

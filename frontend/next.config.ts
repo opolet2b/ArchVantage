@@ -25,18 +25,22 @@ const nextConfig: NextConfig = {
     return config;
   },
   async rewrites() {
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
     return [
       {
-        source: '/api/:path*',
+        source: `${basePath}/api/:path*`,
         destination: 'http://127.0.0.1:8000/api/:path*',
+        basePath: false,
       },
       {
-        source: '/docs',
+        source: `${basePath}/docs`,
         destination: 'http://127.0.0.1:8000/docs',
+        basePath: false,
       },
       {
-        source: '/openapi.json',
+        source: `${basePath}/openapi.json`,
         destination: 'http://127.0.0.1:8000/openapi.json',
+        basePath: false,
       },
     ];
   },
