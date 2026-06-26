@@ -147,15 +147,17 @@ export function PDFViewer({
                 try {
                     let urlToFetch = src;
                     // Prepend API_URL logic
+                    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
                     if (API_URL && !src.startsWith("http")) {
                         try {
                             const apiUrlObj = new URL(API_URL);
-                            urlToFetch = `${apiUrlObj.origin}${src}`;
+                            urlToFetch = `${apiUrlObj.origin}${basePath}${src}`;
                         } catch (e) {
                             // If API_URL is relative (e.g. "/api/v1"), new URL() fails.
-                            // We keep urlToFetch as src (relative), allowing Next.js rewrites to handle proxying.
-                            // This avoids CORS issues by not forcing a direct cross-origin request to localhost:8000.
+                            urlToFetch = `${window.location.origin}${basePath}${src}`;
                         }
+                    } else if (src.startsWith("/api/")) {
+                        urlToFetch = `${window.location.origin}${basePath}${src}`;
                     }
                     const headers: HeadersInit = {};
                     if (token) {

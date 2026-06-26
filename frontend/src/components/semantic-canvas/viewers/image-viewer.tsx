@@ -98,9 +98,10 @@ export function ImageViewer({
                     // Construct final URL
                     let urlToFetch = src;
                     
+                    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
                     if (src.startsWith("/api/")) {
-                        // Ensure we use the full origin to hit the Next.js rewrite proxy correctly
-                        urlToFetch = `${window.location.origin}${src}`;
+                        // Ensure we use the full origin and base path to hit the Next.js rewrite proxy correctly
+                        urlToFetch = `${window.location.origin}${basePath}${src}`;
                     } else if (src.includes("/api/v1/assets/")) {
                         // Full URL already, but if it's relative to another host, we keep it
                         urlToFetch = src;

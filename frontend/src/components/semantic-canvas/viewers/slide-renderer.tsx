@@ -67,16 +67,19 @@ function useSecureImage(src?: string) {
                 try {
                     let urlToFetch = src;
                     // Determine URL with proxy logic
+                    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
                     if (API_URL && !src.startsWith("http")) {
                         try {
                             const apiUrlObj = new URL(API_URL);
-                            urlToFetch = `${apiUrlObj.origin}${src}`;
+                            urlToFetch = `${apiUrlObj.origin}${basePath}${src}`;
                         } catch {
                             // Fallback for dev proxy
                             if (src.startsWith("/api/") && typeof window !== 'undefined') {
-                                urlToFetch = src; // rely on proxy
+                                urlToFetch = `${window.location.origin}${basePath}${src}`;
                             }
                         }
+                    } else if (src.startsWith("/api/") && typeof window !== 'undefined') {
+                        urlToFetch = `${window.location.origin}${basePath}${src}`;
                     }
 
                     const headers: HeadersInit = {};

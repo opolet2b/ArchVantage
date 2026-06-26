@@ -67,16 +67,21 @@ export function SelectableContent({
             let fetchUrl = url;
 
             // Robust URL construction matching ImageViewer logic
+            const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
             if (url.startsWith("/api/") && !url.startsWith("http")) {
                 if (API_URL) {
                     try {
                         const apiUrlObj = new URL(API_URL);
-                        fetchUrl = `${apiUrlObj.origin}${url}`;
+                        fetchUrl = `${apiUrlObj.origin}${basePath}${url}`;
                     } catch (e) {
                         if (process.env.NODE_ENV === 'development') {
                             fetchUrl = `http://127.0.0.1:8000${url}`;
+                        } else if (typeof window !== 'undefined') {
+                            fetchUrl = `${window.location.origin}${basePath}${url}`;
                         }
                     }
+                } else if (typeof window !== 'undefined') {
+                    fetchUrl = `${window.location.origin}${basePath}${url}`;
                 } else {
                     fetchUrl = `http://127.0.0.1:8000${url}`;
                 }
