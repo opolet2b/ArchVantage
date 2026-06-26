@@ -30,10 +30,17 @@ def init_knowledge_graph_schema():
     """
     print("[SchemaInit] Starting ArcadeDB schema initialization...")
     
-    # Check reachability with a short timeout to avoid blocking background threads unnecessarily
-    # (Even though it's backgrounded, we don't want to hang the thread too long)
-    if not arcadedb.is_reachable(timeout=1.0):
-        print("[SchemaInit] WARNING: ArcadeDB is not reachable. Background schema initialization will not proceed.")
+    # Check reachability with retries to allow ArcadeDB (Java) time to boot up
+    import time
+    max_retries = 15
+    for attempt in range(max_retries):
+        if arcadedb.is_reachable(timeout=3.0):
+            print(f"[SchemaInit] ArcadeDB is reachable (attempt {attempt + 1}).")
+            break
+        print(f"[SchemaInit] ArcadeDB not yet reachable (attempt {attempt + 1}/{max_retries}). Waiting...")
+        time.sleep(2)
+    else:
+        print("[SchemaInit] WARNING: ArcadeDB is not reachable after retries. Background schema initialization will not proceed.")
         return
 
     # 0. Ensure database exists
