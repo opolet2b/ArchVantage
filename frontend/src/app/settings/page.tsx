@@ -16,10 +16,11 @@ import { QueryingSettingsTab } from "@/components/settings/querying-settings-tab
 import { MaintenanceTab } from "@/components/settings/maintenance-tab"
 import { TtsConfigTab } from "@/components/settings/tts-config"
 import { SttSettingsTab } from "@/components/settings/stt-settings-tab"
+import { EditorSettingsTab } from "@/components/settings/editor-settings-tab"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
-import { Users, User, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit, Volume2, Mic } from "lucide-react"
+import { Users, User, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit, Volume2, Mic, Edit } from "lucide-react"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -139,6 +140,14 @@ export default function SettingsPage() {
                             <Database className="h-4 w-4" />
                             Database
                         </Button>
+                        <Button
+                            variant={activeTab === "editor" ? "secondary" : "ghost"}
+                            className="justify-start gap-2"
+                            onClick={() => handleTabChange("editor")}
+                        >
+                            <Edit className="h-4 w-4" />
+                            Editor
+                        </Button>
                         {isAdmin && (
                             <Button
                                 variant={(activeTab === "users" ||
@@ -209,6 +218,7 @@ export default function SettingsPage() {
                         {activeTab === "categories" && isAdmin && <CategoriesTab />}
                         {activeTab === "prompts" && <PromptsSettingsTab />}
                         {activeTab === "database" && <DatabaseSettingsTab />}
+                        {activeTab === "editor" && <EditorSettingsTab />}
                         {activeTab === "templates" && isAdmin && <TemplatesSettingsTab />}
                         {activeTab === "maintenance" && <MaintenanceTab />}
                     </main>

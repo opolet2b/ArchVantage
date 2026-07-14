@@ -77,7 +77,8 @@ import {
     RegionFragment,
     VectorizationPreviewDialog,
     MarkdownToolbar,
-    AgentToolViewer
+    AgentToolViewer,
+    CollaboraViewer
 } from "../viewers";
 
 // Registry for Dynamic Component Rendering
@@ -320,6 +321,29 @@ const CitationList = ({ citations, onSelectThing, onHighlight }: {
     );
 };
 
+const CollaboraIcon = ({ className }: { className?: string }) => (
+    <svg viewBox="0 0 24 24" className={className} xmlns="http://www.w3.org/2000/svg">
+        <polygon points="10,2 22,12 10,22 4,17 11,12 4,7" fill="#612b88" />
+        <polygon points="4,17 11,12 11,16" fill="#381155" />
+        <polygon points="4,7 11,12 4,17" fill="#d1d3d4" />
+    </svg>
+);
+
+let cachedCollaboraConfig: { use_collabora: boolean; collabora_server_url: string } | null = null;
+let collaboraConfigPromise: Promise<any> | null = null;
+const getCollaboraConfig = () => {
+    if (cachedCollaboraConfig) return Promise.resolve(cachedCollaboraConfig);
+    if (!collaboraConfigPromise) {
+        collaboraConfigPromise = fetch(`${API_URL}/config/editor`, {
+            headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
+        }).then(res => res.json()).then(data => {
+            cachedCollaboraConfig = data.config;
+            return data.config;
+        }).catch(() => null);
+    }
+    return collaboraConfigPromise;
+};
+
 export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNodeData>) {
     const { id, data, selected: isSelected } = props;
     console.log(`[ThingNode] Rendering ${id}`, { type: data.thing?.type, zoomLevel: data.zoomLevel });
@@ -346,6 +370,17 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // The store 'things' array is the source of truth for content updates.
     const storeThing = useCanvasStore(state => state.things.find(t => t.id === thing.id));
     const currentThing = storeThing || thing;
+
+    const [useCollaboraMode, setUseCollaboraMode] = React.useState(false);
+    const [collaboraEnabled, setCollaboraEnabled] = React.useState(false);
+
+    React.useEffect(() => {
+        getCollaboraConfig().then(config => {
+            if (config && config.use_collabora) {
+                setCollaboraEnabled(true);
+            }
+        });
+    }, []);
 
     // If not in store yet (initial render race), use prop.
     const zoomLevel = useCanvasStore((state) => state.zoomLevel);
@@ -446,6 +481,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     // Sync State
     const [syncDialogOpen, setSyncDialogOpen] = React.useState(false);
+    const [showDependencies, setShowDependencies] = React.useState(false);
+    
+    // Transclusion resolution state
+    const [transclusionResolveDialogOpen, setTransclusionResolveDialogOpen] = React.useState(false);
     const [syncStatus, setSyncStatus] = React.useState<'idle' | 'checking' | 'ready' | 'syncing' | 'complete' | 'error'>('idle');
     const [syncCheckResult, setSyncCheckResult] = React.useState<{ status: string, message?: string, diff?: string } | null>(null);
     const [syncSourcePath, setSyncSourcePath] = React.useState<string>("");
@@ -922,6 +961,86 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     }, [links, thing.id, canvasId]);
 
     const hasExternalLinks = externalLinks.length > 0;
+
+    // Transclusion Resolution Logic
+    const handleCollaboraToggle = async () => {
+        if (useCollaboraMode) {
+            setUseCollaboraMode(false);
+            // Refresh to pull any auto-saves made by Collabora directly into the DB
+            useCanvasStore.getState().refreshThings();
+            return;
+        }
+
+        const textContent = (thing.content.content || thing.content.text_content || thing.content.text || "") as string;
+        
+        if (textContent.includes("{{node:")) {
+            setTransclusionResolveDialogOpen(true);
+        } else {
+            setUseCollaboraMode(true);
+        }
+    };
+
+    const handleResolveTransclusions = async () => {
+        let textContent = (thing.content.content || thing.content.text_content || thing.content.text || "") as string;
+        
+        const regex = /{{node:([a-zA-Z0-9-]+)(?:#([a-zA-Z0-9-]+))?}}/g;
+        let match;
+        
+        let newText = textContent;
+        // Use a Set to avoid infinite loops if replacement goes wrong
+        const processedMatches = new Set<string>();
+        
+        while ((match = regex.exec(textContent)) !== null) {
+            const fullMatch = match[0];
+            if (processedMatches.has(fullMatch)) continue;
+            processedMatches.add(fullMatch);
+            
+            const targetNodeId = match[1];
+            const fragmentId = match[2];
+            
+            // We can get the canvas things directly from the store state
+            const allThings = useCanvasStore.getState().things;
+            const targetNode = allThings.find(t => t.id === targetNodeId);
+            
+            if (targetNode) {
+                let resolvedText = "";
+                const tContent = targetNode.content as any;
+                
+                if (fragmentId && tContent.saved_fragments) {
+                    const fragment = tContent.saved_fragments.find((f: any) => f.id === fragmentId);
+                    if (fragment) resolvedText = typeof fragment.content === 'string' ? fragment.content : JSON.stringify(fragment.content);
+                } 
+                if (!resolvedText && fragmentId && tContent.regions) {
+                     const region = tContent.regions.find((r: any) => r.id === fragmentId);
+                     if (region) resolvedText = typeof region.content === 'string' ? region.content : JSON.stringify(region.content);
+                }
+                if (!resolvedText) {
+                    resolvedText = (tContent.content || tContent.text_content || tContent.text || "") as string;
+                }
+                
+                if (resolvedText) {
+                    // Add blockquotes to visually indicate it was a transclusion
+                    const formattedReplacement = `\n> ${resolvedText.split('\n').join('\n> ')}\n`;
+                    // Replace all instances of this exact match
+                    newText = newText.split(fullMatch).join(formattedReplacement);
+                }
+            }
+        }
+        
+        const updatedContent = { ...thing.content } as any;
+        if (updatedContent.text_content !== undefined) updatedContent.text_content = newText;
+        if (updatedContent.text !== undefined) updatedContent.text = newText;
+        if (updatedContent.content !== undefined) updatedContent.content = newText;
+        
+        // Optimistically update local state first
+        useCanvasStore.getState().updateThing(thing.id, { content: updatedContent });
+        
+        setTransclusionResolveDialogOpen(false);
+        // Wait a tiny bit for React state to flush
+        setTimeout(() => {
+            setUseCollaboraMode(true);
+        }, 100);
+    };
 
     const handleOpenExternalCanvas = (targetCanvasId: string, targetNodeId: string) => {
         window.location.href = `/canvas/${targetCanvasId}?node=${targetNodeId}`;
@@ -1985,6 +2104,42 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                 const showAsMarkdown = thing.type === "agent_result" || ((isMarkdown(textVal) || textVal.includes("{{node:")) && !highlight);
 
+                if (useCollaboraMode) {
+                    const fileUrl = `/api/v1/things/${thing.id}`;
+                    return (
+                        <div className={cn("flex flex-col overflow-hidden", thing.height ? "h-full" : "max-h-[600px]")}>
+                            <div className="flex-1 min-h-0 overflow-hidden px-1">
+                                <SelectableContent thingId={thing.id}>
+                                    <CollaboraViewer 
+                                        fileUrl={fileUrl} 
+                                        className="w-full h-full min-h-[400px] border-0"
+                                        fallback={
+                                            showAsMarkdown ? (
+                                                <MemoizedMarkdownViewer
+                                                    content={textVal}
+                                                    className="h-full prose-sm dark:prose-invert"
+                                                    ancestorIds={[thing.id]}
+                                                    onSelect={handleTextSelection}
+                                                    transclusionStates={(thing.content as any).transclusions}
+                                                    onTransclusionStateChange={handleTransclusionStateChange}
+                                                    highlight={highlight}
+                                                />
+                                            ) : (
+                                                <MemoizedTextViewer
+                                                    content={textVal}
+                                                    className="h-full"
+                                                    highlight={highlight}
+                                                    onSelect={handleTextSelection}
+                                                />
+                                            )
+                                        }
+                                    />
+                                </SelectableContent>
+                            </div>
+                        </div>
+                    );
+                }
+
                 return (
                     <div className={cn("flex flex-col overflow-hidden", thing.height ? "h-full" : "max-h-[600px]")}>
                         {/* Thinking Block */}
@@ -2127,26 +2282,58 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                 // Markdown files or Explicit Markdown Content (Smart Analysis)
                 if (filename?.toLowerCase().endsWith(".md") || content.format === 'markdown' || (textContent && !filename)) {
-                    return (
-                        <div className="flex flex-col h-full">
-                            <div className="flex-1 min-h-0 overflow-y-auto">
-                                <SelectableContent thingId={thing.id}>
-                                    <MarkdownViewer
-                                        content={textContent || ""}
-                                        className="h-full flex-1"
-                                        ancestorIds={[thing.id]}
-                                        onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
-                                        highlight={highlight}
-                                    />
-                                </SelectableContent>
+                    const assetId = content.asset_id;
+                    const fileUrl = assetId ? `/api/v1/assets/${assetId}` : `/api/v1/things/${thing.id}`;
+                    
+                    if (useCollaboraMode) {
+                        return (
+                            <div className="flex flex-col h-full">
+                                <div className="flex-1 min-h-0 overflow-y-auto">
+                                    <SelectableContent thingId={thing.id}>
+                                        <CollaboraViewer 
+                                            fileUrl={fileUrl} 
+                                            className={cn("w-full border-0", thing.height ? "h-full" : "min-h-[500px]")}
+                                            fallback={
+                                                <MarkdownViewer
+                                                    content={textContent || ""}
+                                                    className="h-full flex-1"
+                                                    ancestorIds={[thing.id]}
+                                                    onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                                    highlight={highlight}
+                                                />
+                                            } 
+                                        />
+                                    </SelectableContent>
+                                </div>
+                                <CitationList
+                                    citations={(thing.content as any).citations}
+                                    onSelectThing={selectThing}
+                                    onHighlight={setHighlightTarget}
+                                />
                             </div>
-                            <CitationList
-                                citations={(thing.content as any).citations}
-                                onSelectThing={selectThing}
-                                onHighlight={setHighlightTarget}
-                            />
-                        </div>
-                    );
+                        );
+                    } else {
+                        return (
+                            <div className="flex flex-col h-full">
+                                <div className="flex-1 min-h-0 overflow-y-auto">
+                                    <SelectableContent thingId={thing.id}>
+                                        <MarkdownViewer
+                                            content={textContent || ""}
+                                            className="h-full flex-1"
+                                            ancestorIds={[thing.id]}
+                                            onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                            highlight={highlight}
+                                        />
+                                    </SelectableContent>
+                                </div>
+                                <CitationList
+                                    citations={(thing.content as any).citations}
+                                    onSelectThing={selectThing}
+                                    onHighlight={setHighlightTarget}
+                                />
+                            </div>
+                        );
+                    }
                 }
 
                 // Spreadsheet files (Excel, CSV)
@@ -2160,8 +2347,26 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     const assetId = content.asset_id;
                     const fileUrl = assetId ? `/api/v1/assets/${assetId}` : (filePath || textContent || "");
 
-                    return (
-                        <SelectableContent thingId={thing.id}>
+                    if (useCollaboraMode) {
+                        return (
+                            <SelectableContent thingId={thing.id}>
+                                <CollaboraViewer 
+                                    fileUrl={fileUrl} 
+                                    className={cn("w-full border-0", thing.height ? "h-full" : "min-h-[500px]")}
+                                    fallback={
+                                        <SpreadsheetViewer
+                                            content={fileUrl}
+                                            filename={filename}
+                                            className={cn(thing.height ? "h-full" : "max-h-[200px]")}
+                                            highlight={highlight}
+                                            onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                        />
+                                    } 
+                                />
+                            </SelectableContent>
+                        );
+                    } else {
+                        return (
                             <SpreadsheetViewer
                                 content={fileUrl}
                                 filename={filename}
@@ -2169,32 +2374,64 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 highlight={highlight}
                                 onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
                             />
-                        </SelectableContent>
-                    );
+                        );
+                    }
                 }
 
                 // Word Documents (or others with extracted text)
                 if (content.text_content) {
-                    return (
-                        <div className="flex flex-col h-full">
-                            <div className="flex-1 min-h-0 overflow-y-auto">
-                                <SelectableContent thingId={thing.id}>
-                                    <MarkdownViewer
-                                        content={content.text_content as string}
-                                        className="h-full px-4 flex-1"
-                                        ancestorIds={[thing.id]}
-                                        onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
-                                        highlight={highlight}
-                                    />
-                                </SelectableContent>
+                    const assetId = content.asset_id;
+                    const fileUrl = assetId ? `/api/v1/assets/${assetId}` : (filePath || "");
+                    
+                    if (useCollaboraMode) {
+                        return (
+                            <div className="flex flex-col h-full">
+                                <div className="flex-1 min-h-0 overflow-y-auto">
+                                    <SelectableContent thingId={thing.id}>
+                                        <CollaboraViewer 
+                                            fileUrl={fileUrl} 
+                                            className={cn("w-full border-0", thing.height ? "h-full" : "min-h-[500px]")}
+                                            fallback={
+                                                <MarkdownViewer
+                                                    content={content.text_content as string}
+                                                    className="h-full px-4 flex-1"
+                                                    ancestorIds={[thing.id]}
+                                                    onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                                    highlight={highlight}
+                                                />
+                                            } 
+                                        />
+                                    </SelectableContent>
+                                </div>
+                                <CitationList
+                                    citations={(thing.content as any).citations}
+                                    onSelectThing={selectThing}
+                                    onHighlight={setHighlightTarget}
+                                />
                             </div>
-                            <CitationList
-                                citations={(thing.content as any).citations}
-                                onSelectThing={selectThing}
-                                onHighlight={setHighlightTarget}
-                            />
-                        </div>
-                    );
+                        );
+                    } else {
+                        return (
+                            <div className="flex flex-col h-full">
+                                <div className="flex-1 min-h-0 overflow-y-auto">
+                                    <SelectableContent thingId={thing.id}>
+                                        <MarkdownViewer
+                                            content={content.text_content as string}
+                                            className="h-full px-4 flex-1"
+                                            ancestorIds={[thing.id]}
+                                            onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                            highlight={highlight}
+                                        />
+                                    </SelectableContent>
+                                </div>
+                                <CitationList
+                                    citations={(thing.content as any).citations}
+                                    onSelectThing={selectThing}
+                                    onHighlight={setHighlightTarget}
+                                />
+                            </div>
+                        );
+                    }
                 }
 
                 // Generated markdown documents (from Document Templates)
@@ -2649,6 +2886,27 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     className={cn("!w-4 !h-4", colorTheme.handleColor)}
                 />
 
+                {/* Dynamic invisible source handles for region-based fragment links when iconified */}
+                {(thing.type === "image" || thing.type === "document" || thing.type === "slideshow") &&
+                    links
+                        .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
+                        .map(l => (
+                            <Handle
+                                key={l.id}
+                                id={`fragment-handle-${l.id}`}
+                                type="source"
+                                position={Position.Right}
+                                style={{
+                                    top: "50%",
+                                    left: "100%",
+                                    position: 'absolute',
+                                    transform: 'translate(-50%, -50%)',
+                                    opacity: 0,
+                                    pointerEvents: 'none',
+                                }}
+                            />
+                        ))}
+
                 {/* Title Label - Static below icon */}
                 <span className="text-[10px] font-medium text-slate-700 dark:text-slate-300 text-center leading-tight line-clamp-2 w-full px-1">
                     {thing.title || getDefaultTitle()}
@@ -2714,6 +2972,27 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         isSelected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
                     )}
                 />
+
+                {/* Dynamic invisible source handles for region-based fragment links in domain view */}
+                {(thing.type === "image" || thing.type === "document" || thing.type === "slideshow") &&
+                    links
+                        .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
+                        .map(l => (
+                            <Handle
+                                key={l.id}
+                                id={`fragment-handle-${l.id}`}
+                                type="source"
+                                position={Position.Right}
+                                style={{
+                                    top: "50%",
+                                    left: "100%",
+                                    position: 'absolute',
+                                    transform: 'translate(-50%, -50%)',
+                                    opacity: 0,
+                                    pointerEvents: 'none',
+                                }}
+                            />
+                        ))}
             </div>
         );
     }
@@ -3240,7 +3519,55 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 </DropdownMenuContent>
                             </DropdownMenu>
 
-                            {/* Export Button */}
+                            {/* Collabora Toggle Button */}
+                            {(thing.type === 'document' || thing.type === 'text') && !isReadOnly && (
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCollaboraToggle();
+                                    }}
+                                    className={cn(
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors flex-shrink-0",
+                                        useCollaboraMode ? "text-purple-600 bg-purple-50 dark:bg-purple-900/20" : "text-slate-400 hover:text-purple-500"
+                                    )}
+                                    title={useCollaboraMode ? "Switch to Native Viewer" : "Edit in Collabora Online"}
+                                >
+                                    <CollaboraIcon className="h-4 w-4" />
+                                </button>
+                            )}
+
+            {/* Transclusion Resolve Dialog */}
+            <Dialog open={transclusionResolveDialogOpen} onOpenChange={setTransclusionResolveDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Live Transclusions Detected</DialogTitle>
+                        <DialogDescription className="pt-2">
+                            This node contains dynamic transclusions (live links to other documents). 
+                            Collabora Online does not support rendering live transclusions.
+                            <br/><br/>
+                            Would you like to permanently convert these transclusions into plain text so they can be edited inside Collabora?
+                            <br/><br/>
+                            <strong className="text-red-500">Warning:</strong> Converting to text cannot be undone. The live connection to the source document will be permanently broken.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="flex-col sm:flex-row gap-2 sm:gap-0 mt-4">
+                        <Button variant="outline" onClick={() => setTransclusionResolveDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button variant="secondary" onClick={() => {
+                            setTransclusionResolveDialogOpen(false);
+                            setUseCollaboraMode(true);
+                        }}>
+                            Edit with Raw Tags
+                        </Button>
+                        <Button variant="destructive" onClick={handleResolveTransclusions}>
+                            Convert to Text & Edit
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+                            {/* Export Dialog */}
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
@@ -3364,6 +3691,28 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     position={Position.Right}
                     className={cn("!w-4 !h-4 z-50", colorTheme.handleColor, isReadOnly && "opacity-0 pointer-events-none")}
                 />
+
+                {/* Dynamic invisible source handles for region-based fragment links in full card view */}
+                {imageOverlays.filter(o => o.type === "link").map(overlay => {
+                    const top = `${overlay.y + overlay.height / 2}%`;
+                    const left = `${overlay.x + overlay.width}%`;
+                    return (
+                        <Handle
+                            key={overlay.id}
+                            id={`fragment-handle-${overlay.id}`}
+                            type="source"
+                            position={Position.Right}
+                            style={{
+                                top,
+                                left,
+                                position: 'absolute',
+                                transform: 'translate(-50%, -50%)',
+                                opacity: 0,
+                                pointerEvents: 'none',
+                            }}
+                        />
+                    );
+                })}
 
                 {/* Automation Floating Badge */}
                 {processingMessage && (

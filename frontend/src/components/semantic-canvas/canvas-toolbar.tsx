@@ -499,6 +499,19 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                     )}
                 </div>
 
+                <div className="flex items-center gap-2 bg-slate-100/50 dark:bg-slate-800/50 px-2 py-1 rounded-md border h-10">
+                    <Label htmlFor="toolbar-links-toggle" className="text-xs font-normal cursor-pointer flex items-center gap-1.5 select-none">
+                        <LucideIcons.Link className="h-3.5 w-3.5 text-muted-foreground" />
+                        Show Links
+                    </Label>
+                    <Switch
+                        id="toolbar-links-toggle"
+                        checked={showLinks}
+                        onCheckedChange={() => toggleShowLinks()}
+                        className="scale-90"
+                    />
+                </div>
+
                 <div className="flex items-center gap-1 border-l pl-4">
                     <Button
                         variant={activeScenario ? "secondary" : "ghost"}

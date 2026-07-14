@@ -142,6 +142,21 @@ class ConfigService:
         config["default_tts_preset_name"] = preset_name
         self.save_config(config)
 
+    def get_editor_config(self) -> Dict[str, Any]:
+        config = self.get_config()
+        return config.get("editor_config", {
+            "use_collabora": False,
+            "collabora_server_url": ""
+        })
+
+    def set_editor_config(self, use_collabora: bool, collabora_server_url: str):
+        config = self.get_config()
+        config["editor_config"] = {
+            "use_collabora": use_collabora,
+            "collabora_server_url": collabora_server_url
+        }
+        self.save_config(config)
+
     # Deprecated but kept for compatibility during refactor
     def get_active_preset(self) -> Optional[Dict[str, Any]]:
         return self.get_default_llm_preset()

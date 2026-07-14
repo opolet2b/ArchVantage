@@ -127,6 +127,19 @@ def get_active_preset():
     preset = config_service.get_default_llm_preset()
     return {"active_preset": preset}
 
+class EditorConfigRequest(BaseModel):
+    use_collabora: bool
+    collabora_server_url: str
+
+@router.get("/config/editor")
+def get_editor_config(user: User = Depends(get_current_active_user)):
+    return {"config": config_service.get_editor_config()}
+
+@router.post("/config/editor")
+def set_editor_config(request: EditorConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
+    config_service.set_editor_config(request.use_collabora, request.collabora_server_url)
+    return {"status": "success"}
+
 class DatabaseConfigRequest(BaseModel):
     url: Optional[str] = None
     arcadedb_host: Optional[str] = None
@@ -359,3 +372,24 @@ def save_querying_config(request: QueryingConfigRequest, user: User = Depends(Pe
     rag_service.reload_config()
     
     return {"status": "success", "config": request.dict()}
+
+class EditorConfigRequest(BaseModel):
+    use_collabora: bool = False
+    collabora_server_url: Optional[str] = ""
+
+@router.get("/config/editor")
+def get_editor_config(user: User = Depends(PermissionChecker("settings:manage"))):
+    config = config_service.get_config()
+    editor_config = config.get("editor_config", {
+        "use_collabora": False,
+        "collabora_server_url": ""
+    })
+    return {"config": editor_config}
+
+@router.post("/config/editor")
+def save_editor_config(request: EditorConfigRequest, user: User = Depends(PermissionChecker("settings:manage"))):
+    config = config_service.get_config()
+    config["editor_config"] = request.dict()
+    config_service.save_config(config)
+    return {"status": "success", "config": request.dict()}
+

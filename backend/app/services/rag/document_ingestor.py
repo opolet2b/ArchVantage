@@ -84,11 +84,23 @@ class DocumentIngestor:
                             for sheet_name, sheet_df in excel_dict.items():
                                 if not sheet_df.empty:
                                     all_dfs.append(sheet_df)
-                                    # Fallback for to_markdown
+                                    # Limit rows to prevent massive markdown generation which hangs tokenizers
+                                    MAX_ROWS = 100
+                                    truncated = False
+                                    if len(sheet_df) > MAX_ROWS:
+                                        sheet_df_md = sheet_df.head(MAX_ROWS)
+                                        truncated = True
+                                    else:
+                                        sheet_df_md = sheet_df
+                                        
                                     try:
-                                        sheet_md = sheet_df.to_markdown(index=False)
+                                        sheet_md = sheet_df_md.to_markdown(index=False)
                                     except:
-                                        sheet_md = sheet_df.to_string(index=False)
+                                        sheet_md = sheet_df_md.to_string(index=False)
+                                        
+                                    if truncated:
+                                        sheet_md += f"\n... ({len(sheet_df) - MAX_ROWS} more rows truncated for RAG)"
+                                        
                                     text_parts.append(f"### Sheet: {sheet_name}\n" + sheet_md)
                             
                             if all_dfs:

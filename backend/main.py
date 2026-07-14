@@ -26,7 +26,7 @@ from app.routers import (
     chat, workflow, rag, knowledge, research, config, conversation,
     agents, auth, users, roles, oauth, tools, mcp_servers,
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
-    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology, stt, tts, ocr
+    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology, stt, tts, ocr, wopi
 )
 from app.services.debug_service import debug_service
 from app.services.watcher_service import watcher_service
@@ -119,6 +119,7 @@ app.include_router(ontology.router, prefix="/api/v1", tags=["ontology"])
 app.include_router(stt.router, prefix="/api/v1/stt", tags=["stt"])
 app.include_router(tts.router, prefix="/api/v1/tts", tags=["tts"])
 app.include_router(ocr.router, prefix="/api/v1/tools/ocr", tags=["ocr"])
+app.include_router(wopi.router, prefix="/api/v1", tags=["wopi"])
 
 @app.get("/")
 def read_root():
