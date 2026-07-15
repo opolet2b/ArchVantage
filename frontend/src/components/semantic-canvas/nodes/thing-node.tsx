@@ -1991,12 +1991,15 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     return (
                         <div className="flex flex-col h-full overflow-hidden">
                             <div className="flex-1 min-h-[300px] border rounded-xl bg-white dark:bg-slate-900 shadow-inner overflow-hidden">
-                                <SpreadsheetViewer 
-                                    content="" 
-                                    initialData={tableData}
-                                    className="h-full"
-                                    selectionEnabled={true}
-                                />
+                                <SelectableContent thingId={thing.id}>
+                                    <SpreadsheetViewer 
+                                        content="" 
+                                        initialData={tableData}
+                                        className="h-full"
+                                        selectionEnabled={true}
+                                        onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                    />
+                                </SelectableContent>
                             </div>
                         </div>
                     );
@@ -2367,13 +2370,15 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         );
                     } else {
                         return (
-                            <SpreadsheetViewer
-                                content={fileUrl}
-                                filename={filename}
-                                className={cn(thing.height ? "h-full" : "max-h-[200px]")}
-                                highlight={highlight}
-                                onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
-                            />
+                            <SelectableContent thingId={thing.id}>
+                                <SpreadsheetViewer
+                                    content={fileUrl}
+                                    filename={filename}
+                                    className={cn(thing.height ? "h-full" : "max-h-[200px]")}
+                                    highlight={highlight}
+                                    onSelect={(fragment, position) => setContentSelection(thing.id, fragment, position)}
+                                />
+                            </SelectableContent>
                         );
                     }
                 }

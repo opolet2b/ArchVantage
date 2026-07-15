@@ -482,7 +482,7 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
     if (!isOpen) return null;
 
     const editorBody = (
-        <div className="flex flex-col flex-1 min-h-0">
+        <div className="flex flex-col flex-1 min-h-0 w-full">
             {editorMode === "markdown" ? (
                 <>
                     <MarkdownToolbar
@@ -693,7 +693,7 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
                         {commonActions}
                     </div>
                 </div>
-                <div className="flex-1 overflow-hidden relative">
+                <div className="flex-1 overflow-hidden relative flex flex-col min-h-0">
                     {editorBody}
                 </div>
             </div>,
@@ -743,7 +743,7 @@ export const TextThingEditor = React.forwardRef<any, TextThingEditorProps>(({
                         </div>
                     </div>
                 </DialogHeader>
-                <div className="flex-1 overflow-hidden relative min-h-0">
+                <div className="flex-1 overflow-hidden relative min-h-0 flex flex-col">
                     {editorBody}
                 </div>
             </DialogContent>
