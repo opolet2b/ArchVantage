@@ -370,18 +370,20 @@ export function ConversationList() {
                                 <span className="truncate flex-1 text-left">{conv.title}</span>
                             )}
 
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <MoreVertical className="h-3 w-3" />
-                                    </Button>
+                            <DropdownMenu onOpenChange={(open) => console.log("Conversation DropdownMenu onOpenChange:", open, "Conversation ID:", conv.id)}>
+                                <DropdownMenuTrigger
+                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground outline-none"
+                                    onClick={(e) => {
+                                        console.log("Conversation Trigger onClick fired");
+                                        e.stopPropagation();
+                                    }}
+                                    onPointerDown={(e) => {
+                                        console.log("Conversation Trigger onPointerDown fired");
+                                    }}
+                                >
+                                    <MoreVertical className="h-3 w-3 text-muted-foreground" />
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
+                                <DropdownMenuContent align="end" className="z-[100]">
                                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleRename(conv.id, conv.title) }}>
                                         <Edit2 className="mr-2 h-3 w-3" /> Rename
                                     </DropdownMenuItem>

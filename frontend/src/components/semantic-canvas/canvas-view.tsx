@@ -47,6 +47,7 @@ import { LinkTypeDialog } from "./link-type-dialog";
 import { DomainSelector } from "./domain-selector";
 import { MCPToolConfigDialog, MCPToolConfig } from "./mcp-tool-config-dialog";
 import { AgentToolConfigDialog, AgentToolConfig } from "./agent-tool-config-dialog";
+import { FormToolConfigDialog, FormToolConfig } from "./form-tool-config-dialog";
 import { layoutService } from "./services/layout-service";
 import { checkZoneLayoutFit } from "@/lib/layout-engine";
 import { cn, API_URL } from "@/lib/utils";
@@ -1751,6 +1752,27 @@ function CanvasViewInner() {
                 case "ocr_conversion":
                     setShowOCRDialog(true);
                     break;
+                case "form_tool":
+                    setPendingDropPos(position);
+                    setShowFormToolDialog(true);
+                    break;
+                case "spreadsheet":
+                    await addThing(
+                        "spreadsheet",
+                        {
+                            data: [
+                                ["", "", ""],
+                                ["", "", ""],
+                                ["", "", ""]
+                            ]
+                        },
+                        position,
+                        500, // width
+                        300, // height
+                        "New Spreadsheet", // title
+                        color
+                    );
+                    break;
             }
             return;
         }
@@ -2313,6 +2335,7 @@ function CanvasViewInner() {
     const [showMCPToolDialog, setShowMCPToolDialog] = React.useState(false);
     const [showAgentToolDialog, setShowAgentToolDialog] = React.useState(false);
     const [showWorkflowDialog, setShowWorkflowDialog] = React.useState(false);
+    const [showFormToolDialog, setShowFormToolDialog] = React.useState(false);
 
     // Track dragging state for smooth animations
     const [isDraggingNode, setIsDraggingNode] = React.useState(false);
@@ -2354,6 +2377,25 @@ function CanvasViewInner() {
             undefined // transientExtras
         );
         setShowMCPToolDialog(false);
+        setPendingDropPos(null);
+        setPendingCanvasId(null);
+    };
+
+    // Form Tool Creation Handler
+    const handleAddFormTool = async (config: FormToolConfig) => {
+        await addThing(
+            "form_tool",
+            {
+                tool_id: config.tool_id,
+                tool_name: config.tool_name,
+                gui_schema: config.gui_schema
+            },
+            pendingDropPos || getCenterPosition(),
+            400, // width
+            400, // height
+            config.tool_name, // title
+        );
+        setShowFormToolDialog(false);
         setPendingDropPos(null);
         setPendingCanvasId(null);
     };
@@ -3312,6 +3354,13 @@ function CanvasViewInner() {
                 open={showMCPToolDialog}
                 onOpenChange={setShowMCPToolDialog}
                 onConfirm={handleAddMCPTool}
+            />
+
+            {/* Form Tool Dialog */}
+            <FormToolConfigDialog
+                open={showFormToolDialog}
+                onOpenChange={setShowFormToolDialog}
+                onConfirm={handleAddFormTool}
             />
 
             <Dialog open={showImageSlidesDialog} onOpenChange={setShowImageSlidesDialog}>

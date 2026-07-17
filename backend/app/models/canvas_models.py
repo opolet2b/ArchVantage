@@ -61,6 +61,8 @@ class ThingType(str, Enum):
     STICKY = "sticky"
     WORKFLOW = "workflow"
     VOCAL_NOTE = "vocal_note"
+    FORM_TOOL = "form_tool"
+    SPREADSHEET = "spreadsheet"
 
 
 class RAGStatus(str, Enum):

@@ -185,6 +185,7 @@ export function AgentToolViewer({ thing }: AgentToolViewerProps) {
                                         else if (sourceNode.type === "table") value = nodeData
                                         else if (sourceNode.type === "agent_result") value = nodeContent?.result || nodeContent?.output
                                         else if (sourceNode.type === "url") value = nodeContent?.url || nodeContent?.text
+                                        else if (sourceNode.type === "form_tool") value = nodeContent?.values || nodeContent?.populatedSchema?.data || null
                                         else value = nodeContent
                                     }
                                 }
@@ -320,6 +321,8 @@ export function AgentToolViewer({ thing }: AgentToolViewerProps) {
                                 value = nodeContent?.url || nodeContent?.text
                             } else if (sourceNode.type === "message") {
                                 value = nodeContent?.text || nodeContent?.content
+                            } else if (sourceNode.type === "form_tool") {
+                                value = nodeContent?.values || nodeContent?.populatedSchema?.data || null
                             } else {
                                 value = nodeContent
                             }

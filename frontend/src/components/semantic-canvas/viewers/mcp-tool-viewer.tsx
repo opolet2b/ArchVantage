@@ -59,6 +59,10 @@ export function MCPToolViewer({ thing, onResize }: MCPToolViewerProps) {
                 } else {
                     value = data
                 }
+            } else if (sourceNode.type === "form_tool") {
+                // Return the populated data from the form
+                const formContent = sourceNode.content as any;
+                value = formContent.values || (formContent.populatedSchema ? formContent.populatedSchema.data : null);
             } else {
                 // Fallback
                 value = sourceNode.content

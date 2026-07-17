@@ -21,7 +21,9 @@ import {
     Settings,
     Pin,
     PinOff,
-    Mic
+    Mic,
+    FormInput,
+    TableProperties
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
@@ -54,7 +56,9 @@ export type ToolType =
     | "ocr_conversion"
     | "sticky"
     | "workflow"
-    | "vocal_note";
+    | "vocal_note"
+    | "form_tool"
+    | "spreadsheet";
 
 export interface CanvasTool {
     id: ToolType;
@@ -147,6 +151,18 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         description: "Connect & execute an Agent"
     },
     {
+        id: "form_tool",
+        name: "Forms",
+        icon: <FormInput className="h-4 w-4" />,
+        description: "Select and use a GUI Form tool"
+    },
+    {
+        id: "spreadsheet",
+        name: "Spreadsheet",
+        icon: <TableProperties className="h-4 w-4" />,
+        description: "Add a new editable spreadsheet"
+    },
+    {
         id: "ocr_conversion",
         name: "AI OCR Conversion",
         icon: <Wand2 className="h-4 w-4" />,
@@ -197,10 +213,11 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     mcp_tool: "#ffedd5",
 
     // Agent - Violet
-    agent_tool: "#f5f3ff",
-
-    // OCR - Amber
-    ocr_conversion: "#fffbeb",
+    agent_tool: "#e0e7ff",
+    archimate_tool: "#f1f5f9",
+    ocr_conversion: "#fce7f3",
+    form_tool: "#fdf4ff",
+    spreadsheet: "#f0fdf4",
 
     // Workflow - Violet
     workflow: "#f5f3ff",

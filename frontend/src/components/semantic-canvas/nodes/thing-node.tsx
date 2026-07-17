@@ -78,8 +78,13 @@ import {
     VectorizationPreviewDialog,
     MarkdownToolbar,
     AgentToolViewer,
-    CollaboraViewer
+    CollaboraViewer,
+    InboundDataMapper
 } from "../viewers";
+import { DocumentViewer } from "../viewers/document-viewer";
+import { ImageSlidesViewer } from "../viewers/image-slides-viewer";
+import { FormToolViewer } from "../viewers/form-tool-viewer";
+import { SpreadsheetToolViewer } from "../viewers/spreadsheet-tool-viewer";
 
 // Registry for Dynamic Component Rendering
 const COMPONENT_REGISTRY: Record<string, React.ComponentType<any>> = {
@@ -384,6 +389,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     // If not in store yet (initial render race), use prop.
     const zoomLevel = useCanvasStore((state) => state.zoomLevel);
+    const things = useCanvasStore((state) => state.things);
     const updateThing = useCanvasStore((state) => state.updateThing);
     const deleteThing = useCanvasStore((state) => state.deleteThing);
     const selectThing = useCanvasStore((state) => state.selectThing);
@@ -1902,6 +1908,17 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             case "mcp_tool":
                 return <MCPToolViewer thing={thing} />;
 
+            case "form_tool":
+                return <FormToolViewer thing={thing} />;
+
+            case "spreadsheet":
+                return (
+                    <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden relative group/spreadsheet">
+                        <InboundDataMapper thing={thing} />
+                        <SpreadsheetToolViewer thing={thing} />
+                    </div>
+                );
+
             case "agent_tool":
                 return <AgentToolViewer thing={thing} />;
 
@@ -2008,7 +2025,61 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 if (typeof rawVal === 'object' && rawVal !== null) {
                     rawVal = JSON.stringify(rawVal, null, 2);
                 }
-                const textVal = String(rawVal);
+                let textVal = String(rawVal);
+
+                const inputMapping = (thing.content as any)?.input_mapping;
+                if (thing.type === "text" && inputMapping?.enabled) {
+                    if (inputMapping.behavior === "append") {
+                        const ingestedArray = thing.content.ingested_data || [];
+                        if (ingestedArray.length > 0) {
+                            const selectedKeys = inputMapping.selectedKeys || Object.keys(ingestedArray[0] || {});
+                            if (inputMapping.format === "table") {
+                                const header = `| ${selectedKeys.join(" | ")} |\n|${selectedKeys.map(() => "---").join("|")}|\n`;
+                                const rows = ingestedArray.map((row: any) => `| ${selectedKeys.map((k: string) => row[k]).join(" | ")} |`).join("\n");
+                                textVal = header + rows;
+                            } else if (inputMapping.format === "bullets") {
+                                textVal = ingestedArray.map((row: any, i: number) => `**Submission ${i+1}:**\n` + selectedKeys.map((k: string) => `  - **${k}:** ${row[k]}`).join("\n")).join("\n\n");
+                            } else if (inputMapping.format === "raw") {
+                                const outArr = ingestedArray.map((row: any) => {
+                                    const outObj: any = {};
+                                    selectedKeys.forEach((k: string) => outObj[k] = row[k]);
+                                    return outObj;
+                                });
+                                textVal = "```json\n" + JSON.stringify(outArr, null, 2) + "\n```";
+                            }
+                        } else {
+                            textVal = "*No data ingested yet.*";
+                        }
+                    } else {
+                        const incomingLinks = links.filter(l => l.target_id === thing.id);
+                        const sourceNodes = incomingLinks.map(l => things.find(t => t.id === l.source_id)).filter(Boolean);
+                        if (sourceNodes.length > 0) {
+                            let incomingData: Record<string, any> = {};
+                            sourceNodes.forEach(node => {
+                                if (node?.type === "form_tool") {
+                                    const values = node.content.values || node.content.populatedSchema?.data || {};
+                                    incomingData = { ...incomingData, ...values };
+                                } else if (node?.type === "agent_result") {
+                                    const res = node.content.result || node.content.outputs || {};
+                                    if (typeof res === "object") incomingData = { ...incomingData, ...res };
+                                } else if (typeof node?.content === "object" && node?.type !== "text") {
+                                    incomingData = { ...incomingData, ...(node.content.data || node.content.values || node.content) };
+                                }
+                            });
+                            
+                            const selectedKeys = inputMapping.selectedKeys || Object.keys(incomingData);
+                            if (inputMapping.format === "table") {
+                                textVal = `| Field | Value |\n|---|---|\n` + selectedKeys.map((k: string) => `| **${k}** | ${incomingData[k]} |`).join("\n");
+                            } else if (inputMapping.format === "bullets") {
+                                textVal = selectedKeys.map((k: string) => `- **${k}:** ${incomingData[k]}`).join("\n");
+                            } else if (inputMapping.format === "raw") {
+                                const outObj: any = {};
+                                selectedKeys.forEach((k: string) => outObj[k] = incomingData[k]);
+                                textVal = "```json\n" + JSON.stringify(outObj, null, 2) + "\n```";
+                            }
+                        }
+                    }
+                }
 
                 if (isEditingContent && thing.type === "text") {
                     // We now handle editing in a fullscreen Dialog to avoid React Flow conflicts
@@ -2144,7 +2215,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 }
 
                 return (
-                    <div className={cn("flex flex-col overflow-hidden", thing.height ? "h-full" : "max-h-[600px]")}>
+                    <div className={cn("flex flex-col overflow-hidden relative group/textnode", thing.height ? "h-full" : "max-h-[600px]")}>
+                        {(thing.type === "text" || thing.type === "spreadsheet") && <InboundDataMapper thing={thing} />}
                         {/* Thinking Block */}
                         {hasThinking && isThinkingVisible && (
                             <div ref={thinkingScrollRef} className="flex-none mb-3 p-3 bg-amber-50/50 dark:bg-amber-900/10 rounded-md border border-amber-100 dark:border-amber-900/30 text-sm text-slate-600 dark:text-slate-400 italic overflow-y-auto max-h-[150px]">
