@@ -33,6 +33,7 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
     const [selectedOntologyFilters, setSelectedOntologyFilters] = useState<string[]>(ontologyClasses)
     const [appliedOntologyFilters, setAppliedOntologyFilters] = useState<string[]>(ontologyClasses)
 
+    const [highlightedTypes, setHighlightedTypes] = useState<string[]>([])
     const [selectedNode, setSelectedNode] = useState<any>(null)
     const cyRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -105,6 +106,7 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                 setElements(processedElements)
                 setMetadata(data.metadata || null)
                 setSelectedNode(null) // Reset selection when graph reloads
+                setHighlightedTypes([]) // Reset highlights
             }
         } catch (error) {
             console.error("Failed to fetch graph", error)
@@ -130,6 +132,19 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
             fetchGraph()
         }
     }, [ingestionStatus, fetchGraph])
+
+    // Calculate unique types and their colors for the Legend
+    const legendItems = useMemo(() => {
+        const types = new Map<string, string>();
+        elements.forEach(el => {
+            if (el.group === 'nodes' && el.data.type) {
+                if (!types.has(el.data.type)) {
+                    types.set(el.data.type, el.data.color);
+                }
+            }
+        });
+        return Array.from(types.entries()).map(([type, color]) => ({ type, color })).sort((a, b) => a.type.localeCompare(b.type));
+    }, [elements]);
 
     useEffect(() => {
         // When selectedNode changes, the container width animates to 2/3 or full.
@@ -179,14 +194,23 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                         if (distS > 2 || distT > 2) e.addClass('focus-far');
                     });
                 });
-                cy.layout({
+                const layout = cy.layout({
                     name: 'concentric',
                     concentric: (n: any) => 10 - (n.data('focus_depth') || 0),
                     levelWidth: () => 1,
                     spacingFactor: 1.5,
                     animate: true,
                     animationDuration: 500
-                }).run();
+                });
+                layout.run();
+                
+                // Keep the camera zoomed in and centered on the root node
+                cy.animate({
+                    center: { eles: rootNode },
+                    zoom: 0.8,
+                    duration: 500,
+                    easing: 'ease-out-cubic'
+                });
             }
         }
     }, [perspective, selectedNode]);
@@ -239,6 +263,50 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         };
     }, [isLensActive]);
 
+    // Interactive Legend / Highlight Logic
+    useEffect(() => {
+        if (!cyRef.current) return;
+        const cy = cyRef.current;
+        
+        if (highlightedTypes.length === 0) {
+            cy.elements().removeClass('legend-faded legend-focus');
+            return;
+        }
+
+        cy.batch(() => {
+            // Drop opacity of everything first
+            cy.elements().addClass('legend-faded');
+            
+            // Find nodes of selected types
+            const focusedNodes = cy.nodes().filter((n: any) => highlightedTypes.includes(n.data('type')));
+            focusedNodes.removeClass('legend-faded').addClass('legend-focus');
+            
+            // Highlight edges between two focused nodes, or all connected edges?
+            // To provide context, highlighting their immediate edges is best.
+            focusedNodes.connectedEdges().removeClass('legend-faded');
+        });
+        
+        // Clean up on unmount or if dependencies change
+        return () => {
+            cy.elements().removeClass('legend-faded legend-focus');
+        };
+    }, [highlightedTypes, elements]);
+
+    const handleAutoDive = useCallback((cy: cytoscape.Core) => {
+        if (perspective === 'focus') return;
+        if (cy.zoom() < 0.5) {
+            const rootNode = cy.nodes().max((n: any) => n.degree(false)).ele;
+            if (rootNode && !rootNode.empty()) {
+                cy.animate({
+                    center: { eles: rootNode },
+                    zoom: 0.8,
+                    duration: 800,
+                    easing: 'ease-out-cubic'
+                });
+            }
+        }
+    }, [perspective]);
+
     // Auto-dive into large graphs to prevent microscopic zoom
     useEffect(() => {
         if (!cyRef.current || perspective === 'focus') return;
@@ -246,21 +314,11 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         
         // Wait for react-cytoscapejs to finish its automatic fit
         const timer = setTimeout(() => {
-            if (cy.zoom() < 0.5) {
-                const rootNode = cy.nodes().max((n: any) => n.degree(false)).ele;
-                if (rootNode && !rootNode.empty()) {
-                    cy.animate({
-                        center: { eles: rootNode },
-                        zoom: 0.8,
-                        duration: 800,
-                        easing: 'ease-out-cubic'
-                    });
-                }
-            }
+            handleAutoDive(cy);
         }, 400); // Allow layout to settle
 
         return () => clearTimeout(timer);
-    }, [perspective, elements, isLoading]);
+    }, [perspective, elements, isLoading, handleAutoDive]);
 
     const handleZoomIn = () => cyRef.current?.zoom(cyRef.current.zoom() * 1.2)
     const handleZoomOut = () => cyRef.current?.zoom(cyRef.current.zoom() * 0.8)
@@ -270,7 +328,25 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         setIsFullscreen(!isFullscreen);
         // Add a slight delay to allow CSS transition before fitting the graph
         setTimeout(() => {
-            if (cyRef.current) cyRef.current.fit();
+            if (cyRef.current) {
+                cyRef.current.resize();
+                if (perspective === 'focus') {
+                    const rootNode = cyRef.current.nodes('.focus-root');
+                    if (rootNode && !rootNode.empty()) {
+                        cyRef.current.animate({
+                            center: { eles: rootNode },
+                            zoom: 0.8,
+                            duration: 500,
+                            easing: 'ease-out-cubic'
+                        });
+                    } else {
+                        cyRef.current.fit();
+                    }
+                } else {
+                    cyRef.current.fit();
+                    handleAutoDive(cyRef.current);
+                }
+            }
         }, 100);
     }
 
@@ -415,6 +491,20 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
             style: {
                 'border-color': '#f59e0b',
                 'border-width': 4
+            }
+        },
+        {
+            selector: '.legend-faded',
+            style: {
+                'opacity': 0.1,
+                'label': ''
+            }
+        },
+        {
+            selector: 'node.legend-focus',
+            style: {
+                'border-width': 3,
+                'border-color': '#10b981' // Green rim to show it's selected via legend
             }
         }
     ] as any, [isBundled]);
@@ -648,10 +738,41 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                         perspective === "matrix" ? (
                             <AdjacencyMatrix elements={elements} />
                         ) : (
-                            <CytoscapeComponent
-                                elements={elements}
-                                style={{ width: '100%', height: '100%' }}
-                                minZoom={0.15}
+                            <div className="relative w-full h-full">
+                                {/* Floating Interactive Legend */}
+                                <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm border border-slate-200 shadow-lg rounded-md p-2.5 z-10 max-h-[70%] overflow-y-auto w-56 custom-scrollbar">
+                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-between px-1">
+                                        Highlight Legend
+                                        {highlightedTypes.length > 0 && (
+                                            <button onClick={() => setHighlightedTypes([])} className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer transition-colors">Clear</button>
+                                        )}
+                                    </div>
+                                    <div className="space-y-1">
+                                        {legendItems.map((item) => {
+                                            const isHighlighted = highlightedTypes.includes(item.type);
+                                            return (
+                                                <div 
+                                                    key={item.type}
+                                                    onClick={() => {
+                                                        setHighlightedTypes(prev => 
+                                                            prev.includes(item.type) ? prev.filter(t => t !== item.type) : [...prev, item.type]
+                                                        )
+                                                    }}
+                                                    className={`flex items-center gap-2 cursor-pointer p-1.5 rounded-sm transition-all ${
+                                                        isHighlighted ? 'bg-indigo-50 ring-1 ring-indigo-200/50 shadow-sm' : 'hover:bg-slate-100'
+                                                    } ${highlightedTypes.length > 0 && !isHighlighted ? 'opacity-40 grayscale-[0.5]' : 'opacity-100'}`}
+                                                >
+                                                    <div className="w-3.5 h-3.5 rounded-full border border-slate-200/50 flex-shrink-0 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" style={{ backgroundColor: item.color }}></div>
+                                                    <div className={`text-[11px] truncate transition-colors ${isHighlighted ? 'font-semibold text-indigo-900' : 'text-slate-600 font-medium'}`} title={item.type}>{item.type}</div>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                                <CytoscapeComponent
+                                    elements={elements}
+                                    style={{ width: '100%', height: '100%' }}
+                                    minZoom={0.15}
                                 maxZoom={3}
                                 cy={(cy) => {
                                     cyRef.current = cy;
@@ -701,6 +822,7 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                                 layout={cyLayout}
                                 stylesheet={cyStylesheet}
                             />
+                            </div>
                         )
                     ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
