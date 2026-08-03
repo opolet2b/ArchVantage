@@ -250,45 +250,40 @@ def get_kb_graph(
         
         vertices = []
         import re
+        approved_class_names = set()
         for cls in approved_classes:
             class_name = re.sub(r'[^a-zA-Z0-9_]', '_', cls.get('name', '').replace(' ', '_'))
             if class_name:
-                try:
-                    if not arcadedb.type_exists(class_name):
-                        continue
-                        
-                    v_query = f"SELECT FROM `{class_name}` WHERE graph_id = :kb_id"
-                    params = {"kb_id": kb_id}
+                approved_class_names.add(class_name)
+                
+        if approved_class_names:
+            try:
+                v_query = "SELECT FROM Entity WHERE graph_id = :kb_id"
+                params = {"kb_id": kb_id}
+                
+                if sources:
+                    # Build an OR clause for multiple sources
+                    source_conditions = []
+                    for i, src_prefix in enumerate(sources):
+                        param_key = f"src_{i}"
+                        source_conditions.append(f"source_uri LIKE :{param_key}")
+                        params[param_key] = f"{src_prefix}%"
                     
-                    if sources:
-                        # Build an OR clause for multiple sources
-                        source_conditions = []
-                        import urllib.parse
-                        for i, src_prefix in enumerate(sources):
-                            param_key = f"src_{i}"
-                            
-                            # If it's a URL, we used to just match by domain. However, this causes 
-                            # two DIFFERENT sources on the same domain (like /pageA vs /pageB) to overlap. 
-                            # Instead, we should match the prefix of the URL so that sub-pages are caught
-                            # but different base directories aren't accidentally conflated.
-                            if src_prefix.startswith('http'):
-                                source_conditions.append(f"source_uri LIKE :{param_key}")
-                                params[param_key] = f"{src_prefix}%"
-                            else:
-                                # For local files, keep the strict prefix match
-                                source_conditions.append(f"source_uri LIKE :{param_key}")
-                                params[param_key] = f"{src_prefix}%"
+                    v_query += f" AND ({' OR '.join(source_conditions)})"
+                
+                v_query += " LIMIT 5000"
+                res = arcadedb.query(v_query, params=params).get("result", [])
+                
+                existing_rids = set()
+                for node in res:
+                    rid = node.get("@rid")
+                    v_type = node.get("@type")
+                    if rid and rid not in existing_rids and v_type in approved_class_names:
+                        existing_rids.add(rid)
+                        vertices.append(node)
                         
-                        v_query += f" AND ({' OR '.join(source_conditions)})"
-                    
-                    v_query += " LIMIT 1000"
-                    res = arcadedb.query(v_query, params=params).get("result", [])
-                    existing_rids = {v.get("@rid") for v in vertices if v.get("@rid")}
-                    for node in res:
-                        if node.get("@rid") not in existing_rids:
-                            vertices.append(node)
-                except Exception as e:
-                    print(f"[KnowledgeRouter] Could not query class {class_name}: {e}")
+            except Exception as e:
+                print(f"[KnowledgeRouter] Could not query vertices: {e}")
         
         elements = []
         

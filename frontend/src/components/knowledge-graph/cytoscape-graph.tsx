@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Expand, Loader2, RefreshCcw, Shrink, Layers, Scan, Network, Filter, Database } from "lucide-react"
+import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Expand, Loader2, RefreshCcw, Shrink, Layers, Scan, Network, Filter, Database, Grid3x3, Target, Search, Route } from "lucide-react"
 import CytoscapeComponent from 'react-cytoscapejs';
+import { AdjacencyMatrix } from "./adjacency-matrix";
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import { API_URL } from "@/lib/utils"
@@ -22,7 +23,9 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
     const [metadata, setMetadata] = useState<any>(null)
     const [isLoading, setIsLoading] = useState(false)
     const [isFullscreen, setIsFullscreen] = useState(false)
-    const [perspective, setPerspective] = useState<"relational" | "hierarchical">("relational")
+    const [perspective, setPerspective] = useState<"relational" | "hierarchical" | "matrix" | "focus">("relational")
+    const [isLensActive, setIsLensActive] = useState(false)
+    const [isBundled, setIsBundled] = useState(false)
     const [selectedSourceFilters, setSelectedSourceFilters] = useState<string[]>([])
     const [appliedSourceFilters, setAppliedSourceFilters] = useState<string[]>([])
 
@@ -45,7 +48,8 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         if (!kbId) return;
         setIsLoading(true)
         try {
-            let url = `${API_URL}/knowledge/kb/${kbId}/graph?perspective=${perspective}`;
+            const backendPerspective = perspective === "matrix" ? "relational" : perspective;
+            let url = `${API_URL}/knowledge/kb/${kbId}/graph?perspective=${backendPerspective}`;
 
             // Add source filters to URL
             if (appliedSourceFilters.length > 0) {
@@ -138,6 +142,126 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         return () => clearTimeout(timer);
     }, [selectedNode]);
 
+    // Apply Focus+Context Depth
+    useEffect(() => {
+        if (perspective === 'focus' && cyRef.current) {
+            const cy = cyRef.current;
+            let rootNode = selectedNode ? cy.getElementById(selectedNode.id) : null;
+            
+            if (!rootNode || rootNode.empty()) {
+                let maxDegree = -1;
+                cy.nodes().forEach((n: any) => {
+                    const degree = n.degree(false);
+                    if (degree > maxDegree) {
+                        maxDegree = degree;
+                        rootNode = n;
+                    }
+                });
+            }
+
+            if (rootNode && !rootNode.empty()) {
+                const dijkstra = cy.elements().dijkstra(rootNode);
+                cy.batch(() => {
+                    cy.nodes().forEach((n: any) => {
+                        const dist = dijkstra.distanceTo(n);
+                        n.data('focus_depth', dist === Infinity ? 10 : dist);
+                        
+                        n.removeClass('focus-root focus-d1 focus-d2 focus-far');
+                        if (dist === 0) n.addClass('focus-root');
+                        else if (dist === 1) n.addClass('focus-d1');
+                        else if (dist === 2) n.addClass('focus-d2');
+                        else n.addClass('focus-far');
+                    });
+                    cy.edges().forEach((e: any) => {
+                        const distS = dijkstra.distanceTo(e.source());
+                        const distT = dijkstra.distanceTo(e.target());
+                        e.removeClass('focus-far');
+                        if (distS > 2 || distT > 2) e.addClass('focus-far');
+                    });
+                });
+                cy.layout({
+                    name: 'concentric',
+                    concentric: (n: any) => 10 - (n.data('focus_depth') || 0),
+                    levelWidth: () => 1,
+                    spacingFactor: 1.5,
+                    animate: true,
+                    animationDuration: 500
+                }).run();
+            }
+        }
+    }, [perspective, selectedNode]);
+
+    // Filtering Lens Effect
+    useEffect(() => {
+        if (!cyRef.current) return;
+        const cy = cyRef.current;
+
+        const handleMouseMove = (evt: any) => {
+            if (!isLensActive) return;
+            const pos = evt.position; // Logical coordinates
+            const LENS_RADIUS = 250; // Radius of the spotlight
+            
+            cy.batch(() => {
+                const inRadius = cy.nodes().filter((n: any) => {
+                    const nPos = n.position();
+                    const dx = nPos.x - pos.x;
+                    const dy = nPos.y - pos.y;
+                    return Math.sqrt(dx * dx + dy * dy) <= LENS_RADIUS;
+                });
+                
+                cy.elements().removeClass('lens-focus lens-faded');
+                
+                if (inRadius.length > 0) {
+                    cy.elements().addClass('lens-faded');
+                    inRadius.removeClass('lens-faded').addClass('lens-focus');
+                    // Ensure edges connected to focused nodes are visible
+                    inRadius.connectedEdges().removeClass('lens-faded');
+                } else {
+                    cy.elements().addClass('lens-faded'); // Fade all if none in radius
+                }
+            });
+        };
+
+        if (isLensActive) {
+            cy.on('mousemove', handleMouseMove);
+            cy.elements().addClass('lens-faded'); // Start heavily faded
+            
+            // Clean up selections/fades from other modes
+            cy.elements().removeClass('faded');
+            setSelectedNode(null);
+        } else {
+            cy.off('mousemove', handleMouseMove);
+            cy.elements().removeClass('lens-focus lens-faded');
+        }
+
+        return () => {
+            cy.off('mousemove', handleMouseMove);
+        };
+    }, [isLensActive]);
+
+    // Auto-dive into large graphs to prevent microscopic zoom
+    useEffect(() => {
+        if (!cyRef.current || perspective === 'focus') return;
+        const cy = cyRef.current;
+        
+        // Wait for react-cytoscapejs to finish its automatic fit
+        const timer = setTimeout(() => {
+            if (cy.zoom() < 0.5) {
+                const rootNode = cy.nodes().max((n: any) => n.degree(false)).ele;
+                if (rootNode && !rootNode.empty()) {
+                    cy.animate({
+                        center: { eles: rootNode },
+                        zoom: 0.8,
+                        duration: 800,
+                        easing: 'ease-out-cubic'
+                    });
+                }
+            }
+        }, 400); // Allow layout to settle
+
+        return () => clearTimeout(timer);
+    }, [perspective, elements, isLoading]);
+
     const handleZoomIn = () => cyRef.current?.zoom(cyRef.current.zoom() * 1.2)
     const handleZoomOut = () => cyRef.current?.zoom(cyRef.current.zoom() * 0.8)
     const handleFit = () => cyRef.current?.fit()
@@ -176,7 +300,9 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                 'text-background-padding': '2px',
                 'text-background-shape': 'roundrectangle',
                 'border-width': 2,
-                'border-color': '#ffffff'
+                'border-color': '#ffffff',
+                'transition-property': 'opacity, width, height, font-size, border-width',
+                'transition-duration': 300
             }
         },
         {
@@ -187,33 +313,139 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                 'line-color': '#94a3b8',
                 'target-arrow-color': '#94a3b8',
                 'target-arrow-shape': 'triangle',
-                'curve-style': 'bezier',
+                'curve-style': isBundled ? 'taxi' : 'bezier',
+                'taxi-direction': 'auto',
+                'taxi-turn': '15px',
+                'taxi-turn-min-distance': '5px',
                 'font-size': '9px',
                 'text-rotation': 'autorotate',
                 'text-background-opacity': 0.8,
                 'text-background-color': '#ffffff',
                 'text-background-padding': '1px',
-                'color': '#64748b'
+                'color': '#64748b',
+                'transition-property': 'opacity, width',
+                'transition-duration': 300
+            }
+        },
+        {
+            selector: 'node.zoom-low',
+            style: {
+                'label': '',
+                'width': '8px',
+                'height': '8px',
+                'border-width': 1
+            }
+        },
+        {
+            selector: 'node.zoom-high',
+            style: {
+                'width': '36px',
+                'height': '36px',
+                'font-size': '12px',
+                'text-margin-y': 8
+            }
+        },
+        {
+            selector: 'edge.zoom-low',
+            style: {
+                'label': '',
+                'width': 0.5,
+                'arrow-scale': 0.5
+            }
+        },
+        {
+            selector: '.faded',
+            style: {
+                'opacity': 0.1,
+                'label': ''
+            }
+        },
+        {
+            selector: 'node.focus-root',
+            style: {
+                'width': '48px',
+                'height': '48px',
+                'font-size': '14px',
+                'border-width': 4,
+                'border-color': '#4f46e5',
+                'z-index': 100
+            }
+        },
+        {
+            selector: 'node.focus-d1',
+            style: {
+                'width': '32px',
+                'height': '32px',
+                'font-size': '11px',
+            }
+        },
+        {
+            selector: 'node.focus-d2',
+            style: {
+                'width': '20px',
+                'height': '20px',
+                'font-size': '9px',
+                'text-opacity': 0.7
+            }
+        },
+        {
+            selector: 'node.focus-far',
+            style: {
+                'width': '12px',
+                'height': '12px',
+                'label': '',
+                'opacity': 0.4
+            }
+        },
+        {
+            selector: 'edge.focus-far',
+            style: {
+                'opacity': 0.15
+            }
+        },
+        {
+            selector: '.lens-faded',
+            style: {
+                'opacity': 0.05,
+                'label': ''
+            }
+        },
+        {
+            selector: 'node.lens-focus',
+            style: {
+                'border-color': '#f59e0b',
+                'border-width': 4
             }
         }
-    ] as any, []);
+    ] as any, [isBundled]);
 
     const cyLayout = useMemo(() => (
         perspective === "hierarchical"
             ? { name: 'dagre', rankDir: 'TB', nodeSep: 120, rankSep: 160 }
-            : {
-                name: 'cose',
-                randomize: true, // Forces nodes to start at random positions rather than stacking at (0,0)
-                componentSpacing: 60,
-                nodeOverlap: 20,
-                padding: 50,
-                nodeRepulsion: () => 400000,
-                idealEdgeLength: () => 150,
-                edgeElasticity: () => 100,
-                gravity: 80,
-                numIter: 1000,
-                animate: true
-            }
+            : perspective === "focus"
+                ? {
+                    name: 'concentric',
+                    concentric: (n: any) => 10 - (n.data('focus_depth') || 0),
+                    levelWidth: () => 1,
+                    spacingFactor: 1.5,
+                    animate: true
+                }
+                : {
+                    name: 'cose',
+                    randomize: true,
+                    componentSpacing: 60,
+                    nodeOverlap: 10,
+                    padding: 50,
+                    nodeRepulsion: () => 400000,
+                    idealEdgeLength: () => 100,
+                    edgeElasticity: () => 100,
+                    gravity: 80,
+                    numIter: 250, // Dropped from 1000 for instant calculation
+                    initialTemp: 200,
+                    coolingFactor: 0.95,
+                    minTemp: 1.0,
+                    animate: false // Pre-compute and render instantly instead of simulating live
+                }
     ) as any, [perspective]);
 
     return (
@@ -247,6 +479,43 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                             className="text-[11px] h-6 px-3 rounded-sm font-semibold"
                         >
                             <Layers className="h-3.5 w-3.5 mr-1" /> Hierarchical
+                        </Button>
+                        <Button
+                            variant={perspective === "focus" ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setPerspective("focus")}
+                            className="text-[11px] h-6 px-3 rounded-sm font-semibold"
+                        >
+                            <Target className="h-3.5 w-3.5 mr-1" /> Focus
+                        </Button>
+                        <Button
+                            variant={perspective === "matrix" ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setPerspective("matrix")}
+                            className="text-[11px] h-6 px-3 rounded-sm font-semibold"
+                        >
+                            <Grid3x3 className="h-3.5 w-3.5 mr-1" /> Matrix
+                        </Button>
+                    </div>
+                    <div className="w-px h-6 bg-slate-200 mx-1"></div>
+                    <div className="flex items-center gap-1 bg-white border p-1 rounded-md shadow-sm">
+                        <Button
+                            variant={isBundled ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setIsBundled(!isBundled)}
+                            className="text-[11px] h-6 px-3 rounded-sm font-semibold"
+                            title="Toggle Edge Bundling"
+                        >
+                            <Route className="h-3.5 w-3.5 mr-1" /> Bundle
+                        </Button>
+                        <Button
+                            variant={isLensActive ? "secondary" : "ghost"}
+                            size="sm"
+                            onClick={() => setIsLensActive(!isLensActive)}
+                            className="text-[11px] h-6 px-3 rounded-sm font-semibold"
+                            title="Toggle Magic Lens"
+                        >
+                            <Search className="h-3.5 w-3.5 mr-1" /> Lens
                         </Button>
                     </div>
                     <div className="w-px h-6 bg-slate-200 mx-1"></div>
@@ -376,25 +645,63 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                             <p>Loading Graph Data...</p>
                         </div>
                     ) : elements.length > 0 ? (
-                        <CytoscapeComponent
-                            elements={elements}
-                            style={{ width: '100%', height: '100%' }}
-                            cy={(cy) => {
-                                cyRef.current = cy;
-                                // Attach event listeners for node metadata
-                                cy.on('tap', 'node', function (evt) {
-                                    const nodeData = evt.target.data();
-                                    setSelectedNode(nodeData);
-                                });
-                                cy.on('tap', function (evt) {
-                                    if (evt.target === cy) {
-                                        setSelectedNode(null);
-                                    }
-                                });
-                            }}
-                            layout={cyLayout}
-                            stylesheet={cyStylesheet}
-                        />
+                        perspective === "matrix" ? (
+                            <AdjacencyMatrix elements={elements} />
+                        ) : (
+                            <CytoscapeComponent
+                                elements={elements}
+                                style={{ width: '100%', height: '100%' }}
+                                minZoom={0.15}
+                                maxZoom={3}
+                                cy={(cy) => {
+                                    cyRef.current = cy;
+                                    
+                                    // Semantic Zooming Logic
+                                    const applySemanticZoom = () => {
+                                        const z = cy.zoom();
+                                        if (z < 0.6) {
+                                            cy.elements().removeClass('zoom-high zoom-medium').addClass('zoom-low');
+                                        } else if (z > 1.8) {
+                                            cy.elements().removeClass('zoom-low zoom-medium').addClass('zoom-high');
+                                        } else {
+                                            cy.elements().removeClass('zoom-low zoom-high').addClass('zoom-medium');
+                                        }
+                                    };
+
+                                    cy.on('zoom', () => {
+                                        applySemanticZoom();
+                                    });
+
+                                    // Faceted Browsing / Focus Mode Logic
+                                    cy.on('tap', 'node', function (evt) {
+                                        if (isLensActive) return; // Disable tap interactions while lens is running
+                                        
+                                        const node = evt.target;
+                                        setSelectedNode(node.data());
+                                        
+                                        if (perspective !== 'focus') {
+                                            // Fade out non-neighbors (Faceted Focus)
+                                            cy.elements().removeClass('faded');
+                                            const neighbors = node.neighborhood();
+                                            cy.elements().not(neighbors).not(node).addClass('faded');
+                                        }
+                                    });
+
+                                    cy.on('tap', function (evt) {
+                                        if (evt.target === cy) {
+                                            setSelectedNode(null);
+                                            // Remove fade effect
+                                            cy.elements().removeClass('faded');
+                                        }
+                                    });
+
+                                    // Initial setup
+                                    applySemanticZoom();
+                                }}
+                                layout={cyLayout}
+                                stylesheet={cyStylesheet}
+                            />
+                        )
                     ) : (
                         <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
                             <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
