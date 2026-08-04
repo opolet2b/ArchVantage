@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Expand, Loader2, RefreshCcw, Shrink, Layers, Scan, Network, Filter, Database, Grid3x3, Target, Search, Route } from "lucide-react"
+import { AlertCircle, RefreshCw, ZoomIn, ZoomOut, Expand, Loader2, RefreshCcw, Shrink, Layers, Scan, Network, Filter, Database, Grid3x3, Target, Search, Route, GripHorizontal, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import CytoscapeComponent from 'react-cytoscapejs';
 import { AdjacencyMatrix } from "./adjacency-matrix";
 import cytoscape from 'cytoscape';
@@ -34,6 +34,9 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
     const [appliedOntologyFilters, setAppliedOntologyFilters] = useState<string[]>(ontologyClasses)
 
     const [highlightedTypes, setHighlightedTypes] = useState<string[]>([])
+    const [stepperIndices, setStepperIndices] = useState<Record<string, number>>({})
+    const [isLegendExpanded, setIsLegendExpanded] = useState(true)
+    const [legendOffset, setLegendOffset] = useState({ x: 0, y: 0 })
     const [selectedNode, setSelectedNode] = useState<any>(null)
     const cyRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -145,6 +148,46 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         });
         return Array.from(types.entries()).map(([type, color]) => ({ type, color })).sort((a, b) => a.type.localeCompare(b.type));
     }, [elements]);
+
+    const typeCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        elements.forEach(el => {
+            if (el.group === 'nodes' && el.data.type) {
+                counts[el.data.type] = (counts[el.data.type] || 0) + 1;
+            }
+        });
+        return counts;
+    }, [elements]);
+
+    const handleStepperJump = useCallback((type: string, direction: 'next' | 'prev' | 'first', e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (!cyRef.current) return;
+        const cy = cyRef.current;
+        
+        const nodes = cy.nodes().filter((n: any) => n.data('type') === type);
+        if (nodes.length === 0) return;
+        
+        const currentIndex = stepperIndices[type] || 0;
+        let nextIndex = currentIndex;
+        
+        if (direction === 'first') {
+            nextIndex = 0;
+        } else if (direction === 'next') {
+            nextIndex = currentIndex + 1 >= nodes.length ? 0 : currentIndex + 1;
+        } else {
+            nextIndex = currentIndex - 1 < 0 ? nodes.length - 1 : currentIndex - 1;
+        }
+        
+        setStepperIndices(prev => ({ ...prev, [type]: nextIndex }));
+        const targetNode = nodes[nextIndex];
+        
+        cy.animate({
+            center: { eles: targetNode },
+            zoom: 1.0, // Readably zoomed in
+            duration: 600,
+            easing: 'ease-out-cubic'
+        });
+    }, [stepperIndices]);
 
     useEffect(() => {
         // When selectedNode changes, the container width animates to 2/3 or full.
@@ -740,34 +783,107 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
                         ) : (
                             <div className="relative w-full h-full">
                                 {/* Floating Interactive Legend */}
-                                <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm border border-slate-200 shadow-lg rounded-md p-2.5 z-10 max-h-[70%] overflow-y-auto w-56 custom-scrollbar">
-                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-between px-1">
-                                        Highlight Legend
-                                        {highlightedTypes.length > 0 && (
-                                            <button onClick={() => setHighlightedTypes([])} className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer transition-colors">Clear</button>
-                                        )}
+                                <div 
+                                    className="absolute bg-white/95 backdrop-blur-sm border border-slate-200 shadow-lg rounded-md z-10 w-56 flex flex-col"
+                                    style={{ 
+                                        top: 16, right: 16, 
+                                        transform: `translate(${legendOffset.x}px, ${legendOffset.y}px)`,
+                                        maxHeight: isLegendExpanded ? '70%' : 'auto'
+                                    }}
+                                >
+                                    {/* Drag Handle & Header */}
+                                    <div 
+                                        className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between p-2 cursor-move select-none bg-slate-50/80 border-b border-slate-100 rounded-t-md"
+                                        onPointerDown={(e) => {
+                                            const startX = e.clientX;
+                                            const startY = e.clientY;
+                                            const startOffsetX = legendOffset.x;
+                                            const startOffsetY = legendOffset.y;
+                                            
+                                            const onMove = (moveEvt: PointerEvent) => {
+                                                setLegendOffset({
+                                                    x: startOffsetX + (moveEvt.clientX - startX),
+                                                    y: startOffsetY + (moveEvt.clientY - startY)
+                                                });
+                                            };
+                                            const onUp = () => {
+                                                window.removeEventListener('pointermove', onMove);
+                                                window.removeEventListener('pointerup', onUp);
+                                            };
+                                            window.addEventListener('pointermove', onMove);
+                                            window.addEventListener('pointerup', onUp);
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-1.5">
+                                            <GripHorizontal className="h-3.5 w-3.5 text-slate-400" />
+                                            Highlight Legend
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {highlightedTypes.length > 0 && (
+                                                <button 
+                                                    onPointerDown={(e) => e.stopPropagation()} 
+                                                    onClick={() => setHighlightedTypes([])} 
+                                                    className="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer transition-colors"
+                                                >Clear</button>
+                                            )}
+                                            <button 
+                                                onPointerDown={(e) => e.stopPropagation()} 
+                                                onClick={() => setIsLegendExpanded(!isLegendExpanded)}
+                                                className="text-slate-400 hover:text-slate-600 transition-colors"
+                                            >
+                                                {isLegendExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div className="space-y-1">
+                                    
+                                    {isLegendExpanded && (
+                                        <div className="space-y-1 p-2 overflow-y-auto custom-scrollbar">
                                         {legendItems.map((item) => {
                                             const isHighlighted = highlightedTypes.includes(item.type);
+                                            const count = typeCounts[item.type] || 0;
                                             return (
                                                 <div 
                                                     key={item.type}
                                                     onClick={() => {
+                                                        const isNowHighlighted = !isHighlighted;
                                                         setHighlightedTypes(prev => 
-                                                            prev.includes(item.type) ? prev.filter(t => t !== item.type) : [...prev, item.type]
+                                                            isNowHighlighted ? [...prev, item.type] : prev.filter(t => t !== item.type)
                                                         )
+                                                        if (isNowHighlighted) {
+                                                            setTimeout(() => handleStepperJump(item.type, 'first'), 50);
+                                                        }
                                                     }}
                                                     className={`flex items-center gap-2 cursor-pointer p-1.5 rounded-sm transition-all ${
                                                         isHighlighted ? 'bg-indigo-50 ring-1 ring-indigo-200/50 shadow-sm' : 'hover:bg-slate-100'
                                                     } ${highlightedTypes.length > 0 && !isHighlighted ? 'opacity-40 grayscale-[0.5]' : 'opacity-100'}`}
                                                 >
                                                     <div className="w-3.5 h-3.5 rounded-full border border-slate-200/50 flex-shrink-0 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" style={{ backgroundColor: item.color }}></div>
-                                                    <div className={`text-[11px] truncate transition-colors ${isHighlighted ? 'font-semibold text-indigo-900' : 'text-slate-600 font-medium'}`} title={item.type}>{item.type}</div>
+                                                    <div className={`flex-1 text-[11px] truncate transition-colors ${isHighlighted ? 'font-semibold text-indigo-900' : 'text-slate-600 font-medium'}`} title={item.type}>{item.type}</div>
+                                                    
+                                                    {isHighlighted && count > 0 && (
+                                                        <div className="flex items-center gap-0.5 bg-white/60 border border-indigo-100 rounded px-0.5 shadow-sm" onPointerDown={(e) => e.stopPropagation()}>
+                                                            <button 
+                                                                onClick={(e) => handleStepperJump(item.type, 'prev', e)}
+                                                                className="p-0.5 hover:bg-slate-200 hover:text-slate-900 rounded text-slate-500 transition-colors"
+                                                            >
+                                                                <ChevronLeft className="w-3 h-3" />
+                                                            </button>
+                                                            <span className="text-[9px] font-mono font-bold text-indigo-900 min-w-[24px] text-center">
+                                                                {(stepperIndices[item.type] || 0) + 1}/{count}
+                                                            </span>
+                                                            <button 
+                                                                onClick={(e) => handleStepperJump(item.type, 'next', e)}
+                                                                className="p-0.5 hover:bg-slate-200 hover:text-slate-900 rounded text-slate-500 transition-colors"
+                                                            >
+                                                                <ChevronRight className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )
                                         })}
                                     </div>
+                                    )}
                                 </div>
                                 <CytoscapeComponent
                                     elements={elements}
