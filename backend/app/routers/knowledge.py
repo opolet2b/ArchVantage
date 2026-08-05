@@ -2,7 +2,7 @@ import datetime
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.knowledge_graph import KnowledgeBaseConfig
@@ -13,6 +13,9 @@ from app.schemas.knowledge_schemas import (
     ExtractTaxonomyRequest,
     ExtractPredicatesRequest
 )
+from fastapi.responses import FileResponse
+import mimetypes
+import os
 from app.services.search_service import search_service
 from app.services.ontology_service import ontology_service
 from app.services.mcp_integration_service import mcp_integration_service
@@ -20,7 +23,9 @@ from app.services.ingestion_service import ingestion_service
 from app.services.reconciliation_service import reconciliation_service
 from app.core.arcadedb import arcadedb
 from app.services.debug_service import debug_service
+from app.services.rdf_ingestion_service import rdf_ingestion_service
 from app.routers.auth import get_current_active_user, PermissionChecker
+from fastapi import UploadFile, File
 from app.models.user import User
 
 router = APIRouter()
@@ -44,7 +49,65 @@ async def knowledge_endpoint(request: SearchRequest):
     result = search_service.search(request.query)
     return {"result": result}
 
+class KBSearchRequest(BaseModel):
+    query: str
+    kb_ids: List[str]
+    limit: int = 20
+    ontology_class: Optional[str] = None
+
+@router.post("/knowledge/kb/search")
+async def search_kb_documents(request: KBSearchRequest, db: Session = Depends(get_db)):
+    """Search for nodes inside KBs."""
+    import re
+    matched_nodes = []
+    
+    for kb_id in request.kb_ids:
+        try:
+            db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
+            if not db_kb:
+                continue
+                
+            classes_to_search = []
+            if request.ontology_class:
+                classes_to_search.append(request.ontology_class)
+            elif db_kb.ontology_classes:
+                classes_to_search.extend([c.get("name", c) if isinstance(c, dict) else c for c in db_kb.ontology_classes])
+                
+            if not classes_to_search:
+                classes_to_search.append("Entity")
+                
+            for cls_name in classes_to_search:
+                sanitized_cls = re.sub(r'[^a-zA-Z0-9_]', '_', cls_name.replace(" ", "_"))
+                if not sanitized_cls:
+                    continue
+                try:
+                    limit_val = int(request.limit)
+                    if request.query:
+                        db_query = f"SELECT FROM `{sanitized_cls}` WHERE graph_id = :gid AND (name.toLowerCase() LIKE :kw OR summary.toLowerCase() LIKE :kw) LIMIT {limit_val}"
+                        res = arcadedb.query(db_query, params={"gid": kb_id, "kw": f"%{request.query.lower()}%"}).get("result", [])
+                    else:
+                        db_query = f"SELECT FROM `{sanitized_cls}` WHERE graph_id = :gid LIMIT {limit_val}"
+                        res = arcadedb.query(db_query, params={"gid": kb_id}).get("result", [])
+                    matched_nodes.extend(res)
+                except Exception as e:
+                    pass
+        except Exception as e:
+            pass
+            
+    # Deduplicate nodes based on RID
+    unique_nodes = {n.get("@rid"): n for n in matched_nodes if n.get("@rid")}.values()
+    
+    return {"status": "success", "data": list(unique_nodes)}
+
 # --- KB Configuration Endpoints ---
+
+@router.get("/knowledge/kb/local-file")
+async def get_local_file(path: str, current_user: User = Depends(get_current_active_user)):
+    """Serve a local file by path for KB documents."""
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="File not found on server")
+    media_type, _ = mimetypes.guess_type(path)
+    return FileResponse(path=path, media_type=media_type)
 
 @router.get("/knowledge/kb", response_model=List[KnowledgeBaseConfigResponse])
 def get_kb_configs(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: User = Depends(get_current_active_user)):
@@ -176,7 +239,7 @@ async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, force: 
     if not selected_sources:
         selected_sources = db_kb.sources # fallback
         
-    if approved_classes and selected_sources:
+    if selected_sources:
         # Clear file hashes ONLY if forced or if it's the very first time (status not active)
         if force or db_kb.status != "active":
             print(f"[Establish] Clearing file hashes for KB {kb_id} (force={force}, status={db_kb.status})")
@@ -201,6 +264,18 @@ async def establish_kb_db(kb_id: str, background_tasks: BackgroundTasks, force: 
     db.refresh(db_kb)
     
     return {"status": "success", "message": f"Schema established for {len(approved_classes)} classes. Background ingestion started."}
+
+@router.post("/knowledge/kb/{kb_id}/import-rdf")
+async def import_rdf_file(kb_id: str, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(PermissionChecker("kb:manage"))):
+    db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
+    if not db_kb:
+        raise HTTPException(status_code=404, detail="KB Config not found")
+        
+    try:
+        result = await rdf_ingestion_service.ingest_ttl_file(file, kb_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/knowledge/kb/{kb_id}/lazy-update")
 async def trigger_lazy_update(kb_id: str, request: SyncRequest):
@@ -241,6 +316,8 @@ def get_kb_graph(
         all_classes = db_kb.ontology_classes or []
         approved_classes = [c for c in all_classes if c.get('approved') != False]
         
+        print(f"[KnowledgeRouter] fetch Graph for {kb_id}: sources={sources}, classes={classes}")
+        
         # Apply the frontend class filter if provided
         if classes is not None:
             if "--NONE--" in classes:
@@ -251,39 +328,53 @@ def get_kb_graph(
         vertices = []
         import re
         approved_class_names = set()
-        for cls in approved_classes:
-            class_name = re.sub(r'[^a-zA-Z0-9_]', '_', cls.get('name', '').replace(' ', '_'))
-            if class_name:
-                approved_class_names.add(class_name)
-                
-        if approved_class_names:
-            try:
-                v_query = "SELECT FROM Entity WHERE graph_id = :kb_id"
-                params = {"kb_id": kb_id}
-                
-                if sources:
-                    # Build an OR clause for multiple sources
-                    source_conditions = []
-                    for i, src_prefix in enumerate(sources):
-                        param_key = f"src_{i}"
-                        source_conditions.append(f"source_uri LIKE :{param_key}")
-                        params[param_key] = f"{src_prefix}%"
+        
+        # Only populate the restrictive set if the frontend explicitly provided a filter array,
+        # OR if we want to restrict to approved classes. However, for RDF and dynamic ingestion,
+        # nodes might exist in the graph without being in the UI's ontology config.
+        # So we will fetch all nodes for the graph_id and only filter if 'classes' is passed.
+        
+        if classes is not None and len(classes) > 0 and "--NONE--" not in classes:
+            for cls in approved_classes:
+                class_name = re.sub(r'[^a-zA-Z0-9_]', '_', cls.get('name', '').replace(' ', '_'))
+                if class_name:
+                    approved_class_names.add(class_name)
                     
-                    v_query += f" AND ({' OR '.join(source_conditions)})"
+        try:
+            # We fetch all instances of Entity for this graph
+            v_query = "SELECT FROM Entity WHERE graph_id = :kb_id"
+            params = {"kb_id": kb_id}
+            
+            if sources:
+                source_conditions = []
+                for i, src_prefix in enumerate(sources):
+                    param_key = f"src_{i}"
+                    source_conditions.append(f"source_uri LIKE :{param_key}")
+                    params[param_key] = f"{src_prefix}%"
                 
-                v_query += " LIMIT 5000"
-                res = arcadedb.query(v_query, params=params).get("result", [])
+                v_query += f" AND ({' OR '.join(source_conditions)})"
+            
+            v_query += " LIMIT 5000"
+            res = arcadedb.query(v_query, params=params).get("result", [])
+            
+            existing_rids = set()
+            for node in res:
+                rid = node.get("@rid")
+                v_type = node.get("@type")
                 
-                existing_rids = set()
-                for node in res:
-                    rid = node.get("@rid")
-                    v_type = node.get("@type")
-                    if rid and rid not in existing_rids and v_type in approved_class_names:
-                        existing_rids.add(rid)
-                        vertices.append(node)
+                # If there's an explicit frontend filter, enforce it. Otherwise, accept all.
+                if classes is not None and len(classes) > 0 and "--NONE--" not in classes:
+                    if v_type not in approved_class_names:
+                        continue
+                elif classes is not None and "--NONE--" in classes:
+                    continue # Accept none
                         
-            except Exception as e:
-                print(f"[KnowledgeRouter] Could not query vertices: {e}")
+                if rid and rid not in existing_rids:
+                    existing_rids.add(rid)
+                    vertices.append(node)
+                    
+        except Exception as e:
+            print(f"[KnowledgeRouter] Could not query vertices: {e}")
         
         elements = []
         
@@ -338,10 +429,16 @@ def get_kb_graph(
                         }
                     })
             
+            # Create a map of rid to vertex for easy lookup
+            vertex_map = {v.get("@rid"): v for v in vertices if v.get("@rid")}
+
             # Create Instance Nodes and link to their Type node
             for inst in instances:
                 src_node_id = f"src_{hash(inst['source'])}"
                 type_node_id = f"type_{hash(inst['source'])}_{hash(inst['original_type'])}"
+                
+                # Get the actual vertex for this instance to extract properties
+                actual_v = vertex_map.get(inst["id"], {})
                 
                 elements.append({
                     "group": "nodes",
@@ -349,7 +446,7 @@ def get_kb_graph(
                         "id": inst["id"],
                         "label": f"{inst['label']}\n({inst['original_type']})",
                         "type": inst["original_type"], # Keep original for coloring
-                        "properties": {k: val for k, val in v.items() if not k.startswith('@') and k not in ['in_', 'out_']}
+                        "properties": {k: val for k, val in actual_v.items() if not k.startswith('@') and k not in ['in_', 'out_']}
                     }
                 })
                 

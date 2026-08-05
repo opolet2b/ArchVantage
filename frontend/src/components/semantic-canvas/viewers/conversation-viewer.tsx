@@ -223,7 +223,7 @@ export function ConversationViewer({
     const { fitView } = useReactFlow();
     const selectThing = useCanvasStore(state => state.selectThing);
     const setHighlightTarget = useCanvasStore(state => state.setHighlightTarget);
-    const selectedKbId = useCanvasStore(state => state.selectedKbId);
+    const selectedKbIds = useCanvasStore(state => state.selectedKbIds);
     const selectedModel = useCanvasStore(state => state.selectedModel);
     const enableThinking = useCanvasStore(state => state.enableThinking);
     const setEnableThinking = useCanvasStore(state => state.setEnableThinking);
@@ -352,7 +352,7 @@ export function ConversationViewer({
                     messages: [...messages, userMessage],
                     model: selectedModel || "default",
                     conversation_id: conversationId,
-                    kb_id: selectedKbId || undefined,
+                    kb_ids: selectedKbIds,
                     enable_thinking: enableThinking
                 }),
             });

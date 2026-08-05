@@ -29,6 +29,7 @@ class OntologyService:
         """
         accumulated_text = ""
         total_sources = len(sources)
+        rdf_classes = set()
         
         yield json.dumps({"type": "progress", "message": f"Starting extraction from {total_sources} source(s)..."})
         
@@ -77,7 +78,47 @@ class OntologyService:
                     except Exception as e:
                         yield json.dumps({"type": "progress", "message": f"Warning: Failed to crawl {url}: {e}"})
 
+            elif source_type == "rdf":
+                yield json.dumps({"type": "progress", "message": f"RDF Source detected: {source.get('name')}. Extracting schema directly from RDF."})
+                path = source.get("config", {}).get("path")
+                if path and os.path.exists(path):
+                    import rdflib
+                    from rdflib.namespace import RDF
+                    
+                    def _extract_id(uri):
+                        if isinstance(uri, rdflib.BNode): return str(uri)
+                        uri_str = str(uri)
+                        if "#" in uri_str: return uri_str.split("#")[-1]
+                        elif "/" in uri_str: return uri_str.split("/")[-1]
+                        return uri_str
+
+                    files_to_parse = []
+                    if os.path.isdir(path):
+                        files_to_parse = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(('.ttl', '.rdf', '.xml'))]
+                    elif os.path.isfile(path):
+                        files_to_parse = [path]
+                        
+                    for filepath in files_to_parse:
+                        try:
+                            yield json.dumps({"type": "progress", "message": f"Parsing RDF schema from {os.path.basename(filepath)}..."})
+                            g = rdflib.Graph()
+                            g.parse(filepath)
+                            
+                            # Find all unique types (classes)
+                            for s, p, o in g.triples((None, RDF.type, None)):
+                                type_id = _extract_id(o)
+                                if type_id:
+                                    rdf_classes.add(type_id)
+                        except Exception as e:
+                            yield json.dumps({"type": "progress", "message": f"Warning: Failed to parse RDF {os.path.basename(filepath)}: {e}"})
+
         if not accumulated_text.strip():
+             if rdf_classes:
+                 formatted_classes = [{"name": c, "description": "Extracted from RDF Source", "source": "RDF File", "category": "RDF Schema"} for c in rdf_classes]
+                 yield json.dumps({"type": "progress", "message": f"Found {len(formatted_classes)} classes from RDF."})
+                 yield json.dumps({"type": "result", "classes": formatted_classes})
+                 return
+                 
              msg = "No text accumulated from sources!"
              print(f"[OntologyService] WARNING: {msg}")
              yield json.dumps({"type": "progress", "message": msg})
@@ -126,6 +167,12 @@ class OntologyService:
             # The LLM Service has an internal extractor, but we can do a quick load here
             parsed_data = json.loads(llm_service._extract_json(response_json_str))
             classes = parsed_data.get("classes", [])
+            
+            # Combine with RDF classes if any
+            for c in rdf_classes:
+                if not any(existing.get("name") == c for existing in classes):
+                    classes.append({"name": c, "description": "Extracted from RDF Source", "source": "RDF File", "category": "RDF Schema"})
+            
             print(f"[OntologyService] Returning {len(classes)} classes")
             
             yield json.dumps({"type": "progress", "message": f"Extraction complete! Found {len(classes)} classes."})
@@ -145,6 +192,7 @@ class OntologyService:
         """
         accumulated_text = ""
         total_sources = len(sources)
+        rdf_edges = set()
         
         yield json.dumps({"type": "progress", "message": f"Initializing predicate extraction from {total_sources} source(s)..."})
         
@@ -187,7 +235,57 @@ class OntologyService:
                     except Exception as e:
                         yield json.dumps({"type": "progress", "message": f"Warning: Failed to crawl {url}."})
 
+            elif source_type == "rdf":
+                yield json.dumps({"type": "progress", "message": f"RDF Source detected: {source.get('name')}. Extracting predicates directly from RDF."})
+                path = source.get("config", {}).get("path")
+                if path and os.path.exists(path):
+                    import rdflib
+                    from rdflib.namespace import RDF
+                    
+                    def _extract_id(uri):
+                        if isinstance(uri, rdflib.BNode): return str(uri)
+                        uri_str = str(uri)
+                        if "#" in uri_str: return uri_str.split("#")[-1]
+                        elif "/" in uri_str: return uri_str.split("/")[-1]
+                        return uri_str
+
+                    files_to_parse = []
+                    if os.path.isdir(path):
+                        files_to_parse = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(('.ttl', '.rdf', '.xml'))]
+                    elif os.path.isfile(path):
+                        files_to_parse = [path]
+                        
+                    for filepath in files_to_parse:
+                        try:
+                            yield json.dumps({"type": "progress", "message": f"Parsing RDF predicates from {os.path.basename(filepath)}..."})
+                            g = rdflib.Graph()
+                            g.parse(filepath)
+                            
+                            # Type lookup map
+                            type_map = {}
+                            for s, p, o in g.triples((None, RDF.type, None)):
+                                type_map[s] = _extract_id(o)
+                                
+                            for s, p, o in g:
+                                if p == RDF.type or isinstance(o, rdflib.Literal):
+                                    continue
+                                    
+                                src_type = type_map.get(s)
+                                tgt_type = type_map.get(o)
+                                rel_type = _extract_id(p)
+                                
+                                if src_type and tgt_type and rel_type:
+                                    rdf_edges.add((src_type, tgt_type, rel_type))
+                        except Exception as e:
+                            yield json.dumps({"type": "progress", "message": f"Warning: Failed to parse RDF {os.path.basename(filepath)}: {e}"})
+
         if not accumulated_text.strip():
+             if rdf_edges:
+                 formatted_edges = [{"source": src, "target": tgt, "relation": rel, "description": "Extracted from RDF"} for src, tgt, rel in rdf_edges]
+                 yield json.dumps({"type": "progress", "message": f"Found {len(formatted_edges)} relationships from RDF."})
+                 yield json.dumps({"type": "result", "edges": formatted_edges})
+                 return
+                 
              yield json.dumps({"type": "progress", "message": "No text accumulated from sources!"})
              yield json.dumps({"type": "result", "edges": []})
              return
@@ -240,6 +338,12 @@ class OntologyService:
 
             parsed_data = json.loads(llm_service._extract_json(response_json_str))
             edges = parsed_data.get("edges", [])
+            
+            # Combine with RDF edges if any
+            for src, tgt, rel in rdf_edges:
+                if not any(e.get("source") == src and e.get("target") == tgt and e.get("relation") == rel for e in edges):
+                    edges.append({"source": src, "target": tgt, "relation": rel, "description": "Extracted from RDF"})
+            
             print(f"[OntologyService] Returning {len(edges)} edges")
             
             yield json.dumps({"type": "progress", "message": f"Extraction complete! Found {len(edges)} relationships."})

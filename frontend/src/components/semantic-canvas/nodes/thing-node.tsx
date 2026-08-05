@@ -500,6 +500,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
     // Local Browser State
     const [browsingUrl, setBrowsingUrl] = React.useState<string | null>(null);
+    const [offlineMode, setOfflineMode] = React.useState<boolean>(true);
 
     // Ghost Node Check
     const isGhost = (currentThing.content as any)?.is_ghost;
@@ -2321,13 +2322,17 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                 // PDF files
                 if (
-                    (fileType?.includes("pdf") || filename?.toLowerCase().endsWith(".pdf")) &&
+                    (fileType?.includes("pdf") || filename?.toLowerCase().endsWith(".pdf") || filePath?.toLowerCase().endsWith(".pdf")) &&
                     !filename?.toLowerCase().endsWith(".docx") &&
                     !filename?.toLowerCase().endsWith(".doc")
                 ) {
                     // Check for asset_id first (Generated PDFs etc)
                     const assetId = content.asset_id;
-                    const pdfSrc = assetId ? `/api/v1/assets/${assetId}` : filePath;
+                    let pdfSrc = assetId ? `/api/v1/assets/${assetId}` : filePath;
+                    
+                    if (pdfSrc && (pdfSrc.includes(":\\") || pdfSrc.startsWith("/") && !pdfSrc.startsWith("/api"))) {
+                        pdfSrc = `/api/v1/knowledge/kb/local-file?path=${encodeURIComponent(pdfSrc)}`;
+                    }
 
                     if (pdfSrc) {
                         return (
@@ -2697,6 +2702,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                             onTransclusionStateChange={handleTransclusionStateChange}
                             ancestorIds={[thing.id]}
                             highlight={highlight}
+                            onLinkClick={offlineMode ? handleNavigate : undefined}
                         />
                     );
                 })();
@@ -2727,6 +2733,15 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                     <ChevronRight className="w-4 h-4" />
                                 </Button>
                             </div>
+                            <Button
+                                variant={offlineMode ? "default" : "outline"}
+                                size="sm"
+                                className="h-6 text-[10px] px-2 ml-1"
+                                onClick={() => setOfflineMode(!offlineMode)}
+                                title={offlineMode ? "Offline Mode: Links open locally" : "Online Mode: Links open in new tab"}
+                            >
+                                {offlineMode ? "Offline" : "Online"}
+                            </Button>
                             <div className="flex-1 bg-white dark:bg-slate-900 px-3 py-1 rounded border dark:border-slate-700 text-xs truncate text-slate-500 font-mono">
                                 {currentUrl}
                             </div>

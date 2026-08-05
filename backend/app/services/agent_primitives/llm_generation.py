@@ -201,6 +201,27 @@ class LLMGenerationPrimitive(BasePrimitive):
             
             print(f"\n[GENERATOR_DEBUGGER] Input Context (Preview 500 chars):\n{str(input_context)[:500]}\n")
             
+            # --- KB ENRICHMENT INJECTION ---
+            kb_ids = params.get("kb_ids") or variables.get("kb_ids") or state.get("inputs", {}).get("kb_ids")
+            if kb_ids and state.get("db"):
+                try:
+                    from app.services.context_enrichment_service import context_enrichment_service
+                    enrichment_query = f"{resolved_instruction}\n{input_context[:1000]}" if input_context else resolved_instruction
+                    
+                    print(f"[LLM_PRIM] Triggering Global KB Context Enrichment for node. KBs: {kb_ids}")
+                    kb_context, kb_citations = await context_enrichment_service.enrich_context(
+                        query=enrichment_query,
+                        kb_ids=kb_ids,
+                        db=state.get("db"),
+                        active_model=model
+                    )
+                    if kb_context:
+                        input_context = f"{kb_context}\n\n=== EXPLICIT NODE CONTEXT ===\n{input_context}\n==============================\n"
+                        # We append citations to state history or output if needed, but for now we just augment the context.
+                except Exception as e:
+                    print(f"[LLM_PRIM] Failed to apply KB Enrichment: {e}")
+            # -------------------------------
+
             if is_template_mode:
                 # Force "Fill-in-the-blank" mode
                 system_msg = "You are a strict document generator. Your task is to fill in the provided template with the provided data.\n" \

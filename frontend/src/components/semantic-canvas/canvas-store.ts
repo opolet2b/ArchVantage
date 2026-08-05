@@ -461,8 +461,8 @@ interface CanvasState {
     setEnableThinking: (enabled: boolean) => void;
 
     // Selected Knowledge Base for semantic enrichment
-    selectedKbId: string | null;
-    setSelectedKbId: (id: string | null) => void;
+    selectedKbIds: string[];
+    setSelectedKbIds: (ids: string[]) => void;
 
     // Analysis Detail Level
     levelOfDetail: "low" | "medium" | "high";
@@ -761,8 +761,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     setEnableThinking: (enabled) => set({ enableThinking: enabled }),
 
     // Selected Knowledge Base
-    selectedKbId: null,
-    setSelectedKbId: (id) => set({ selectedKbId: id }),
+    selectedKbIds: [],
+    setSelectedKbIds: (ids) => set({ selectedKbIds: ids }),
 
     // Analysis Detail Level
     levelOfDetail: "medium",
@@ -1032,7 +1032,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                 accessLevel: canvas.access_level || "read",
                 selectedModel: config.model || null,
                 visionModel: config.vision_model || null,
-                selectedKbId: config.kb_id || null,
+                selectedKbIds: config.kb_ids || [],
                 enableThinking: config.enable_thinking !== undefined ? config.enable_thinking : true,
                 viewport: canvas.viewport,
                 zoomLevel: getZoomLevel(canvas.viewport.zoom),
@@ -2281,7 +2281,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                     thing_ids: thingIds,
                     action: action,
                     model: model,
-                    kb_id: get().selectedKbId
+                    kb_ids: get().selectedKbIds
                 }),
             });
 
@@ -2576,7 +2576,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
                         thing_ids: thingIds,
                         domain_ids: domainIds,
                         model: activeModel || undefined,
-                        kb_id: get().selectedKbId
+                        kb_ids: get().selectedKbIds
                     }),
                 }
             );

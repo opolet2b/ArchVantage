@@ -48,6 +48,7 @@ import { DomainSelector } from "./domain-selector";
 import { MCPToolConfigDialog, MCPToolConfig } from "./mcp-tool-config-dialog";
 import { AgentToolConfigDialog, AgentToolConfig } from "./agent-tool-config-dialog";
 import { FormToolConfigDialog, FormToolConfig } from "./form-tool-config-dialog";
+import { KBDocumentBrowserDialog } from "./kb-document-browser-dialog";
 import { layoutService } from "./services/layout-service";
 import { checkZoneLayoutFit } from "@/lib/layout-engine";
 import { cn, API_URL } from "@/lib/utils";
@@ -293,6 +294,7 @@ function CanvasViewInner() {
     const [contextMenuContext, setContextMenuContext] = React.useState<"canvas" | "domain" | "selection">("canvas");
     const [contextMenuDomainId, setContextMenuDomainId] = React.useState<string | undefined>(undefined);
     const [showOCRDialog, setShowOCRDialog] = React.useState(false);
+    const [showKbDocumentDialog, setShowKbDocumentDialog] = React.useState(false);
 
     // Handle opening a conversation from canvas
     const handleOpenConversation = React.useCallback((conversationId: string) => {
@@ -1751,6 +1753,11 @@ function CanvasViewInner() {
                     break;
                 case "ocr_conversion":
                     setShowOCRDialog(true);
+                    break;
+                case "kb_document":
+                    setPendingDropPos(position);
+                    // We don't have a pendingDropColor state currently but can pass it if we want
+                    setShowKbDocumentDialog(true);
                     break;
                 case "form_tool":
                     setPendingDropPos(position);
@@ -3434,6 +3441,31 @@ function CanvasViewInner() {
             <OCRConversionDialog
                 isOpen={showOCRDialog}
                 onClose={() => setShowOCRDialog(false)}
+            />
+
+            <KBDocumentBrowserDialog
+                open={showKbDocumentDialog}
+                onOpenChange={setShowKbDocumentDialog}
+                onSelectDocument={async (doc) => {
+                    setShowKbDocumentDialog(false);
+                    const position = pendingDropPos || getCenterPosition();
+                    await addThing(
+                        "document",
+                        {
+                            content: doc.summary || doc.name || "No content available.",
+                            filename: doc.name || "KB Document",
+                            file_path: doc.source_uri,
+                            format: "markdown",
+                            kbNodeId: doc['@rid'],
+                            type: doc['@type']
+                        },
+                        position,
+                        400,
+                        300,
+                        doc.name || "KB Document"
+                    );
+                    setPendingDropPos(null);
+                }}
             />
         </div >
     );

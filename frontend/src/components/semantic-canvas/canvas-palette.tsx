@@ -17,13 +17,16 @@ import {
     Wand2,
     ChevronLeft,
     ChevronRight,
+    ChevronUp,
+    ChevronDown,
     GitBranch,
     Settings,
     Pin,
     PinOff,
     Mic,
     FormInput,
-    TableProperties
+    TableProperties,
+    Database
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "./canvas-store";
@@ -58,7 +61,8 @@ export type ToolType =
     | "workflow"
     | "vocal_note"
     | "form_tool"
-    | "spreadsheet";
+    | "spreadsheet"
+    | "kb_document";
 
 export interface CanvasTool {
     id: ToolType;
@@ -69,14 +73,18 @@ export interface CanvasTool {
 
 // =============================================================================
 // Constants
-// =============================================================================
-
 export const CANVAS_TOOLS: CanvasTool[] = [
     {
         id: "conversation",
         name: "New Conversation",
         icon: <MessageSquare className="h-4 w-4" />,
         description: "Start a new chat thread"
+    },
+    {
+        id: "kb_document",
+        name: "KB Document",
+        icon: <Database className="h-4 w-4" />,
+        description: "Drop a document from a Knowledge Base"
     },
     {
         id: "import_conversation",
@@ -224,6 +232,9 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     
     // Vocal note - Rose/Pink
     vocal_note: "#ffe4e6",
+
+    // KB Document - Orange/Yellow
+    kb_document: "#fef3c7",
 };
 
 
@@ -281,6 +292,42 @@ export function CanvasPalette() {
             visible_tools: Array.from(currentTools)
         });
     };
+
+    const toolOrder: string[] = canvasSettings?.tool_order || CANVAS_TOOLS.map(t => t.id);
+
+    const reorderTool = (toolId: string, direction: 'up' | 'down') => {
+        if (isReadOnly) return;
+        const currentOrder = [...toolOrder];
+        
+        // Ensure all tools are in the order array to avoid lost tools
+        if (currentOrder.length < CANVAS_TOOLS.length) {
+            CANVAS_TOOLS.forEach(t => {
+                if (!currentOrder.includes(t.id)) currentOrder.push(t.id);
+            });
+        }
+        
+        const index = currentOrder.indexOf(toolId);
+        if (index === -1) return;
+        if (direction === 'up' && index > 0) {
+            [currentOrder[index - 1], currentOrder[index]] = [currentOrder[index], currentOrder[index - 1]];
+        } else if (direction === 'down' && index < currentOrder.length - 1) {
+            [currentOrder[index + 1], currentOrder[index]] = [currentOrder[index], currentOrder[index + 1]];
+        } else {
+            return;
+        }
+        updateCanvasSettings({
+            ...(canvasSettings || {}),
+            tool_order: currentOrder
+        });
+    };
+
+    const orderedTools = [...CANVAS_TOOLS].sort((a, b) => {
+        const indexA = toolOrder.indexOf(a.id);
+        const indexB = toolOrder.indexOf(b.id);
+        const posA = indexA === -1 ? 999 : indexA;
+        const posB = indexB === -1 ? 999 : indexB;
+        return posA - posB;
+    });
 
     const handleDragStart = (e: React.DragEvent, tool: CanvasTool) => {
         if (isReadOnly) {
@@ -399,20 +446,42 @@ export function CanvasPalette() {
                             <PopoverContent className="w-64 p-3" align="end">
                                 <h3 className="font-medium text-sm mb-3">Configure Tools</h3>
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-                                    {CANVAS_TOOLS.map((tool) => (
-                                        <div key={`config-${tool.id}`} className="flex items-center space-x-2">
-                                            <Checkbox 
-                                                id={`config-check-${tool.id}`} 
-                                                checked={visibleTools.includes(tool.id)}
-                                                onCheckedChange={() => toggleToolVisibility(tool.id)}
-                                            />
-                                            <label 
-                                                htmlFor={`config-check-${tool.id}`}
-                                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2"
-                                            >
-                                                <span className="text-muted-foreground">{tool.icon}</span>
-                                                {tool.name}
-                                            </label>
+                                    {orderedTools.map((tool, index) => (
+                                        <div key={`config-${tool.id}`} className="flex items-center justify-between space-x-2 group/tool">
+                                            <div className="flex items-center space-x-2">
+                                                <Checkbox 
+                                                    id={`config-check-${tool.id}`} 
+                                                    checked={visibleTools.includes(tool.id)}
+                                                    onCheckedChange={() => toggleToolVisibility(tool.id)}
+                                                />
+                                                <label 
+                                                    htmlFor={`config-check-${tool.id}`}
+                                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex items-center gap-2"
+                                                >
+                                                    <span className="text-muted-foreground">{tool.icon}</span>
+                                                    {tool.name}
+                                                </label>
+                                            </div>
+                                            <div className="flex items-center opacity-0 group-hover/tool:opacity-100 transition-opacity">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-5 w-5"
+                                                    onClick={() => reorderTool(tool.id, 'up')}
+                                                    disabled={index === 0}
+                                                >
+                                                    <ChevronUp className="h-3 w-3" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-5 w-5"
+                                                    onClick={() => reorderTool(tool.id, 'down')}
+                                                    disabled={index === orderedTools.length - 1}
+                                                >
+                                                    <ChevronDown className="h-3 w-3" />
+                                                </Button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -429,7 +498,7 @@ export function CanvasPalette() {
                     </div>
                 )}
 
-                {CANVAS_TOOLS.filter(tool => visibleTools.includes(tool.id)).map((tool) => (
+                {orderedTools.filter(tool => visibleTools.includes(tool.id)).map((tool) => (
                     <div
                         key={tool.id}
                         draggable={!isReadOnly}

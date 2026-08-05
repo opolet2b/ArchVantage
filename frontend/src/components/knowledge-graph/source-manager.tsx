@@ -10,7 +10,7 @@ import { API_URL } from "@/lib/utils"
 
 export interface KnowledgeSource {
     id: string
-    type: "mcp" | "local" | "url"
+    type: "mcp" | "local" | "url" | "rdf"
     name: string
     config: Record<string, string>
 }
@@ -150,6 +150,7 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
             case "mcp": return <Network className="h-5 w-5 text-indigo-500" />
             case "local": return <HardDrive className="h-5 w-5 text-emerald-500" />
             case "url": return <Globe className="h-5 w-5 text-blue-500" />
+            case "rdf": return <Database className="h-5 w-5 text-purple-500" />
             default: return <Database className="h-5 w-5" />
         }
     }
@@ -188,6 +189,7 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
                                     <SelectItem value="mcp">MCP Server / API</SelectItem>
                                     <SelectItem value="url">Web URL / Confluence</SelectItem>
                                     <SelectItem value="local">Local Directory</SelectItem>
+                                    <SelectItem value="rdf">RDF File or Directory</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -233,6 +235,18 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
                                     value={newSource.config?.path || ""}
                                     onChange={(e) => setNewSource({ ...newSource, config: { ...newSource.config, path: e.target.value } })}
                                 />
+                            </div>
+                        )}
+
+                        {newSource.type === "rdf" && (
+                            <div className="grid gap-2">
+                                <Label>RDF Path (.ttl, .rdf, .xml)</Label>
+                                <Input
+                                    placeholder="/path/to/rdf/file_or_directory"
+                                    value={newSource.config?.path || ""}
+                                    onChange={(e) => setNewSource({ ...newSource, config: { ...newSource.config, path: e.target.value } })}
+                                />
+                                <p className="text-[10px] text-muted-foreground italic">Can be a single file or a directory of RDF files. These bypass LLM extraction.</p>
                             </div>
                         )}
 
@@ -358,6 +372,11 @@ export function SourceManager({ sources, setSources }: { sources: KnowledgeSourc
                                 )}
                                 {source.type === "local" && (
                                     <div className="text-xs text-muted-foreground font-mono truncate bg-slate-50 p-1.5 rounded border">
+                                        {source.config.path || "No path specified"}
+                                    </div>
+                                )}
+                                {source.type === "rdf" && (
+                                    <div className="text-xs text-muted-foreground font-mono truncate bg-slate-50 p-1.5 rounded border border-purple-200 bg-purple-50/50">
                                         {source.config.path || "No path specified"}
                                     </div>
                                 )}

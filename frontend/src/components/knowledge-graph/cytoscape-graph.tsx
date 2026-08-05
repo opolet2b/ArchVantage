@@ -118,11 +118,21 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         }
     }, [kbId, perspective, appliedSourceFilters, appliedOntologyFilters, ontologyClasses]);
 
-    // Synchronize initial filters when ontologyClasses prop is initially loaded
+    // Synchronize initial filters when ontologyClasses prop is loaded or updated
     useEffect(() => {
-        if (ontologyClasses.length > 0 && appliedOntologyFilters.length === 0 && selectedOntologyFilters.length === 0) {
-            setSelectedOntologyFilters(ontologyClasses);
-            setAppliedOntologyFilters(ontologyClasses);
+        if (ontologyClasses.length > 0) {
+            if (appliedOntologyFilters.length === 0 && selectedOntologyFilters.length === 0) {
+                // Initial load
+                setSelectedOntologyFilters(ontologyClasses);
+                setAppliedOntologyFilters(ontologyClasses);
+            } else {
+                // Merge any newly added classes that aren't in the filters yet
+                const newClasses = ontologyClasses.filter(c => !appliedOntologyFilters.includes(c) && !selectedOntologyFilters.includes(c));
+                if (newClasses.length > 0) {
+                    setSelectedOntologyFilters(prev => [...prev, ...newClasses]);
+                    setAppliedOntologyFilters(prev => [...prev, ...newClasses]);
+                }
+            }
         }
     }, [ontologyClasses]);
 
@@ -371,23 +381,27 @@ export function CytoscapeGraph({ kbId, ingestionStatus, sources = [], ontologyCl
         setIsFullscreen(!isFullscreen);
         // Add a slight delay to allow CSS transition before fitting the graph
         setTimeout(() => {
-            if (cyRef.current) {
-                cyRef.current.resize();
-                if (perspective === 'focus') {
-                    const rootNode = cyRef.current.nodes('.focus-root');
-                    if (rootNode && !rootNode.empty()) {
-                        cyRef.current.animate({
-                            center: { eles: rootNode },
-                            zoom: 0.8,
-                            duration: 500,
-                            easing: 'ease-out-cubic'
-                        });
+            if (cyRef.current && !cyRef.current.destroyed()) {
+                try {
+                    cyRef.current.resize();
+                    if (perspective === 'focus') {
+                        const rootNode = cyRef.current.nodes('.focus-root');
+                        if (rootNode && !rootNode.empty()) {
+                            cyRef.current.animate({
+                                center: { eles: rootNode },
+                                zoom: 0.8,
+                                duration: 500,
+                                easing: 'ease-out-cubic'
+                            });
+                        } else {
+                            cyRef.current.fit();
+                        }
                     } else {
                         cyRef.current.fit();
+                        handleAutoDive(cyRef.current);
                     }
-                } else {
-                    cyRef.current.fit();
-                    handleAutoDive(cyRef.current);
+                } catch (e) {
+                    console.warn("Cytoscape resize/fit aborted:", e);
                 }
             }
         }, 100);

@@ -14,42 +14,53 @@ from app.utils.document_parser import document_parser
 from app.services.web_crawler_service import web_crawler_service
 
 class ContextEnrichmentService:
-    async def enrich_context(self, query: str, kb_id: Optional[str], db: Session, active_model: str = "default") -> tuple[str, list]:
-        print(f"[ContextEnrichment] Received enrich request for kb_id: {kb_id}")
-        if not kb_id or kb_id == "none" or kb_id == "--NONE--":
-            print(f"[ContextEnrichment] Skipping KB search, invalid kb_id: {kb_id}")
+    async def enrich_context(self, query: str, kb_ids: List[str], db: Session, active_model: str = "default") -> tuple[str, list]:
+        if not kb_ids:
             return "", []
             
-        # 1. Check if KB exists
-        db_kb = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id == kb_id).first()
-        if not db_kb:
-            print(f"[ContextEnrichment] KB not found in DB: {kb_id}")
+        print(f"[ContextEnrichment] Received enrich request for kb_ids: {kb_ids}")
+        # Clean up any 'none' or null strings
+        valid_kb_ids = [k for k in kb_ids if k and k != "none" and k != "--NONE--"]
+        
+        if not valid_kb_ids:
+            print(f"[ContextEnrichment] Skipping KB search, no valid kb_ids provided.")
             return "", []
             
-        kb_active = (db_kb.status == "active")
-        if not kb_active:
-            print(f"[ContextEnrichment] KB '{kb_id}' is in status '{db_kb.status}'. Skipping local vector search, but will proceed with API checks.")
+        enriched_blocks = []
+        sources_fetched = set()
+        citations = []
+        
+        # We will loop over valid_kb_ids later, but first extract keywords
+        # 1. Check if KBs exist
+        db_kbs = db.query(KnowledgeBaseConfig).filter(KnowledgeBaseConfig.id.in_(valid_kb_ids)).all()
+        if not db_kbs:
+            print(f"[ContextEnrichment] None of the KBs were found in DB: {valid_kb_ids}")
+            return "", []
             
-        # 2. Extract semantic keywords/entities from the query to search ArcadeDB
-        # A simple LLM call to extract keywords OR just use the query directly for a rough match.
-        system_prompt = "Extract 3-5 key search terms or entity names from the following query. Return ONLY a comma-separated list of terms."
+        # Active model from first KB or fallback
+        model_to_use = next((kb.llm_config_id for kb in db_kbs if kb.llm_config_id), active_model)
+        
         try:
             keywords_str = await llm_service.chat_completion(
                 system_prompt=system_prompt,
                 user_prompt=query,
-                model=db_kb.llm_config_id or active_model
+                model=model_to_use
             )
             keywords = [k.strip() for k in keywords_str.split(',')]
         except Exception as e:
             print(f"[ContextEnrichment] Failed to extract keywords: {e}")
             keywords = [query]
             
-        enriched_blocks = []
-        sources_fetched = set()
-        citations = []
-        
-        if kb_active:
-            print(f"[ContextEnrichment] Searching KB {kb_id} for keywords: {keywords}")
+        # Loop over each KB to enrich context
+        for db_kb in db_kbs:
+            kb_id = db_kb.id
+            kb_active = (db_kb.status == "active")
+            
+            if not kb_active:
+                print(f"[ContextEnrichment] KB '{kb_id}' is in status '{db_kb.status}'. Skipping local vector search.")
+                
+            if kb_active:
+                print(f"[ContextEnrichment] Searching KB {kb_id} for keywords: {keywords}")
             
             # 3. Semantic Search in ChromaDB to find relevant Ontology Classes
             from app.services.rag_service import rag_service

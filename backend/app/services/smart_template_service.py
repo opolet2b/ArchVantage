@@ -684,10 +684,10 @@ class SmartTemplateService:
         is_doc_template = bool(template.document_template_id) or "Document" in template.category_name
         
         # --- KB Context Enrichment ---
-        if request.kb_id:
+        if request.kb_ids:
             from app.services.context_enrichment_service import context_enrichment_service
             active_model = request.model or "default"
-            kb_context, _ = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_id, db, active_model)
+            kb_context, _ = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_ids, db, active_model)
             if kb_context:
                 combined_context = f"{kb_context}\n\n=== PRIMARY SUBJECT (SELECTED CONTENT) ===\n{combined_context}\n==========================================\n\nCRITICAL INSTRUCTION: The template instructions apply STRICTLY to the 'PRIMARY SUBJECT' above. The Knowledge Base context is only provided as supplementary reference material to check against."
                 
@@ -1665,14 +1665,12 @@ class SmartTemplateService:
                            lbl += f" ({r.description})"
                        combined_context += f"- {src} --[{lbl}]--> {tgt}\n"
         # --- KB Context Enrichment ---
-        if request.kb_id:
+        if request.kb_ids:
             from app.services.context_enrichment_service import context_enrichment_service
-            template_purpose = template.name
-            if template.pipeline_config and isinstance(template.pipeline_config, dict):
-                 template_purpose = template.pipeline_config.get("purpose", template.name)
-                 
             active_model = request.model or "default"
-            kb_context, _ = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_id, db, active_model)
+            
+            # Smart Template Specific: Use the purpose + partial context as query
+            kb_context, _ = await context_enrichment_service.enrich_context(template_purpose + "\n" + combined_context[:1000], request.kb_ids, db, active_model)
             if kb_context:
                 combined_context = f"{kb_context}\n\n=== PRIMARY SUBJECT (SELECTED CONTENT) ===\n{combined_context}\n==========================================\n\nCRITICAL INSTRUCTION: The user's query applies STRICTLY to the 'PRIMARY SUBJECT' above. The Knowledge Base context is only provided as supplementary reference material to check against."
                 yield {"type": "progress", "content": "Knowledge Base context retrieved."}

@@ -81,7 +81,10 @@ class ArcadeDBClient:
                 response = client.post(url, json=payload, timeout=10.0)
                 
                 if response.status_code >= 400 and not silent:
-                    print(f"ArcadeDB Error {response.status_code}: {response.text}")
+                    try:
+                        print(f"ArcadeDB Error {response.status_code}: {response.text}".encode('ascii', 'replace').decode('ascii'))
+                    except:
+                        pass
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
@@ -106,7 +109,10 @@ class ArcadeDBClient:
                  response = client.post(url, json=payload, timeout=10.0)
                  
                  if response.status_code >= 400 and not silent:
-                    print(f"ArcadeDB Error {response.status_code}: {response.text}")
+                    try:
+                        print(f"ArcadeDB Error {response.status_code}: {response.text}".encode('ascii', 'replace').decode('ascii'))
+                    except:
+                        pass
                  response.raise_for_status()
                  return response.json()
          except Exception as e:

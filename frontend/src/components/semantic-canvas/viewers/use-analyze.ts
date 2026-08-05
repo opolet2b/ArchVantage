@@ -133,18 +133,21 @@ export function useAnalyze(): UseAnalyzeReturn {
 
                         for (const line of lines) {
                             if (!line.trim()) continue;
+                            let event: any;
                             try {
-                                const event = JSON.parse(line);
-                                if (event.type === "chunk" && event.content) {
-                                    params.onChunk(event.content);
-                                    finalResult += event.content;
-                                } else if (event.type === "complete") {
-                                    finalResult = event.result || finalResult;
-                                } else if (event.type === "error") {
-                                    throw new Error(event.content);
-                                }
+                                event = JSON.parse(line);
                             } catch (e) {
                                 console.error("Error parsing analysis event:", e);
+                                continue;
+                            }
+                            
+                            if (event.type === "chunk" && event.content) {
+                                params.onChunk(event.content);
+                                finalResult += event.content;
+                            } else if (event.type === "complete") {
+                                finalResult = event.result || finalResult;
+                            } else if (event.type === "error") {
+                                throw new Error(event.content);
                             }
                         }
                     }

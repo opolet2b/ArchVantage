@@ -39,6 +39,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuCheckboxItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
@@ -46,6 +47,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import domToImage from "dom-to-image-more";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Check, ChevronsUpDown } from "lucide-react";
 
 interface ModelPreset {
     id?: number | string;
@@ -73,7 +75,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const canvasId = useCanvasStore((s) => s.canvasId);
     const activeScenario = useCanvasStore((s) => s.activeScenario);
     const toolbarConfig = activeScenario?.configuration?.ui_overrides?.toolbar_config;
-    const selectedKbId = useCanvasStore((s) => s.selectedKbId);
+    const selectedKbIds = useCanvasStore((s) => s.selectedKbIds);
     const enableThinking = useCanvasStore((s) => s.enableThinking);
     // Viewport moved to ZoomIndicator for performance
 
@@ -90,7 +92,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
     const domains = useCanvasStore((s) => s.domains);
     const refreshThings = useCanvasStore((s) => s.refreshThings);
     const updateCanvasSettings = useCanvasStore((s) => s.updateCanvasSettings);
-    const setSelectedKbId = useCanvasStore((s) => s.setSelectedKbId);
+    const setSelectedKbIds = useCanvasStore((s) => s.setSelectedKbIds);
     const setEnableThinking = useCanvasStore((s) => s.setEnableThinking);
 
     const { topPanelPinned, toggleTopPanelPin } = useLayoutStore();
@@ -436,39 +438,48 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
 
                 <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
                     <LucideIcons.Database className="h-4 w-4" />
-                    <span>Knowledge Base:</span>
+                    <span>Knowledge Bases:</span>
                     {isLoadingKbs ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                        <Select
-                            value={selectedKbId || "none"}
-                            onValueChange={(value) => {
-                                setSelectedKbId(value === "none" ? null : value);
-                                if (!isReadOnly) updateCanvasSettings({ kb_id: value === "none" ? null : value });
-                            }}
-                            disabled={isReadOnly}
-                        >
-                            <SelectTrigger className="w-[200px] h-8 text-sm">
-                                <SelectValue placeholder="Select Knowledge Base..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">
-                                    <span className="text-muted-foreground italic">None</span>
-                                </SelectItem>
-                                {kbs.map((kb) => (
-                                    <SelectItem key={kb.id} value={kb.id}>
-                                        <div className="flex flex-col">
-                                            <span>{kb.name}</span>
-                                        </div>
-                                    </SelectItem>
-                                ))}
-                                {kbs.length === 0 && (
-                                    <div className="p-2 text-xs text-muted-foreground">
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild disabled={isReadOnly}>
+                                <Button variant="outline" className="w-[220px] h-8 justify-between px-3 font-normal text-xs">
+                                    <span className="truncate">
+                                        {selectedKbIds.length === 0 ? "None Selected" : `${selectedKbIds.length} KB${selectedKbIds.length > 1 ? 's' : ''} Selected`}
+                                    </span>
+                                    <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-[220px]">
+                                {kbs.length === 0 ? (
+                                    <div className="p-2 text-xs text-muted-foreground text-center">
                                         No active KBs found
                                     </div>
+                                ) : (
+                                    kbs.map((kb) => {
+                                        const isSelected = selectedKbIds.includes(kb.id);
+                                        return (
+                                            <DropdownMenuItem 
+                                                key={kb.id} 
+                                                onSelect={(e) => {
+                                                    e.preventDefault(); // Keep menu open
+                                                    const newSelection = isSelected 
+                                                        ? selectedKbIds.filter(id => id !== kb.id)
+                                                        : [...selectedKbIds, kb.id];
+                                                    setSelectedKbIds(newSelection);
+                                                    if (!isReadOnly) updateCanvasSettings({ kb_ids: newSelection });
+                                                }}
+                                                className="flex items-center justify-between"
+                                            >
+                                                <span className="truncate">{kb.name}</span>
+                                                {isSelected && <Check className="h-4 w-4 shrink-0" />}
+                                            </DropdownMenuItem>
+                                        );
+                                    })
                                 )}
-                            </SelectContent>
-                        </Select>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     )}
                 </div>
             </div>

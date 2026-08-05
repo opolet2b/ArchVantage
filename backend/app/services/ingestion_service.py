@@ -8,6 +8,7 @@ from app.services.llm_service import llm_service
 from app.utils.document_parser import document_parser
 
 from app.services.web_crawler_service import web_crawler_service
+from app.services.rdf_ingestion_service import rdf_ingestion_service
 import hashlib
 
 class IngestionService:
@@ -95,6 +96,26 @@ class IngestionService:
                                 accumulated_text += content
                             else:
                                 log_file.write(f"WARNING: No content from URL {url}\n")
+                    
+                    elif source_type == "rdf":
+                        path = source.get("config", {}).get("path")
+                        if path and os.path.exists(path):
+                            log_file.write(f"Processing RDF source at: {path}\n")
+                            if os.path.isdir(path):
+                                files = [f for f in os.listdir(path) if f.endswith(('.ttl', '.rdf', '.xml'))]
+                                for filename in files:
+                                    filepath = os.path.join(path, filename)
+                                    try:
+                                        res = rdf_ingestion_service.process_file(filepath, kb_id)
+                                        log_file.write(f"RDF Ingestion {filename}: {res}\n")
+                                    except Exception as e:
+                                        log_file.write(f"RDF Ingestion Error {filename}: {e}\n")
+                            elif os.path.isfile(path):
+                                try:
+                                    res = rdf_ingestion_service.process_file(path, kb_id)
+                                    log_file.write(f"RDF Ingestion {os.path.basename(path)}: {res}\n")
+                                except Exception as e:
+                                    log_file.write(f"RDF Ingestion Error {path}: {e}\n")
 
                 if not accumulated_text.strip():
                     if skipped_files > 0:
