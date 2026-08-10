@@ -3917,6 +3917,23 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 title={previewContent.title}
                 content={previewContent.content}
                 type={previewContent.type}
+                onRetry={previewContent.title === "Ingestion Error" ? async () => {
+                    setPreviewDialogOpen(false);
+                    try {
+                        await useCanvasStore.getState().retryIngestion(thing.id);
+                        toast({
+                            title: "Retry Started",
+                            description: "Vectorization has been restarted.",
+                            duration: 3000,
+                        });
+                    } catch (e: any) {
+                        toast({
+                            title: "Retry Failed",
+                            description: e.message || String(e),
+                            variant: "destructive",
+                        });
+                    }
+                } : undefined}
             />
 
             {/* Sync Dialog */}
