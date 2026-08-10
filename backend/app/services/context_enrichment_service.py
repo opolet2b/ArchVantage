@@ -118,12 +118,7 @@ class ContextEnrichmentService:
                          }).get("result", [])
                          matched_nodes.extend(res)
                     
-                    # If still no keyword matches, just grab the top instances of this class
-                    # since the semantic query already determined this class is highly relevant!
-                    if not matched_nodes:
-                         db_query_fallback = f"SELECT FROM `{sanitized_cls}` WHERE graph_id = :gid LIMIT 3"
-                         res_fb = arcadedb.query(db_query_fallback, params={"gid": kb_id}).get("result", [])
-                         matched_nodes.extend(res_fb)
+                    # Intentionally omitting fallback. Random nodes pollute the context and cause false citations.
                 except Exception as e:
                     pass
             

@@ -740,7 +740,7 @@ async def chat_stream_endpoint(
 
     # KB Context Enrichment
     from app.services.context_enrichment_service import context_enrichment_service
-    kb_context, kb_citations = await context_enrichment_service.enrich_context(last_msg, request.kb_id, db, active_model)
+    kb_context, kb_citations = await context_enrichment_service.enrich_context(last_msg, request.kb_ids, db, active_model)
     if kb_context:
         for m in reversed(final_messages):
             if m.role == "user":

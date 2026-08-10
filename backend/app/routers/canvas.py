@@ -1538,12 +1538,55 @@ async def perform_sync_update(
         print(f"[SyncUpdate] Content identical. Skipping re-ingestion for {thing_id}.")
 
     status_code = "sync_same_content" if is_same_content else "sync_started"
-    return {
-        "status": status_code, 
-        "batch_id": batch_id, 
-        "new_asset_id": new_asset.id,
-        "technical_metadata": new_tech_meta
-    }
+    
+    return {"status": status_code, "technical_metadata": new_tech_meta, "new_asset_id": new_asset.id}
+
+@router.post("/canvases/{canvas_id}/things/{thing_id}/retry_ingestion")
+async def retry_ingestion(
+    canvas_id: str,
+    thing_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id, CanvasThing.canvas_id == canvas_id).first()
+    if not thing:
+         raise HTTPException(status_code=404, detail="Thing not found")
+         
+    asset_id = thing.content.get("asset_id") if thing.content else None
+    real_path = None
+    if asset_id:
+         from app.models.assets import Asset
+         from app.services.asset_service import AssetService
+         asset_record = db.query(Asset).filter(Asset.id == asset_id).first()
+         if not asset_record:
+              raise HTTPException(status_code=404, detail="Associated asset not found")
+         real_path = AssetService.get_asset_path(asset_record)
+    else:
+         source_path = thing.technical_metadata.get("source_path") if thing.technical_metadata else None
+         if not source_path:
+              raise HTTPException(status_code=400, detail="No asset or source path associated with this thing.")
+         real_path = source_path
+         
+    if not real_path or not os.path.exists(real_path):
+         raise HTTPException(status_code=404, detail="File no longer exists on disk")
+         
+    from app.routers.canvas_worker import handle_async_vectorization
+    import uuid
+    
+    thing.rag_status = RAGStatus.PENDING
+    db.commit()
+    
+    batch_id = str(uuid.uuid4())
+    background_tasks.add_task(
+        handle_async_vectorization,
+        thing_id=thing.id,
+        file_path=real_path,
+        canvas_id=canvas_id,
+        mode="initial",
+        active_batch_id=batch_id
+    )
+    return {"status": "started", "message": "Ingestion restarted"}
 
 @router.post("/canvases/{canvas_id}/things/{thing_id}/retry_ingestion")
 async def retry_ingestion(
@@ -2079,6 +2122,13 @@ async def analyze_selection(
     
     # Get the selected content
     selected_content = request.fragment.content or ""
+    
+    # Check if a custom plugin is registered for this thing type
+    from app.plugins.registry import PluginRegistry
+    custom_analyzer = PluginRegistry.get_analyzer(thing.type.value)
+    if custom_analyzer:
+        print(f"[Analyze] Delegating analysis to custom plugin for {thing.type.value}")
+        return await custom_analyzer(request=request, thing=thing, db=db, current_user=current_user)
     
     # Phase 2: RAG Integration for Slideshows and Documents
     # If this is a slideshow or document and the content is large, 
