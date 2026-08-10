@@ -1,39 +1,18 @@
-import requests
-import json
+import asyncio
+from app.database import SessionLocal
+from app.services.rag_service import rag_service
 
-BASE_URL = "http://127.0.0.1:8000/api/v1"
+async def main():
+    try:
+        results = rag_service.search(
+            query="test",
+            filters={"canvas_id": "3a710df9-239d-45ba-9ab4-5b9f2c22ab96"},
+            k=5,
+            model_name="ollama/llama3" # Example
+        )
+        print("Success!", len(results))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
 
-def test_ingest():
-    print("Testing Ingestion...")
-    response = requests.post(
-        f"{BASE_URL}/rag/ingest",
-        json={"folder_path": "./data"}
-    )
-    print(f"Status: {response.status_code}")
-    print(f"Response: {response.json()}")
-
-def test_query():
-    print("\nTesting Query...")
-    response = requests.post(
-        f"{BASE_URL}/rag/query",
-        json={"query": "What is the RAG system using?", "k": 2}
-    )
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-
-def test_watcher_query():
-    print("\nTesting Watcher Query...")
-    # Wait a bit for ingestion
-    import time
-    time.sleep(2)
-    response = requests.post(
-        f"{BASE_URL}/rag/query",
-        json={"query": "automatic ingestion", "k": 2}
-    )
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-
-if __name__ == "__main__":
-    # test_ingest()
-    # test_query()
-    test_watcher_query()
+asyncio.run(main())

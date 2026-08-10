@@ -48,6 +48,7 @@ from app.prompts import SUMMARIZE_PROMPT, EXPLAIN_PROMPT
 from app.routers.canvas_worker import handle_async_vectorization
 from pydantic import BaseModel
 from app.services.automation_service import automation_service
+import app.plugins
 
 
 class CanvasEventRequest(BaseModel):
@@ -2127,9 +2128,11 @@ async def analyze_selection(
     from app.plugins.registry import PluginRegistry
     custom_analyzer = PluginRegistry.get_analyzer(thing.type.value)
     if custom_analyzer:
-        print(f"[Analyze] Delegating analysis to custom plugin for {thing.type.value}")
-        return await custom_analyzer(request=request, thing=thing, db=db, current_user=current_user)
-    
+        print(f"[Analyze] Checking custom plugin for {thing.type.value}")
+        plugin_res = await custom_analyzer(request=request, thing=thing, db=db, current_user=current_user)
+        if plugin_res:
+            return plugin_res
+            
     # Phase 2: RAG Integration for Slideshows and Documents
     # If this is a slideshow or document and the content is large, 
     # we can fetch relevant text from the Vector Store to give the LLM context.
@@ -2163,6 +2166,7 @@ async def analyze_selection(
  
                  active_model = _resolve_active_model(db, canvas_id, request.model)
                  
+                 from app.services.llm_service import llm_service
                  # Dynamically resolve context window to avoid unneeded RAG lossiness
                  llm_obj = llm_service._get_llama_index_model(active_model)
                  context_window = getattr(llm_obj.metadata, "context_window", None) or 4096
@@ -2193,43 +2197,21 @@ async def analyze_selection(
                              print(f"[Analyze] Custom prompt instructs to process entire document, skipping RAG (len={len(selected_content)}).")
 
                  if use_rag:
-                     # Detect extraction/map-reduce requirements for the Trade-off Matrix
-                     is_extraction = request.action == AnalyzeAction.ASK and request.custom_prompt and "extract a list of alternatives" in request.custom_prompt.lower()
-                     
-                     if is_extraction:
-                         print(f"[Analyze RAG] Engaging Map-Reduce Strategy (tree_summarize) for holistic extraction...")
-                         print(f"--- MAP-REDUCE REQUEST PAYLOAD ---")
-                         print(f"Query: {query_text}")
-                         print(f"Filters: {search_filters}")
-                         print(f"Model: {active_model}")
-                         print(f"K: 50 (Chunks)")
-                         print(f"----------------------------------")
-                         
-                         # Pull up to 50 chunks and recursively extract across all of them
-                         results = rag_service.search(
-                             query=query_text, 
-                             k=50, 
-                             filters=search_filters, 
-                             model_name=active_model, 
-                             response_mode="tree_summarize"
-                         )
-                         
-                         if results and len(results) > 0 and results[0].get('metadata', {}).get('type') == 'synthesized_response':
-                             final_text = results[0]['text']
-                             print(f"[Analyze RAG] Map-Reduce completed successfully!")
-                             print(f"--- MAP-REDUCE FINAL RESPONSE PAYLOAD ---")
-                             print(final_text)
-                             print(f"-----------------------------------------")
-                             return AnalyzeResponse(
-                                 thing_id=request.thing_id,
-                                 action=request.action,
-                                 result=final_text,
-                                 created_thing_id=None
-                             )
-                             
                      # Standard Top-K Flow
                      print(f"[Analyze RAG] Frontend provided short text (Length: {len(selected_content)} chars). Engaging LlamaIndex RAG to retrieve full context from vector database...")
-                     results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
+                     
+                     import asyncio
+                     print("[Analyze RAG] Starting background thread for rag_service.search...")
+                     start_time = asyncio.get_event_loop().time()
+                     results = await asyncio.to_thread(
+                         rag_service.search,
+                         query=query_text, 
+                         k=5, 
+                         filters=search_filters, 
+                         model_name=active_model
+                     )
+                     elapsed = asyncio.get_event_loop().time() - start_time
+                     print(f"[Analyze RAG] Background thread finished in {elapsed:.2f}s. Results: {len(results) if results else 0}")
                      
                      if results:
                          # Join chunks to form context
@@ -2256,7 +2238,10 @@ async def analyze_selection(
                              print("[Analyze] RAG returned nothing, falling back to raw text content.")
              except Exception as e:
                  print(f"[Analyze] RAG Search failed: {e}")
+                 import traceback
+                 traceback.print_exc()
                  # Fallback to existing content (metadata)
+                 selected_content = f"RAG Search failed: {e}"
 
     if not selected_content:
         # Fallback for Region fragments (if cropping failed or wasn't provided)

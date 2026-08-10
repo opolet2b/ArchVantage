@@ -136,7 +136,13 @@ export function SpreadsheetToolViewer({ thing }: SpreadsheetToolViewerProps) {
                             </div>
                         );
                     }
-                    return val;
+                    
+                    // Default text cell with wrapping
+                    return (
+                        <div className="w-full h-full flex items-center px-2 py-1 whitespace-pre-wrap break-words leading-tight overflow-y-auto">
+                            {val}
+                        </div>
+                    );
                 },
                 renderEditCell: (props: any) => {
                     if (config.type === "dropdown") {
@@ -249,7 +255,7 @@ export function SpreadsheetToolViewer({ thing }: SpreadsheetToolViewerProps) {
     };
 
     return (
-        <div className="flex flex-col flex-1 h-full w-full min-h-0 min-w-0 bg-background rounded-b-md overflow-hidden text-sm" onPaste={handlePaste}>
+        <div className="flex flex-col flex-1 h-full w-full min-h-0 min-w-0 bg-background rounded-b-md overflow-hidden text-sm" onPaste={handlePaste} style={{ height: '100%', width: '100%' }}>
             <div className="flex items-center gap-1 p-1 border-b bg-muted/30 shrink-0 flex-wrap">
                 <Button variant="ghost" size="sm" onClick={addRow} className="h-7 px-2 text-xs">
                     <Plus className="h-3 w-3 mr-1" /> Row
@@ -268,24 +274,43 @@ export function SpreadsheetToolViewer({ thing }: SpreadsheetToolViewerProps) {
                     </Button>
                 </div>
             </div>
-            <div className="flex-1 overflow-hidden relative group/grid min-h-0 min-w-0">
-                <DataGrid
-                    columns={columns}
-                    rows={rows}
-                    onRowsChange={handleRowsChange}
-                    className="h-full w-full text-sm rdg-light"
-                    rowHeight={32}
-                    headerRowHeight={36}
-                    rowKeyGetter={(row) => row.rowIndex}
-                    selectedRows={selectedRows}
-                    onSelectedRowsChange={setSelectedRows}
-                    sortColumns={sortColumns}
-                    onSortColumnsChange={setSortColumns}
-                    defaultColumnOptions={{
-                        sortable: true,
-                        resizable: true
-                    }}
-                />
+            <div className="flex-1 relative min-h-0 min-w-0" style={{ height: '100%', width: '100%' }}>
+                <div className="absolute inset-0" style={{ height: '100%', width: '100%' }}>
+                    <DataGrid
+                        columns={columns}
+                        rows={rows}
+                        onRowsChange={handleRowsChange}
+                        className="h-full w-full text-sm rdg-light border-0"
+                        style={{ height: '100%', width: '100%' }}
+                        rowHeight={(row) => {
+                            // Estimate row height based on max text length in the row
+                            let maxChars = 0;
+                            Object.keys(row).forEach(key => {
+                                if (key.startsWith('col') && typeof row[key] === 'string') {
+                                    maxChars = Math.max(maxChars, row[key].length);
+                                }
+                            });
+                            // Rough estimation: 35 chars per line, ~20px per line, min 36px
+                            return Math.max(36, Math.ceil(maxChars / 35) * 20 + 16);
+                        }}
+                        headerRowHeight={36}
+                        rowClass={(row) => {
+                            const val0 = row.col0 || "";
+                            if (val0.startsWith("Domain:")) return "bg-blue-50 dark:bg-blue-900/20 font-bold text-base";
+                            if (val0 === "Alternative" || val0 === "Options" || val0 === "Criteria") return "bg-slate-100 dark:bg-slate-800 font-semibold";
+                            return undefined;
+                        }}
+                        rowKeyGetter={(row) => row.rowIndex}
+                        selectedRows={selectedRows}
+                        onSelectedRowsChange={setSelectedRows}
+                        sortColumns={sortColumns}
+                        onSortColumnsChange={setSortColumns}
+                        defaultColumnOptions={{
+                            sortable: true,
+                            resizable: true
+                        }}
+                    />
+                </div>
             </div>
         </div>
     );

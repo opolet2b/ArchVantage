@@ -12,6 +12,7 @@
 import * as React from "react";
 import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from "reactflow";
 import { canvasPluginRegistry } from "@/plugins/registry";
+import "@/plugins";
 import {
     MessageSquare,
     FileText,
@@ -80,8 +81,7 @@ import {
     MarkdownToolbar,
     AgentToolViewer,
     CollaboraViewer,
-    InboundDataMapper,
-    TradeOffMatrixViewer
+    InboundDataMapper
 } from "../viewers";
 import { DocumentViewer } from "../viewers/document-viewer";
 import { ImageSlidesViewer } from "../viewers/image-slides-viewer";
@@ -1915,8 +1915,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
         // 2. Fall back to core switch
         switch (type) {
-            case "trade_off_matrix":
-                return <TradeOffMatrixViewer thing={thing} />;
             case "mcp_tool":
                 return <MCPToolViewer thing={thing} />;
 
@@ -2918,9 +2916,10 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 </div>
                             );
                         })()}
-
-                        <div className="text-base flex-1 min-h-0">
-                            {renderFullContent()}
+                        <div className="text-base flex-1 min-h-0 w-full relative" style={{ height: '100%', width: '100%' }}>
+                            <div className="absolute inset-0 flex flex-col" style={{ height: '100%', width: '100%' }}>
+                                {renderFullContent()}
+                            </div>
                         </div>
                     </div>
                 );
@@ -3775,8 +3774,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                     {/* Body content */}
                     {getDisplayContent() && (
-                        <div className="px-3 py-3 flex-1 overflow-auto min-h-0 flex flex-col">
-                            <div className="h-full relative">
+                        <div className={cn("px-3 py-3 flex-1 min-h-0 flex flex-col", (thing.type === "spreadsheet" || thing.type === "trade_off_matrix") ? "overflow-hidden" : "overflow-auto")} style={{ height: '100%', width: '100%' }}>
+                            <div className="h-full relative flex-1 min-h-0 flex flex-col w-full" style={{ height: '100%', width: '100%' }}>
                                 {getDisplayContent()}
                             </div>
                         </div>

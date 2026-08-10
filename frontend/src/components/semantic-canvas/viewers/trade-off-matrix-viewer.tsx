@@ -1,20 +1,22 @@
 import * as React from "react";
-import { Thing, useCanvasStore } from "@/components/semantic-canvas/canvas-store";
+import { CanvasThing, useCanvasStore } from "@/components/semantic-canvas/canvas-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Table, CheckCircle2, Loader2, Play, Plus, RefreshCw, FileText } from "lucide-react";
 import { useAnalyze } from "./use-analyze";
 import { SpreadsheetToolViewer } from "./spreadsheet-tool-viewer";
 
 interface TradeOffMatrixViewerProps {
-    thing: Thing;
+    thing: CanvasThing;
 }
 
 export type MatrixStep = "WAITING" | "EXTRACTING" | "VALIDATING" | "GENERATING" | "EDITING";
 
 export interface Option {
     id: string;
+    category?: string;
     name: string;
     description: string;
     selected: boolean;
@@ -26,8 +28,27 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
     const canvasId = useCanvasStore((state) => state.canvasId);
     const things = useCanvasStore((state) => state.things);
     const { analyze } = useAnalyze();
+    const [extractProgress, setExtractProgress] = React.useState(0);
 
-    const stateContent = thing.content?.matrixState || {};
+    React.useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (thing.content?.matrixState?.step === "EXTRACTING") {
+            setExtractProgress(0);
+            interval = setInterval(() => {
+                setExtractProgress((prev) => {
+                    // Slow down progress as it gets closer to 90%
+                    if (prev >= 90) return 90;
+                    const increment = Math.max(1, (90 - prev) * 0.1);
+                    return prev + increment;
+                });
+            }, 500);
+        } else {
+            setExtractProgress(0);
+        }
+        return () => clearInterval(interval);
+    }, [thing.content?.matrixState?.step]);
+
+    const stateContent: any = thing.content?.matrixState || {};
     const step: MatrixStep = stateContent.step || "WAITING";
     const options: Option[] = stateContent.options || [];
 
@@ -53,7 +74,12 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
         updateMatrixState({ step: "EXTRACTING" });
 
         try {
-            const prompt = `Extract a list of alternatives or options from the provided text. Return a JSON array where each object has a 'name' (string) and 'description' (string) property. Only return the JSON array, nothing else.`;
+            const prompt = `You are an expert Enterprise Architect analyzing a document. Your task is to identify and extract the different architectural scenarios, strategic decisions, or alternative options described in the text. 
+CRITICAL RULES:
+1. An "option" MUST be a distinct choice that can be selected INSTEAD of another option in a Trade-off Matrix (e.g., Option A vs. Option B).
+2. DO NOT extract general principles, goals, best practices, normative frameworks, value chains, or scoring scales (e.g., "Digital-First", "Once-Only Principle", "0-3 points").
+3. If the document defines a single normative standard or process without presenting competing alternatives, you MUST return an empty array [].
+Return a JSON array where each object has a 'name' (string), 'description' (string), and 'category' (string) property. Only return the JSON array, nothing else.`;
             
             console.log("[Trade-off Matrix] Starting extraction process across documents using RAG pipeline...");
             
@@ -65,16 +91,18 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
                 const contentText = linkedThing?.content?.text || linkedThing?.title || "";
                 const docName = linkedThing?.title || linkedThingId;
                 
+                const contentString = typeof contentText === "string" ? contentText : JSON.stringify(contentText);
+                
                 console.log(`[Trade-off Matrix] ---- PROCESSING DOCUMENT: ${docName} ----`);
-                console.log(`[Trade-off Matrix] Document '${docName}' length: ${contentText.length} characters.`);
+                console.log(`[Trade-off Matrix] Document '${docName}' length: ${contentString.length} characters.`);
                 console.log(`[Trade-off Matrix] Sending analysis request for document: ${docName}`);
                 
                 return {
                     docName,
                     response: await analyze({ 
-                        canvasId,
-                        thingId: linkedThingId, // target the document itself to trigger its RAG!
-                        fragment: { type: "text", content: contentText }, // The backend will use this, or fall back to RAG if too large
+                        canvasId: canvasId || "",
+                        thingId: linkedThingId,
+                        fragment: { type: "text", content: typeof contentText === "string" ? contentText : JSON.stringify(contentText) } as any,
                         action: "ask",
                         customPrompt: prompt
                     })
@@ -82,163 +110,96 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
             });
 
             const results = await Promise.all(extractionPromises);
+            let allDomains: any[] = [];
             
-            let allExtracted: any[] = [];
-            
-            let rawDumpText = "";
-
-            results.forEach(({ docName, response }, index) => {
-                if (!response || !response.result) {
-                    console.warn(`[Trade-off Matrix] Document '${docName}' returned empty response.`);
-                    rawDumpText += `\n\n--- ${docName} ---\nEMPTY RESPONSE OR ERROR`;
-                    return;
-                }
-                
-                let responseText = response.result;
-                rawDumpText += `\n\n--- ${docName} ---\n${responseText}`;
-                console.log(`[Trade-off Matrix] Raw LLM reply for '${docName}':\n${responseText}`);
-
+            results.forEach(({ docName, response }) => {
+                if (!response || !response.result) return;
                 try {
-                    // Strip markdown codeblocks
+                    let responseText = response.result;
                     if (responseText.includes('```json')) {
                         responseText = responseText.split('```json')[1].split('```')[0].trim();
                     } else if (responseText.includes('```')) {
                         responseText = responseText.split('```')[1].split('```')[0].trim();
                     }
-
-                    // Fallback regex to just find the array
                     const match = responseText.match(/\[[\s\S]*\]/);
                     let jsonStr = match ? match[0] : responseText;
                     
-                    let extracted;
-                    try {
-                        extracted = JSON.parse(jsonStr);
-                    } catch (err) {
-                        // Desperate fallback - in case it returned a single object instead of array
-                        const objMatch = responseText.match(/\{[\s\S]*\}/);
-                        if (objMatch) {
-                            const parsedObj = JSON.parse(objMatch[0]);
-                            if (parsedObj.options && Array.isArray(parsedObj.options)) {
-                                extracted = parsedObj.options;
-                            } else {
-                                extracted = [parsedObj];
-                            }
-                        } else {
-                            throw err;
-                        }
-                    }
-
-                    console.log(`[Trade-off Matrix] Successfully parsed JSON for '${docName}':`, extracted);
-
+                    const extracted = JSON.parse(jsonStr);
                     if (Array.isArray(extracted)) {
-                        console.log(`[Trade-off Matrix] Found ${extracted.length} options in '${docName}'.`);
-                        allExtracted = [...allExtracted, ...extracted];
-                    } else {
-                        console.warn(`[Trade-off Matrix] Extracted data from '${docName}' was not an array!`);
+                        allDomains = [...allDomains, ...extracted];
                     }
-                } catch (e: any) {
-                    console.error(`[Trade-off Matrix] Failed to parse JSON options for document '${docName}':`, e);
+                } catch (e) {
+                    console.error("Failed to parse JSON for doc:", docName, e);
                 }
             });
 
-            // Deduplicate by name (simple deduplication)
-            const uniqueOptionsMap = new Map();
-            allExtracted.forEach(item => {
-                const name = item.name || "Unknown Option";
-                if (!uniqueOptionsMap.has(name)) {
-                    uniqueOptionsMap.set(name, item);
-                }
+            // Map domains to 2D Spreadsheet array
+            const data: any[] = [];
+            
+            allDomains.forEach((domainData: any) => {
+                const domainName = domainData.domain || "General Domain";
+                const criteriaColumns = domainData.criteria_columns || ["Pros", "Cons", "Recommended Fit"];
+                const alternatives = domainData.alternatives || [];
+                
+                // Title Row
+                data.push([`Domain: ${domainName}`].concat(new Array(criteriaColumns.length).fill("")));
+                // Header Row
+                data.push(["Alternative"].concat(criteriaColumns));
+                
+                // Alternatives Rows
+                alternatives.forEach((alt: any) => {
+                    const evalRow = criteriaColumns.map((c: string) => alt.evaluations?.[c] || "TBD");
+                    data.push([alt.name].concat(evalRow));
+                });
+                
+                // Spacer Row
+                data.push([""].concat(new Array(criteriaColumns.length).fill("")));
             });
-            const deduplicatedExtracted = Array.from(uniqueOptionsMap.values());
+            
+            if (data.length > 0 && data[data.length - 1][0] === "") {
+                data.pop();
+            }
 
-            const extractedOptions: Option[] = deduplicatedExtracted.map((item: any, i: number) => ({
-                id: Date.now().toString() + "-" + i,
-                name: item.name,
-                description: item.description || "",
-                selected: true
-            }));
-
-            console.log(`[Trade-off Matrix] Final deduplicated options array created with ${extractedOptions.length} items:`, extractedOptions);
-
-            if (extractedOptions.length === 0) {
-                console.warn("[Trade-off Matrix] Extraction resulted in 0 options.");
-                updateMatrixState({ step: "WAITING", options: [], rawDump: rawDumpText });
+            if (data.length === 0) {
+                alert("No trade-offs could be extracted from this document.");
+                updateMatrixState({ step: "WAITING", options: [] });
             } else {
-                console.log("[Trade-off Matrix] Proceeding to VALIDATING step.");
-                updateMatrixState({ step: "VALIDATING", options: extractedOptions, rawDump: rawDumpText });
+                updateThing(thing.id, {
+                    content: {
+                        ...thing.content,
+                        matrixState: { ...stateContent, step: "EDITING", options: [] },
+                        data,
+                    }
+                });
             }
         } catch (error: any) {
-            console.error("[Trade-off Matrix] Error during extraction process:", error);
+            console.error("Error during extraction process:", error);
             alert(`Extraction failed completely: ${error.message}`);
             updateMatrixState({ step: "WAITING" });
         }
     };
 
-    const handleGenerateMatrix = async () => {
-        const selectedOptions = options.filter(o => o.selected);
-        if (selectedOptions.length === 0) {
-            alert("Please select at least one option to evaluate.");
-            return;
-        }
+    // Removed handleGenerateMatrix since evaluation happens in one step
 
-        updateMatrixState({ step: "GENERATING" });
 
-        // Simulate matrix generation
-        setTimeout(() => {
-            // Transform selected options into a spreadsheet format
-            const data = [
-                ["Criteria", ...selectedOptions.map(o => o.name)],
-                ["Cost", ...selectedOptions.map(() => "TBD")],
-                ["Feasibility", ...selectedOptions.map(() => "TBD")],
-                ["Risk", ...selectedOptions.map(() => "TBD")]
-            ];
-            
-            // Pass it to the spreadsheet component via thing content
-            updateThing(thing.id, {
-                content: {
-                    ...thing.content,
-                    matrixState: { ...stateContent, step: "EDITING", options },
-                    data, // Used by SpreadsheetToolViewer
-                }
-            });
-        }, 2500);
-    };
-
-    const toggleOption = (id: string) => {
-        updateMatrixState({
-            options: options.map((o: Option) => o.id === id ? { ...o, selected: !o.selected } : o)
-        });
-    };
-
-    const [newOptName, setNewOptName] = React.useState("");
-    const [newOptDesc, setNewOptDesc] = React.useState("");
-
-    const addManualOption = () => {
-        if (!newOptName.trim()) return;
-        const newOpt: Option = {
-            id: Date.now().toString(),
-            name: newOptName,
-            description: newOptDesc,
-            selected: true
-        };
-        updateMatrixState({ options: [...options, newOpt] });
-        setNewOptName("");
-        setNewOptDesc("");
-    };
 
     if (step === "EDITING") {
         return (
-            <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden relative group/spreadsheet">
-                <div className="flex items-center justify-between p-2 border-b bg-muted/30">
+            <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden relative group/spreadsheet w-full" style={{ height: '100%', width: '100%' }}>
+                <div className="flex items-center justify-between p-2 border-b bg-muted/30 shrink-0">
                     <span className="text-xs font-semibold flex items-center gap-2">
                         <Table className="h-4 w-4" /> Trade-off Matrix
                     </span>
-                    <Button variant="ghost" size="sm" onClick={() => updateMatrixState({ step: "VALIDATING" })} className="h-6 px-2 text-xs">
-                        <RefreshCw className="h-3 w-3 mr-1" /> Adjust Options
+                    <Button variant="ghost" size="sm" onClick={() => updateMatrixState({ step: "WAITING" })} className="h-6 px-2 text-xs">
+                        <RefreshCw className="h-3 w-3 mr-1" /> Re-extract
                     </Button>
                 </div>
                 {/* We re-use SpreadsheetToolViewer for the powerful grid capabilities */}
-                <SpreadsheetToolViewer thing={thing} />
+                <div className="flex-1 relative min-h-0 min-w-0" style={{ height: '100%', width: '100%' }}>
+                    <div className="absolute inset-0" style={{ height: '100%', width: '100%' }}>
+                        <SpreadsheetToolViewer thing={thing} />
+                    </div>
+                </div>
             </div>
         );
     }
@@ -266,77 +227,15 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
             )}
 
             {step === "EXTRACTING" && (
-                <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4">
+                <div className="flex flex-col items-center justify-center flex-1 w-full max-w-sm mx-auto text-slate-500 gap-4">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-sm font-medium animate-pulse">Reading documents & extracting options...</p>
-                </div>
-            )}
-
-            {step === "VALIDATING" && (
-                <div className="flex flex-col h-full">
-                    <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-green-600" /> Validate Options
-                    </h4>
-                    <p className="text-xs text-muted-foreground mb-4">Select which options to include in the matrix. You can also add options manually.</p>
-                    
-
-                    
-                    <div className="space-y-2 flex-1 overflow-y-auto pr-2 mb-4">
-                        {options.map((opt: Option) => (
-                            <div key={opt.id} className="flex items-start gap-2 p-2 border rounded-md bg-muted/20">
-                                <input 
-                                    type="checkbox" 
-                                    checked={opt.selected} 
-                                    onChange={() => toggleOption(opt.id)}
-                                    className="mt-1"
-                                />
-                                <div className="flex-1">
-                                    <p className="text-sm font-medium">{opt.name}</p>
-                                    <p className="text-xs text-muted-foreground">{opt.description}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="border-t pt-3 mb-4 space-y-2">
-                        <Label className="text-xs font-semibold">Add Manual Option</Label>
-                        <Input 
-                            placeholder="Option Name" 
-                            className="h-8 text-xs" 
-                            value={newOptName} 
-                            onChange={e => setNewOptName(e.target.value)} 
-                        />
-                        <div className="flex gap-2">
-                            <Input 
-                                placeholder="Description (optional)" 
-                                className="h-8 text-xs flex-1" 
-                                value={newOptDesc} 
-                                onChange={e => setNewOptDesc(e.target.value)} 
-                                onKeyDown={e => e.key === "Enter" && addManualOption()}
-                            />
-                            <Button size="sm" variant="secondary" className="h-8 px-2" onClick={addManualOption}>
-                                <Plus className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-2 w-full">
-                        <Button variant="outline" onClick={() => updateMatrixState({ step: "WAITING", options: [] })} className="flex-1">
-                            <RefreshCw className="h-4 w-4 mr-2" /> Start Over
-                        </Button>
-                        <Button onClick={handleGenerateMatrix} className="flex-1">
-                            <Table className="h-4 w-4 mr-2" /> Build Matrix
-                        </Button>
+                    <div className="w-full space-y-2">
+                        <Progress value={extractProgress} className="h-2 w-full" />
+                        <p className="text-sm font-medium animate-pulse text-center">Reading documents & extracting options...</p>
                     </div>
                 </div>
             )}
 
-            {step === "GENERATING" && (
-                <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-sm font-medium animate-pulse">Evaluating alternatives & building matrix...</p>
-                </div>
-            )}
         </div>
     );
 }
