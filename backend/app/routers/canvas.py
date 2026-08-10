@@ -2076,6 +2076,13 @@ async def analyze_selection(
     # Get the selected content
     selected_content = request.fragment.content or ""
     
+    # Check if a custom plugin is registered for this thing type
+    from app.plugins.registry import PluginRegistry
+    custom_analyzer = PluginRegistry.get_analyzer(thing.type.value)
+    if custom_analyzer:
+        print(f"[Analyze] Delegating analysis to custom plugin for {thing.type.value}")
+        return await custom_analyzer(request=request, thing=thing, db=db, current_user=current_user)
+    
     # Phase 2: RAG Integration for Slideshows and Documents
     # If this is a slideshow or document and the content is large, 
     # we can fetch relevant text from the Vector Store to give the LLM context.

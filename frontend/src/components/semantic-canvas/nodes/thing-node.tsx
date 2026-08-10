@@ -11,6 +11,7 @@
 
 import * as React from "react";
 import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from "reactflow";
+import { canvasPluginRegistry } from "@/plugins/registry";
 import {
     MessageSquare,
     FileText,
@@ -1904,7 +1905,14 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
         // Normalize type to handle backend Enum casing differences (e.g. "TABLE" vs "table")
         const type = (thing.type || "").toLowerCase();
+        
+        // 1. Check Plugin Registry First
+        const CustomViewer = canvasPluginRegistry.getViewer(type);
+        if (CustomViewer) {
+            return <CustomViewer thing={thing} />;
+        }
 
+        // 2. Fall back to core switch
         switch (type) {
             case "mcp_tool":
                 return <MCPToolViewer thing={thing} />;
