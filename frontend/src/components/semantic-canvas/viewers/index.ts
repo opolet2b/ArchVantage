@@ -28,4 +28,4 @@ export { MarkdownToolbar } from "./markdown-toolbar";
 export { TagCloudViewer } from "./tag-cloud-viewer";
 export { AgentToolViewer } from "./agent-tool-viewer";
 export { CollaboraViewer } from "./collabora-viewer";
-
+export { TradeOffMatrixViewer } from "./trade-off-matrix-viewer";

@@ -17,6 +17,7 @@ interface VectorizationPreviewDialogProps {
     title: string;
     content: string;
     type?: "image_description" | "scanned_pdf" | "text";
+    onRetry?: () => void;
 }
 
 export function VectorizationPreviewDialog({
@@ -25,6 +26,7 @@ export function VectorizationPreviewDialog({
     title,
     content,
     type = "text",
+    onRetry,
 }: VectorizationPreviewDialogProps) {
 
     const handleCopy = () => {
@@ -35,12 +37,21 @@ export function VectorizationPreviewDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
                 <DialogHeader>
-                    <DialogTitle>{title}</DialogTitle>
-                    <DialogDescription>
-                        {type === "image_description"
-                            ? "Generated description used for vector search."
-                            : "Transcribed text content from the document."}
-                    </DialogDescription>
+                    <div className="flex justify-between items-start gap-4">
+                        <div>
+                            <DialogTitle>{title}</DialogTitle>
+                            <DialogDescription>
+                                {type === "image_description"
+                                    ? "Generated description used for vector search."
+                                    : "Transcribed text content from the document."}
+                            </DialogDescription>
+                        </div>
+                        {onRetry && (
+                            <Button variant="outline" size="sm" onClick={onRetry} className="flex-shrink-0">
+                                Retry Vectorization
+                            </Button>
+                        )}
+                    </div>
                 </DialogHeader>
 
                 <div className="relative border rounded-md mt-2 group bg-muted/5">

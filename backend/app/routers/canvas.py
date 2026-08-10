@@ -149,8 +149,8 @@ def _resolve_active_model(db: Session, canvas_id: str, requested_model: Optional
             return canvas_model
 
     # Fallback to system default
-    defaults = config_service.get_defaults()
-    system_default = defaults.get("default_llm")
+    preset = config_service.get_default_llm_preset()
+    system_default = preset.get("name") if preset else None
     print(f"[CanvasRouter] Resolved 'default' model to System default: {system_default}")
     return system_default
 
@@ -1545,6 +1545,53 @@ async def perform_sync_update(
         "technical_metadata": new_tech_meta
     }
 
+@router.post("/canvases/{canvas_id}/things/{thing_id}/retry_ingestion")
+async def retry_ingestion(
+    canvas_id: str,
+    thing_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id, CanvasThing.canvas_id == canvas_id).first()
+    if not thing:
+         raise HTTPException(status_code=404, detail="Thing not found")
+         
+    asset_id = thing.content.get("asset_id") if thing.content else None
+    real_path = None
+    if asset_id:
+         from app.models.asset_models import Asset
+         from app.services.asset_service import AssetService
+         asset_record = db.query(Asset).filter(Asset.id == asset_id).first()
+         if not asset_record:
+              raise HTTPException(status_code=404, detail="Associated asset not found")
+         real_path = str(AssetService.get_storage_path(asset_record))
+    else:
+         source_path = thing.technical_metadata.get("source_path") if thing.technical_metadata else None
+         if not source_path:
+              raise HTTPException(status_code=400, detail="No asset or source path associated with this thing.")
+         real_path = source_path
+         
+    if not real_path or not os.path.exists(real_path):
+         raise HTTPException(status_code=404, detail="File no longer exists on disk")
+         
+    from app.routers.canvas_worker import handle_async_vectorization
+    import uuid
+    
+    thing.rag_status = RAGStatus.PENDING
+    db.commit()
+    
+    batch_id = str(uuid.uuid4())
+    background_tasks.add_task(
+        handle_async_vectorization,
+        thing_id=thing.id,
+        file_path=real_path,
+        canvas_id=canvas_id,
+        mode="initial",
+        active_batch_id=batch_id
+    )
+    return {"status": "started", "message": "Ingestion restarted"}
+
 @router.post("/canvases/{canvas_id}/sync_all")
 def sync_all_things(
     canvas_id: str,
@@ -2040,8 +2087,11 @@ async def analyze_selection(
         # Check if RAG is available
         # Note: thing.rag_status is a DB Column enum (or string in some contexts?)
         # Enum comparison should work if imports are correct.
-        if thing.rag_status == RAGStatus.COMPLETED or str(thing.rag_status) == "completed":
-             print(f"[Analyze] Detected {thing.type.value} with RAG. Fetching context...")
+        rag_completed = thing.rag_status == RAGStatus.COMPLETED or "completed" in str(thing.rag_status).lower()
+        content_missing = not selected_content or len(selected_content) < 500
+        
+        if rag_completed or content_missing:
+             print(f"[Analyze] Detected {thing.type.value}. RAG Status: {thing.rag_status}. Fetching context...")
              
              # If action is ASK, search for the user's prompt. Otherwise summarize.
              query_text = f"Summarize this {thing.type.value}"
@@ -2082,7 +2132,9 @@ async def analyze_selection(
                  # Skip RAG if content fits in context or entire document processing is requested
                  use_rag = True
                  if thing.type.value == "document":
-                     if selected_content and (len(selected_content) < safe_char_limit or has_entire_instruction):
+                     # If selected_content is very short (e.g. < 500 chars), it's likely just a title fallback from the frontend.
+                     # In that case, we MUST use RAG to get the actual text.
+                     if selected_content and len(selected_content) > 500 and (len(selected_content) < safe_char_limit or has_entire_instruction):
                          if len(selected_content) < safe_char_limit:
                              use_rag = False
                              print(f"[Analyze] Document is small enough ({len(selected_content)} chars < {safe_char_limit} limit), skipping RAG.")
@@ -2091,6 +2143,42 @@ async def analyze_selection(
                              print(f"[Analyze] Custom prompt instructs to process entire document, skipping RAG (len={len(selected_content)}).")
 
                  if use_rag:
+                     # Detect extraction/map-reduce requirements for the Trade-off Matrix
+                     is_extraction = request.action == AnalyzeAction.ASK and request.custom_prompt and "extract a list of alternatives" in request.custom_prompt.lower()
+                     
+                     if is_extraction:
+                         print(f"[Analyze RAG] Engaging Map-Reduce Strategy (tree_summarize) for holistic extraction...")
+                         print(f"--- MAP-REDUCE REQUEST PAYLOAD ---")
+                         print(f"Query: {query_text}")
+                         print(f"Filters: {search_filters}")
+                         print(f"Model: {active_model}")
+                         print(f"K: 50 (Chunks)")
+                         print(f"----------------------------------")
+                         
+                         # Pull up to 50 chunks and recursively extract across all of them
+                         results = rag_service.search(
+                             query=query_text, 
+                             k=50, 
+                             filters=search_filters, 
+                             model_name=active_model, 
+                             response_mode="tree_summarize"
+                         )
+                         
+                         if results and len(results) > 0 and results[0].get('metadata', {}).get('type') == 'synthesized_response':
+                             final_text = results[0]['text']
+                             print(f"[Analyze RAG] Map-Reduce completed successfully!")
+                             print(f"--- MAP-REDUCE FINAL RESPONSE PAYLOAD ---")
+                             print(final_text)
+                             print(f"-----------------------------------------")
+                             return AnalyzeResponse(
+                                 thing_id=request.thing_id,
+                                 action=request.action,
+                                 result=final_text,
+                                 created_thing_id=None
+                             )
+                             
+                     # Standard Top-K Flow
+                     print(f"[Analyze RAG] Frontend provided short text (Length: {len(selected_content)} chars). Engaging LlamaIndex RAG to retrieve full context from vector database...")
                      results = rag_service.search(query=query_text, k=5, filters=search_filters, model_name=active_model)
                      
                      if results:

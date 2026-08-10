@@ -37,7 +37,8 @@ export type ThingType =
     | "workflow"
     | "vocal_note"
     | "form_tool"
-    | "spreadsheet";
+    | "spreadsheet"
+    | "trade_off_matrix";
 
 /**
  * Types of relationships between things.
@@ -604,6 +605,7 @@ interface CanvasState {
     // Sync Features
     checkSyncStatus: (thingId: string) => Promise<{ status: "synced" | "changed" | "missing_source" | "no_path" | "error"; current_hash?: string; reason?: string }>;
     performSyncUpdate: (thingId: string, file?: File | null, useSourcePath?: boolean, newSourcePath?: string) => Promise<boolean | string>;
+    retryIngestion: (thingId: string) => Promise<boolean>;
     syncAllThings: () => Promise<any[]>;
 
     // Automatic Assignment Helpers
@@ -2678,9 +2680,34 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
             return data.status || true;
         } catch (e) {
-            console.error("Sync Update failed", e);
-            get().updateThing(thingId, { rag_status: "failed" });
-            return false;
+            console.error("[Store] Sync update failed:", e);
+            throw e;
+        }
+    },
+
+    retryIngestion: async (thingId: string) => {
+        const { canvasId } = get();
+        const token = getAuthToken();
+        if (!token || !canvasId) return false;
+        
+        try {
+            const res = await fetch(
+                `${API_URL}/canvases/${canvasId}/things/${thingId}/retry_ingestion`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            );
+
+            if (!res.ok) throw new Error(await res.text());
+            
+            get().updateThing(thingId, { rag_status: "pending" });
+            return true;
+        } catch (e) {
+            console.error("[Store] Retry ingestion failed:", e);
+            throw e;
         }
     },
 

@@ -177,6 +177,12 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         description: "Convert scan/image to text"
     },
     {
+        id: "trade_off_matrix",
+        name: "Trade-off Matrix",
+        icon: <TableProperties className="h-4 w-4" />,
+        description: "Generate executive trade-off matrix"
+    },
+    {
         id: "workflow",
         name: "Workflow Instance",
         icon: <GitBranch className="h-4 w-4" />,

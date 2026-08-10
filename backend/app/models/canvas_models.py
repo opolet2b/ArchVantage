@@ -63,6 +63,7 @@ class ThingType(str, Enum):
     VOCAL_NOTE = "vocal_note"
     FORM_TOOL = "form_tool"
     SPREADSHEET = "spreadsheet"
+    TRADE_OFF_MATRIX = "trade_off_matrix"
 
 
 class RAGStatus(str, Enum):

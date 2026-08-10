@@ -1780,6 +1780,17 @@ function CanvasViewInner() {
                         color
                     );
                     break;
+                case "trade_off_matrix":
+                    await addThing(
+                        "trade_off_matrix",
+                        {},
+                        position,
+                        600, // width
+                        400, // height
+                        "New Trade-off Matrix", // title
+                        color
+                    );
+                    break;
             }
             return;
         }

@@ -79,7 +79,8 @@ import {
     MarkdownToolbar,
     AgentToolViewer,
     CollaboraViewer,
-    InboundDataMapper
+    InboundDataMapper,
+    TradeOffMatrixViewer
 } from "../viewers";
 import { DocumentViewer } from "../viewers/document-viewer";
 import { ImageSlidesViewer } from "../viewers/image-slides-viewer";
@@ -1906,6 +1907,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         const type = (thing.type || "").toLowerCase();
 
         switch (type) {
+            case "trade_off_matrix":
+                return <TradeOffMatrixViewer thing={thing} />;
             case "mcp_tool":
                 return <MCPToolViewer thing={thing} />;
 
@@ -3911,12 +3914,29 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             {/* < LinkTypeDialog ... /> */}
 
             {/* Content Preview Dialog */}
-            < VectorizationPreviewDialog
+            <VectorizationPreviewDialog
                 open={previewDialogOpen}
                 onOpenChange={setPreviewDialogOpen}
                 title={previewContent.title}
                 content={previewContent.content}
                 type={previewContent.type}
+                onRetry={previewContent.title === "Ingestion Error" ? async () => {
+                    setPreviewDialogOpen(false);
+                    try {
+                        await useCanvasStore.getState().retryIngestion(thing.id);
+                        toast({
+                            title: "Retry Started",
+                            description: "Vectorization has been restarted.",
+                            duration: 3000,
+                        });
+                    } catch (e: any) {
+                        toast({
+                            title: "Retry Failed",
+                            description: e.message || String(e),
+                            variant: "destructive",
+                        });
+                    }
+                } : undefined}
             />
 
             {/* Sync Dialog */}
