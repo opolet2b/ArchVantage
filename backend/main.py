@@ -132,7 +132,7 @@ if is_enabled("ENABLE_AGENTS"):
     app.include_router(agent_blueprints.router, prefix="/api/v1", tags=["agent-blueprints"])
     app.include_router(agent_execution.router, prefix="/api/v1", tags=["agent-execution"])
 
-if is_enabled("ENABLE_SMART_TEMPLATES"):
+if is_enabled("ENABLE_TEMPLATES"):
     app.include_router(templates.router, prefix="/api/v1", tags=["templates"])
     app.include_router(smart_template.router, prefix="/api/v1", tags=["smart-templates"])
 
