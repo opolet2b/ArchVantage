@@ -20,7 +20,6 @@ export const FEATURES = {
     enableOCR: process.env.NEXT_PUBLIC_ENABLE_OCR !== 'false',
     enableSlideshow: process.env.NEXT_PUBLIC_ENABLE_SLIDESHOW !== 'false',
     enableArchimate: process.env.NEXT_PUBLIC_ENABLE_ARCHIMATE !== 'false',
-    enableSmartTemplates: process.env.NEXT_PUBLIC_ENABLE_SMART_TEMPLATES !== 'false',
     enableForms: process.env.NEXT_PUBLIC_ENABLE_FORMS !== 'false',
     enableSpreadsheet: process.env.NEXT_PUBLIC_ENABLE_SPREADSHEET !== 'false',
     enableArchitectureTools: process.env.NEXT_PUBLIC_ENABLE_ARCHITECTURE_TOOLS !== 'false',

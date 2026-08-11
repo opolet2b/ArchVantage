@@ -34,7 +34,7 @@ const navItems = allNavItems.filter(item => {
         case "/agents-tools": return FEATURES.enableAgents;
         case "/smart-analysis": return FEATURES.enableSmartAnalysis;
         case "/scenarios": return FEATURES.enableScenarios;
-        case "/templates": return FEATURES.enableTemplates || FEATURES.enableSmartTemplates;
+        case "/templates": return FEATURES.enableTemplates;
         case "/knowledge": return FEATURES.enableKnowledgeBase;
         default: return true;
     }
