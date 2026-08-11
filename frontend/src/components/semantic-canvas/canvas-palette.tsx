@@ -196,8 +196,8 @@ export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
         case "ocr_conversion": return FEATURES.enableOCR;
         case "slideshow": return FEATURES.enableSlideshow;
         case "archimate_tool": return FEATURES.enableArchimate;
-        case "form_tool":
-        case "spreadsheet": return FEATURES.enableFormsAndSheets;
+        case "form_tool": return FEATURES.enableForms;
+        case "spreadsheet": return FEATURES.enableSpreadsheet;
         case "trade_off_matrix":
         case "architecture_memo": return FEATURES.enableArchitectureTools;
         default: return true;

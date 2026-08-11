@@ -13,6 +13,7 @@ import { useCanvasStore } from "./canvas-store";
 import { useLayoutStore } from "@/lib/layout-store";
 import { cn, API_URL } from "@/lib/utils";
 import { ScenarioSelector } from "./scenario-selector";
+import { FEATURES } from "@/features";
 import { CanvasSettingsDialog } from "./canvas-settings-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -396,6 +397,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                     )}
                 </div>
 
+                {FEATURES.enableSpeech && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
                     <Mic className="h-4 w-4" />
                     <span>Voice:</span>
@@ -433,9 +435,11 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         </Select>
                     )}
                 </div>
+                )}
 
 
 
+                {FEATURES.enableKnowledgeBase && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground border-l pl-4 mr-4">
                     <LucideIcons.Database className="h-4 w-4" />
                     <span>Knowledge Bases:</span>
@@ -482,6 +486,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         </DropdownMenu>
                     )}
                 </div>
+                )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -523,6 +528,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                     />
                 </div>
 
+                {FEATURES.enableScenarios && (
                 <div className="flex items-center gap-1 border-l pl-4">
                     <Button
                         variant={activeScenario ? "secondary" : "ghost"}
@@ -549,6 +555,7 @@ export const CanvasToolbar = React.memo(function CanvasToolbar() {
                         />
                     )}
                 </div>
+                )}
 
                 <div className="h-6 w-px bg-border mx-2 hidden sm:block" />
 
