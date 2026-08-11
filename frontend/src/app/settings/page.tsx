@@ -21,6 +21,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth-context"
 import { Users, User, Server, FolderOpen, FileText, Database, Bug, Palette, BookOpen, Search, BrainCircuit, Volume2, Mic, Edit } from "lucide-react"
+import { FEATURES } from "@/features"
 
 export default function SettingsPage() {
     const searchParams = useSearchParams()
@@ -84,6 +85,7 @@ export default function SettingsPage() {
                             <Palette className="h-4 w-4" />
                             Styling
                         </Button>
+                        {FEATURES.enableSpeech && (
                         <Button
                             variant={activeTab === "tts" ? "secondary" : "ghost"}
                             className="justify-start gap-2"
@@ -92,6 +94,8 @@ export default function SettingsPage() {
                             <Volume2 className="h-4 w-4" />
                             Text-To-Speech
                         </Button>
+                        )}
+                        {FEATURES.enableSpeech && (
                         <Button
                             variant={activeTab === "stt" ? "secondary" : "ghost"}
                             className="justify-start gap-2"
@@ -100,6 +104,8 @@ export default function SettingsPage() {
                             <Mic className="h-4 w-4" />
                             Speech-to-Text
                         </Button>
+                        )}
+                        {FEATURES.enableKnowledgeBase && (
                         <Button
                             variant={activeTab === "rag" ? "secondary" : "ghost"}
                             className="justify-start gap-2"
@@ -108,6 +114,7 @@ export default function SettingsPage() {
                             <BookOpen className="h-4 w-4" />
                             RAG / Knowledge
                         </Button>
+                        )}
                         <Button
                             variant={activeTab === "querying" ? "secondary" : "ghost"}
                             className="justify-start gap-2"
@@ -161,7 +168,7 @@ export default function SettingsPage() {
                                 User Management
                             </Button>
                         )}
-                        {isAdmin && (
+                        {(isAdmin && FEATURES.enableAgents) && (
                             <Button
                                 variant={activeTab === "mcp-servers" ? "secondary" : "ghost"}
                                 className="justify-start gap-2"
@@ -171,7 +178,7 @@ export default function SettingsPage() {
                                 MCP Servers
                             </Button>
                         )}
-                        {isAdmin && (
+                        {(isAdmin && FEATURES.enableAgents) && (
                             <Button
                                 variant={activeTab === "categories" ? "secondary" : "ghost"}
                                 className="justify-start gap-2"
@@ -181,7 +188,7 @@ export default function SettingsPage() {
                                 Tool Categories
                             </Button>
                         )}
-                        {isAdmin && (
+                        {(isAdmin && FEATURES.enableTemplates) && (
                             <Button
                                 variant={activeTab === "templates" ? "secondary" : "ghost"}
                                 className="justify-start gap-2"

@@ -199,7 +199,24 @@ const ALL_CANVAS_TOOLS: CanvasTool[] = [
     },
 ];
 
-export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => t.id !== "workflow" || FEATURES.enableWorkflows);
+export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
+    switch (t.id) {
+        case "workflow": return FEATURES.enableWorkflows;
+        case "agent_tool":
+        case "mcp_tool": return FEATURES.enableAgents;
+        case "kb_document": return FEATURES.enableKnowledgeBase;
+        case "document": return FEATURES.enableRAG;
+        case "vocal_note": return FEATURES.enableSpeech;
+        case "ocr_conversion": return FEATURES.enableOCR;
+        case "slideshow": return FEATURES.enableSlideshow;
+        case "archimate_tool": return FEATURES.enableArchimate;
+        case "form_tool": return FEATURES.enableForms;
+        case "spreadsheet": return FEATURES.enableSpreadsheet;
+        case "trade_off_matrix":
+        case "architecture_memo": return FEATURES.enableArchitectureTools;
+        default: return true;
+    }
+});
 
 const PRESET_COLORS = [
     "#f8fafc", "#fca5a5", "#fdba74", "#fcd34d", "#bef264",

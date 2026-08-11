@@ -13,8 +13,9 @@ import { useViewMode } from "@/lib/view-mode-context"
 import { useAuth } from "@/lib/auth-context"
 import { useLayoutStore } from "@/lib/layout-store"
 import { Pin, PinOff, ChevronRight } from "lucide-react"
+import { FEATURES } from "@/features"
 
-const navItems = [
+const allNavItems = [
     { href: "/workflow", icon: GitGraph, label: "Workflow Builder" },
     { href: "/agents-tools", icon: Bot, label: "Agents and Tools" },
     { href: "/smart-analysis", icon: Brain, label: "Smart Analysis" },
@@ -26,6 +27,18 @@ const navItems = [
     { href: "/settings", icon: Settings, label: "Settings" },
     { href: "/help", icon: HelpCircle, label: "Help" },
 ]
+
+const navItems = allNavItems.filter(item => {
+    switch (item.href) {
+        case "/workflow": return FEATURES.enableWorkflows;
+        case "/agents-tools": return FEATURES.enableAgents;
+        case "/smart-analysis": return FEATURES.enableSmartAnalysis;
+        case "/scenarios": return FEATURES.enableScenarios;
+        case "/templates": return FEATURES.enableTemplates || FEATURES.enableSmartTemplates;
+        case "/knowledge": return FEATURES.enableKnowledgeBase;
+        default: return true;
+    }
+});
 
 
 export function AppSidebar() {
