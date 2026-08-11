@@ -29,6 +29,7 @@ import {
     Database
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FEATURES } from "@/features";
 import { useCanvasStore } from "./canvas-store";
 import { useLayoutStore } from "@/lib/layout-store";
 import { Button } from "@/components/ui/button";
@@ -73,7 +74,7 @@ export interface CanvasTool {
 
 // =============================================================================
 // Constants
-export const CANVAS_TOOLS: CanvasTool[] = [
+const ALL_CANVAS_TOOLS: CanvasTool[] = [
     {
         id: "conversation",
         name: "New Conversation",
@@ -183,6 +184,25 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         description: "Instantiate an interactive automation process"
     },
 ];
+
+export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
+    switch (t.id) {
+        case "workflow": return FEATURES.enableWorkflows;
+        case "agent_tool":
+        case "mcp_tool": return FEATURES.enableAgents;
+        case "kb_document": return FEATURES.enableKnowledgeBase;
+        case "document": return FEATURES.enableRAG;
+        case "vocal_note": return FEATURES.enableSpeech;
+        case "ocr_conversion": return FEATURES.enableOCR;
+        case "slideshow": return FEATURES.enableSlideshow;
+        case "archimate_tool": return FEATURES.enableArchimate;
+        case "form_tool":
+        case "spreadsheet": return FEATURES.enableFormsAndSheets;
+        case "trade_off_matrix":
+        case "architecture_memo": return FEATURES.enableArchitectureTools;
+        default: return true;
+    }
+});
 
 const PRESET_COLORS = [
     "#f8fafc", "#fca5a5", "#fdba74", "#fcd34d", "#bef264",

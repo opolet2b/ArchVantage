@@ -88,38 +88,63 @@ app.add_middleware(
 )
 print(f"DEBUG: Allowed Origins: {settings.BACKEND_CORS_ORIGINS}")
 
+import os
+
+def is_enabled(feature_name: str) -> bool:
+    return os.environ.get(feature_name, "true").lower() != "false"
+
+# Core / Admin / System
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(users.router, prefix="/api/v1", tags=["users"])
 app.include_router(roles.router, prefix="/api/v1", tags=["roles"])
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
-app.include_router(workflow.router, prefix="/api/v1", tags=["workflow"])
-app.include_router(rag.router, prefix="/api/v1", tags=["rag"])
-app.include_router(knowledge.router, prefix="/api/v1", tags=["knowledge"])
-app.include_router(research.router, prefix="/api/v1", tags=["research"])
 app.include_router(config.router, prefix="/api/v1", tags=["config"])
 app.include_router(conversation.router, prefix="/api/v1", tags=["conversation"])
-app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(oauth.router, prefix="/api/v1", tags=["oauth"])
-app.include_router(tools.router, prefix="/api/v1", tags=["tools"])
-app.include_router(mcp_servers.router, prefix="/api/v1", tags=["mcp-servers"])
-app.include_router(agent_blueprints.router, prefix="/api/v1", tags=["agent-blueprints"])
-app.include_router(agent_execution.router, prefix="/api/v1", tags=["agent-execution"])
-app.include_router(templates.router, prefix="/api/v1", tags=["templates"])
 app.include_router(canvas.router, prefix="/api/v1", tags=["canvas"])
 app.include_router(assets.router, prefix="/api/v1/assets", tags=["assets"])
 app.include_router(prompts.router, prefix="/api/v1", tags=["prompts"])
 app.include_router(debug.router, prefix="/api/v1", tags=["debug"])
-app.include_router(smart_template.router, prefix="/api/v1", tags=["smart-templates"])
 app.include_router(maintenance.router, prefix="/api/v1/maintenance", tags=["maintenance"])
 app.include_router(spaces.router, prefix="/api/v1", tags=["spaces"])
 app.include_router(layout_router.router, prefix="/api/v1", tags=["layout"])
 app.include_router(scenarios.router, prefix="/api/v1", tags=["scenarios"])
 app.include_router(ai.router, prefix="/api/v1", tags=["ai"])
-app.include_router(ontology.router, prefix="/api/v1", tags=["ontology"])
-app.include_router(stt.router, prefix="/api/v1/stt", tags=["stt"])
-app.include_router(tts.router, prefix="/api/v1/tts", tags=["tts"])
-app.include_router(ocr.router, prefix="/api/v1/tools/ocr", tags=["ocr"])
-app.include_router(wopi.router, prefix="/api/v1", tags=["wopi"])
+
+# Optional Features
+if is_enabled("ENABLE_WORKFLOWS"):
+    app.include_router(workflow.router, prefix="/api/v1", tags=["workflow"])
+
+if is_enabled("ENABLE_RAG"):
+    app.include_router(rag.router, prefix="/api/v1", tags=["rag"])
+
+if is_enabled("ENABLE_KNOWLEDGE_BASE"):
+    app.include_router(knowledge.router, prefix="/api/v1", tags=["knowledge"])
+    app.include_router(ontology.router, prefix="/api/v1", tags=["ontology"])
+    
+if is_enabled("ENABLE_RESEARCH"):
+    app.include_router(research.router, prefix="/api/v1", tags=["research"])
+
+if is_enabled("ENABLE_AGENTS"):
+    app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
+    app.include_router(tools.router, prefix="/api/v1", tags=["tools"])
+    app.include_router(mcp_servers.router, prefix="/api/v1", tags=["mcp-servers"])
+    app.include_router(agent_blueprints.router, prefix="/api/v1", tags=["agent-blueprints"])
+    app.include_router(agent_execution.router, prefix="/api/v1", tags=["agent-execution"])
+
+if is_enabled("ENABLE_SMART_TEMPLATES"):
+    app.include_router(templates.router, prefix="/api/v1", tags=["templates"])
+    app.include_router(smart_template.router, prefix="/api/v1", tags=["smart-templates"])
+
+if is_enabled("ENABLE_SPEECH"):
+    app.include_router(stt.router, prefix="/api/v1/stt", tags=["stt"])
+    app.include_router(tts.router, prefix="/api/v1/tts", tags=["tts"])
+
+if is_enabled("ENABLE_OCR"):
+    app.include_router(ocr.router, prefix="/api/v1/tools/ocr", tags=["ocr"])
+
+if is_enabled("ENABLE_WOPI"):
+    app.include_router(wopi.router, prefix="/api/v1", tags=["wopi"])
 
 @app.get("/")
 def read_root():
