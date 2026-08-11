@@ -40,6 +40,7 @@ import { StickyNoteNode } from "./nodes/sticky-note-node";
 import { WorkflowInstanceNode } from "./nodes/workflow-instance-node";
 import { WorkflowTemplateDialog } from "./workflow-template-dialog";
 import { VocalNoteNode } from "./nodes/vocal-note-node";
+import { ArchimateNode } from "./nodes/archimate-node";
 
 import { useCanvasStore, getZoomLevel, LinkType, CanvasLink, Viewport, DomainDefinition } from "./canvas-store";
 
@@ -106,6 +107,7 @@ const nodeTypesMemo = {
     sticky: StickyNoteNode,
     workflow: WorkflowInstanceNode,
     vocal_note: VocalNoteNode,
+    archimate_tool: ArchimateNode,
 };
 
 const edgeTypesMemo: EdgeTypes = {
