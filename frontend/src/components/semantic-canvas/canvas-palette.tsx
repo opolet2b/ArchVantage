@@ -29,6 +29,7 @@ import {
     Database
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FEATURES } from "@/features";
 import { useCanvasStore } from "./canvas-store";
 import { useLayoutStore } from "@/lib/layout-store";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,8 @@ export type ToolType =
     | "vocal_note"
     | "form_tool"
     | "spreadsheet"
+    | "trade_off_matrix"
+    | "architecture_memo"
     | "kb_document";
 
 export interface CanvasTool {
@@ -73,7 +76,7 @@ export interface CanvasTool {
 
 // =============================================================================
 // Constants
-export const CANVAS_TOOLS: CanvasTool[] = [
+const ALL_CANVAS_TOOLS: CanvasTool[] = [
     {
         id: "conversation",
         name: "New Conversation",
@@ -183,12 +186,20 @@ export const CANVAS_TOOLS: CanvasTool[] = [
         description: "Generate executive trade-off matrix"
     },
     {
+        id: "architecture_memo",
+        name: "Architecture Memo",
+        icon: <FileText className="h-4 w-4" />,
+        description: "1-page C-Level architecture memo"
+    },
+    {
         id: "workflow",
         name: "Workflow Instance",
         icon: <GitBranch className="h-4 w-4" />,
         description: "Instantiate an interactive automation process"
     },
 ];
+
+export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => t.id !== "workflow" || FEATURES.enableWorkflows);
 
 const PRESET_COLORS = [
     "#f8fafc", "#fca5a5", "#fdba74", "#fcd34d", "#bef264",
@@ -232,6 +243,8 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     ocr_conversion: "#fce7f3",
     form_tool: "#fdf4ff",
     spreadsheet: "#f0fdf4",
+    trade_off_matrix: "#fef3c7",
+    architecture_memo: "#fef3c7",
 
     // Workflow - Violet
     workflow: "#f5f3ff",

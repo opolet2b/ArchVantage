@@ -64,6 +64,7 @@ class ThingType(str, Enum):
     FORM_TOOL = "form_tool"
     SPREADSHEET = "spreadsheet"
     TRADE_OFF_MATRIX = "trade_off_matrix"
+    ARCHITECTURE_MEMO = "architecture_memo"
 
 
 class RAGStatus(str, Enum):

@@ -1791,6 +1791,17 @@ function CanvasViewInner() {
                         color
                     );
                     break;
+                case "architecture_memo":
+                    await addThing(
+                        "architecture_memo",
+                        {},
+                        position,
+                        600, // width
+                        400, // height
+                        "New Architecture Memo", // title
+                        color
+                    );
+                    break;
             }
             return;
         }
