@@ -12,6 +12,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { SelectionToolbar, LLMAction } from "./selection-toolbar";
+import { LinkTypeDialog } from "../link-type-dialog";
 import { API_URL } from "@/lib/utils";
 import { useAnalyze } from "./use-analyze";
 import type { Fragment } from "./types";
@@ -192,6 +193,8 @@ export function SelectableContent({
     const [linkDialogOpen, setLinkDialogOpen] = React.useState(false);
     const [pendingFragment, setPendingFragment] = React.useState<Fragment | null>(null);
     // Local state for link targets to avoid subscribing to global things list
+    const [selectedTargetId, setSelectedTargetId] = React.useState<string | null>(null);
+    const [linkTypeDialogOpen, setLinkTypeDialogOpen] = React.useState(false);
     const [availableTargets, setAvailableTargets] = React.useState<any[]>([]);
 
     // Handle selection from child viewer
@@ -408,6 +411,13 @@ export function SelectableContent({
     // Handle selecting a target for the link
     const handleLinkToTarget = React.useCallback(async (targetId: string) => {
         if (!pendingFragment) return;
+        setSelectedTargetId(targetId);
+        setLinkDialogOpen(false);
+        setLinkTypeDialogOpen(true);
+    }, [pendingFragment]);
+
+    const handleConfirmLink = React.useCallback(async (type: string, userLabel: string, description: string, reverseDirection: boolean = false) => {
+        if (!pendingFragment || !selectedTargetId) return;
 
         // Create fragment data for the API
         const fragmentData = {
@@ -416,48 +426,82 @@ export function SelectableContent({
             ...("startOffset" in pendingFragment && { start_offset: pendingFragment.startOffset }),
             ...("endOffset" in pendingFragment && { end_offset: pendingFragment.endOffset }),
             ...("pageNumber" in pendingFragment && { page_number: pendingFragment.pageNumber }),
+            ...("nodeId" in pendingFragment && { nodeId: (pendingFragment as any).nodeId }),
+            ...("nodeName" in pendingFragment && { nodeName: (pendingFragment as any).nodeName }),
+            ...("nodeType" in pendingFragment && { nodeType: (pendingFragment as any).nodeType }),
         };
 
-        let label = `Fragment: ${pendingFragment.content?.slice(0, 30)}...`;
+        if (reverseDirection) {
+            await addLink(
+                selectedTargetId,
+                thingId,
+                type,
+                userLabel,
+                description,
+                undefined,
+                fragmentData
+            );
+        } else {
+            await addLink(
+                thingId,
+                selectedTargetId,
+                type,
+                userLabel,
+                description,
+                fragmentData,
+                undefined
+            );
+        }
 
-        // Custom label for spreadsheet fragments
-        if (pendingFragment.type === "cell" && (pendingFragment as any).selectionType) {
+        setLinkTypeDialogOpen(false);
+        setPendingFragment(null);
+        setSelectedTargetId(null);
+    }, [thingId, pendingFragment, selectedTargetId, addLink]);
+
+    // Compute default label and description for the popup
+    const getDefaultLinkDetails = () => {
+        if (!pendingFragment) return { label: "", description: "" };
+        
+        let label = `Fragment: ${pendingFragment.content?.slice(0, 30) ?? 'unknown'}...`;
+        let description = "Reference to selected content";
+
+        if (pendingFragment.type === "archimate_node") {
+            const nodeFrag = pendingFragment as any;
+            label = `${nodeFrag.nodeType}: ${nodeFrag.nodeName || 'Unnamed'}`;
+            description = `Link to ${nodeFrag.nodeName || 'Unnamed'} (${nodeFrag.nodeType})`;
+        } else if (pendingFragment.type === "cell" && (pendingFragment as any).selectionType) {
             const cellFrag = pendingFragment as any;
             if (cellFrag.selectionType === "row") {
                 const rowNum = cellFrag.range.split(":")[0];
                 label = `Row ${rowNum}`;
+                description = `Link to row ${rowNum}`;
             } else if (cellFrag.selectionType === "column") {
                 const colLetter = cellFrag.range.split(":")[0];
                 label = `Column ${colLetter}`;
+                description = `Link to column ${colLetter}`;
             } else if (cellFrag.selectionType === "range") {
-                // Determine if row or column range
                 if (cellFrag.range.match(/^\d+:\d+$/)) {
                     const [start, end] = cellFrag.range.split(":");
                     label = `Rows ${start}-${end}`;
+                    description = `Link to rows ${start}-${end}`;
                 } else if (cellFrag.range.match(/^[A-Z]+:[A-Z]+$/)) {
                     const [start, end] = cellFrag.range.split(":");
                     label = `Columns ${start}-${end}`;
+                    description = `Link to columns ${start}-${end}`;
                 } else {
                     label = `Cells ${cellFrag.range}`;
+                    description = `Link to cells ${cellFrag.range}`;
                 }
             } else {
                 label = `Cell ${cellFrag.range}`;
+                description = `Link to cell ${cellFrag.range}`;
             }
         }
+        
+        return { label, description };
+    };
 
-        await addLink(
-            thingId,
-            targetId,
-            "references",
-            label,
-            "Reference to selected content",
-            fragmentData,
-            undefined
-        );
-
-        setLinkDialogOpen(false);
-        setPendingFragment(null);
-    }, [thingId, pendingFragment, addLink]);
+    const { label: defaultLabel, description: defaultDescription } = getDefaultLinkDetails();
 
     // Handle creating result as new thing
     const handleCreateThing = React.useCallback(async () => {
@@ -511,9 +555,8 @@ export function SelectableContent({
         <div className="nodrag w-full h-full relative group">
             {childrenWithProps}
 
-            {/* Selection Toolbar */}
-            {/* Selection Toolbar (Portaled to body to avoid transform issues) */}
-            {selection && typeof document !== "undefined" &&
+            {/* In-place UI layer (Selection Toolbar) */}
+            {selection && !linkDialogOpen && !askDialogOpen && !resultDialogOpen && !linkTypeDialogOpen && (
                 createPortal(
                     <SelectionToolbar
                         fragment={selection.fragment}
@@ -526,7 +569,7 @@ export function SelectableContent({
                     />,
                     document.body
                 )
-            }
+            )}
 
 
             {/* Custom Prompt Dialog */}
@@ -686,6 +729,16 @@ export function SelectableContent({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div >
+
+            {/* Link Type Dialog */}
+            <LinkTypeDialog
+                isOpen={linkTypeDialogOpen}
+                onClose={() => setLinkTypeDialogOpen(false)}
+                onConfirm={handleConfirmLink}
+                initialLabel={defaultLabel}
+                initialDescription={defaultDescription}
+                mode="create"
+            />
+        </div>
     );
 }

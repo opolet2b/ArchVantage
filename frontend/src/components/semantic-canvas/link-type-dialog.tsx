@@ -21,7 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowRight, Link2, GitBranch, Box, Check, X, ArrowUpRight, ArrowLeftRight, Zap, Ban, RefreshCw, Trash2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { ArrowRight, Link2, GitBranch, Box, Check, X, ArrowUpRight, ArrowLeftRight, Zap, Ban, RefreshCw, Trash2, ArrowLeft } from "lucide-react";
 import { LinkType, CustomLinkType } from "./canvas-store";
 import { cn } from "@/lib/utils";
 import { getIconComponent } from "./icon-utils";
@@ -123,7 +124,7 @@ const DEFAULT_LINK_TYPES: LinkTypeConfig[] = [
 interface LinkTypeDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (type: LinkType | string, label: string, description: string) => void;
+    onConfirm: (type: LinkType | string, label: string, description: string, reverseDirection?: boolean) => void;
     onDelete?: () => void;
     initialType?: LinkType | string;
     initialLabel?: string;
@@ -152,6 +153,7 @@ export function LinkTypeDialog({
     const [selectedType, setSelectedType] = React.useState<LinkType | string>(initialType);
     const [label, setLabel] = React.useState(initialLabel);
     const [description, setDescription] = React.useState(initialDescription);
+    const [reverseDirection, setReverseDirection] = React.useState(false);
 
     const effectiveLinkTypes = React.useMemo(() => {
         const customTypes = (Array.isArray(availableLinkTypes) && availableLinkTypes.length > 0)
@@ -180,6 +182,7 @@ export function LinkTypeDialog({
             setSelectedType(initialType);
             setLabel(initialLabel);
             setDescription(initialDescription);
+            setReverseDirection(false);
         }
     }, [isOpen, initialType, initialLabel, initialDescription]);
 
@@ -187,7 +190,7 @@ export function LinkTypeDialog({
 
     const handleConfirm = () => {
         if (isValid) {
-            onConfirm(selectedType, label, description);
+            onConfirm(selectedType, label, description, reverseDirection);
         }
     };
 
@@ -282,6 +285,25 @@ export function LinkTypeDialog({
                             Provide context on why these items are related.
                         </p>
                     </div>
+
+                    {/* Reverse Direction Switch */}
+                    {mode === "create" && (
+                        <div className="flex items-center justify-between p-4 border rounded-lg bg-slate-50 dark:bg-slate-900/50">
+                            <div className="space-y-0.5">
+                                <Label className="flex items-center gap-2">
+                                    <ArrowLeft className="h-4 w-4" />
+                                    Reverse Direction
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Make the target point back to the source instead.
+                                </p>
+                            </div>
+                            <Switch
+                                checked={reverseDirection}
+                                onCheckedChange={setReverseDirection}
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <DialogFooter className="flex justify-between px-6 py-4 border-t shrink-0">

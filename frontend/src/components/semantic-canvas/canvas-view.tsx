@@ -623,7 +623,12 @@ function CanvasViewInner() {
                     id: link.id,
                     source: link.source_id,
                     target: link.target_id,
-                    sourceHandle: (link.source_fragment?.type === "region") ? `fragment-handle-${link.id}` : undefined,
+                    sourceHandle: link.source_fragment?.type === "region" 
+                        ? `fragment-handle-${link.id}` 
+                        : "source",
+                    targetHandle: link.target_fragment?.type === "region" 
+                        ? `fragment-handle-${link.id}` 
+                        : "target",
                     label: link.label || undefined,
                     type: "custom", // Use our CustomEdge
                     data: {
@@ -1263,15 +1268,25 @@ function CanvasViewInner() {
 
     // Handle link creation with selected type
     const handleCreateLink = React.useCallback(
-        async (type: LinkType, label: string, description: string) => {
+        async (type: LinkType, label: string, description: string, reverseDirection: boolean = false) => {
             if (pendingConnection) {
-                await addLink(
-                    pendingConnection.source,
-                    pendingConnection.target,
-                    type,
-                    label,
-                    description
-                );
+                if (reverseDirection) {
+                    await addLink(
+                        pendingConnection.target,
+                        pendingConnection.source,
+                        type,
+                        label,
+                        description
+                    );
+                } else {
+                    await addLink(
+                        pendingConnection.source,
+                        pendingConnection.target,
+                        type,
+                        label,
+                        description
+                    );
+                }
                 setPendingConnection(null);
                 setLinkDialogOpen(false);
             }
@@ -1532,26 +1547,32 @@ function CanvasViewInner() {
             if (selectedEdges.length === 1) {
                 const edge = selectedEdges[0];
                 const link = links.find(l => l.id === edge.id);
-                // Check if link has source fragment data
-                if (link && link.source_fragment) {
-                    const targetNode = things.find(t => t.id === link.target_id);
+                // Highlight source fragment if exists, OR target fragment if exists
+                if (link && (link.source_fragment || link.target_fragment)) {
+                    // For now, if both exist, we pick source. 
+                    // (To highlight both, we'd need to extend highlightedFragment to support an array).
+                    const isSource = !!link.source_fragment;
+                    const fragment = isSource ? link.source_fragment : link.target_fragment;
+                    const thingId = isSource ? link.source_id : link.target_id;
+                    const otherNodeId = isSource ? link.target_id : link.source_id;
+                    const otherNode = things.find(t => t.id === otherNodeId);
+                    
                     setHighlightedFragment({
-                        thingId: link.source_id,
+                        thingId,
                         fragment: {
-                            ...link.source_fragment,
+                            ...fragment!,
                             linkTitle: link.label || link.type,
-                            targetTitle: targetNode?.title || "Target Node"
+                            targetTitle: otherNode?.title || (isSource ? "Target Node" : "Source Node")
                         }
                     });
                     return;
                 }
             }
 
-            // Priority 2: Selected Node (Trace back to source)
+            // Priority 2: Selected Node (Trace back to source or target)
             if (selectedNodes.length === 1) {
                 const node = selectedNodes[0];
                 // Find incoming links that have fragment data
-                // We prioritize "related" links or just take the first one with data
                 const incomingWithFragment = links.find(
                     l => l.target_id === node.id && l.source_fragment
                 );
@@ -1568,17 +1589,40 @@ function CanvasViewInner() {
                     });
                     return;
                 }
+                
+                // Find outgoing links that have target fragment data
+                const outgoingWithFragment = links.find(
+                    l => l.source_id === node.id && l.target_fragment
+                );
+                
+                if (outgoingWithFragment) {
+                    const sourceNode = things.find(t => t.id === outgoingWithFragment.source_id);
+                    setHighlightedFragment({
+                        thingId: outgoingWithFragment.target_id,
+                        fragment: {
+                            ...outgoingWithFragment.target_fragment,
+                            linkTitle: outgoingWithFragment.label || outgoingWithFragment.type,
+                            targetTitle: sourceNode?.title || "Source Node"
+                        }
+                    });
+                    return;
+                }
             }
 
             // Retain highlight if we are editing a link to avoid clearing focus loss highlights
-            if (editingLink && editingLink.source_fragment) {
-                const targetNode = things.find(t => t.id === editingLink.target_id);
+            if (editingLink && (editingLink.source_fragment || editingLink.target_fragment)) {
+                const isSource = !!editingLink.source_fragment;
+                const fragment = isSource ? editingLink.source_fragment : editingLink.target_fragment;
+                const thingId = isSource ? editingLink.source_id : editingLink.target_id;
+                const otherNodeId = isSource ? editingLink.target_id : editingLink.source_id;
+                const otherNode = things.find(t => t.id === otherNodeId);
+                
                 setHighlightedFragment({
-                    thingId: editingLink.source_id,
+                    thingId,
                     fragment: {
-                        ...editingLink.source_fragment,
+                        ...fragment!,
                         linkTitle: editingLink.label || editingLink.type,
-                        targetTitle: targetNode?.title || "Target Node"
+                        targetTitle: otherNode?.title || (isSource ? "Target Node" : "Source Node")
                     }
                 });
                 return;

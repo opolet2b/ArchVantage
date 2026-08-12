@@ -1522,10 +1522,18 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     }, [links, thing, updateLink, updateThing]);
 
     // Helpers copied from SelectableContent
-    // Helpers copied from SelectableContent
+    // Helper: Create fragment data for API
     const getFragmentData = (fragment: Fragment) => ({
-        ...fragment, // Preserve all properties (x, y, width, height for regions)
-    }); // simplified for full thing
+        type: fragment.type,
+        content: fragment.content,
+        ...("id" in fragment && { id: fragment.id }),
+        ...("startOffset" in fragment && { start_offset: fragment.startOffset }),
+        ...("endOffset" in fragment && { end_offset: fragment.endOffset }),
+        ...("pageNumber" in fragment && { page_number: fragment.pageNumber }),
+        ...("nodeId" in fragment && { nodeId: (fragment as any).nodeId }),
+        ...("nodeName" in fragment && { nodeName: (fragment as any).nodeName }),
+        ...("nodeType" in fragment && { nodeType: (fragment as any).nodeType }),
+    });
 
     // Helper: Create new node from result and link it
     const createNodeAndLink = React.useCallback(async (text: string, sourceFragment: Fragment, targetCanvasId?: string) => {
@@ -1821,19 +1829,35 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     }, [pendingFragment]);
 
     // Handle actual link creation after type selection
-    const handleConfirmLink = React.useCallback(async (type: LinkType, label: string, description: string) => {
-        if (!pendingFragment || !selectedTargetId) return;
+    const handleConfirmLink = React.useCallback(async (type: LinkType, label: string, description: string, reverseDirection: boolean = false) => {
+        // Allow creating links even if pendingFragment is null (linking the whole node)
+        if (!selectedTargetId) return;
 
-        await addLink(
-            thing.id,
-            selectedTargetId,
-            type,
-            label,
-            description,
-            getFragmentData(pendingFragment),
-            undefined,
-            pendingTargetCanvasId || undefined
-        );
+        const fragmentData = pendingFragment ? getFragmentData(pendingFragment) : undefined;
+
+        if (reverseDirection) {
+            await addLink(
+                selectedTargetId,
+                thing.id,
+                type,
+                label,
+                description,
+                undefined,
+                fragmentData,
+                pendingTargetCanvasId || undefined
+            );
+        } else {
+            await addLink(
+                thing.id,
+                selectedTargetId,
+                type,
+                label,
+                description,
+                fragmentData,
+                undefined,
+                pendingTargetCanvasId || undefined
+            );
+        }
 
         setLinkTypeDialogOpen(false);
         setPendingFragment(null);
@@ -1933,7 +1957,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 return <AgentToolViewer thing={thing} />;
 
             case "archimate_tool":
-                return <ArchiMateToolViewer thing={thing} />;
+                return (
+                    <SelectableContent thingId={thing.id}>
+                        <ArchiMateToolViewer thing={thing} links={links} />
+                    </SelectableContent>
+                );
 
             case "archimate_element":
                 return <ArchiMateElementViewer thing={thing} />;
@@ -2978,11 +3006,13 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                 {/* Connection handles - colored by type */}
                 <Handle
+                    id="target"
                     type="target"
                     position={Position.Left}
                     className={cn("!w-4 !h-4", colorTheme.handleColor)}
                 />
                 <Handle
+                    id="source"
                     type="source"
                     position={Position.Right}
                     className={cn("!w-4 !h-4", colorTheme.handleColor)}
@@ -3059,6 +3089,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 </div>
 
                 <Handle
+                    id="target"
                     type="target"
                     position={Position.Left}
                     className={cn(
@@ -3067,6 +3098,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     )}
                 />
                 <Handle
+                    id="source"
                     type="source"
                     position={Position.Right}
                     className={cn(
@@ -3098,6 +3130,54 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             </div>
         );
     }
+
+    // Compute default label and description for the popup
+    const getDefaultLinkDetails = () => {
+        let label = `Link from ${thing.title || thing.type}`;
+        let description = `Reference to ${thing.title || thing.type}`;
+
+        if (pendingFragment) {
+            label = `Fragment: ${pendingFragment.content?.slice(0, 30) ?? 'unknown'}...`;
+            description = "Reference to selected content";
+
+            if (pendingFragment.type === "archimate_node") {
+                const nodeFrag = pendingFragment as any;
+                label = `${nodeFrag.nodeType}: ${nodeFrag.nodeName || 'Unnamed'}`;
+                description = `Link to ${nodeFrag.nodeName || 'Unnamed'} (${nodeFrag.nodeType})`;
+            } else if (pendingFragment.type === "cell" && (pendingFragment as any).selectionType) {
+                const cellFrag = pendingFragment as any;
+                if (cellFrag.selectionType === "row") {
+                    const rowNum = cellFrag.range.split(":")[0];
+                    label = `Row ${rowNum}`;
+                    description = `Link to row ${rowNum}`;
+                } else if (cellFrag.selectionType === "column") {
+                    const colLetter = cellFrag.range.split(":")[0];
+                    label = `Column ${colLetter}`;
+                    description = `Link to column ${colLetter}`;
+                } else if (cellFrag.selectionType === "range") {
+                    if (cellFrag.range.match(/^\d+:\d+$/)) {
+                        const [start, end] = cellFrag.range.split(":");
+                        label = `Rows ${start}-${end}`;
+                        description = `Link to rows ${start}-${end}`;
+                    } else if (cellFrag.range.match(/^[A-Z]+:[A-Z]+$/)) {
+                        const [start, end] = cellFrag.range.split(":");
+                        label = `Columns ${start}-${end}`;
+                        description = `Link to columns ${start}-${end}`;
+                    } else {
+                        label = `Cells ${cellFrag.range}`;
+                        description = `Link to cells ${cellFrag.range}`;
+                    }
+                } else {
+                    label = `Cell ${cellFrag.range}`;
+                    description = `Link to cell ${cellFrag.range}`;
+                }
+            }
+        }
+        
+        return { label, description };
+    };
+
+    const { label: defaultLabel, description: defaultDescription } = getDefaultLinkDetails();
 
     return (
         <>
@@ -3784,11 +3864,13 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
                 {/* Connection handles - colored by type */}
                 <Handle
+                    id="target"
                     type="target"
                     position={Position.Left}
                     className={cn("!w-4 !h-4 z-50", colorTheme.handleColor, isReadOnly && "opacity-0 pointer-events-none")}
                 />
                 <Handle
+                    id="source"
                     type="source"
                     position={Position.Right}
                     className={cn("!w-4 !h-4 z-50", colorTheme.handleColor, isReadOnly && "opacity-0 pointer-events-none")}
@@ -4108,6 +4190,8 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 isOpen={linkTypeDialogOpen}
                 onClose={() => setLinkTypeDialogOpen(false)}
                 onConfirm={handleConfirmLink}
+                initialLabel={defaultLabel}
+                initialDescription={defaultDescription}
                 mode="create"
             />
 

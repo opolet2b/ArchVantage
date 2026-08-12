@@ -12,11 +12,18 @@ export interface ArchimateBounds {
     height: number;
 }
 
+export interface ArchimateProperty {
+    key: string;
+    value: string;
+}
+
 export interface ArchimateNodeData {
     id: string;
     type: string;
     name: string;
     bounds?: ArchimateBounds;
+    documentation?: string;
+    properties?: ArchimateProperty[];
 }
 
 export interface ArchimateEdgeData {
@@ -33,8 +40,15 @@ export interface ArchimateDiagram {
     edges: ArchimateEdgeData[];
 }
 
+export interface ArchimateElementDefinition {
+    type: string;
+    name: string;
+    documentation?: string;
+    properties?: ArchimateProperty[];
+}
+
 export interface ParsedArchimate {
-    elements: Record<string, { type: string; name: string }>;
+    elements: Record<string, ArchimateElementDefinition>;
     relationships: Record<string, ArchimateEdgeData>;
     diagrams: ArchimateDiagram[];
 }
@@ -49,6 +63,19 @@ export async function parseArchimateXml(xmlText: string): Promise<ParsedArchimat
         diagrams: []
     };
 
+    // Detect format
+    const isArchiFormat = Array.from(doc.querySelectorAll('element')).some(el => el.getAttribute('xsi:type')?.startsWith('archimate:'));
+    
+    if (isArchiFormat) {
+        parseArchiFormat(doc, result);
+    } else {
+        parseOpenGroupFormat(doc, result);
+    }
+
+    return result;
+}
+
+function parseArchiFormat(doc: Document, result: ParsedArchimate) {
     // 1. Extract Elements (Global definitions)
     const allElements = Array.from(doc.querySelectorAll('element'));
     allElements.forEach(el => {
@@ -57,7 +84,23 @@ export async function parseArchimateXml(xmlText: string): Promise<ParsedArchimat
         const name = el.getAttribute('name') || '';
         
         if (id && type && !type.includes('Relationship') && !type.includes('Diagram')) {
-            result.elements[id] = { type: type.replace('archimate:', ''), name };
+            const docEl = el.querySelector('documentation');
+            const documentation = docEl ? docEl.textContent || undefined : undefined;
+            
+            const properties: ArchimateProperty[] = [];
+            const propEls = Array.from(el.querySelectorAll('property'));
+            propEls.forEach(p => {
+                const key = p.getAttribute('key');
+                const value = p.getAttribute('value');
+                if (key && value) properties.push({ key, value });
+            });
+
+            result.elements[id] = { 
+                type: type.replace('archimate:', ''), 
+                name,
+                documentation,
+                properties
+            };
         }
     });
 
@@ -122,7 +165,9 @@ export async function parseArchimateXml(xmlText: string): Promise<ParsedArchimat
                     id: childId,
                     type: refElement.type,
                     name: refElement.name,
-                    bounds
+                    bounds,
+                    documentation: refElement.documentation,
+                    properties: refElement.properties
                 });
             } else if (cType === 'archimate:Group') {
                 diagram.nodes.push({
@@ -173,6 +218,134 @@ export async function parseArchimateXml(xmlText: string): Promise<ParsedArchimat
 
         result.diagrams.push(diagram);
     });
+}
 
-    return result;
+function parseOpenGroupFormat(doc: Document, result: ParsedArchimate) {
+    // 1. Elements
+    const elementsContainer = doc.querySelector('elements');
+    if (elementsContainer) {
+        Array.from(elementsContainer.querySelectorAll('element')).forEach(el => {
+            const id = el.getAttribute('identifier');
+            const type = el.getAttribute('xsi:type');
+            if (!id || !type) return;
+
+            const nameEl = el.querySelector('name');
+            const name = nameEl ? nameEl.textContent || '' : '';
+            
+            const docEl = el.querySelector('documentation');
+            const documentation = docEl ? docEl.textContent || undefined : undefined;
+            
+            const properties: ArchimateProperty[] = [];
+            const propEls = Array.from(el.querySelectorAll('property'));
+            propEls.forEach(p => {
+                const key = p.getAttribute('propertyDefinitionRef') || 'Property';
+                const valueEl = p.querySelector('value');
+                const value = valueEl ? valueEl.textContent || '' : '';
+                if (value) properties.push({ key, value });
+            });
+
+            result.elements[id] = { type, name, documentation, properties };
+        });
+    }
+
+    // 2. Relationships
+    const relationshipsContainer = doc.querySelector('relationships');
+    if (relationshipsContainer) {
+        Array.from(relationshipsContainer.querySelectorAll('relationship')).forEach(rel => {
+            const id = rel.getAttribute('identifier');
+            const type = rel.getAttribute('xsi:type');
+            const source = rel.getAttribute('source');
+            const target = rel.getAttribute('target');
+
+            if (id && type && source && target) {
+                result.relationships[id] = { id, type, source, target };
+            }
+        });
+    }
+
+    // 3. Views / Diagrams
+    const viewsContainer = doc.querySelector('views > diagrams');
+    if (viewsContainer) {
+        Array.from(viewsContainer.querySelectorAll('view')).forEach(view => {
+            const diagId = view.getAttribute('identifier') || 'unknown';
+            const nameEl = view.querySelector('name');
+            const diagName = nameEl ? nameEl.textContent || 'Unnamed Diagram' : 'Unnamed Diagram';
+
+            const diagram: ArchimateDiagram = {
+                id: diagId,
+                name: diagName,
+                nodes: [],
+                edges: []
+            };
+
+            const parseNode = (nodeEl: Element) => {
+                const nodeId = nodeEl.getAttribute('identifier') || '';
+                const elementRef = nodeEl.getAttribute('elementRef');
+                
+                let bounds: ArchimateBounds | undefined = undefined;
+                const xStr = nodeEl.getAttribute('x');
+                const yStr = nodeEl.getAttribute('y');
+                const wStr = nodeEl.getAttribute('w');
+                const hStr = nodeEl.getAttribute('h');
+                
+                if (xStr && yStr && wStr && hStr) {
+                    bounds = {
+                        x: parseInt(xStr, 10),
+                        y: parseInt(yStr, 10),
+                        width: parseInt(wStr, 10),
+                        height: parseInt(hStr, 10),
+                    };
+                }
+
+                if (elementRef) {
+                    const refEl = result.elements[elementRef];
+                    if (refEl) {
+                        diagram.nodes.push({
+                            id: nodeId,
+                            type: refEl.type,
+                            name: refEl.name,
+                            bounds,
+                            documentation: refEl.documentation,
+                            properties: refEl.properties
+                        });
+                    }
+                } else if (nodeEl.tagName === 'node') {
+                    // Could be a container/group
+                    const labelEl = nodeEl.querySelector('label');
+                    diagram.nodes.push({
+                        id: nodeId,
+                        type: 'Group',
+                        name: labelEl ? labelEl.textContent || 'Group' : 'Group',
+                        bounds
+                    });
+                }
+
+                // Nested nodes
+                Array.from(nodeEl.children).filter(c => c.tagName === 'node').forEach(childNode => {
+                    parseNode(childNode);
+                });
+            };
+
+            Array.from(view.children).filter(c => c.tagName === 'node').forEach(n => parseNode(n));
+
+            // View Connections
+            Array.from(view.querySelectorAll('connection')).forEach(conn => {
+                const connId = conn.getAttribute('identifier') || '';
+                const sourceId = conn.getAttribute('source') || '';
+                const targetId = conn.getAttribute('target') || '';
+                const relationshipRef = conn.getAttribute('relationshipRef') || '';
+
+                const refRel = result.relationships[relationshipRef];
+                
+                diagram.edges.push({
+                    id: connId,
+                    source: sourceId,
+                    target: targetId,
+                    type: refRel ? refRel.type : 'UnknownRelationship'
+                });
+            });
+
+            result.diagrams.push(diagram);
+        });
+    }
 }

@@ -78,6 +78,14 @@ export interface SlideFragment extends FragmentBase {
     elementId?: string;
 }
 
+// Archimate Node fragment
+export interface ArchimateNodeFragment extends FragmentBase {
+    type: "archimate_node";
+    nodeId: string;
+    nodeName?: string;
+    nodeType?: string;
+}
+
 // Union Type
 export type Fragment =
     | TextFragment
@@ -85,5 +93,6 @@ export type Fragment =
     | RegionFragment
     | LinkFragment
     | MessageFragment
-    | SlideFragment;
+    | SlideFragment
+    | ArchimateNodeFragment;
 

@@ -394,6 +394,13 @@ class FragmentData(BaseModel):
     height: Optional[float] = None
     # Message fragments
     message_id: Optional[str] = None
+    # Archimate fragments
+    nodeId: Optional[str] = None
+    nodeName: Optional[str] = None
+    nodeType: Optional[str] = None
+
+    class Config:
+        extra = "allow"
 
 
 class AnalyzeRequest(BaseModel):
