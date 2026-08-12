@@ -26,7 +26,8 @@ import {
     Mic,
     FormInput,
     TableProperties,
-    Database
+    Database,
+    FileDiff
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FEATURES } from "@/features";
@@ -65,7 +66,8 @@ export type ToolType =
     | "spreadsheet"
     | "trade_off_matrix"
     | "architecture_memo"
-    | "kb_document";
+    | "kb_document"
+    | "gap_analysis_tool";
 
 export interface CanvasTool {
     id: ToolType;
@@ -156,6 +158,12 @@ const ALL_CANVAS_TOOLS: CanvasTool[] = [
         description: "Import ArchiMate XML"
     },
     {
+        id: "gap_analysis_tool",
+        name: "Gap Analysis",
+        icon: <FileDiff className="h-4 w-4" />,
+        description: "Compare Architecture States"
+    },
+    {
         id: "agent_tool",
         name: "Agent Blueprint",
         icon: <Bot className="h-4 w-4" />,
@@ -208,8 +216,9 @@ export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
         case "document": return FEATURES.enableRAG;
         case "vocal_note": return FEATURES.enableSpeech;
         case "ocr_conversion": return FEATURES.enableOCR;
-        case "slideshow": return FEATURES.enableSlideshow;
+        case "agent_tool": return FEATURES.enableAgentTool;
         case "archimate_tool": return FEATURES.enableArchimate;
+        case "gap_analysis_tool": return FEATURES.enableArchimate;
         case "form_tool": return FEATURES.enableForms;
         case "spreadsheet": return FEATURES.enableSpreadsheet;
         case "trade_off_matrix":
@@ -255,8 +264,10 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     mcp_tool: "#ffedd5",
 
     // Agent - Violet
-    agent_tool: "#e0e7ff",
+    mcp_tool: "#f1f5f9",
     archimate_tool: "#f1f5f9",
+    gap_analysis_tool: "#f1f5f9",
+    agent_tool: "#e0e7ff",
     ocr_conversion: "#fce7f3",
     form_tool: "#fdf4ff",
     spreadsheet: "#f0fdf4",

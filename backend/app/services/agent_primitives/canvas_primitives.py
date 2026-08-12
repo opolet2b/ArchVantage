@@ -1,7 +1,7 @@
 """
 Canvas Primitives
 
-Primitives for manipulating the Semantic Canvas from agent workflows.
+Primitives for manipulating the ArchVantage from agent workflows.
 Includes setting properties, moving nodes, and creating links.
 """
 from typing import Any, Dict

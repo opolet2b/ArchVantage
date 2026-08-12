@@ -8,7 +8,7 @@ Welcome to the **Semantic Workbench**, a powerful environment for intelligent in
 
 The Semantic Workbench combines two powerful modes of interaction:
 *   **Chat Mode**: A traditional conversational interface for quick queries and linear interactions with AI agents.
-*   **Semantic Canvas**: An infinite, spatial workspace where you can organize "Things" (notes, files, data), visualize relationships, and perform complex analysis using AI.
+*   **ArchVantage**: An infinite, spatial workspace where you can organize "Things" (notes, files, data), visualize relationships, and perform complex analysis using AI.
 
 ---
 
@@ -50,9 +50,9 @@ Your past conversations are saved automatically.
 
 ---
 
-## 4. Semantic Canvas Mode
+## 4. ArchVantage Mode
 
-The Semantic Canvas is the core of the workbench, designed for non-linear thinking and complex data organization.
+The ArchVantage is the core of the workbench, designed for non-linear thinking and complex data organization.
 
 ### Canvas Basics
 *   **Create a Canvas**: Click the **"+"** icon next to "Canvases" in the sidebar.
@@ -73,7 +73,7 @@ The Canvas features a **Floating Toolbar** (often referred to as the Toolbox) pr
 > **The Green Toolbox**: A specialized context menu that appears for specific advanced actions.
 > **The Green Brain**: Your AI assistant on the canvas. Click the brain icon to trigger analysis or run agents on selected items.
 
-![Screenshot: Semantic Canvas with the Toolbox highlighted]
+![Screenshot: ArchVantage with the Toolbox highlighted]
 
 ### Working with Things (Nodes)
 "Things" are the fundamental units of content on your canvas.

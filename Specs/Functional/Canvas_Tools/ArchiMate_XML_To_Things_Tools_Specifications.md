@@ -2,7 +2,7 @@
 
 ## **1\. Project Overview**
 
-The objective is to develop a web-based tool that accepts an ArchiMate Model Exchange File (XML) and generates an interactive diagram using the React Flow library. The tool must parse the logical model and visual metadata to reconstruct the architecture views accurately. The tool will be a "Drag'n drop" tool available on the right panel of the Semantic Canvas (similar to "MCP Tool", "Image Slides" etc.).
+The objective is to develop a web-based tool that accepts an ArchiMate Model Exchange File (XML) and generates an interactive diagram using the React Flow library. The tool must parse the logical model and visual metadata to reconstruct the architecture views accurately. The tool will be a "Drag'n drop" tool available on the right panel of the ArchVantage (similar to "MCP Tool", "Image Slides" etc.).
 
 ## **2\. Technical Stack**
 

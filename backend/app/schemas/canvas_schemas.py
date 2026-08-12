@@ -1,5 +1,5 @@
 """
-Semantic Canvas Schemas
+ArchVantage Schemas
 
 Pydantic schemas for canvas API requests and responses.
 
@@ -37,6 +37,7 @@ class ThingType(str, Enum):
     VOCAL_NOTE = "vocal_note"
     FORM_TOOL = "form_tool"
     SPREADSHEET = "spreadsheet"
+    GAP_ANALYSIS_TOOL = "gap_analysis_tool"
     TRADE_OFF_MATRIX = "trade_off_matrix"
     ARCHITECTURE_MEMO = "architecture_memo"
 

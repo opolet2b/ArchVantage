@@ -1,7 +1,7 @@
 """
 Automation Service
 
-Orchestrates spatial automations on the Semantic Canvas.
+Orchestrates spatial automations on the ArchVantage.
 Matches events (hooks) to configured watchers and triggers agent blueprints.
 """
 from typing import Any, Dict, List, Optional

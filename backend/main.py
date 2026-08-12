@@ -38,7 +38,7 @@ load_dotenv()
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Semantic Canvas")
+app = FastAPI(title="ArchVantage")
 
 @app.middleware("http")
 async def log_requests(request, call_next):

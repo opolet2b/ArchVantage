@@ -1,7 +1,7 @@
 """
-Semantic Canvas Router
+ArchVantage Router
 
-API endpoints for the semantic canvas feature.
+API endpoints for the ArchVantage feature.
 Handles CRUD operations for canvases, things, links, and domains.
 
 PEP 8 Compliant

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    PROJECT_NAME: str = "Semantic Canvas"
+    PROJECT_NAME: str = "ArchVantage"
     API_V1_STR: str = "/api/v1"
     
     # Base Directory

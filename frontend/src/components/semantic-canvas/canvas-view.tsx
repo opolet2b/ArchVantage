@@ -1,5 +1,5 @@
 /**
- * Semantic Canvas View
+ * ArchVantage View
  *
  * Main canvas component using React Flow for spatial arrangement
  * of things with semantic zoom behavior.
@@ -187,6 +187,7 @@ function CanvasViewInner() {
     const setSemanticZoomEnabled = useCanvasStore(s => s.setSemanticZoomEnabled);
     const triggerZoneLayout = useCanvasStore(s => s.triggerZoneLayout); // Layout Engine
     const activeScenario = useCanvasStore(s => s.activeScenario);
+
 
     // Dummy stubs for variables that were previously destructured but now moved to CanvasToolbar
     // We keep them here if there are other parts of the component still using them
@@ -1791,6 +1792,16 @@ function CanvasViewInner() {
                         undefined, // width
                         undefined, // height
                         "ArchiMate Importer" // title
+                    );
+                    break;
+                case "gap_analysis_tool":
+                    await addThing(
+                        "gap_analysis_tool",
+                        {},
+                        position,
+                        800, // width
+                        500, // height
+                        "Gap Analysis" // title
                     );
                     break;
                 case "workflow":

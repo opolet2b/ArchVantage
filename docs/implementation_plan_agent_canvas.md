@@ -1,6 +1,6 @@
-# Implementation Plan: Adding Agent Blueprints to Semantic Canvas
+# Implementation Plan: Adding Agent Blueprints to ArchVantage
 
-This implementation plan details the steps required to introduce "Agent Tools" into the Semantic Canvas. This feature will allow users to drag an Agent Blueprint from the Canvas Palette onto the canvas, configure its inputs using manual or AI-assisted mapping from connected nodes, and execute the agent directly from the canvas.
+This implementation plan details the steps required to introduce "Agent Tools" into the ArchVantage. This feature will allow users to drag an Agent Blueprint from the Canvas Palette onto the canvas, configure its inputs using manual or AI-assisted mapping from connected nodes, and execute the agent directly from the canvas.
 
 ## 1. Backend: AI Mapping Endpoint
 

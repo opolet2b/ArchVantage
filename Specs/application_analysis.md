@@ -7,14 +7,14 @@ It serves a dual purpose:
 1.  **For Knowledge Consumers (Analysts/Auditors):** A visual workspace to organize documents, run complex pre-defined analysis templates (e.g., "Deep SWOT Analysis of this Annual Report"), and visualize relationships between data points.
 2.  **For Knowledge Engineers (Developers/Creators):** A low-code studio to build, test, and deploy autonomous AI agents and define the standard "Tools" (API integrations) those agents can use.
 
-The core innovation lies in the **Semantic Canvas**, which acts as the shared state between the User and the AI. Instead of a linear chat history, the "context" is a 2D graph of Agents, Documents, Conversations, and Data Tables, all linked together semantically. This enables "Visual RAG" (Retrieval Augmented Generation) where the user spatially curates what the AI should focus on.
+The core innovation lies in the **ArchVantage**, which acts as the shared state between the User and the AI. Instead of a linear chat history, the "context" is a 2D graph of Agents, Documents, Conversations, and Data Tables, all linked together semantically. This enables "Visual RAG" (Retrieval Augmented Generation) where the user spatially curates what the AI should focus on.
 
 ---
 
 ## 2. Platform Architecture & Core Pillars
 The application is built on four interconnected pillars that facilitate a cycle of **Data Ingestion -> Structured Analysis -> Visual Synthesis**.
 
-### A. The Semantic Canvas (Spatial Interface)
+### A. The ArchVantage (Spatial Interface)
 The Canvas is the heart of the application. It is an infinite 2D workspace that moves beyond the limitations of linear file lists or chat windows.
 *   **ThingNodes**: The fundamental unit of the canvas. A "Thing" can be:
     *   **Documents**: PDFs, Images, Videos, Slideshows (PPTX).

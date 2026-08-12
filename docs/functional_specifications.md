@@ -20,7 +20,7 @@ The application follows a modern cloud-native architecture with a clean separati
 
 ## 3. Core Features
 
-### 3.1 Semantic Canvas
+### 3.1 ArchVantage
 The central interface where all interactions occur.
 - **Spatial Organizing**: Users can place "Things" (Nodes) anywhere on a theoretically infinite canvas.
 - **Semantic Zooming**: Dynamic level-of-detail management. As users zoom out, nodes condense into high-level summaries. As they zoom in, they reveal detailed content, metadata, and controls.

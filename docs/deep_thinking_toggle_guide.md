@@ -1,6 +1,6 @@
 # Deep Thinking (LLM Reasoning Retrieval) Toggle System
 
-This document describes the design, implementation, and state synchronization flow for the **Deep Thinking** switch feature in the Semantic Canvas.
+This document describes the design, implementation, and state synchronization flow for the **Deep Thinking** switch feature in the ArchVantage.
 
 ---
 

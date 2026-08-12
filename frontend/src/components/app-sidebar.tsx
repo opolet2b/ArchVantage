@@ -88,7 +88,7 @@ export function AppSidebar() {
                 <div className="px-4 flex items-center justify-between shrink-0">
                     <div className="font-bold text-xl flex items-center overflow-hidden whitespace-nowrap">
                         <img src={`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/t2blogo.png`} alt="Logo" className="h-8 w-auto mr-2" />
-                        <span className="truncate">Semantic Workbench</span>
+                        <span className="truncate">ArchVantage</span>
                     </div>
                     <Button 
                         variant="ghost" 

@@ -435,7 +435,7 @@ class OCRService:
         <header>
             <div class="badge">AI OCR Conversion</div>
             <h1 class="doc-title">{title}</h1>
-            <div class="meta-info">Converted with Semantic Canvas AI</div>
+            <div class="meta-info">Converted with ArchVantage AI</div>
         </header>
 
         <div class="document-container">
@@ -443,7 +443,7 @@ class OCRService:
         </div>
 
         <footer>
-            <p>&copy; {time.strftime('%Y')} &bull; Semantic Canvas Document Intelligence</p>
+            <p>&copy; {time.strftime('%Y')} &bull; ArchVantage Document Intelligence</p>
         </footer>
     </div>
 </body>

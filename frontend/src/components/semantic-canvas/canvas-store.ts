@@ -1,5 +1,5 @@
 /**
- * Semantic Canvas Store
+ * ArchVantage Store
  *
  * Zustand store for managing canvas state including things, links, domains,
  * viewport state, and zoom-level rendering.
@@ -38,6 +38,7 @@ export type ThingType =
     | "vocal_note"
     | "form_tool"
     | "spreadsheet"
+    | "gap_analysis_tool"
     | "trade_off_matrix";
 
 /**

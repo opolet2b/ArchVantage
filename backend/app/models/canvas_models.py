@@ -1,7 +1,7 @@
 """
-Semantic Canvas Models
+ArchVantage Models
 
-SQLAlchemy models for the semantic canvas feature that transforms
+SQLAlchemy models for the ArchVantage feature that transforms
 the chat interface into a spatial knowledge canvas.
 
 PEP 8 Compliant
@@ -63,6 +63,7 @@ class ThingType(str, Enum):
     VOCAL_NOTE = "vocal_note"
     FORM_TOOL = "form_tool"
     SPREADSHEET = "spreadsheet"
+    GAP_ANALYSIS_TOOL = "gap_analysis_tool"
     TRADE_OFF_MATRIX = "trade_off_matrix"
     ARCHITECTURE_MEMO = "architecture_memo"
 
@@ -97,7 +98,7 @@ class LinkType(str, Enum):
 
 class Canvas(Base):
     """
-    A semantic canvas - an infinite spatial workspace.
+    An ArchVantage canvas - an infinite spatial workspace.
     
     Each user can have multiple canvases, each containing
     things that can be linked and grouped into domains.

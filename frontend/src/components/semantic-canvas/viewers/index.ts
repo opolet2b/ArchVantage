@@ -30,3 +30,4 @@ export { AgentToolViewer } from "./agent-tool-viewer";
 export { CollaboraViewer } from "./collabora-viewer";
 export { TradeOffMatrixViewer } from "./trade-off-matrix-viewer";
 export { ArchitectureMemoViewer } from "./architecture-memo-viewer";
+export { GapAnalysisToolViewer } from "./gap-analysis-tool-viewer";

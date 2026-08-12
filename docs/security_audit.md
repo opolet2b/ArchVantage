@@ -7,7 +7,7 @@
 ---
 
 ## 1. Executive Summary
-The Semantic Canvas project implements a multi-layered authorization system based on **JWT Authentication** and **Role-Based Access Control (RBAC)**. While core mechanisms for User and Role management are solid, several gaps exist in resource-level authorization (Tools) and sharing logic (Assets).
+The ArchVantage project implements a multi-layered authorization system based on **JWT Authentication** and **Role-Based Access Control (RBAC)**. While core mechanisms for User and Role management are solid, several gaps exist in resource-level authorization (Tools) and sharing logic (Assets).
 
 ---
 

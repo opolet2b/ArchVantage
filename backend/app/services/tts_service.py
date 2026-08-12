@@ -95,7 +95,7 @@ class TtsService:
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "HTTP-Referer": "https://semantic-canvas.ai", # Required by some OpenRouter providers
-                "X-Title": "Semantic Canvas",
+                "X-Title": "ArchVantage",
                 "Content-Type": "application/json"
             }
             print(f"[TtsService] Sending OpenAI TTS request: model={model}, voice={voice}, speed={speed}, format={config.get('response_format', 'mp3')}")

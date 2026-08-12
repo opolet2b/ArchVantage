@@ -52,7 +52,10 @@ import {
     Cloud,
     Info,
     Volume2,
-    Mic
+    Mic,
+    Import,
+    FileDiff,
+    TableProperties
 } from "lucide-react";
 
 import { cn, API_URL } from "@/lib/utils";
@@ -81,7 +84,8 @@ import {
     MarkdownToolbar,
     AgentToolViewer,
     CollaboraViewer,
-    InboundDataMapper
+    InboundDataMapper,
+    GapAnalysisToolViewer
 } from "../viewers";
 import { DocumentViewer } from "../viewers/document-viewer";
 import { ImageSlidesViewer } from "../viewers/image-slides-viewer";
@@ -160,6 +164,11 @@ const thingIcons: Record<string, React.ElementType> = {
     agent_result: Bot,
     url: LinkIcon,
     slideshow: Presentation,
+    archimate: Layout,
+    archimate_tool: Import,
+    gap_analysis_tool: FileDiff,
+    trade_off_matrix: TableProperties,
+    architecture_memo: FileText,
 };
 
 // =============================================================================
@@ -244,6 +253,41 @@ const thingColors: Record<string, ThingColorTheme> = {
         iconColor: "text-sky-600",
         borderSelected: "border-sky-500",
         handleColor: "!bg-sky-500",
+    },
+    archimate: {
+        headerBg: "bg-gradient-to-r from-indigo-50 to-purple-50",
+        headerBgDark: "dark:from-indigo-900/20 dark:to-purple-900/20",
+        iconColor: "text-indigo-600",
+        borderSelected: "border-indigo-500",
+        handleColor: "!bg-indigo-500",
+    },
+    archimate_tool: {
+        headerBg: "bg-gradient-to-r from-slate-50 to-slate-100",
+        headerBgDark: "dark:from-slate-800/20 dark:to-slate-700/20",
+        iconColor: "text-slate-600",
+        borderSelected: "border-slate-500",
+        handleColor: "!bg-slate-500",
+    },
+    gap_analysis_tool: {
+        headerBg: "bg-gradient-to-r from-slate-50 to-slate-100",
+        headerBgDark: "dark:from-slate-800/20 dark:to-slate-700/20",
+        iconColor: "text-slate-600",
+        borderSelected: "border-slate-500",
+        handleColor: "!bg-slate-500",
+    },
+    trade_off_matrix: {
+        headerBg: "bg-gradient-to-r from-amber-50 to-yellow-50",
+        headerBgDark: "dark:from-amber-900/20 dark:to-yellow-900/20",
+        iconColor: "text-amber-600",
+        borderSelected: "border-amber-500",
+        handleColor: "!bg-amber-500",
+    },
+    architecture_memo: {
+        headerBg: "bg-gradient-to-r from-amber-50 to-yellow-50",
+        headerBgDark: "dark:from-amber-900/20 dark:to-yellow-900/20",
+        iconColor: "text-amber-600",
+        borderSelected: "border-amber-500",
+        handleColor: "!bg-amber-500",
     },
 };
 
@@ -354,6 +398,7 @@ const getCollaboraConfig = () => {
 export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNodeData>) {
     const { id, data, selected: isSelected } = props;
     console.log(`[ThingNode] Rendering ${id}`, { type: data.thing?.type, zoomLevel: data.zoomLevel });
+
     const { toast } = useToast();
     const hiddenNodeLinks = useCanvasStore(state => state.hiddenNodeLinks);
     const toggleNodeLinks = useCanvasStore(state => state.toggleNodeLinks);
@@ -1962,6 +2007,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                         <ArchiMateToolViewer thing={thing} links={links} />
                     </SelectableContent>
                 );
+
+            case "gap_analysis_tool":
+                return <GapAnalysisToolViewer thing={thing} links={links} />;
 
             case "archimate_element":
                 return <ArchiMateElementViewer thing={thing} />;

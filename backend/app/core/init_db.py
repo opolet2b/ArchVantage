@@ -514,7 +514,7 @@ def init_db(db: Session) -> None:
         print("Seeding 'Vanilla' system scenario...")
         vanilla = Scenario(
             name="Vanilla",
-            description="Standard Semantic Canvas without specialized domains.",
+            description="Standard ArchVantage without specialized domains.",
             icon="box",
             theme_color="#64748b", # Slate-500
             is_default=True,

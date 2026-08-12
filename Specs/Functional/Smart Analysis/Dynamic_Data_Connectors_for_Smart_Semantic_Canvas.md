@@ -1,4 +1,4 @@
-# **Specifications: Dynamic Data Connectors for Smart Semantic Canvas**
+# **Specifications: Dynamic Data Connectors for Smart ArchVantage**
 
 ## **1\. Executive Summary**
 

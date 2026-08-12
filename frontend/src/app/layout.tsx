@@ -9,7 +9,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Semantic Canvas",
+  title: "ArchVantage",
   description: "Spatial computing platform for AI-driven insights and automation.",
 };
 

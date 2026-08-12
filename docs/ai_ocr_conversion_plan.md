@@ -46,7 +46,7 @@ Based on technical constraints, the following architectural decisions have been 
 
 ### Phase 3: Frontend Tool Integration
 1. **Tool Registration**:
-   - Register the OCR conversion tool in the Semantic Canvas environment (`ToolList`).
+   - Register the OCR conversion tool in the ArchVantage environment (`ToolList`).
 2. **User Interface**:
    - A modal/form to upload the document.
    - A progress view showing a **Progress Bar** and an **Estimated Time Left**.

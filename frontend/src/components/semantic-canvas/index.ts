@@ -1,7 +1,7 @@
 /**
- * Semantic Canvas Components Export
+ * ArchVantage Components Export
  *
- * Re-exports all semantic canvas components for easy imports.
+ * Re-exports all ArchVantage components for easy imports.
  */
 export { CanvasView } from "./canvas-view";
 

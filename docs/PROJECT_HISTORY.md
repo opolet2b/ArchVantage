@@ -580,7 +580,7 @@ _No specifications found._
 
 ### 3. Tasks & Status
 ```markdown
-# Semantic Canvas Implementation
+# ArchVantage Implementation
 
 ## Backend
 - [x] Canvas data models (Canvas, CanvasThing, CanvasLink, Domain)

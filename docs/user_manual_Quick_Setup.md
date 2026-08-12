@@ -1,6 +1,6 @@
-# 📘 Semantic Canvas User Manual
+# 📘 ArchVantage User Manual
 
-Welcome to **Semantic Canvas**, a powerful spatial orchestrator for AI agents and knowledge management. This guide will help you get started from scratch.
+Welcome to **ArchVantage**, a powerful spatial orchestrator for AI agents and knowledge management. This guide will help you get started from scratch.
 
 ---
 

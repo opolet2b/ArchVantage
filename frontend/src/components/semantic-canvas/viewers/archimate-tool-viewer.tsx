@@ -2,9 +2,11 @@ import React, { useRef, useMemo, useEffect } from 'react';
 import { UploadCloud, Link as LinkIcon } from 'lucide-react';
 import { useCanvasStore, CanvasThing } from '../canvas-store';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { parseArchimateXml, ParsedArchimate, ArchimateNodeData } from '../services/archimate-parser';
 import { cn } from '@/lib/utils';
-import ReactFlow, { Background, Controls, MiniMap, Node as RFNode, Edge as RFEdge, ReactFlowProvider, MarkerType, Handle, Position, useUpdateNodeInternals } from 'reactflow';
+import ReactFlow, { Background, Controls, MiniMap, Node as RFNode, Edge as RFEdge, ReactFlowProvider, MarkerType, Handle, Position, useUpdateNodeInternals, Panel } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import {
@@ -142,6 +144,13 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
     const [activeDiagramId, setActiveDiagramId] = React.useState<string | null>(null);
     const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
 
+    const [impactModeEnabled, setImpactModeEnabled] = React.useState(false);
+    const [impactAnalysis, setImpactAnalysis] = React.useState<{
+        active: boolean;
+        nodeIds: Set<string>;
+        edgeIds: Set<string>;
+    }>({ active: false, nodeIds: new Set(), edgeIds: new Set() });
+
     const hasData = thing.content && thing.content.archimateData;
     const parsedData = hasData as ParsedArchimate;
 
@@ -204,6 +213,39 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
         return parsedData?.diagrams?.find(d => d.id === activeDiagramId) || parsedData?.diagrams?.[0];
     }, [parsedData, activeDiagramId]);
 
+    const calculateImpact = React.useCallback((startNodeId: string) => {
+        if (!activeDiagram) return;
+        const connectedNodes = new Set<string>([startNodeId]);
+        const connectedEdges = new Set<string>();
+        
+        let newlyAdded = [startNodeId];
+        
+        while (newlyAdded.length > 0) {
+            const nextBatch: string[] = [];
+            
+            activeDiagram.edges.forEach(edge => {
+                if (newlyAdded.includes(edge.source) && !connectedNodes.has(edge.target)) {
+                    connectedEdges.add(edge.id);
+                    connectedNodes.add(edge.target);
+                    nextBatch.push(edge.target);
+                }
+                if (newlyAdded.includes(edge.target) && !connectedNodes.has(edge.source)) {
+                    connectedEdges.add(edge.id);
+                    connectedNodes.add(edge.source);
+                    nextBatch.push(edge.source);
+                }
+            });
+            
+            newlyAdded = nextBatch;
+        }
+        
+        setImpactAnalysis({
+            active: true,
+            nodeIds: connectedNodes,
+            edgeIds: connectedEdges
+        });
+    }, [activeDiagram]);
+
     // Map parsed data to ReactFlow nodes and edges
     const { nodes, edges } = useMemo(() => {
         if (!activeDiagram) return { nodes: [], edges: [] };
@@ -221,11 +263,18 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                 child.bounds.y + child.bounds.height <= n.bounds.y + n.bounds.height
             );
 
+            const isHighlighted = impactAnalysis.active ? impactAnalysis.nodeIds.has(n.id) : true;
+
             return {
                 id: n.id,
                 type: 'archimate',
                 position: { x: n.bounds?.x || 0, y: n.bounds?.y || 0 },
-                style: { width: n.bounds?.width || 120, height: n.bounds?.height || 55 },
+                style: { 
+                    width: n.bounds?.width || 120, 
+                    height: n.bounds?.height || 55,
+                    opacity: impactAnalysis.active ? (isHighlighted ? 1 : 0.2) : 1,
+                    transition: 'opacity 0.3s ease'
+                },
                 data: { 
                     node: n, 
                     isContainer: hasChildren || n.type === 'Group',
@@ -236,22 +285,31 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
             };
         });
 
-        const flowEdges: RFEdge[] = activeDiagram.edges.map(e => ({
-            id: e.id,
-            source: e.source,
-            target: e.target,
-            type: 'straight',
-            markerEnd: {
-                type: MarkerType.ArrowClosed,
-                width: 15,
-                height: 15,
-                color: '#64748b'
-            },
-            style: { stroke: '#64748b', strokeWidth: 1.5 }
-        }));
+        const flowEdges: RFEdge[] = activeDiagram.edges.map(e => {
+            const isHighlighted = impactAnalysis.active ? impactAnalysis.edgeIds.has(e.id) : true;
+            return {
+                id: e.id,
+                source: e.source,
+                target: e.target,
+                type: 'straight',
+                animated: impactAnalysis.active && isHighlighted,
+                markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    width: 15,
+                    height: 15,
+                    color: impactAnalysis.active ? (isHighlighted ? '#3b82f6' : '#cbd5e1') : '#64748b'
+                },
+                style: { 
+                    stroke: impactAnalysis.active ? (isHighlighted ? '#3b82f6' : '#cbd5e1') : '#64748b', 
+                    strokeWidth: impactAnalysis.active && isHighlighted ? 2.5 : 1.5,
+                    transition: 'stroke 0.3s, stroke-width 0.3s, opacity 0.3s',
+                    opacity: impactAnalysis.active && !isHighlighted ? 0.3 : 1
+                }
+            };
+        });
 
         return { nodes: flowNodes, edges: flowEdges };
-    }, [activeDiagram]);
+    }, [activeDiagram, linkedFragments, impactAnalysis]);
 
     const selectedNodeData = useMemo(() => {
         if (!selectedNodeId || !activeDiagram) return null;
@@ -329,8 +387,18 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                         panOnScroll={false}
                                         zoomOnScroll={true}
                                         noWheelClassName="custom-nowheel"
-                                        onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-                                        onPaneClick={() => setSelectedNodeId(null)}
+                                        onNodeClick={(_, node) => {
+                                            setSelectedNodeId(node.id);
+                                            if (impactModeEnabled) {
+                                                calculateImpact(node.id);
+                                            }
+                                        }}
+                                        onPaneClick={() => {
+                                            setSelectedNodeId(null);
+                                            if (impactModeEnabled) {
+                                                setImpactAnalysis({ active: false, nodeIds: new Set(), edgeIds: new Set() });
+                                            }
+                                        }}
                                         onMove={(event, viewport) => setInnerViewport(viewport)}
                                     >
                                         <Background color="#ccc" gap={16} />
@@ -345,6 +413,27 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                             }} 
                                             maskColor="rgba(0,0,0, 0.1)" 
                                         />
+                                        <Panel position="top-right" className="m-2 bg-white/95 dark:bg-slate-900/95 p-2.5 rounded-md shadow-md border border-slate-200 dark:border-slate-800 flex items-center gap-3 backdrop-blur-sm z-50">
+                                            <div className="flex flex-col">
+                                                <Label htmlFor="archimate-impact-mode" className="text-xs font-bold cursor-pointer text-blue-600 dark:text-blue-400">
+                                                    Impact Analysis
+                                                </Label>
+                                                <span className="text-[9px] text-muted-foreground">Click to trace dependencies</span>
+                                            </div>
+                                            <Switch 
+                                                id="archimate-impact-mode"
+                                                checked={impactModeEnabled}
+                                                onCheckedChange={(c) => {
+                                                    setImpactModeEnabled(c);
+                                                    if (!c) {
+                                                        setImpactAnalysis({ active: false, nodeIds: new Set(), edgeIds: new Set() });
+                                                    } else if (selectedNodeId) {
+                                                        calculateImpact(selectedNodeId);
+                                                    }
+                                                }}
+                                                className="scale-75"
+                                            />
+                                        </Panel>
                                     </ReactFlow>
                                 </ReactFlowProvider>
                             </div>
