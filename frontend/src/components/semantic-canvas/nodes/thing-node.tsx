@@ -3013,7 +3013,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // =============================================================================
     // Iconified Mode - compact icon representation
     // =============================================================================
-    if (thing.iconified) {
+    if (thing.iconified && !(data as any).forceExpanded) {
         const isGhost = thing.content?.is_ghost;
         return (
             <div
@@ -3034,9 +3034,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 }}
                 onDoubleClick={handleDoubleClick}
             >
-                {/* Main type icon - colored by type */}
-                <Icon className={cn("h-8 w-8 mb-1", colorTheme.iconColor)} />
-
                 {/* Restore button - shown when selected */}
                 {(isSelected || selected) && (
                     <button
@@ -3052,40 +3049,45 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     </button>
                 )}
 
-                {/* Connection handles - colored by type */}
-                <Handle
-                    id="target"
-                    type="target"
-                    position={Position.Left}
-                    className={cn("!w-4 !h-4", colorTheme.handleColor)}
-                />
-                <Handle
-                    id="source"
-                    type="source"
-                    position={Position.Right}
-                    className={cn("!w-4 !h-4", colorTheme.handleColor)}
-                />
+                {/* Inner wrapper for Icon and Handles to constrain handle placement */}
+                <div className="relative flex items-center justify-center">
+                    {/* Main type icon - colored by type */}
+                    <Icon className={cn("h-8 w-8", colorTheme.iconColor)} />
 
-                {/* Dynamic invisible source handles for region-based fragment links when iconified */}
-                {(thing.type === "image" || thing.type === "document" || thing.type === "slideshow") &&
-                    links
-                        .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
-                        .map(l => (
-                            <Handle
-                                key={l.id}
-                                id={`fragment-handle-${l.id}`}
-                                type="source"
-                                position={Position.Right}
-                                style={{
-                                    top: "50%",
-                                    left: "100%",
-                                    position: 'absolute',
-                                    transform: 'translate(-50%, -50%)',
-                                    opacity: 0,
-                                    pointerEvents: 'none',
-                                }}
-                            />
-                        ))}
+                    {/* Connection handles - colored by type */}
+                    <Handle
+                        id="target"
+                        type="target"
+                        position={Position.Left}
+                        className={cn("!w-4 !h-4", colorTheme.handleColor)}
+                    />
+                    <Handle
+                        id="source"
+                        type="source"
+                        position={Position.Right}
+                        className={cn("!w-4 !h-4", colorTheme.handleColor)}
+                    />
+                    {/* Dynamic invisible source handles for region-based fragment links when iconified */}
+                    {(thing.type === "image" || thing.type === "document" || thing.type === "slideshow") &&
+                        links
+                            .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
+                            .map(l => (
+                                <Handle
+                                    key={l.id}
+                                    id={`fragment-handle-${l.id}`}
+                                    type="source"
+                                    position={Position.Right}
+                                    style={{
+                                        top: "50%",
+                                        left: "100%",
+                                        position: 'absolute',
+                                        transform: 'translate(-50%, -50%)',
+                                        opacity: 0,
+                                        pointerEvents: 'none',
+                                    }}
+                                />
+                            ))}
+                </div>
 
                 {/* Title Label - Static below icon */}
                 <span className="text-[10px] font-medium text-slate-700 dark:text-slate-300 text-center leading-tight line-clamp-2 w-full px-1">
@@ -3115,7 +3117,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             <div className="flex flex-col items-center gap-10 p-12 whitespace-nowrap group">
                 <div
                     className={cn(
-                        "w-80 h-80 rounded-3xl flex items-center justify-center",
+                        "relative w-80 h-80 rounded-3xl flex items-center justify-center",
                         "bg-white dark:bg-slate-800 border-8 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] transition-transform duration-300",
                         isSelected
                             ? `${colorTheme.borderSelected} ring-8 ring-offset-8 ring-blue-500 scale-105`
@@ -3127,6 +3129,45 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                 >
                     {/* Massive 320px Icon (20x 16px) */}
                     <Icon className={cn("h-60 w-60", colorTheme.iconColor)} />
+                    <Handle
+                        id="target"
+                        type="target"
+                        position={Position.Left}
+                        className={cn(
+                            "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                            isSelected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                        )}
+                    />
+                    <Handle
+                        id="source"
+                        type="source"
+                        position={Position.Right}
+                        className={cn(
+                            "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
+                            isSelected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
+                        )}
+                    />
+
+                    {/* Dynamic invisible source handles for region-based fragment links in domain view */}
+                    {(thing.type === "image" || thing.type === "document" || thing.type === "slideshow") &&
+                        links
+                            .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
+                            .map(l => (
+                                <Handle
+                                    key={l.id}
+                                    id={`fragment-handle-${l.id}`}
+                                    type="source"
+                                    position={Position.Right}
+                                    style={{
+                                        top: "50%",
+                                        left: "100%",
+                                        position: 'absolute',
+                                        transform: 'translate(-50%, -50%)',
+                                        opacity: 0,
+                                        pointerEvents: 'none',
+                                    }}
+                                />
+                            ))}
                 </div>
 
                 {/* Massive Title for visibility at extreme distances - Refined 3rem Non-Bold */}
@@ -3136,45 +3177,6 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     </div>
                 </div>
 
-                <Handle
-                    id="target"
-                    type="target"
-                    position={Position.Left}
-                    className={cn(
-                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
-                        isSelected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
-                    )}
-                />
-                <Handle
-                    id="source"
-                    type="source"
-                    position={Position.Right}
-                    className={cn(
-                        "!w-4 !h-4 !bg-orange-500 border-2 border-white dark:border-slate-950 transition-opacity",
-                        isSelected ? "opacity-100" : "opacity-30 group-hover:opacity-100"
-                    )}
-                />
-
-                {/* Dynamic invisible source handles for region-based fragment links in domain view */}
-                {(thing.type === "image" || thing.type === "document" || thing.type === "slideshow") &&
-                    links
-                        .filter(l => l.source_id === thing.id && l.source_fragment?.type === "region")
-                        .map(l => (
-                            <Handle
-                                key={l.id}
-                                id={`fragment-handle-${l.id}`}
-                                type="source"
-                                position={Position.Right}
-                                style={{
-                                    top: "50%",
-                                    left: "100%",
-                                    position: 'absolute',
-                                    transform: 'translate(-50%, -50%)',
-                                    opacity: 0,
-                                    pointerEvents: 'none',
-                                }}
-                            />
-                        ))}
             </div>
         );
     }

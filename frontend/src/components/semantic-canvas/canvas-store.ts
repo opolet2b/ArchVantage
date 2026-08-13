@@ -504,6 +504,21 @@ interface CanvasState {
     setHighlightTarget: (target: any[] | null) => void;
     flyToNode: (thingId: string) => void;
 
+    // Left Panel & Grid Mode state
+    leftPanelCollapsed: boolean;
+    setLeftPanelCollapsed: (collapsed: boolean) => void;
+    leftPanelPinned: boolean;
+    setLeftPanelPinned: (pinned: boolean) => void;
+    favoriteNodeIds: Record<string, boolean>;
+    toggleFavoriteNode: (id: string) => void;
+    selectedGridNodeIds: Record<string, boolean>;
+    toggleSelectedGridNode: (id: string) => void;
+    setSelectedGridNodes: (ids: Record<string, boolean>) => void;
+    gridModeActive: boolean;
+    setGridModeActive: (active: boolean) => void;
+    gridLayoutMode: "auto" | "horizontal" | "vertical";
+    setGridLayoutMode: (mode: "auto" | "horizontal" | "vertical") => void;
+
     // Actions
     loadCanvas: (canvasId: string) => Promise<void>;
     createCanvas: (name: string) => Promise<string | null>;
@@ -692,6 +707,31 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     selectedDomainIds: [],
     selectionMode: "hand", // Default to hand (pan) for better touch/trackpad experience
     setSelectionMode: (mode) => set({ selectionMode: mode }),
+
+    // Left Panel & Grid Mode state
+    leftPanelCollapsed: false,
+    setLeftPanelCollapsed: (collapsed) => set({ leftPanelCollapsed: collapsed }),
+    leftPanelPinned: false, // Default to floating (false), user can pin it (true)
+    setLeftPanelPinned: (pinned) => set({ leftPanelPinned: pinned }),
+    favoriteNodeIds: {},
+    toggleFavoriteNode: (id) => set((state) => ({
+        favoriteNodeIds: {
+            ...state.favoriteNodeIds,
+            [id]: !state.favoriteNodeIds[id]
+        }
+    })),
+    selectedGridNodeIds: {},
+    toggleSelectedGridNode: (id) => set((state) => ({
+        selectedGridNodeIds: {
+            ...state.selectedGridNodeIds,
+            [id]: !state.selectedGridNodeIds[id]
+        }
+    })),
+    setSelectedGridNodes: (ids) => set({ selectedGridNodeIds: ids }),
+    gridModeActive: false,
+    setGridModeActive: (active) => set({ gridModeActive: active }),
+    gridLayoutMode: "auto",
+    setGridLayoutMode: (mode) => set({ gridLayoutMode: mode }),
 
     // Grid System
     snapToGrid: false, // Default to off
