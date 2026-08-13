@@ -65,6 +65,8 @@ import { CanvasContextMenu } from "./canvas-context-menu";
 
 import { useToast } from "@/components/ui/use-toast";
 import { CanvasPalette } from "./canvas-palette";
+import { CanvasLeftPanel } from "./canvas-left-panel";
+import { CanvasGridView } from "./canvas-grid-view";
 import { InspectorPanel } from "./inspector-panel";
 import { OCRConversionDialog } from "./ocr-conversion-dialog";
 import {
@@ -151,6 +153,8 @@ function CanvasViewInner() {
     const sidebarCollapsed = useCanvasStore(s => s.sidebarCollapsed);
     const snapToGrid = useCanvasStore(s => s.snapToGrid); // Grid System
     const accessLevel = useCanvasStore((s) => s.accessLevel);
+    const gridModeActive = useCanvasStore(s => s.gridModeActive);
+    const selectedGridNodeIds = useCanvasStore(s => s.selectedGridNodeIds);
     const isReadOnly = accessLevel === "read";
 
     // Actions
@@ -331,28 +335,35 @@ function CanvasViewInner() {
     }, [things, links, deleteThing]);
 
     // Convert things to React Flow nodes (memoized)
-    const thingNodes: Node[] = React.useMemo(() => things.map((thing) => ({
-        id: thing.id,
-        type: thing.type === "sticky" ? "sticky" : thing.type === "workflow" ? "workflow" : thing.type === "vocal_note" ? "vocal_note" : "thing",
-        selected: selectedThingIds.includes(thing.id),
-        position: { x: thing.position_x, y: thing.position_y },
-        data: {
-            thing,
-            zoomLevel,
-            isSelected: selectedThingIds.includes(thing.id),
-            onOpenConversation: handleOpenConversation,
-            onToggleIconify: toggleIconify,
-            onDelete: handleSafeDeleteThing,
-            onResizeEnd: handleThingResize,
-        },
-        draggable: true,
-        zIndex: thing.z_index ?? 0, // Use stored z_index
-        // Include width/height if thing has been resized or use default for heavy types (skip for iconified)
-        style: (!thing.iconified && useCanvasStore.getState().zoomLevel !== "domain") ? {
-            width: thing.width ?? 400, // Default width if not set to prevent auto-resize to content
-            height: thing.height ?? 300, // Default height if not set to prevent auto-resize to content
-        } : undefined,
-    })), [things, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing, handleThingResize]);
+    const thingNodes: Node[] = React.useMemo(() => {
+        const hasSelectedGridNodes = Object.values(selectedGridNodeIds).some(Boolean);
+        const visibleThings = (!gridModeActive && hasSelectedGridNodes) 
+            ? things.filter(t => selectedGridNodeIds[t.id]) 
+            : things;
+
+        return visibleThings.map((thing) => ({
+            id: thing.id,
+            type: thing.type === "sticky" ? "sticky" : thing.type === "workflow" ? "workflow" : thing.type === "vocal_note" ? "vocal_note" : "thing",
+            selected: selectedThingIds.includes(thing.id),
+            position: { x: thing.position_x, y: thing.position_y },
+            data: {
+                thing,
+                zoomLevel,
+                isSelected: selectedThingIds.includes(thing.id),
+                onOpenConversation: handleOpenConversation,
+                onToggleIconify: toggleIconify,
+                onDelete: handleSafeDeleteThing,
+                onResizeEnd: handleThingResize,
+            },
+            draggable: true,
+            zIndex: thing.z_index ?? 0, // Use stored z_index
+            // Include width/height if thing has been resized or use default for heavy types (skip for iconified)
+            style: (!thing.iconified && useCanvasStore.getState().zoomLevel !== "domain") ? {
+                width: thing.width ?? 400, // Default width if not set to prevent auto-resize to content
+                height: thing.height ?? 300, // Default height if not set to prevent auto-resize to content
+            } : undefined,
+        }));
+    }, [things, gridModeActive, selectedGridNodeIds, zoomLevel, selectedThingIds, handleOpenConversation, toggleIconify, deleteThing, handleThingResize]);
 
     // Handle domain update (name, description, color)
     const handleDomainUpdate = React.useCallback((domainId: string, updates: { name?: string; description?: string; color?: string }) => {
@@ -670,6 +681,10 @@ function CanvasViewInner() {
     React.useEffect(() => {
         setEdges(allEdges);
     }, [allEdges, setEdges]);
+
+    React.useEffect(() => {
+        setNodes(allNodes);
+    }, [allNodes, setNodes]);
 
     // Handle navigation to specific node via URL param
     React.useEffect(() => {
@@ -2961,6 +2976,9 @@ function CanvasViewInner() {
 
                     {/* Middle Section (Left Dock + Canvas + Right Dock) */}
                     <div className="flex-1 flex flex-row overflow-hidden relative">
+                        
+                        <CanvasLeftPanel />
+
                         {/* Left Docked Content */}
                         {dockedThingId && dockPosition === 'left' && (
                             <>
@@ -3003,7 +3021,8 @@ function CanvasViewInner() {
                             onDragLeave={isReadOnly ? undefined : handleDragLeave}
                             onDrop={isReadOnly ? undefined : handleFileDrop}
                         >
-                            {/* Drop zone overlay */}
+                            <div className="absolute inset-0 z-0" style={{ display: gridModeActive ? 'none' : 'block' }}>
+                                {/* Drop zone overlay */}
                             {isDraggingFile && !isReadOnly && (
                                 <div className="absolute inset-0 flex items-center justify-center z-50 pointer-events-none">
                                     <div className="bg-blue-500 text-white px-6 py-3 rounded-lg shadow-lg text-lg font-medium">
@@ -3104,14 +3123,21 @@ function CanvasViewInner() {
                                 onConfirm={handleAddWorkflow}
                             />
 
-                            <CanvasContextMenu
-                                isOpen={contextMenuOpen}
-                                position={contextMenuPosition}
-                                context={contextMenuContext}
-                                domainId={contextMenuDomainId}
-                                onClose={() => setContextMenuOpen(false)}
-                                onAction={handleContextMenuAction}
-                            />
+                                <CanvasContextMenu
+                                    isOpen={contextMenuOpen}
+                                    position={contextMenuPosition}
+                                    context={contextMenuContext}
+                                    domainId={contextMenuDomainId}
+                                    onClose={() => setContextMenuOpen(false)}
+                                    onAction={handleContextMenuAction}
+                                />
+                            </div>
+                            
+                            {gridModeActive && (
+                                <div className="absolute inset-0 z-10">
+                                    <CanvasGridView />
+                                </div>
+                            )}
                         </div>
 
                         {/* Right Docked Content (Inside Palette) */}

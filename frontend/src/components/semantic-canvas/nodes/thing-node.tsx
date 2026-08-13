@@ -2935,7 +2935,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // =============================================================================
     // Iconified Mode - compact icon representation
     // =============================================================================
-    if (thing.iconified) {
+    if (thing.iconified && !(data as any).forceExpanded) {
         const isGhost = thing.content?.is_ghost;
         return (
             <div
