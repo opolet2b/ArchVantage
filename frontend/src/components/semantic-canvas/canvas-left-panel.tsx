@@ -95,6 +95,13 @@ export function CanvasLeftPanel() {
         setSelectedGridNodes(newSelected);
     };
 
+    const selectAllRef = React.useRef<HTMLButtonElement>(null);
+    React.useEffect(() => {
+        if (selectAllRef.current) {
+            (selectAllRef.current as any).indeterminate = someSelected;
+        }
+    }, [someSelected]);
+
     if (leftPanelCollapsed) {
         return (
             <div className="z-[40] transition-all duration-300 relative flex items-center h-full border-r dark:border-slate-800 bg-white dark:bg-slate-900 shadow-md">
@@ -137,8 +144,8 @@ export function CanvasLeftPanel() {
                         <span className="text-sm font-medium">Grid Mode</span>
                     </div>
                     <Switch 
-                        checked={gridModeActive} 
-                        onCheckedChange={setGridModeActive} 
+                        checked={!!gridModeActive} 
+                        onCheckedChange={(checked) => setGridModeActive(!!checked)} 
                     />
                 </div>
 
@@ -206,8 +213,7 @@ export function CanvasLeftPanel() {
                 <div className="flex items-center gap-2">
                     <Checkbox 
                         checked={allSelected}
-                        // @ts-ignore
-                        ref={ref => { if (ref) ref.indeterminate = someSelected }}
+                        ref={selectAllRef}
                         onCheckedChange={handleSelectAll}
                     />
                     <span className="text-xs font-medium text-muted-foreground">Select All</span>

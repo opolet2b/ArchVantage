@@ -1874,6 +1874,39 @@ function CanvasViewInner() {
                         color
                     );
                     break;
+                case "time_matrix_tool":
+                    await addThing(
+                        "time_matrix_tool",
+                        {},
+                        position,
+                        800, // width
+                        500, // height
+                        "TIME Matrix Analysis", // title
+                        color
+                    );
+                    break;
+                case "scenario_simulator_tool":
+                    await addThing(
+                        "scenario_simulator_tool",
+                        {},
+                        position,
+                        800, // width
+                        600, // height
+                        "Scenario Simulator", // title
+                        color
+                    );
+                    break;
+                case "executive_summary_tool":
+                    await addThing(
+                        "executive_summary_tool",
+                        {},
+                        position,
+                        1000, // width
+                        650, // height
+                        "Executive Summary Deck", // title
+                        color
+                    );
+                    break;
             }
             return;
         }

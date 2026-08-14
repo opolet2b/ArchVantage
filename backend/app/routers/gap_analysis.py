@@ -12,6 +12,7 @@ router = APIRouter(
 class GapAnalysisRequest(BaseModel):
     baseline_docs: List[str]
     target_docs: List[str]
+    llm_preset: str = "default"
 
 @router.post("/run")
 async def run_gap_analysis(request: GapAnalysisRequest):
@@ -22,6 +23,7 @@ async def run_gap_analysis(request: GapAnalysisRequest):
         result = graph.invoke({
             "baseline_docs": request.baseline_docs,
             "target_docs": request.target_docs,
+            "llm_preset": request.llm_preset,
             "baseline_facts": [],
             "target_facts": [],
             "diff_results": {},

@@ -67,7 +67,10 @@ export type ToolType =
     | "trade_off_matrix"
     | "architecture_memo"
     | "kb_document"
-    | "gap_analysis_tool";
+    | "time_matrix_tool"
+    | "gap_analysis_tool"
+    | "scenario_simulator_tool"
+    | "executive_summary_tool";
 
 export interface CanvasTool {
     id: ToolType;
@@ -205,6 +208,24 @@ const ALL_CANVAS_TOOLS: CanvasTool[] = [
         icon: <GitBranch className="h-4 w-4" />,
         description: "Instantiate an interactive automation process"
     },
+    {
+        id: "time_matrix_tool",
+        name: "TIME Matrix",
+        icon: <TableProperties className="h-4 w-4" />,
+        description: "App Portfolio Rationalization"
+    },
+    {
+        id: "scenario_simulator_tool",
+        name: "Scenario Simulator",
+        icon: <FileDiff className="h-4 w-4" />,
+        description: "Dynamic What-If Architecture Simulator"
+    },
+    {
+        id: "executive_summary_tool",
+        name: "Executive Summary",
+        icon: <Presentation className="h-4 w-4" />,
+        description: "Generate C-Level presentation decks"
+    },
 ];
 
 export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
@@ -222,7 +243,10 @@ export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
         case "form_tool": return FEATURES.enableForms;
         case "spreadsheet": return FEATURES.enableSpreadsheet;
         case "trade_off_matrix":
-        case "architecture_memo": return FEATURES.enableArchitectureTools;
+        case "architecture_memo":
+        case "time_matrix_tool":
+        case "scenario_simulator_tool":
+        case "executive_summary_tool": return FEATURES.enableArchitectureTools;
         default: return true;
     }
 });
@@ -267,12 +291,15 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     mcp_tool: "#f1f5f9",
     archimate_tool: "#f1f5f9",
     gap_analysis_tool: "#f1f5f9",
+    scenario_simulator_tool: "#f1f5f9",
     agent_tool: "#e0e7ff",
     ocr_conversion: "#fce7f3",
     form_tool: "#fdf4ff",
     spreadsheet: "#f0fdf4",
     trade_off_matrix: "#fef3c7",
     architecture_memo: "#fef3c7",
+    time_matrix_tool: "#fef3c7",
+    executive_summary_tool: "#fef3c7",
 
     // Workflow - Violet
     workflow: "#f5f3ff",

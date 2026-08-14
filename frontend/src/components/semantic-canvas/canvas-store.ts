@@ -39,7 +39,8 @@ export type ThingType =
     | "form_tool"
     | "spreadsheet"
     | "gap_analysis_tool"
-    | "trade_off_matrix";
+    | "trade_off_matrix"
+    | "scenario_simulator_tool";
 
 /**
  * Types of relationships between things.
@@ -709,7 +710,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     setSelectionMode: (mode) => set({ selectionMode: mode }),
 
     // Left Panel & Grid Mode state
-    leftPanelCollapsed: false,
+    leftPanelCollapsed: true,
     setLeftPanelCollapsed: (collapsed) => set({ leftPanelCollapsed: collapsed }),
     leftPanelPinned: false, // Default to floating (false), user can pin it (true)
     setLeftPanelPinned: (pinned) => set({ leftPanelPinned: pinned }),

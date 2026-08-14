@@ -85,7 +85,8 @@ import {
     AgentToolViewer,
     CollaboraViewer,
     InboundDataMapper,
-    GapAnalysisToolViewer
+    GapAnalysisToolViewer,
+    ScenarioSimulatorViewer
 } from "../viewers";
 import { DocumentViewer } from "../viewers/document-viewer";
 import { ImageSlidesViewer } from "../viewers/image-slides-viewer";
@@ -167,6 +168,7 @@ const thingIcons: Record<string, React.ElementType> = {
     archimate: Layout,
     archimate_tool: Import,
     gap_analysis_tool: FileDiff,
+    scenario_simulator_tool: FileDiff,
     trade_off_matrix: TableProperties,
     architecture_memo: FileText,
 };
@@ -274,6 +276,13 @@ const thingColors: Record<string, ThingColorTheme> = {
         iconColor: "text-slate-600",
         borderSelected: "border-slate-500",
         handleColor: "!bg-slate-500",
+    },
+    scenario_simulator_tool: {
+        headerBg: "bg-gradient-to-r from-indigo-50 to-indigo-100",
+        headerBgDark: "dark:from-indigo-900/20 dark:to-indigo-800/20",
+        iconColor: "text-indigo-600",
+        borderSelected: "border-indigo-500",
+        handleColor: "!bg-indigo-500",
     },
     trade_off_matrix: {
         headerBg: "bg-gradient-to-r from-amber-50 to-yellow-50",
@@ -1979,7 +1988,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         // 1. Check Plugin Registry First
         const CustomViewer = canvasPluginRegistry.getViewer(type);
         if (CustomViewer) {
-            return <CustomViewer thing={thing} />;
+            return <CustomViewer thing={thing} links={links} />;
         }
 
         // 2. Fall back to core switch
@@ -2010,6 +2019,9 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
 
             case "gap_analysis_tool":
                 return <GapAnalysisToolViewer thing={thing} links={links} />;
+
+            case "scenario_simulator_tool":
+                return <ScenarioSimulatorViewer thing={thing} links={links} />;
 
             case "archimate_element":
                 return <ArchiMateElementViewer thing={thing} />;

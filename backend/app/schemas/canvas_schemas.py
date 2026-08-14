@@ -40,6 +40,9 @@ class ThingType(str, Enum):
     GAP_ANALYSIS_TOOL = "gap_analysis_tool"
     TRADE_OFF_MATRIX = "trade_off_matrix"
     ARCHITECTURE_MEMO = "architecture_memo"
+    TIME_MATRIX_TOOL = "time_matrix_tool"
+    SCENARIO_SIMULATOR_TOOL = "scenario_simulator_tool"
+    EXECUTIVE_SUMMARY_TOOL = "executive_summary_tool"
 
 
 class LinkType(str, Enum):

@@ -31,3 +31,6 @@ export { CollaboraViewer } from "./collabora-viewer";
 export { TradeOffMatrixViewer } from "./trade-off-matrix-viewer";
 export { ArchitectureMemoViewer } from "./architecture-memo-viewer";
 export { GapAnalysisToolViewer } from "./gap-analysis-tool-viewer";
+export { TimeMatrixViewer } from "./time-matrix-viewer";
+export { ScenarioSimulatorViewer } from "./scenario-simulator-viewer";
+export { ExecutiveSummaryViewer } from "./executive-summary-viewer";

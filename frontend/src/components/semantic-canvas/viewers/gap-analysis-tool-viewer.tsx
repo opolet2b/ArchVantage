@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UploadCloud, FileDiff, Play, FileText, CheckCircle2, ArrowRight } from 'lucide-react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
+import { ArchiMateToolViewer } from './archimate-tool-viewer';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -18,9 +19,19 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
     const accessLevel = useCanvasStore(state => state.accessLevel);
     const things = useCanvasStore(state => state.things);
     const isReadOnly = accessLevel === "read";
+    const selectedModel = useCanvasStore(state => state.selectedModel);
 
-    const [status, setStatus] = useState<'idle' | 'analyzing' | 'completed'>('idle');
-    const [report, setReport] = useState<any>(null);
+    const [status, setStatus] = useState<'idle' | 'analyzing' | 'completed'>(thing.content?.status || 'idle');
+    const [report, setReport] = useState<any>(thing.content?.report || null);
+
+    React.useEffect(() => {
+        if (thing.content?.report !== undefined) {
+            setReport(thing.content.report);
+        }
+        if (thing.content?.status !== undefined) {
+            setStatus(thing.content.status);
+        }
+    }, [thing.content?.report, thing.content?.status]);
 
     // Compute linked documents dynamically from links pointing to/from this tool
     const linkedThings = links
@@ -33,11 +44,17 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
 
     const documentRoles = thing.custom_metadata?.document_roles || {};
 
-    const documents = linkedThings.map(t => ({
-        id: t.id,
-        name: t.title || t.id,
-        role: (documentRoles[t.id] as DocumentRole) || 'none'
-    }));
+    const documents = linkedThings.map(t => {
+        const textContent = typeof t.content?.text === 'string' ? t.content.text : 
+                            typeof t.content?.content === 'string' ? t.content.content : 
+                            JSON.stringify(t.content);
+        return {
+            id: t.id,
+            name: t.title || t.id,
+            role: (documentRoles[t.id] as DocumentRole) || 'none',
+            content: textContent
+        };
+    });
 
     const toggleRole = (id: string, type: 'baseline' | 'target', checked: boolean) => {
         const currentRole = (documentRoles[id] as DocumentRole) || 'none';
@@ -65,9 +82,10 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
 
     const runAnalysis = async () => {
         setStatus('analyzing');
+        updateThing(thing.id, { content: { ...thing.content, status: 'analyzing' } });
         
-        const baselineDocs = documents.filter(d => d.role === 'baseline' || d.role === 'both').map(d => d.name);
-        const targetDocs = documents.filter(d => d.role === 'target' || d.role === 'both').map(d => d.name);
+        const baselineDocs = documents.filter(d => d.role === 'baseline' || d.role === 'both').map(d => d.content || d.name);
+        const targetDocs = documents.filter(d => d.role === 'target' || d.role === 'both').map(d => d.content || d.name);
 
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/gap_analysis/run`, {
@@ -75,16 +93,26 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     baseline_docs: baselineDocs,
-                    target_docs: targetDocs
+                    target_docs: targetDocs,
+                    llm_preset: selectedModel || 'default'
                 })
             });
             if (!res.ok) throw new Error("API Request Failed");
             const data = await res.json();
             setReport(data.report);
             setStatus('completed');
+            
+            updateThing(thing.id, {
+                content: {
+                    ...thing.content,
+                    report: data.report,
+                    status: 'completed'
+                }
+            });
         } catch (error) {
             console.error("Analysis Failed:", error);
             setStatus('idle');
+            updateThing(thing.id, { content: { ...thing.content, status: 'idle' } });
             alert("Analysis failed. See console for details.");
         }
     };
@@ -223,14 +251,26 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
                                 )}
                             </ul>
                             
-                            <div className="mt-8">
-                                <h3 className="font-semibold text-slate-700 border-b pb-2 mb-4">Visual Diff (Mock)</h3>
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-lg flex items-center justify-center border border-dashed border-slate-300">
-                                    <p className="text-sm text-slate-400 text-center">
-                                        Archimate Diagram Diff will be rendered here.<br/>
-                                        (Using ArchiMateToolViewer engine)
-                                    </p>
-                                </div>
+                            <div className="mt-8 pb-8">
+                                <h3 className="font-semibold text-slate-700 border-b pb-2 mb-4">Visual Diff</h3>
+                                {report?.archimate_diff_json ? (
+                                    <div className="h-[500px] w-full border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden relative">
+                                        <ArchiMateToolViewer 
+                                            thing={{
+                                                ...thing,
+                                                id: thing.id + "_diagram",
+                                                content: { archimateData: report.archimate_diff_json }
+                                            } as any} 
+                                            links={[]} 
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-8 rounded-lg flex items-center justify-center border border-dashed border-slate-300">
+                                        <p className="text-sm text-slate-400 text-center">
+                                            No diagram data available.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
