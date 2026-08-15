@@ -63,3 +63,7 @@ Videos/
 *.tar
 docker_pack/
 docker_build_log*.txt
+
+# Database files
+sql_app.db-wal
+sql_app.db-shm
