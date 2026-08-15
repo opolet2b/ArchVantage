@@ -3875,8 +3875,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                 </DropdownMenuContent>
                             </DropdownMenu>
 
-                            {/* Iconify button - shown when selected */}
-                            {/* Iconify button - Always rendered to reserve space, control visibility via opacity */}
+                            {/* Iconify button */}
                             {!isReadOnly && (
                                 <button
                                     onClick={(e) => {
@@ -3884,16 +3883,15 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         handleToggleIconify(e);
                                     }}
                                     className={cn(
-                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200 opacity-100"
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200 opacity-100 text-slate-500"
                                     )}
                                     title="Reduce to icon"
-                                    tabIndex={(isSelected || selected) ? 0 : -1}
                                 >
-                                    <Minimize2 className="h-4 w-4 text-slate-500" />
+                                    <Minimize2 className="h-4 w-4" />
                                 </button>
                             )}
 
-                            {/* Delete button - Always rendered to reserve space */}
+                            {/* Delete button */}
                             {!isReadOnly && (
                                 <button
                                     onClick={(e) => {
@@ -3901,12 +3899,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         onDelete(thing.id);
                                     }}
                                     className={cn(
-                                        "p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-all flex-shrink-0 duration-200 opacity-100"
+                                        "p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-all flex-shrink-0 duration-200 opacity-100 text-red-500"
                                     )}
                                     title="Delete"
-                                    tabIndex={(isSelected || selected) ? 0 : -1}
                                 >
-                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                    <Trash2 className="h-4 w-4" />
                                 </button>
                             )}
                         </div>
