@@ -707,7 +707,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     setSelectionMode: (mode) => set({ selectionMode: mode }),
 
     // Left Panel & Grid Mode state
-    leftPanelCollapsed: false,
+    leftPanelCollapsed: true,
     setLeftPanelCollapsed: (collapsed) => set({ leftPanelCollapsed: collapsed }),
     leftPanelPinned: false, // Default to floating (false), user can pin it (true)
     setLeftPanelPinned: (pinned) => set({ leftPanelPinned: pinned }),
