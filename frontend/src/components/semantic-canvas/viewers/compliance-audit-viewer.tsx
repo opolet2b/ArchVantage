@@ -1,0 +1,290 @@
+import React, { useState } from 'react';
+import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
+import { ShieldCheck, FileText, CheckCircle, XCircle, Play, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+
+interface ComplianceAuditViewerProps {
+    thing: CanvasThing;
+    links?: CanvasLink[];
+}
+
+export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditViewerProps) {
+    const updateThing = useCanvasStore(state => state.updateThing);
+    const things = useCanvasStore(state => state.things);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+    // Filter links to find connected documents.
+    // A document is connected if this tool is either the source or the target.
+    const connectedNodeIds = links
+        .filter(l => l.source_id === thing.id || l.target_id === thing.id)
+        .map(l => l.source_id === thing.id ? l.target_id : l.source_id);
+
+    const connectedThings = connectedNodeIds
+        .map(id => things.find(t => t.id === id))
+        .filter((t): t is CanvasThing => t !== undefined);
+
+    const classifiedDocuments = thing.content?.classifiedDocuments || {};
+
+    const handleClassify = (docId: string, role: 'Guardrail' | 'Architecture') => {
+        updateThing(thing.id, {
+            content: {
+                ...thing.content,
+                classifiedDocuments: {
+                    ...classifiedDocuments,
+                    [docId]: role
+                }
+            }
+        });
+    };
+
+    const runAudit = async () => {
+        updateThing(thing.id, {
+            content: {
+                ...thing.content,
+                status: 'running'
+            }
+        });
+        
+        // Extract text content and title from the linked document nodes
+        const extractDoc = (doc: any) => {
+            const title = doc?.title || 'Unknown Document';
+            let text = '';
+            
+            if (doc?.content) {
+                text = typeof doc.content.text === 'string' ? doc.content.text :
+                       typeof doc.content.parsedText === 'string' ? doc.content.parsedText :
+                       typeof doc.content.content === 'string' ? doc.content.content :
+                       JSON.stringify(doc.content);
+            }
+            
+            return { title, text };
+        };
+
+        const guardrailDocs = connectedThings
+            .filter(doc => classifiedDocuments[doc.id] === 'Guardrail')
+            .map(extractDoc);
+            
+        const architectureDocs = connectedThings
+            .filter(doc => classifiedDocuments[doc.id] === 'Architecture')
+            .map(extractDoc);
+
+        try {
+            const response = await fetch('http://localhost:8000/api/v1/governance_audit/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    guardrail_docs: guardrailDocs,
+                    architecture_docs: architectureDocs,
+                    llm_preset: 'default' // This uses the system default LLM
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`API error: ${response.statusText}`);
+            }
+            
+            const results = await response.json();
+            
+            updateThing(thing.id, {
+                content: {
+                    ...thing.content,
+                    status: 'completed',
+                    results: results
+                }
+            });
+        } catch (error) {
+            console.error('Audit failed:', error);
+            // Revert status on error, or you could add an error display state
+            updateThing(thing.id, {
+                content: {
+                    ...thing.content,
+                    status: 'idle',
+                    results: null
+                }
+            });
+            alert('Failed to run audit. Please check the backend logs.');
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 overflow-hidden rounded-md">
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shrink-0 shadow-sm z-10">
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 mr-1 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                    >
+                        {isSidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </Button>
+                    <ShieldCheck className="w-5 h-5 text-blue-500" />
+                    <h2 className="font-semibold text-sm">Governance & Compliance Audit</h2>
+                </div>
+                <Button 
+                    size="sm" 
+                    onClick={runAudit}
+                    disabled={thing.content?.status === 'running' || connectedThings.length === 0}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                    <Play className="w-4 h-4 mr-2" />
+                    Run Audit
+                </Button>
+            </div>
+
+            <div className="flex flex-1 min-h-0">
+                {/* Left Sidebar - Documents */}
+                <div className={cn(
+                    "flex flex-col border-r border-slate-200 dark:border-slate-700 transition-all duration-300 ease-in-out bg-slate-50/50 dark:bg-slate-800/20",
+                    isSidebarOpen ? "w-[350px] shrink-0" : "w-0 overflow-hidden border-none opacity-0"
+                )}>
+                    <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-100/50 dark:bg-slate-800/50 shrink-0">
+                        <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">Connected Documents</h3>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 pr-5 custom-scrollbar">
+                        {connectedThings.length === 0 ? (
+                            <div className="text-sm text-slate-500 italic p-4 bg-white dark:bg-slate-800/50 rounded-md border border-dashed border-slate-200 dark:border-slate-700 text-center">
+                                No documents connected. Link existing Canvas documents to this tool to begin.
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {connectedThings.map(doc => (
+                                    <div key={doc.id} className="flex flex-col gap-3 p-3 bg-white dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 shadow-sm transition-shadow hover:shadow-md">
+                                        <div className="flex items-center gap-2 overflow-hidden pb-1">
+                                            <FileText className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                                            <span className="text-sm font-medium truncate" title={doc.title}>{doc.title}</span>
+                                        </div>
+                                        <div className="flex flex-col gap-2 flex-shrink-0 w-full">
+                                            <Button 
+                                                size="sm" 
+                                                variant={classifiedDocuments[doc.id] === 'Guardrail' ? 'default' : 'outline'}
+                                                onClick={() => handleClassify(doc.id, 'Guardrail')}
+                                                className={cn("h-7 text-xs w-full overflow-hidden text-ellipsis", classifiedDocuments[doc.id] === 'Guardrail' && "bg-amber-600 hover:bg-amber-700")}
+                                            >
+                                                Guardrail Policy
+                                            </Button>
+                                            <Button 
+                                                size="sm" 
+                                                variant={classifiedDocuments[doc.id] === 'Architecture' ? 'default' : 'outline'}
+                                                onClick={() => handleClassify(doc.id, 'Architecture')}
+                                                className={cn("h-7 text-xs w-full overflow-hidden text-ellipsis", classifiedDocuments[doc.id] === 'Architecture' && "bg-emerald-600 hover:bg-emerald-700")}
+                                            >
+                                                Target Architecture
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Right Area - Results */}
+                <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900/50">
+                    <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                        <div className="max-w-4xl mx-auto space-y-6">
+                            {(!thing.content?.status || thing.content?.status === 'idle') && (
+                                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                                    <ShieldCheck className="w-16 h-16 mb-4 opacity-20" />
+                                    <p className="text-sm">Configure documents on the left and click "Run Audit"</p>
+                                </div>
+                            )}
+
+                            {thing.content?.status === 'running' && (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
+                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Analyzing architecture against guardrails...</span>
+                                </div>
+                            )}
+
+                            {thing.content?.status === 'completed' && thing.content.results && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                    <div className="p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100">Overall Compliance Score</h3>
+                                            <p className="text-sm text-slate-500 mt-1">Based on {thing.content.results.rules?.length || 0} rules evaluated</p>
+                                        </div>
+                                        <div className={cn(
+                                            "text-4xl font-bold tracking-tight",
+                                            (thing.content.results.overallScore || thing.content.results.score || 0) >= 80 ? "text-emerald-600" :
+                                            (thing.content.results.overallScore || thing.content.results.score || 0) >= 50 ? "text-amber-500" : "text-rose-600"
+                                        )}>
+                                            {thing.content.results.overallScore || thing.content.results.score || 0}%
+                                        </div>
+                                    </div>
+                                    
+                                    {thing.content.results.rules && thing.content.results.rules.length > 0 && (
+                                        <>
+                                            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-100 border-b border-slate-200 dark:border-slate-700 pb-2">Detailed Findings</h3>
+                                            <div className="space-y-4">
+                                                {thing.content.results.rules.map((rule: any) => (
+                                                    <div key={rule.id} className="p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm transition-all hover:shadow-md">
+                                                        <div className="flex items-center justify-between mb-4">
+                                                            <div className="flex items-center gap-3">
+                                                                {rule.compliant ? (
+                                                                    <div className="bg-emerald-100 dark:bg-emerald-900/30 p-1.5 rounded-full">
+                                                                        <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="bg-rose-100 dark:bg-rose-900/30 p-1.5 rounded-full">
+                                                                        <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+                                                                    </div>
+                                                                )}
+                                                                <h4 className="font-semibold text-base text-slate-800 dark:text-slate-100">{rule.name}</h4>
+                                                            </div>
+                                                            <span className={cn(
+                                                                "text-sm font-bold px-3 py-1 rounded-full",
+                                                                rule.compliant ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400" : "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-400"
+                                                            )}>
+                                                                Score: {rule.score}%
+                                                            </span>
+                                                        </div>
+                                                        
+                                                        <div className="space-y-4 mt-4 text-sm">
+                                                            <div className={cn("p-4 rounded-md border", rule.compliant ? "bg-emerald-50/80 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/50" : "bg-rose-50/80 dark:bg-rose-950/20 border-rose-100 dark:border-rose-900/50")}>
+                                                                <p className={cn("font-bold mb-1.5 text-xs uppercase tracking-wider flex items-center gap-1.5", rule.compliant ? "text-emerald-800 dark:text-emerald-300" : "text-rose-800 dark:text-rose-300")}>
+                                                                    {rule.compliant ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                                                                    {rule.compliant ? "Compliance Explanation" : "Non-Compliant Finding"}
+                                                                </p>
+                                                                <p className={cn("leading-relaxed", rule.compliant ? "text-emerald-800 dark:text-emerald-200/90" : "text-rose-800 dark:text-rose-200/90")}>{rule.explanation || rule.nonCompliantExplanation}</p>
+                                                            </div>
+                                                            
+                                                            {!rule.compliant && rule.remediation && (
+                                                                <div className="bg-blue-50/80 dark:bg-blue-950/20 p-4 rounded-md border border-blue-100 dark:border-blue-900/50">
+                                                                    <p className="font-bold text-blue-800 dark:text-blue-300 mb-1.5 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                                                        <ShieldCheck className="w-3.5 h-3.5" />
+                                                                        Suggested Remediation
+                                                                    </p>
+                                                                    <p className="text-blue-800 dark:text-blue-200/90 leading-relaxed">{rule.remediation}</p>
+                                                                </div>
+                                                            )}
+                                                            
+                                                            {rule.references && rule.references.length > 0 && (
+                                                                <div className="bg-slate-50/80 dark:bg-slate-900/40 p-4 rounded-md border border-slate-200 dark:border-slate-700/50">
+                                                                    <p className="font-bold text-slate-600 dark:text-slate-400 mb-2 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                                                        <FileText className="w-3.5 h-3.5" />
+                                                                        Document Citations
+                                                                    </p>
+                                                                    <ul className="list-disc list-outside ml-4 space-y-1.5">
+                                                                        {rule.references.map((ref: string, idx: number) => (
+                                                                            <li key={idx} className="text-slate-600 dark:text-slate-300 italic text-xs leading-relaxed">"{ref}"</li>
+                                                                        ))}
+                                                                    </ul>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}

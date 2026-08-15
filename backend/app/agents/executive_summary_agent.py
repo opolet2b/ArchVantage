@@ -1,10 +1,16 @@
 import logging
+import os
+import json
+import base64
+import io
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from langgraph.graph import StateGraph, END
 from typing_extensions import TypedDict
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import PydanticOutputParser
+from PIL import Image
+import pymupdf
 
 from app.services.llm_service import LLMService
 
@@ -14,6 +20,7 @@ class ExecutiveSummaryState(TypedDict):
     source_docs: List[str]
     source_asset_ids: List[str]
     llm_preset: str
+    vlm_preset: str
     concepts: Dict[str, Any]
     slides: List[Dict[str, Any]]
     errors: List[str]
@@ -54,19 +61,32 @@ def get_llm(state: ExecutiveSummaryState):
     llm, _ = service._get_model(preset)
     return llm
 
+def get_vlm(state: ExecutiveSummaryState):
+    service = LLMService()
+    preset = state.get("vlm_preset")
+    if not preset:
+        preset = "default"
+    vlm, _ = service._get_model(preset)
+    return vlm
+
 def invoke_with_fallback(llm, schema_class, messages):
     parser = PydanticOutputParser(pydantic_object=schema_class)
     format_instructions = parser.get_format_instructions()
     
     # Inject format instructions into the last message
     last_msg = messages[-1].content
-    messages[-1].content = f"{last_msg}\n\n{format_instructions}"
+    if isinstance(last_msg, str):
+        messages[-1].content = f"{last_msg}\n\n{format_instructions}"
     
     try:
+        response = None
         response = llm.invoke(messages)
         return parser.parse(response.content)
     except Exception as e:
-        # Simple fallback: Ask the LLM to fix its own JSON error
+        logger.warning(f"Failed to parse or invoke LLM: {e}. Trying to fix...")
+        if response is None:
+            raise Exception(f"LLM Invocation failed: {e}")
+            
         fix_prompt = f"The following text was supposed to be a JSON object but failed to parse with error: {e}.\n\nText:\n{response.content}\n\nPlease output ONLY the corrected JSON object matching the required schema."
         response = llm.invoke([HumanMessage(content=fix_prompt)])
         return parser.parse(response.content)
@@ -85,14 +105,19 @@ def concept_miner_agent(state: ExecutiveSummaryState):
     docs_text = "\n\n".join(docs)
     
     prompt = f"""
-You are an expert Enterprise Architect. Extract the key architectural concepts from the following source documents.
-Identify:
-1. Business capabilities
-2. Business drivers
-3. Core architectural nodes/systems
+You are an Expert Enterprise Architect (TOGAF certified) and a Tier-1 Strategy Consultant (e.g., McKinsey/BCG).
+Your objective is to analyze the provided architecture documents and extract the absolute core concepts required to present a 'Target Operating Model' and 'Strategic Transformation' to C-Level executives (CIO, CTO, CEO).
 
-Source Documents:
-{docs_text[:15000]} # truncate to avoid token limits
+Focus on:
+1. The "Burning Platform" (Why change is needed, Business Challenges, Regulatory mandates).
+2. The Strategic Drivers & Business Value (What the target architecture enables).
+3. The Target Architecture & Interoperability (Key systems, integration layers like ESB/API Gateways, and data flow).
+4. The Implementation Roadmap (Phasing, migration, success factors).
+
+Extract these strictly into the requested JSON schema. Be highly analytical, concise, and use professional Enterprise Architecture terminology.
+
+Documents:
+{docs_text[:10000]}
 """
     try:
         res = invoke_with_fallback(llm, Concept, [HumanMessage(content=prompt)])
@@ -103,10 +128,8 @@ Source Documents:
         if asset_ids:
             try:
                 from app.services.asset_service import asset_service
-                from app.database import SessionLocal
-                from app.models.asset import Asset
-                from pypdf import PdfReader
-                import base64
+                from app.core.database import SessionLocal
+                from app.models.asset_models import Asset
                 
                 with SessionLocal() as db:
                     for asset_id in asset_ids:
@@ -115,25 +138,69 @@ Source Documents:
                             if asset:
                                 file_path = str(asset_service.get_storage_path(asset))
                                 if file_path.lower().endswith(".pdf"):
-                                    reader = PdfReader(file_path)
-                                    # Scan first 5 pages for safety/speed
-                                    for page_num in range(min(5, len(reader.pages))):
-                                        page = reader.pages[page_num]
-                                        for image_file_object in page.images:
-                                            image_bytes = image_file_object.data
-                                            image_name = image_file_object.name
-                                            # Determine extension from name or assume png
-                                            image_ext = image_name.split(".")[-1].lower() if "." in image_name else "png"
+                                    doc = pymupdf.open(file_path)
+                                    vlm = get_vlm(state)
+                                    
+                                    for i in range(len(doc)):
+                                        page = doc[i]
+                                        pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
+                                        img_data = pix.tobytes("jpeg", jpg_quality=85)
+                                        b64_img = base64.b64encode(img_data).decode("utf-8")
+                                        
+                                        vlm_prompt = (
+                                            "You are an expert Enterprise Architect processing an architectural document.\n"
+                                            "Analyze this page. If there is a clear architectural diagram, schema, or flowchart on this page, "
+                                            "return its approximate bounding box as a JSON object with 'x', 'y', 'width', and 'height' keys (values between 0.0 and 1.0 representing percentage of page width/height). "
+                                            "If there is NO architectural diagram (e.g. it's just text, a logo, or a table), return an empty JSON object: {}\n"
+                                            "Output ONLY valid JSON."
+                                        )
+                                        
+                                        messages = [
+                                            HumanMessage(content=[
+                                                {"type": "text", "text": vlm_prompt},
+                                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
+                                            ])
+                                        ]
+                                        
+                                        try:
+                                            vlm_res = vlm.invoke(messages)
+                                            res_text = vlm_res.content.strip()
+                                            if res_text.startswith("```json"):
+                                                res_text = res_text[7:-3]
+                                            elif res_text.startswith("```"):
+                                                res_text = res_text[3:-3]
+                                                
+                                            box = json.loads(res_text.strip())
                                             
-                                            # Create a data URI
-                                            b64 = base64.b64encode(image_bytes).decode("ascii")
-                                            data_uri = f"data:image/{image_ext};base64,{b64}"
-                                            extracted_figures.append(data_uri)
-                                            
-                                            if len(extracted_figures) >= 10: # Limit to 10 images total
-                                                break
-                                        if len(extracted_figures) >= 10:
-                                            break
+                                            if box and all(k in box for k in ["x", "y", "width", "height"]):
+                                                pil_img = Image.open(io.BytesIO(img_data))
+                                                img_w, img_h = pil_img.size
+                                                
+                                                left = int(box["x"] * img_w)
+                                                top = int(box["y"] * img_h)
+                                                right = int((box["x"] + box["width"]) * img_w)
+                                                bottom = int((box["y"] + box["height"]) * img_h)
+                                                
+                                                # Padding
+                                                left = max(0, left - 20)
+                                                top = max(0, top - 20)
+                                                right = min(img_w, right + 20)
+                                                bottom = min(img_h, bottom + 20)
+                                                
+                                                cropped = pil_img.crop((left, top, right, bottom))
+                                                
+                                                out_bytes = io.BytesIO()
+                                                cropped.save(out_bytes, format="PNG")
+                                                b64_cropped = base64.b64encode(out_bytes.getvalue()).decode("utf-8")
+                                                
+                                                fig_url = f"data:image/png;base64,{b64_cropped}"
+                                                extracted_figures.append(fig_url)
+                                                
+                                                if len(extracted_figures) >= 15:
+                                                    break
+                                        except Exception as ve:
+                                            logger.warning(f"VLM extraction failed for page {i}: {ve}")
+                                    doc.close()
                         except Exception as inner_e:
                             logger.error(f"Failed to parse asset {asset_id}: {inner_e}")
             except Exception as e:
@@ -154,16 +221,30 @@ def synthesizer_and_storyboarder_agent(state: ExecutiveSummaryState):
     
     docs_text = "\n\n".join(docs)
     
+    # Do not send massive base64 image strings to the LLM
+    concepts_for_prompt = dict(concepts)
+    if "figures" in concepts_for_prompt:
+        concepts_for_prompt["figures"] = [f"Figure {i+1} (Image Data)" for i in range(len(concepts_for_prompt["figures"]))]
+    
     prompt = f"""
-You are a C-Level Executive synthesizing an architecture presentation.
-Based on the extracted concepts, design a 4-5 slide executive summary presentation.
-If a slide explains a process or structure, set has_diagram=true and provide diagram_nodes (using valid ArchiMate types like BusinessActor, ApplicationComponent, DataObject) and diagram_edges.
+You are a Tier-1 Strategy Consultant and Enterprise Architect designing a C-Level Executive Presentation.
+Based on the extracted concepts, design a 4-5 slide presentation that tells a compelling, top-down story (Minto Pyramid Principle).
+
+Slide Structure guidelines:
+Slide 1: Strategic Drivers & Regulatory Framework (The Burning Platform & Mandate)
+Slide 2: Core Capabilities & Business Value Delivered
+Slide 3: Reference Architecture & Integration Strategy (Target Operating Model)
+Slide 4: Architectural Evaluation & Target Choice (If applicable)
+Slide 5: Implementation Timeline & Critical Success Factors
+
+For each slide, provide a powerful 'takeaway' sentence that summarizes the slide's main message.
+If a slide explains a process or structure (like Slide 3), set has_diagram=true and provide diagram_nodes (using valid ArchiMate types) and diagram_edges to visualize the architecture. Keep the diagrams focused on the highest-level components (e.g., ESB, Gateways, Core Systems).
 
 Source Context:
 {docs_text[:5000]}
 
 Extracted Concepts:
-{concepts}
+{concepts_for_prompt}
 """
     try:
         res = invoke_with_fallback(llm, StoryboarderResult, [

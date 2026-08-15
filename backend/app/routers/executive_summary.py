@@ -13,6 +13,7 @@ class ExecutiveSummaryRequest(BaseModel):
     source_docs: List[str]
     source_asset_ids: List[str] = []
     llm_preset: str = "default"
+    vlm_preset: str = "default"
 
 @router.post("/generate")
 async def run_executive_summary(request: ExecutiveSummaryRequest):
@@ -24,6 +25,7 @@ async def run_executive_summary(request: ExecutiveSummaryRequest):
             "source_docs": request.source_docs,
             "source_asset_ids": request.source_asset_ids,
             "llm_preset": request.llm_preset,
+            "vlm_preset": request.vlm_preset,
             "concepts": {},
             "slides": [],
             "errors": []
@@ -59,6 +61,7 @@ async def export_pptx(request: ExportPPTXRequest):
         from pptx import Presentation
         from pptx.util import Inches, Pt
         from pptx.enum.shapes import MSO_SHAPE, MSO_CONNECTOR
+        from pptx.enum.text import PP_ALIGN, MSO_AUTO_SIZE, MSO_ANCHOR
         import pptx
         import requests
         import io
@@ -74,15 +77,37 @@ async def export_pptx(request: ExportPPTXRequest):
             title_shape = slide.shapes.title
             if title_shape:
                 title_shape.text = slide_data.title
+                # Auto-shrink title if it's very long
+                title_tf = title_shape.text_frame
+                for para in title_tf.paragraphs:
+                    if len(slide_data.title) > 60:
+                        para.font.size = Pt(28)
+                    elif len(slide_data.title) > 40:
+                        para.font.size = Pt(32)
+                    else:
+                        para.font.size = Pt(40)
             
             # Body (Takeaway + Concepts)
             body_shape = slide.placeholders[1]
-            tf = body_shape.text_frame
             
-            # Add Takeaway as first paragraph, bold
-            p_takeaway = tf.text = f"Takeaway: {slide_data.takeaway}"
+            # Push body down if title is exceptionally long
+            top_margin = 1.5
+            if len(slide_data.title) > 60:
+                top_margin = 1.8
+                
+            body_shape.top = Inches(top_margin)
+            body_shape.left = Inches(0.5)
+            body_shape.width = Inches(9.0) # Default full width
+            body_shape.height = Inches(7.0 - top_margin)
+            
+            tf = body_shape.text_frame
+            tf.vertical_anchor = MSO_ANCHOR.TOP
+            
+            # Add Takeaway as first paragraph
+            tf.text = f"Takeaway: {slide_data.takeaway}"
             p_takeaway_para = tf.paragraphs[0]
             p_takeaway_para.font.bold = True
+            p_takeaway_para.font.size = Pt(16)
             p_takeaway_para.font.color.rgb = pptx.dml.color.RGBColor(0, 102, 204) # Blueish
             
             # Add Concepts as bullet points
@@ -90,6 +115,9 @@ async def export_pptx(request: ExportPPTXRequest):
                 p = tf.add_paragraph()
                 p.text = concept
                 p.level = 1
+                p.font.size = Pt(14)
+                
+            tf.word_wrap = True
                 
             # If there's an ArchiMate Diagram, draw it using native shapes
             if getattr(slide_data, "archimate_data", None):
@@ -97,14 +125,25 @@ async def export_pptx(request: ExportPPTXRequest):
                 diagrams = archimate.get("diagrams", [])
                 if diagrams:
                     diag = diagrams[0]
+                    nodes = diag.get("nodes", [])
+                    
+                    # Calculate bounding box to determine scale
+                    max_x = max([n.get("bounds", {}).get("x", 0) + n.get("bounds", {}).get("width", 140) for n in nodes] + [100])
+                    max_y = max([n.get("bounds", {}).get("y", 0) + n.get("bounds", {}).get("height", 55) for n in nodes] + [100])
+                    
+                    target_w = 5.5 # Give diagrams more room
+                    target_h = 5.5 
+                    
+                    # Dynamically calculate scale so it fits the target box
+                    scale = min(target_w / max_x, target_h / max_y)
+                    
                     # Base offsets
-                    left_offset = Inches(5.0)
-                    top_offset = Inches(2.0)
-                    scale = 0.02 # 1px = 0.02 inches
+                    left_offset = Inches(4.2) # Shift further left
+                    top_offset = Inches(1.5)
                     
                     shape_map = {}
                     
-                    for node in diag.get("nodes", []):
+                    for node in nodes:
                         bounds = node.get("bounds", {"x":0,"y":0,"width":140,"height":55})
                         x = left_offset + Inches(bounds["x"] * scale)
                         y = top_offset + Inches(bounds["y"] * scale)
@@ -117,10 +156,35 @@ async def export_pptx(request: ExportPPTXRequest):
                             name = archimate["elements"][node_id].get("name", name)
                             
                         shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, y, w, h)
-                        shape.text = name
-                        # Make text fit
-                        for para in shape.text_frame.paragraphs:
-                            para.font.size = Pt(12)
+                        
+                        # Style the shape to look like ArchiMate
+                        shape.fill.solid()
+                        shape.fill.fore_color.rgb = pptx.dml.color.RGBColor(240, 248, 255) # Light blue
+                        shape.line.color.rgb = pptx.dml.color.RGBColor(100, 100, 100)
+                        shape.line.width = Pt(1.0)
+                        
+                        # Style the text
+                        tf = shape.text_frame
+                        tf.text = name
+                        tf.word_wrap = True
+                        tf.margin_left = Pt(2)
+                        tf.margin_right = Pt(2)
+                        tf.margin_top = Pt(2)
+                        tf.margin_bottom = Pt(2)
+                        
+                        # Calculate a smart font size based on the absolute height of the box
+                        # h is in inches. 1 inch = 72 points. A box that is 0.5 inches tall can hold about 12pt text.
+                        # h_pts = h / 914400 * 72
+                        # target_font_size = min(12, max(6, h_pts / 3))
+                        target_font_size = min(11, max(4, int((h / 914400) * 30)))
+                        
+                        # Make text fit and center
+                        for para in tf.paragraphs:
+                            para.alignment = PP_ALIGN.CENTER
+                            para.font.size = Pt(target_font_size)
+                            para.font.color.rgb = pptx.dml.color.RGBColor(30, 30, 30)
+                            para.font.name = "Arial"
+                            
                         shape_map[node_id] = shape
                         
                     for edge in diag.get("edges", []):
@@ -130,11 +194,34 @@ async def export_pptx(request: ExportPPTXRequest):
                             s_shape = shape_map[source_id]
                             t_shape = shape_map[target_id]
                             connector = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, 0, 0, 0, 0)
-                            connector.begin_connect(s_shape, 3) # right side
-                            connector.end_connect(t_shape, 1)   # left side
+                            
+                            # Style connector to be light/dashed to avoid visual clutter
+                            connector.line.color.rgb = pptx.dml.color.RGBColor(180, 180, 180)
+                            connector.line.width = Pt(1.5)
+                            connector.line.dash_style = pptx.enum.dml.MSO_LINE.DASH
+                            
+                            # Determine best connection points based on relative positions
+                            s_x = s_shape.left
+                            s_y = s_shape.top
+                            t_x = t_shape.left
+                            t_y = t_shape.top
+                            
+                            if s_y < t_y - Inches(0.5): # source is above
+                                connector.begin_connect(s_shape, 2) # bottom
+                                connector.end_connect(t_shape, 0)   # top
+                            elif s_y > t_y + Inches(0.5): # source is below
+                                connector.begin_connect(s_shape, 0) # top
+                                connector.end_connect(t_shape, 2)   # bottom
+                            else: # roughly same level
+                                if s_x < t_x: # source is left
+                                    connector.begin_connect(s_shape, 3) # right
+                                    connector.end_connect(t_shape, 1)   # left
+                                else:
+                                    connector.begin_connect(s_shape, 1) # left
+                                    connector.end_connect(t_shape, 3)   # right
                             
                     # Shrink the text box to make room
-                    body_shape.width = Inches(4.5)
+                    body_shape.width = Inches(4.0)
                     
             # Else if there's a standard image, download and insert it
             elif getattr(slide_data, "diagram_url", None):
@@ -161,14 +248,31 @@ async def export_pptx(request: ExportPPTXRequest):
                     if image_stream:
                         # Add image to the right side of the slide
                         # standard slide is 10 inches wide, 7.5 inches tall
-                        left = Inches(5.5)
-                        top = Inches(2.0)
-                        width = Inches(4.0)
+                        left = Inches(5.2)
+                        top = Inches(1.8)
                         
-                        slide.shapes.add_picture(image_stream, left, top, width=width)
+                        # Use PIL to get dimensions if available, otherwise just guess
+                        # Since we don't know the aspect ratio, we can insert it and then resize it
+                        pic = slide.shapes.add_picture(image_stream, left, top)
                         
-                        # Shrink the text box to make room
-                        body_shape.width = Inches(5.0)
+                        # Bound picture to 4.5" x 5.0" max
+                        target_w = Inches(4.5)
+                        target_h = Inches(5.0)
+                        
+                        aspect_ratio = pic.width / max(1, pic.height)
+                        target_aspect = target_w / target_h
+                        
+                        if aspect_ratio > target_aspect:
+                            # Constrained by width
+                            pic.width = target_w
+                            pic.height = int(target_w / aspect_ratio)
+                        else:
+                            # Constrained by height
+                            pic.height = target_h
+                            pic.width = int(target_h * aspect_ratio)
+                        
+                        # Shrink the text box to make room so it doesn't overlap
+                        body_shape.width = Inches(4.5)
                 except Exception as e:
                     print(f"Failed to add image to PPTX: {e}")
                 

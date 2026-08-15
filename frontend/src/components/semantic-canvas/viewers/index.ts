@@ -34,3 +34,4 @@ export { GapAnalysisToolViewer } from "./gap-analysis-tool-viewer";
 export { TimeMatrixViewer } from "./time-matrix-viewer";
 export { ScenarioSimulatorViewer } from "./scenario-simulator-viewer";
 export { ExecutiveSummaryViewer } from "./executive-summary-viewer";
+export { ComplianceAuditViewer } from "./compliance-audit-viewer";

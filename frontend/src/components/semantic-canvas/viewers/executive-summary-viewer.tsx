@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
-import { Presentation, FileText, Image as ImageIcon, ChevronRight, Play, Server, ListTree, Download, Edit2, Layout } from 'lucide-react';
+import { Presentation, FileText, Image as ImageIcon, ChevronRight, Play, Server, ListTree, Download, Edit2, Layout, ZoomIn, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,7 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     const accessLevel = useCanvasStore(state => state.accessLevel);
     const isReadOnly = accessLevel === "read";
     const selectedModel = useCanvasStore(state => state.selectedModel);
+    const visionModel = useCanvasStore(state => state.visionModel);
     const activePreset = useCanvasStore(state => state.activePreset);
     
     // Status states
@@ -22,6 +23,7 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     const [isExporting, setIsExporting] = useState(false);
     const [regeneratingSlideIndex, setRegeneratingSlideIndex] = useState<number | null>(null);
     const [slides, setSlides] = useState<any[]>(thing.content?.slides || []);
+    const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
     // Mock data removed. Only use real data from the backend.
     const concepts = thing.content?.concepts || null;
@@ -115,7 +117,8 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                 body: JSON.stringify({
                     source_docs: sourceDocs,
                     source_asset_ids: sourceAssetIds,
-                    llm_preset: selectedModel || 'default'
+                    llm_preset: selectedModel || 'default',
+                    vlm_preset: visionModel || 'default'
                 })
             });
 
@@ -206,7 +209,8 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                         concepts: slide.concepts || [],
                         has_diagram: !!slide.diagram_url
                     },
-                    llm_preset: activePreset?.id || 'default'
+                    llm_preset: activePreset?.id || 'default',
+                    vlm_preset: visionModel || 'default'
                 })
             });
 
@@ -391,9 +395,21 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                                                     onDragStart={(e) => {
                                                         e.dataTransfer.setData("application/json", JSON.stringify({ type: 'figure', url }));
                                                     }}
-                                                    className="aspect-video bg-slate-200 dark:bg-slate-800 rounded border border-slate-300 dark:border-slate-700 flex items-center justify-center cursor-grab active:cursor-grabbing hover:border-blue-400 overflow-hidden"
+                                                    className="relative group aspect-video bg-slate-200 dark:bg-slate-800 rounded border border-slate-300 dark:border-slate-700 flex items-center justify-center cursor-grab active:cursor-grabbing hover:border-blue-400 overflow-hidden"
                                                 >
                                                     <img src={url} alt="Extracted Figure" className="w-full h-full object-cover" />
+                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                                        <button 
+                                                            className="pointer-events-auto p-2 bg-white/20 hover:bg-white/40 text-white rounded-full backdrop-blur-sm transition-colors"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setZoomedImage(url);
+                                                            }}
+                                                            title="Zoom In"
+                                                        >
+                                                            <ZoomIn className="w-5 h-5" />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             );
                                         })}
@@ -695,6 +711,31 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                     </div>
                 </div>
             </div>
+            
+            {/* Zoom Image Modal */}
+            {zoomedImage && (
+                <div 
+                    className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-8 backdrop-blur-sm cursor-zoom-out"
+                    onClick={() => setZoomedImage(null)}
+                >
+                    <div className="relative max-w-[90vw] max-h-[90vh] flex items-center justify-center">
+                        <img 
+                            src={zoomedImage} 
+                            alt="Zoomed Figure" 
+                            className="max-w-full max-h-full object-contain shadow-2xl rounded"
+                        />
+                        <button 
+                            className="absolute top-4 right-4 p-2 bg-black/50 text-white hover:bg-black/80 rounded-full transition-colors pointer-events-auto"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setZoomedImage(null);
+                            }}
+                        >
+                            <X className="w-6 h-6" />
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

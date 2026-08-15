@@ -1907,6 +1907,17 @@ function CanvasViewInner() {
                         color
                     );
                     break;
+                case "compliance_audit_tool":
+                    await addThing(
+                        "compliance_audit_tool",
+                        {},
+                        position,
+                        800, // width
+                        650, // height
+                        "Governance & Compliance Audit", // title
+                        color
+                    );
+                    break;
             }
             return;
         }

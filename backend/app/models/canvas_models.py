@@ -69,6 +69,7 @@ class ThingType(str, Enum):
     TIME_MATRIX_TOOL = "time_matrix_tool"
     SCENARIO_SIMULATOR_TOOL = "scenario_simulator_tool"
     EXECUTIVE_SUMMARY_TOOL = "executive_summary_tool"
+    COMPLIANCE_AUDIT_TOOL = "compliance_audit_tool"
 
 
 class RAGStatus(str, Enum):

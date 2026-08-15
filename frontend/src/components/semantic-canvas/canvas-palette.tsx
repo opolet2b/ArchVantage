@@ -27,7 +27,8 @@ import {
     FormInput,
     TableProperties,
     Database,
-    FileDiff
+    FileDiff,
+    ShieldCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FEATURES } from "@/features";
@@ -70,7 +71,8 @@ export type ToolType =
     | "time_matrix_tool"
     | "gap_analysis_tool"
     | "scenario_simulator_tool"
-    | "executive_summary_tool";
+    | "executive_summary_tool"
+    | "compliance_audit_tool";
 
 export interface CanvasTool {
     id: ToolType;
@@ -226,6 +228,12 @@ const ALL_CANVAS_TOOLS: CanvasTool[] = [
         icon: <Presentation className="h-4 w-4" />,
         description: "Generate C-Level presentation decks"
     },
+    {
+        id: "compliance_audit_tool",
+        name: "Compliance Audit",
+        icon: <ShieldCheck className="h-4 w-4" />,
+        description: "Governance & compliance audit"
+    },
 ];
 
 export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
@@ -246,7 +254,8 @@ export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
         case "architecture_memo":
         case "time_matrix_tool":
         case "scenario_simulator_tool":
-        case "executive_summary_tool": return FEATURES.enableArchitectureTools;
+        case "executive_summary_tool":
+        case "compliance_audit_tool": return FEATURES.enableArchitectureTools;
         default: return true;
     }
 });
@@ -300,6 +309,7 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     architecture_memo: "#fef3c7",
     time_matrix_tool: "#fef3c7",
     executive_summary_tool: "#fef3c7",
+    compliance_audit_tool: "#eff6ff",
 
     // Workflow - Violet
     workflow: "#f5f3ff",

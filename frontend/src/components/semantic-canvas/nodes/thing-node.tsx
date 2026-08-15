@@ -3348,7 +3348,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                     {/* Action Bar - Dedicated Interaction Area */}
                     {/* Only show in full view (not summary/domain) */}
                     {zoomLevel !== "summary" && (
-                        <div className="flex-none w-full flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 z-[20] pointer-events-auto min-h-[32px]">
+                        <div className="nodrag flex-none w-full flex items-center gap-1 px-2 py-1 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 z-[20] pointer-events-auto min-h-[32px]">
 
                             {/* Link/Ghost Mode Button */}
                             {!isReadOnly && (
@@ -3884,8 +3884,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         handleToggleIconify(e);
                                     }}
                                     className={cn(
-                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200",
-                                        (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
+                                        "p-1 rounded hover:bg-white/50 dark:hover:bg-slate-700/50 transition-all flex-shrink-0 duration-200 opacity-100"
                                     )}
                                     title="Reduce to icon"
                                     tabIndex={(isSelected || selected) ? 0 : -1}
@@ -3902,8 +3901,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
                                         onDelete(thing.id);
                                     }}
                                     className={cn(
-                                        "p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-all flex-shrink-0 duration-200",
-                                        (isSelected || selected) ? "opacity-100" : "opacity-0 pointer-events-none"
+                                        "p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/50 transition-all flex-shrink-0 duration-200 opacity-100"
                                     )}
                                     title="Delete"
                                     tabIndex={(isSelected || selected) ? 0 : -1}

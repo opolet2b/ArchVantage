@@ -3,3 +3,4 @@ import "./trade_off_matrix";
 import "./architecture_memo";
 import "./time_matrix";
 import "./executive_summary";
+import "./compliance_audit";
