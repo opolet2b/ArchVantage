@@ -17,7 +17,9 @@ class ArchitecturalComponent(BaseModel):
     id: str = Field(description="Human-readable ID (e.g., 'Core Database', 'Auth Service'). DO NOT use obscure technical IDs like 'comp-mid'.")
     name: str = Field(description="Full name of the component")
     type: str = Field(description="Type of component (e.g., Database, API, Frontend, Identity Provider)")
-    complexity: float = Field(description="Complexity factor (0.0 to 1.0)")
+    technical_complexity: float = Field(default=0.5, description="How hard is it to code and build? (0.0 to 1.0)")
+    operational_complexity: float = Field(default=0.5, description="How hard is it to deploy and maintain? (0.0 to 1.0)")
+    compliance_risk: float = Field(default=0.5, description="Does it handle PII or have regulatory constraints? (0.0 to 1.0)")
     required_roles: List[str] = Field(description="Roles required (e.g., DevOps, Backend, Cloud Architect)")
     source_citation: str = Field(description="Exact quote, page, or section from the document that justifies this component and its complexity. If inferred, explain why.")
 
@@ -32,6 +34,13 @@ class ExtractedVariable(BaseModel):
     unit: str = Field(description="Unit (e.g., 'USD', 'Months', 'FTEs')")
     source_citation: str = Field(description="Quote or section from the document where this parameter is defined.")
 
+class ExtractedTeam(BaseModel):
+    id: str = Field(description="Unique ID for the team (e.g., 'core_cbs')")
+    name: str = Field(description="Display name of the team")
+    source: str = Field(description="The source document where this team was mentioned")
+    description: str = Field(description="Brief description of the team's capabilities and domain knowledge")
+    technical_capability_score: int = Field(default=50, description="An estimated score from 0 to 100 indicating this team's technical software engineering and architecture proficiency. (e.g., Procurement = 5, Platform Engineering = 95).")
+
 class ExtractedTopology(BaseModel):
     components: List[ArchitecturalComponent]
     dependencies: List[Dependency]
@@ -39,11 +48,20 @@ class ExtractedTopology(BaseModel):
     estimated_effort_weeks: int = Field(description="Total estimated effort in person-weeks")
     effort_citation: str = Field(description="Quote or explanation justifying the effort estimate.")
     extracted_variables: List[ExtractedVariable] = Field(description="Dynamic parameters and constraints explicitly found in the document.", default_factory=list)
+    extracted_teams: List[ExtractedTeam] = Field(description="Organizational teams mentioned in the documents.", default_factory=list)
 
 class VariableConstraints(BaseModel):
     max_budget: float
     max_timeline_weeks: int
     max_staff: int
+    target_components: List[str] = Field(default_factory=list, description="The components being mutated or targeted")
+    migration_pattern: str = Field(default="", description="Migration pattern to apply (e.g., strangler_fig, point_to_point)")
+    interface_protocols: Dict[str, str] = Field(default_factory=dict, description="Mapping of dependency edges (e.g., 'source_id->target_id') to specific interface protocols.")
+    team_assignee: str = Field(default="", description="The team assigned to the migration")
+    dual_run: bool = Field(default=False, description="Whether to enable dual-run replication")
+    zero_downtime: bool = Field(default=False, description="Whether to require zero-downtime cutover")
+    canary_rollout: bool = Field(default=False, description="Whether to require canary rollout")
+    data_backfill: bool = Field(default=False, description="Whether to require data backfill")
     dynamic_rules: Dict[str, float] = Field(default_factory=dict, description="Additional custom constraints extracted from the document or provided by the user.")
 
 class ScheduledComponent(BaseModel):
@@ -52,6 +70,20 @@ class ScheduledComponent(BaseModel):
     end_week: int
     assigned_staff: int
     is_bottleneck: bool = Field(default=False)
+
+class SimulationAssumption(BaseModel):
+    description: str = Field(description="The assumption made (e.g., 'Integration Layer requires 75% of total effort').")
+    document_name: str = Field(description="Name of the source document.")
+    page_number: str = Field(description="Page number or section.")
+    exact_extract: str = Field(description="Exact quote or extract from the document supporting this.")
+
+class IsolatedImpact(BaseModel):
+    total_cost: float
+    total_weeks: int
+    risk_index: float
+    bottleneck_analysis: str
+    justification_of_metrics: str = Field(description="Detailed explanation of how the time, budget, and risk index were calculated.")
+    assumptions: List[SimulationAssumption] = Field(description="References for assumptions made in these isolated metrics.", default_factory=list)
 
 class SimulationResult(BaseModel):
     is_viable: bool
@@ -62,6 +94,12 @@ class SimulationResult(BaseModel):
     bottleneck_citation: str = Field(description="Explicit explanation of WHY this is a bottleneck, referencing the complexity, dependencies, or effort quotes from the extracted topology.")
     monthly_risk_indices: List[float] = Field(description="Compound risk score (0.0 - 1.0) for each month based on concurrent high-risk tasks.", default_factory=list)
     monthly_burn_rate: List[float] = Field(description="Total cost burned in each month.", default_factory=list)
+    justification_of_metrics: str = Field(description="Detailed explanation of how the cumulative time, budget, and risk index were calculated.", default="No justification provided.")
+    assumptions: List[SimulationAssumption] = Field(description="References for assumptions made in these cumulative metrics.", default_factory=list)
+    isolated_impacts: Dict[str, IsolatedImpact] = Field(
+        description="Isolated impact analysis for each category if only those specific changes were applied. Keys must be 'topology', 'org', 'strategy', 'pnl'.",
+        default_factory=dict
+    )
 
 class CopilotResponse(BaseModel):
     updated_constraints: VariableConstraints = Field(description="The new constraints updated based on the user's request.")
@@ -120,7 +158,7 @@ def extract_topology_node(state: DocParserState):
     docs_text = "\n\n".join(state.get("documents", []))
     
     messages = [
-        SystemMessage(content="You are an expert Enterprise Architecture Document Parsing Agent. Your task is to extract architectural components, dependencies, risks, and effort estimates from the provided documents. Return the parsed topology.\n\nCRITICAL RULES:\n1. IDs MUST be human-readable names (e.g., 'Shared Biometric Service'), NOT obscure IDs (e.g., 'comp-sbms').\n2. You MUST extract dynamic variable constraints (budget, timeline, staff) if they exist in the text.\n3. You MUST provide direct quotes or section references in the 'source_citation' fields."),
+        SystemMessage(content="You are an expert Enterprise Architecture Document Parsing Agent. Your task is to extract architectural components, dependencies, risks, organizational teams, and effort estimates from the provided documents. Return the parsed topology.\n\nCRITICAL RULES:\n1. IDs MUST be human-readable names (e.g., 'Shared Biometric Service'), NOT obscure IDs.\n2. You MUST extract dynamic variable constraints (budget, timeline, staff) if they exist.\n3. You MUST extract organizational teams mentioned in the documents into 'extracted_teams'.\n4. You MUST provide direct quotes or section references in the 'source_citation' or 'source' fields."),
         HumanMessage(content=f"Please analyze these architecture documents and extract the topology.\n\nDocuments:\n{docs_text}")
     ]
     
@@ -154,7 +192,7 @@ def solve_constraints_node(state: ConstraintSolverState):
     constraints_json = state["constraints"].model_dump_json()
     
     messages = [
-        SystemMessage(content="You are an expert Architecture Constraint Solver. Given a topology (components and dependencies) and constraints (budget, timeline, staff, and custom dynamic rules), generate a viable schedule. Identify bottlenecks. If constraints are impossible, mark is_viable as false.\n\nCRITICAL RULES:\n1. You MUST provide a 'bottleneck_citation' that justifies WHY a bottleneck exists, explicitly referencing the complexity, effort, and dependency factors from the input topology.\n2. You MUST obey both the core constraints and any 'dynamic_rules' provided. If a dynamic rule limits concurrency, enforce it in your schedule.\n3. You MUST compute and return `monthly_risk_indices`: a list of compound risk scores (0-1.0) for each month. The length of this list MUST equal the total number of months (total_weeks / 4).\n4. You MUST compute and return `monthly_burn_rate`: a list of estimated cost burned per month. The length of this list MUST equal the total number of months."),
+        SystemMessage(content="You are an expert Architecture Constraint Solver. Given a topology (components and dependencies) and constraints (budget, timeline, staff, and custom dynamic rules), generate a viable schedule. Identify bottlenecks. If constraints are impossible, mark is_viable as false.\n\nCRITICAL RULES:\n1. You MUST provide a 'bottleneck_citation' that justifies WHY a bottleneck exists, explicitly referencing the complexity, effort, and dependency factors from the input topology.\n2. You MUST obey both the core constraints and any 'dynamic_rules' provided. If a dynamic rule limits concurrency, enforce it in your schedule.\n3. You MUST compute and return `monthly_risk_indices`: a list of compound risk scores (0-1.0) for each month. The length of this list MUST equal the total number of months (total_weeks / 4).\n4. You MUST compute and return `monthly_burn_rate`: a list of estimated cost burned per month. The length of this list MUST equal the total number of months.\n5. You MUST populate `isolated_impacts` with simulated isolated effects for 'topology', 'org', 'strategy', and 'pnl'. VERY IMPORTANT: Each isolated impact MUST be unique and specifically evaluate ONLY its domain. DO NOT copy-paste the same response across tabs. DO NOT hallucinate that a constraint is enabled if the boolean is explicitly False in the constraints. IMPORTANT: In the 'topology' evaluation, ONLY mention and evaluate the specific components listed in `target_components`. Do NOT hallucinate that other components (like Integration Layer) are targeted if they are not in the list.\n6. You MUST provide a clear 'justification_of_metrics' for both the cumulative result and each isolated impact. VERY IMPORTANT: You MUST start your justification by explicitly stating your assumptions based on the user's inputs using this format: 'Based on your selection of [X], I assumed [Y]...'. Explain exactly why you assigned specific complexities.\n7. You MUST provide references for your metrics assumptions by populating the 'assumptions' list. CRITICAL: DO NOT hallucinate fake industry books or manuals. ONLY cite the source documents actually provided in the `topology` input.\n8. CRITICAL: You MUST populate the `schedule` array with at least one `ScheduledComponent` mapping out the start and end weeks of the execution. It cannot be empty!\n9. NOTE: Do not worry about perfectly calculating `total_cost` and `total_weeks` in your response. We will overwrite these fields deterministically in Python using the start/end weeks and assigned_staff counts you generate in the schedule array.\n10. CRITICAL: The `migration_pattern` applies ONLY to the specific components listed in `target_components`. The `interface_protocols` constraint dictates specific protocol changes for specific edge dependencies. Do NOT apply these mutations globally to the entire architecture."),
         HumanMessage(content=f"Topology:\n{topology_json}\n\nConstraints:\n{constraints_json}")
     ]
     
