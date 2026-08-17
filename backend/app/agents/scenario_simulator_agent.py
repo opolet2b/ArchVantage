@@ -105,6 +105,10 @@ class CopilotResponse(BaseModel):
     updated_constraints: VariableConstraints = Field(description="The new constraints updated based on the user's request.")
     assistant_reply: str = Field(description="A brief natural language response acknowledging the change.")
 
+class AutoSolveResponse(BaseModel):
+    optimal_constraints: VariableConstraints = Field(description="The optimal parameters that satisfy the constraints.")
+    optimal_simulation: SimulationResult = Field(description="The resulting simulation metrics and schedule.")
+
 # =============================================================================
 # State Definition
 # =============================================================================
@@ -119,6 +123,16 @@ class ConstraintSolverState(TypedDict):
     constraints: VariableConstraints
     llm_preset: Optional[str]
     simulation_result: Optional[SimulationResult]
+    errors: List[str]
+
+class AutoSolveState(TypedDict):
+    topology: ExtractedTopology
+    target_components: List[str]
+    max_budget: float
+    max_timeline_weeks: int
+    max_staff: int
+    llm_preset: Optional[str]
+    auto_solve_response: Optional[AutoSolveResponse]
     errors: List[str]
 
 # =============================================================================
@@ -242,4 +256,31 @@ def build_copilot_graph():
     workflow.add_node("copilot", copilot_node)
     workflow.set_entry_point("copilot")
     workflow.add_edge("copilot", END)
+    return workflow.compile()
+
+def auto_solve_node(state: AutoSolveState):
+    logger.info("Running AutoSolve agent...")
+    service = LLMService()
+    preset = state.get("llm_preset", "default")
+    llm, _ = service._get_model(preset)
+    
+    topology_json = state["topology"].model_dump_json()
+    
+    messages = [
+        SystemMessage(content="You are an expert Architecture Auto-Solver Agent. Given a topology and maximum constraints (Budget, Timeline, Staff), your job is to find the optimal combination of parameters (migration_pattern, team_assignee, dual_run, canary_rollout, zero_downtime, data_backfill) that keeps the execution within budget and on time, while minimizing risk. Return both the 'optimal_constraints' you decided on, and the resulting 'optimal_simulation' (the schedule and metrics justification). Use realistic values that strictly obey the maximum constraints.\n\nCRITICAL RULES:\n1. migration_pattern MUST be one of: [do_nothing, strangler_fig, branch_by_abstraction, parallel_run, cdc, facade, lift_shift, point_to_point, big_bang]\n2. team_assignee MUST be one of: [do_nothing, platform_squad, legacy_domain, external_contractor, devops_sre, tiger_team, offshore_team] OR match an ID from the extracted_teams in the topology.\n3. The schedule array MUST NOT be empty."),
+        HumanMessage(content=f"Topology:\n{topology_json}\n\nTarget Components: {state['target_components']}\nMax Budget: {state['max_budget']}\nMax Timeline Weeks: {state['max_timeline_weeks']}\nMax Staff: {state['max_staff']}")
+    ]
+    
+    try:
+        result = invoke_with_fallback(llm, AutoSolveResponse, messages)
+        return {"auto_solve_response": result}
+    except Exception as e:
+        logger.error(f"Error in auto_solve_node: {e}")
+        return {"errors": state.get("errors", []) + [str(e)]}
+
+def build_auto_solve_graph():
+    workflow = StateGraph(AutoSolveState)
+    workflow.add_node("auto_solve", auto_solve_node)
+    workflow.set_entry_point("auto_solve")
+    workflow.add_edge("auto_solve", END)
     return workflow.compile()

@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { 
     FileText, Play, Settings, Activity, MessageSquare, Send, Save, BarChart2, 
     GitBranch, Workflow, Calendar, Users, DollarSign, Layers, Plus, 
-    AlertTriangle, ArrowRight, CheckCircle2, Zap, Edit2, Download, Wand2
+    AlertTriangle, ArrowRight, CheckCircle2, Zap, Edit2, Download, Wand2, HelpCircle
 } from 'lucide-react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import ReactFlow, { 
     ReactFlowProvider,
     Background, 
@@ -309,6 +310,79 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
         setEdges(generateEdges(topologyReport.dependencies, topologyReport.components));
     }, [targetComponents, migrationPattern, topologyReport.components, topologyReport.dependencies, setNodes, setEdges]);
 
+    const handleAutoSolve = async () => {
+        setStatus('simulating');
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/scenario_simulator/auto_solve`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    thing_id: thing.id,
+                    target_components: targetComponents,
+                    max_budget: Number(maxBudget) || 1000000,
+                    max_timeline_weeks: Number(maxTimeline) || 52,
+                    max_staff: Number(maxStaff) || 20,
+                    llm_preset: selectedModel || 'default'
+                })
+            });
+            if (!res.ok) throw new Error("AutoSolve failed");
+            
+            const data = await res.json();
+            const optimalConstraints = data.optimal_constraints;
+            const optimalSim = data.optimal_simulation;
+            
+            // Update UI state with AI recommendations
+            setMigrationPattern(optimalConstraints.migration_pattern);
+            setTeamAssignee(optimalConstraints.team_assignee);
+            setDualRun(optimalConstraints.dual_run);
+            setZeroDowntime(optimalConstraints.zero_downtime);
+            setCanaryRollout(optimalConstraints.canary_rollout);
+            setDataBackfill(optimalConstraints.data_backfill);
+            
+            // Update the chart Delta
+            const newSimDelta = {
+                weeks: optimalSim.total_weeks,
+                cost: optimalSim.total_cost,
+                risk: `${optimalSim.monthly_risk_indices?.[0]?.toFixed(2) || '0.00'} (Avg)`,
+                bottleneck: optimalSim.bottleneck_analysis?.substring(0, 50) + '...',
+                bottleneck_citation: optimalSim.bottleneck_citation,
+                justification_of_metrics: optimalSim.justification_of_metrics,
+                assumptions: optimalSim.assumptions || [],
+                schedule: optimalSim.schedule || [],
+                isolated_impacts: optimalSim.isolated_impacts || {}
+            };
+            setSimDelta(newSimDelta);
+            
+            // Save to active scenario
+            let updatedScenarios = [...scenarios];
+            const activeIndex = updatedScenarios.findIndex(s => s.id === activeScenarioId);
+            if (activeIndex >= 0) {
+                updatedScenarios[activeIndex] = {
+                    ...updatedScenarios[activeIndex],
+                    migrationPattern: optimalConstraints.migration_pattern,
+                    teamAssignee: optimalConstraints.team_assignee,
+                    dualRun: optimalConstraints.dual_run,
+                    zeroDowntime: optimalConstraints.zero_downtime,
+                    canaryRollout: optimalConstraints.canary_rollout,
+                    dataBackfill: optimalConstraints.data_backfill,
+                    simDelta: newSimDelta
+                };
+                setScenarios(updatedScenarios);
+                updateThing(thing.id, {
+                    content: {
+                        ...thing.content,
+                        scenarios: updatedScenarios
+                    }
+                });
+            }
+            setStatus('completed');
+        } catch (error) {
+            console.error("AutoSolve Failed:", error);
+            setStatus('idle');
+            alert("AutoSolve failed. Ensure backend is running and LLM is configured.");
+        }
+    };
+
     const handleRunSimulation = async () => {
         setStatus('simulating');
 
@@ -589,6 +663,54 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
                             Branch
                         </Button>
                     </div>
+                    
+                    <Sheet>
+                        <SheetTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-500 hover:text-slate-700 hover:bg-slate-100 ml-2">
+                                <HelpCircle className="w-5 h-5" />
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+                            <SheetHeader>
+                                <SheetTitle className="text-xl text-indigo-900 font-bold">Scenario Simulator Guide</SheetTitle>
+                                <SheetDescription>
+                                    Learn how to use ArchVantage to simulate modernization scenarios.
+                                </SheetDescription>
+                            </SheetHeader>
+                            <div className="mt-6 space-y-6 text-sm text-slate-700">
+                                <div>
+                                    <h3 className="font-bold text-slate-900 mb-2 border-b pb-1">1. Step-by-Step Workflow</h3>
+                                    <ol className="list-decimal pl-5 space-y-2">
+                                        <li><strong className="text-slate-900">Sync with Documents:</strong> Click the "Sync" button at the top to have AI read your architecture documents and map out the current Topology.</li>
+                                        <li><strong className="text-slate-900">Select Target Components:</strong> Check the boxes next to the components you intend to modernize.</li>
+                                        <li><strong className="text-slate-900">Adapt Parameters:</strong> Use the Tabs (Topology, Org, Strategy, etc.) to set migration patterns and assign teams.</li>
+                                        <li><strong className="text-slate-900">Run Simulation:</strong> Click "Recalculate Simulation" to manually test your parameters, OR set maximum limits in the Params tab and click "Auto-Solve Constraints" to let AI find the optimal setup for you.</li>
+                                        <li><strong className="text-slate-900">Export PPTX:</strong> Click "Export PPTX" to generate a native PowerPoint pitch deck of your results.</li>
+                                    </ol>
+                                </div>
+                                
+                                <div>
+                                    <h3 className="font-bold text-slate-900 mb-2 border-b pb-1">2. Understanding the Controls</h3>
+                                    <div className="space-y-3">
+                                        <p><strong>Migration Pattern:</strong> The architectural approach for the selected components. (e.g. <em>Strangler Fig</em> replaces pieces gradually behind a facade, while <em>Big Bang</em> replaces everything overnight at high risk).</p>
+                                        <p><strong>Granular Protocols:</strong> Allows you to specifically change how two dependent systems communicate (e.g. changing from Sync RPC to Async Event Hub).</p>
+                                        <p><strong>Assignee Team:</strong> Select which team executes the project. Some teams have high domain context but low modern tech skills (Legacy Domain), while others are fast but require ramp-up (Contractors).</p>
+                                        <p><strong>Dual-Run / Zero-Downtime:</strong> These strategic toggles dramatically lower execution risk but significantly increase the cost and timeline due to the engineering complexity of running two systems simultaneously.</p>
+                                        <p><strong>Auto-Solve Limits:</strong> The Max Budget, Timeline, and Staff parameters in the Params tab are strict ceilings used exclusively by the Auto-Solve agent to find a winning configuration.</p>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h3 className="font-bold text-slate-900 mb-2 border-b pb-1">3. The Dashboards</h3>
+                                    <ul className="list-disc pl-5 space-y-2">
+                                        <li><strong>Impact Dashboard:</strong> Displays the calculated total Time, Budget, and execution Risk of your current parameters.</li>
+                                        <li><strong>Critical Bottleneck:</strong> The specific phase causing the most delay/risk.</li>
+                                        <li><strong>Metric Justification:</strong> The AI's plain-English explanation of exactly <em>why</em> it assigned the given metrics.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </SheetContent>
+                    </Sheet>
                 </div>
                 
                 <div className="flex items-center gap-2">
@@ -1036,7 +1158,7 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
                             </TabsContent>
                         </div>
                         
-                        <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white shrink-0">
+                        <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white shrink-0 flex gap-2 flex-col">
                             <Button 
                                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold" 
                                 onClick={handleRunSimulation}
@@ -1051,6 +1173,23 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
                                     <>
                                         <Zap className="w-4 h-4 mr-2" />
                                         Recalculate Simulation
+                                    </>
+                                )}
+                            </Button>
+                            <Button 
+                                className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold" 
+                                onClick={handleAutoSolve}
+                                disabled={status === 'simulating'}
+                            >
+                                {status === 'simulating' ? (
+                                    <span className="flex items-center gap-2">
+                                        <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></span>
+                                        Solving...
+                                    </span>
+                                ) : (
+                                    <>
+                                        <Wand2 className="w-4 h-4 mr-2" />
+                                        Auto-Solve Constraints
                                     </>
                                 )}
                             </Button>
