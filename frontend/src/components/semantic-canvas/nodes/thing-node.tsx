@@ -501,6 +501,18 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
         ((currentThing.content as any)?.visualizer_output?.visual_payload) ? "cloud" : "content"
     );
 
+    // Handle external full screen trigger from context menu
+    React.useEffect(() => {
+        const handleOpenFullScreen = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail?.thingId === thing.id) {
+                setIsFullScreen(true);
+            }
+        };
+        window.addEventListener('semantic-canvas:open-fullscreen', handleOpenFullScreen);
+        return () => window.removeEventListener('semantic-canvas:open-fullscreen', handleOpenFullScreen);
+    }, [thing.id]);
+
     // Auto-switch to cloud/chart view when visualizer output becomes available
     React.useEffect(() => {
         if ((currentThing.content as any)?.visualizer_output?.visual_payload) {
@@ -3038,7 +3050,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     // =============================================================================
     // Iconified Mode - compact icon representation
     // =============================================================================
-    if (thing.iconified && !(data as any).forceExpanded) {
+    if (thing.iconified && !(data as any).forceExpanded && !isFullScreen) {
         const isGhost = thing.content?.is_ghost;
         return (
             <div
@@ -3136,7 +3148,7 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
     const minWidth = 200;
 
     // Render based on zoom level
-    if (zoomLevel === "domain") {
+    if (zoomLevel === "domain" && !isFullScreen) {
         // Massive Icon Level (20x larger than standard 16px)
         return (
             <div className="flex flex-col items-center gap-10 p-12 whitespace-nowrap group">

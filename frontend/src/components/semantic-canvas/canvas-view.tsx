@@ -2036,6 +2036,15 @@ function CanvasViewInner() {
         const currentCanvasId = useCanvasStore.getState().canvasId;
         // toast({ title: "Debug Action", description: action }); // Removed debug toast
 
+        if (action === "view_fullscreen") {
+            const { selectedThingIds } = useCanvasStore.getState();
+            if (selectedThingIds.length === 1) {
+                const targetId = selectedThingIds[0];
+                window.dispatchEvent(new CustomEvent('semantic-canvas:open-fullscreen', { detail: { thingId: targetId } }));
+            }
+            return;
+        }
+
         if (action === "discover_links") {
             const { selectedThingIds, selectedDomainIds, discoverLinks } = useCanvasStore.getState();
             let tIds: string[] = [];
