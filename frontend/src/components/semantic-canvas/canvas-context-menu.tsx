@@ -22,6 +22,10 @@ import {
     ChevronUp,
     ChevronDown,
     Layers,
+    Maximize,
+    Layout,
+    Image as ImageIcon,
+    ZoomIn,
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -230,6 +234,14 @@ export function CanvasContextMenu({
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
+
+                {/* Full Screen - Only for selection context with 1 item */}
+                {context === "selection" && itemCount === 1 && (
+                    <DropdownMenuItem onClick={() => handleAction("view_fullscreen")}>
+                        <Maximize className="mr-2 h-4 w-4" />
+                        <span>Full Screen</span>
+                    </DropdownMenuItem>
+                )}
 
                 {/* Z-Order Controls - Only for selection context */}
                 {context === "selection" && (
