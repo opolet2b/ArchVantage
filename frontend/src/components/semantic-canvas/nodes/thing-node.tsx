@@ -14,6 +14,7 @@ import { Handle, Position, NodeProps, NodeResizer, useReactFlow } from "reactflo
 import { canvasPluginRegistry } from "@/plugins/registry";
 import "@/plugins";
 import {
+    Workflow,
     MessageSquare,
     FileText,
     Image,
@@ -86,7 +87,8 @@ import {
     CollaboraViewer,
     InboundDataMapper,
     GapAnalysisToolViewer,
-    ScenarioSimulatorViewer
+    ProjectImpactSimulatorViewer,
+    ArchitecturalScenarioViewer
 } from "../viewers";
 import { DocumentViewer } from "../viewers/document-viewer";
 import { ImageSlidesViewer } from "../viewers/image-slides-viewer";
@@ -168,7 +170,8 @@ const thingIcons: Record<string, React.ElementType> = {
     archimate: Layout,
     archimate_tool: Import,
     gap_analysis_tool: FileDiff,
-    scenario_simulator_tool: FileDiff,
+    project_impact_simulator_tool: FileDiff,
+    architectural_scenario_tool: Workflow,
     trade_off_matrix: TableProperties,
     architecture_memo: FileText,
 };
@@ -277,12 +280,19 @@ const thingColors: Record<string, ThingColorTheme> = {
         borderSelected: "border-slate-500",
         handleColor: "!bg-slate-500",
     },
-    scenario_simulator_tool: {
+    project_impact_simulator_tool: {
         headerBg: "bg-gradient-to-r from-indigo-50 to-indigo-100",
         headerBgDark: "dark:from-indigo-900/20 dark:to-indigo-800/20",
         iconColor: "text-indigo-600",
         borderSelected: "border-indigo-500",
         handleColor: "!bg-indigo-500",
+    },
+    architectural_scenario_tool: {
+        headerBg: "bg-gradient-to-r from-purple-50 to-purple-100",
+        headerBgDark: "dark:from-purple-900/20 dark:to-purple-800/20",
+        iconColor: "text-purple-600",
+        borderSelected: "border-purple-500",
+        handleColor: "!bg-purple-500",
     },
     trade_off_matrix: {
         headerBg: "bg-gradient-to-r from-amber-50 to-yellow-50",
@@ -2020,8 +2030,11 @@ export const ThingNode = React.memo(function ThingNode(props: NodeProps<ThingNod
             case "gap_analysis_tool":
                 return <GapAnalysisToolViewer thing={thing} links={links} />;
 
-            case "scenario_simulator_tool":
-                return <ScenarioSimulatorViewer thing={thing} links={links} />;
+            case "project_impact_simulator_tool":
+                return <ProjectImpactSimulatorViewer thing={thing} links={links} />;
+
+            case "architectural_scenario_tool":
+                return <ArchitecturalScenarioViewer thing={thing} links={links} />;
 
             case "archimate_element":
                 return <ArchiMateElementViewer thing={thing} />;

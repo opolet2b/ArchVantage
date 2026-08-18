@@ -1885,14 +1885,25 @@ function CanvasViewInner() {
                         color
                     );
                     break;
-                case "scenario_simulator_tool":
+                case "project_impact_simulator_tool":
                     await addThing(
-                        "scenario_simulator_tool",
+                        "project_impact_simulator_tool",
                         {},
                         position,
                         800, // width
                         600, // height
                         "Scenario Simulator", // title
+                        color
+                    );
+                    break;
+                case "architectural_scenario_tool":
+                    await addThing(
+                        "architectural_scenario_tool",
+                        {},
+                        position,
+                        800, // width
+                        600, // height
+                        "Architectural Scenario", // title
                         color
                     );
                     break;

@@ -27,7 +27,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-interface ScenarioSimulatorViewerProps {
+interface ProjectImpactSimulatorViewerProps {
     thing: CanvasThing;
     links?: CanvasLink[];
 }
@@ -209,7 +209,7 @@ const ASSIGNEE_TEAMS = [
     { value: "offshore_team", label: "Offshore Development Center", help: "Cost-effective remote team, requires significant coordination overhead." }
 ];
 
-export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulatorViewerProps) {
+export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpactSimulatorViewerProps) {
     const updateThing = useCanvasStore(state => state.updateThing);
     const accessLevel = useCanvasStore(state => state.accessLevel);
     const things = useCanvasStore(state => state.things);
@@ -228,6 +228,22 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
         extracted_teams: []
     };
 
+    const computeSummaryStats = () => {
+        const data: any = topologyReport || {};
+        const components: any[] = data.components || [];
+        const dependencies: any[] = data.dependencies || [];
+        const criticalCount = components.filter((c: any) => c.status === 'Critical' || c.status === 'Legacy').length;
+        const totalDeps = dependencies.length;
+        const highRiskDeps = dependencies.filter((d: any) => {
+            const sourceComp = components.find((c: any) => c.id === d.source);
+            const targetComp = components.find((c: any) => c.id === d.target);
+            return sourceComp?.status === 'Legacy' || targetComp?.status === 'Legacy';
+        }).length;
+
+        const healthScore = Math.max(0, 100 - (criticalCount * 15) - (highRiskDeps * 5));
+        return { criticalCount, totalDeps, highRiskDeps, healthScore };
+    };
+
     const defaultSimDelta = {
         weeks: topologyReport.estimated_effort_weeks || 0,
         cost: 0,
@@ -242,6 +258,32 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
 
     const initialActiveId = thing.content?.activeScenarioId || 's1';
     
+    // Helper to safely access simulation data
+    const getSimData = () => {
+        const data: any = thing.content?.last_simulation || {};
+        return {
+            migrationPattern: data.migrationPattern || 'Strangler Fig',
+            interfaceProtocols: data.interfaceProtocols || 'REST/GraphQL',
+            teamAssignee: data.teamAssignee || 'Team Alpha',
+            dualRun: data.dualRun || 'Yes (90 days)',
+            zeroDowntime: data.zeroDowntime || 'Yes',
+            canaryRollout: data.canaryRollout || '20% steps',
+            dataBackfill: data.dataBackfill || 'Async Background',
+            maxBudget: data.maxBudget || '$150k',
+            maxTimeline: data.maxTimeline || '6 Months',
+            maxStaff: data.maxStaff || '4 FTEs',
+            simDelta: data.simDelta || '+2 Weeks',
+        };
+    };
+
+    const simData = getSimData();
+    
+    // Safely access extracted teams
+    const extractedTeams: any[] = (thing.content as any)?.extracted_teams || [];
+    const availableTeams = extractedTeams.length > 0 
+        ? extractedTeams.map((t: any) => typeof t === 'string' ? t : t.name).filter(Boolean)
+        : ["Core Platform Team", "Payment Gateway Pod", "Legacy Mainframe Team", "Frontend Guild"];
+
     // Migrate legacy `last_simulation` to a scenario if scenarios don't exist
     const defaultScenario = {
         id: 's1',
@@ -313,7 +355,7 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
     const handleAutoSolve = async () => {
         setStatus('simulating');
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/scenario_simulator/auto_solve`, {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/project_impact_simulator/auto_solve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -404,7 +446,7 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
         const mockTopology = editedTopology;
 
         try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/scenario_simulator/simulate`, {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/project_impact_simulator/simulate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -606,7 +648,7 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
                 return;
             }
 
-            const response = await fetch('/api/v1/scenario_simulator/ingest', {
+            const response = await fetch('/api/v1/project_impact_simulator/ingest', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -720,7 +762,7 @@ export function ScenarioSimulatorViewer({ thing, links = [] }: ScenarioSimulator
                         className="h-8 text-xs font-semibold text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100" 
                         onClick={async () => {
                             try {
-                                const res = await fetch('http://localhost:8000/api/v1/scenario_simulator/export/pptx', {
+                                const res = await fetch('http://localhost:8000/api/v1/project_impact_simulator/export/pptx', {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({

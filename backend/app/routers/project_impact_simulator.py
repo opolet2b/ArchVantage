@@ -3,13 +3,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional
 
-from app.agents.scenario_simulator_agent import build_doc_parser_graph, build_constraint_solver_graph, build_copilot_graph, VariableConstraints, ExtractedTopology
+from app.agents.project_impact_agent import build_doc_parser_graph, build_constraint_solver_graph, build_copilot_graph, VariableConstraints, ExtractedTopology
 from app.core.database import SessionLocal
 from app.models.canvas_models import CanvasThing
 
 router = APIRouter(
-    prefix="/scenario_simulator",
-    tags=["scenario_simulator"],
+    prefix="/project_impact_simulator",
+    tags=["project_impact_simulator"],
 )
 
 class IngestRequest(BaseModel):
@@ -196,7 +196,7 @@ async def auto_solve_scenario(request: AutoSolveRequest):
         if not thing or not thing.content or not thing.content.get("report"):
             raise HTTPException(status_code=404, detail="Topology not found in CanvasThing.")
             
-        from app.agents.scenario_simulator_agent import ExtractedTopology, build_auto_solve_graph, AutoSolveState
+        from app.agents.project_impact_agent import ExtractedTopology, build_auto_solve_graph, AutoSolveState
         topology_data = thing.content["report"]
         topology = ExtractedTopology(**topology_data)
         

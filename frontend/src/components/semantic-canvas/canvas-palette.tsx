@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+    Workflow,
     Type,
     Link,
     FileText,
@@ -70,7 +71,8 @@ export type ToolType =
     | "kb_document"
     | "time_matrix_tool"
     | "gap_analysis_tool"
-    | "scenario_simulator_tool"
+    | "project_impact_simulator_tool"
+    | "architectural_scenario_tool"
     | "executive_summary_tool"
     | "compliance_audit_tool";
 
@@ -217,10 +219,16 @@ const ALL_CANVAS_TOOLS: CanvasTool[] = [
         description: "App Portfolio Rationalization"
     },
     {
-        id: "scenario_simulator_tool",
-        name: "Scenario Simulator",
+        id: "project_impact_simulator_tool",
+        name: "Project & Financial Impact Simulator",
         icon: <FileDiff className="h-4 w-4" />,
         description: "Dynamic What-If Architecture Simulator"
+    },
+    {
+        id: "architectural_scenario_tool",
+        name: "Architectural Scenario Builder",
+        icon: <Workflow className="h-4 w-4" />,
+        description: "What-If scenarios on Business, Information, Application & Technology layers"
     },
     {
         id: "executive_summary_tool",
@@ -253,7 +261,8 @@ export const CANVAS_TOOLS = ALL_CANVAS_TOOLS.filter(t => {
         case "trade_off_matrix":
         case "architecture_memo":
         case "time_matrix_tool":
-        case "scenario_simulator_tool":
+        case "project_impact_simulator_tool":
+        case "architectural_scenario_tool":
         case "executive_summary_tool":
         case "compliance_audit_tool": return FEATURES.enableArchitectureTools;
         default: return true;
@@ -300,7 +309,8 @@ const DEFAULT_TOOL_COLORS: Record<string, string> = {
     mcp_tool: "#f1f5f9",
     archimate_tool: "#f1f5f9",
     gap_analysis_tool: "#f1f5f9",
-    scenario_simulator_tool: "#f1f5f9",
+    project_impact_simulator_tool: "#f1f5f9",
+    architectural_scenario_tool: "#f1f5f9",
     agent_tool: "#e0e7ff",
     ocr_conversion: "#fce7f3",
     form_tool: "#fdf4ff",

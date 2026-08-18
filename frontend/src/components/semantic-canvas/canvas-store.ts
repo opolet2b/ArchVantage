@@ -40,7 +40,8 @@ export type ThingType =
     | "spreadsheet"
     | "gap_analysis_tool"
     | "trade_off_matrix"
-    | "scenario_simulator_tool";
+    | "project_impact_simulator_tool"
+    | "architectural_scenario_tool";
 
 /**
  * Types of relationships between things.

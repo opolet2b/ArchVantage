@@ -26,7 +26,7 @@ from app.routers import (
     chat, workflow, rag, knowledge, research, config, conversation,
     agents, auth, users, roles, oauth, tools, mcp_servers,
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
-    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology, stt, tts, ocr, wopi, gap_analysis, scenario_simulator, executive_summary, governance_audit
+    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology, stt, tts, ocr, wopi, gap_analysis, project_impact_simulator, architectural_scenario, executive_summary, governance_audit
 )
 from app.services.debug_service import debug_service
 from app.services.watcher_service import watcher_service
@@ -111,7 +111,8 @@ app.include_router(layout_router.router, prefix="/api/v1", tags=["layout"])
 app.include_router(scenarios.router, prefix="/api/v1", tags=["scenarios"])
 app.include_router(ai.router, prefix="/api/v1", tags=["ai"])
 app.include_router(gap_analysis.router, prefix="/api/v1", tags=["gap_analysis"])
-app.include_router(scenario_simulator.router, prefix="/api/v1", tags=["scenario_simulator"])
+app.include_router(project_impact_simulator.router, prefix="/api/v1", tags=["project_impact_simulator"])
+app.include_router(architectural_scenario.router, prefix="/api/v1", tags=["architectural_scenario"])
 app.include_router(executive_summary.router, prefix="/api/v1", tags=["executive_summary"])
 app.include_router(governance_audit.router, prefix="/api/v1", tags=["governance_audit"])
 

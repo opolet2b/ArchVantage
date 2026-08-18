@@ -41,7 +41,8 @@ class ThingType(str, Enum):
     TRADE_OFF_MATRIX = "trade_off_matrix"
     ARCHITECTURE_MEMO = "architecture_memo"
     TIME_MATRIX_TOOL = "time_matrix_tool"
-    SCENARIO_SIMULATOR_TOOL = "scenario_simulator_tool"
+    PROJECT_IMPACT_SIMULATOR_TOOL = "project_impact_simulator_tool"
+    ARCHITECTURAL_SCENARIO_TOOL = "architectural_scenario_tool"
     EXECUTIVE_SUMMARY_TOOL = "executive_summary_tool"
     COMPLIANCE_AUDIT_TOOL = "compliance_audit_tool"
 
