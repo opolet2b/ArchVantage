@@ -100,7 +100,8 @@ export function CanvasContextMenu({
 
     const groupedTemplates = React.useMemo(() => {
         const groups: Record<string, any[]> = {};
-        for (const t of templates) {
+        const safeTemplates = Array.isArray(templates) ? templates : [];
+        for (const t of safeTemplates) {
             const cat = t.category_name || "Uncategorized";
             if (!groups[cat]) groups[cat] = [];
             groups[cat].push(t);
