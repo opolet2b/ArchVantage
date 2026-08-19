@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
 import { Presentation, FileText, Image as ImageIcon, ChevronRight, Play, Server, ListTree, Download, Edit2, Layout, ZoomIn, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,18 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     const [regeneratingSlideIndex, setRegeneratingSlideIndex] = useState<number | null>(null);
     const [slides, setSlides] = useState<any[]>(thing.content?.slides || []);
     const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+    const [allSlideConcepts, setAllSlideConcepts] = useState<string[]>([]);
+
+    useEffect(() => {
+        const currentSlideConcepts = slides.flatMap(s => s.concepts || []);
+        setAllSlideConcepts(prev => {
+            const newConcepts = currentSlideConcepts.filter(c => !prev.includes(c));
+            if (newConcepts.length > 0) {
+                return [...prev, ...newConcepts];
+            }
+            return prev;
+        });
+    }, [slides]);
 
     // Mock data removed. Only use real data from the backend.
     const concepts = thing.content?.concepts || null;
@@ -59,8 +71,27 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
 
     // Compute used concepts
     const usedConceptsArray = slides.flatMap(s => s.concepts || []);
-    const availableDrivers = (concepts?.drivers || []).filter((d: string) => !isConceptUsed(d, usedConceptsArray));
-    const availableCapabilities = (concepts?.capabilities || []).filter((c: string) => !isConceptUsed(c, usedConceptsArray));
+    // Support both old static schema and new dynamic schema
+    const categories: Record<string, string[]> = concepts?.categories ? JSON.parse(JSON.stringify(concepts.categories)) : {};
+    
+    // If old schema is present, add them to categories
+    if (concepts?.drivers && concepts.drivers.length > 0) categories['Business Drivers'] = concepts.drivers;
+    if (concepts?.capabilities && concepts.capabilities.length > 0) categories['Capabilities'] = concepts.capabilities;
+    if (concepts?.nodes && concepts.nodes.length > 0) categories['Architecture Nodes'] = concepts.nodes;
+    
+    // Check if there are concepts that were in slides but are not in any category
+    const allCategorizedConcepts = Object.values(categories).flat();
+    const orphanedConcepts = allSlideConcepts.filter(c => !isConceptUsed(c, allCategorizedConcepts));
+    if (orphanedConcepts.length > 0) {
+        categories['Additional Generated Points'] = orphanedConcepts;
+    }
+
+    const dynamicCategories = Object.entries(categories).map(([name, items]) => {
+        return {
+            name,
+            availableItems: items.filter((item: string) => !isConceptUsed(item, usedConceptsArray))
+        };
+    });
 
     // Filter links to only include those connected to this specific tool
     const nodeLinks = links.filter(link => link.source_id === thing.id || link.target_id === thing.id);
@@ -340,41 +371,24 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                             </div>
                         ) : (
                             <div className="p-3 space-y-4">
-                                {/* Business Drivers */}
-                                <div>
-                                    <h4 className="text-[11px] font-semibold text-slate-400 mb-1.5">Business Drivers</h4>
-                                    <div className="space-y-1">
-                                        {availableDrivers.length === 0 && <div className="text-[10px] text-slate-400 italic">All drivers used</div>}
-                                        {availableDrivers.map((d: string, i: number) => (
-                                            <div 
-                                                key={i} 
-                                                draggable={!isReadOnly}
-                                                onDragStart={(e) => e.dataTransfer.setData("text/plain", d)}
-                                                className="text-xs px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-sm text-slate-600 dark:text-slate-300 cursor-grab active:cursor-grabbing hover:border-blue-400 transition-colors"
-                                            >
-                                                {d}
-                                            </div>
-                                        ))}
+                                {dynamicCategories.map((cat, catIdx) => (
+                                    <div key={catIdx}>
+                                        <h4 className="text-[11px] font-semibold text-slate-400 mb-1.5">{cat.name}</h4>
+                                        <div className="space-y-1">
+                                            {cat.availableItems.length === 0 && <div className="text-[10px] text-slate-400 italic">All items used</div>}
+                                            {cat.availableItems.map((item: string, i: number) => (
+                                                <div 
+                                                    key={i} 
+                                                    draggable={!isReadOnly}
+                                                    onDragStart={(e) => e.dataTransfer.setData("text/plain", item)}
+                                                    className="text-xs px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-sm text-slate-600 dark:text-slate-300 cursor-grab active:cursor-grabbing hover:border-blue-400 transition-colors"
+                                                >
+                                                    {item}
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-
-                                {/* ArchiMate Capabilities */}
-                                <div>
-                                    <h4 className="text-[11px] font-semibold text-slate-400 mb-1.5">Capabilities</h4>
-                                    <div className="space-y-1">
-                                        {availableCapabilities.length === 0 && <div className="text-[10px] text-slate-400 italic">All capabilities used</div>}
-                                        {availableCapabilities.map((c: string, i: number) => (
-                                            <div 
-                                                key={i} 
-                                                draggable={!isReadOnly}
-                                                onDragStart={(e) => e.dataTransfer.setData("text/plain", c)}
-                                                className="text-xs px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-sm text-slate-600 dark:text-slate-300 cursor-grab active:cursor-grabbing hover:border-blue-400 transition-colors"
-                                            >
-                                                {c}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
+                                ))}
 
                                 {/* Extracted Figures */}
                                 <div>

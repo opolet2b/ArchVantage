@@ -42,7 +42,9 @@ const nodeTypes = { swimlane: SwimlaneNode };
 export function ArchitecturalScenarioViewer({ thing, links = [] }: ArchitecturalScenarioViewerProps) {
     const updateThing = useCanvasStore(state => state.updateThing);
     const [viewMode, setViewMode] = useState<'baseline' | 'tobe'>('tobe');
-    const [status, setStatus] = useState<'idle' | 'extracting' | 'simulating' | 'complete'>('idle');
+    const [status, setStatus] = useState<'idle' | 'extracting' | 'simulating' | 'complete' | 'error'>('idle');
+    const [progressMessage, setProgressMessage] = useState<string>('');
+    const [progressPercent, setProgressPercent] = useState<number>(0);
 
     // Form states
     const [action, setAction] = useState(thing.content?.action || 'replace');
@@ -53,7 +55,7 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
 
     // Result states
     const baseline = thing.content?.baseline || null;
-    const result = thing.content?.result || null;
+    const [result, setResult] = useState(thing.content?.result || null);
 
     const handleIngest = async () => {
         setStatus('extracting');
@@ -96,24 +98,280 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
     };
 
     const handleRunSimulation = async () => {
+        if (!baseline) return;
         setStatus('simulating');
+        setResult(null);
+        setProgressMessage('Initializing simulation...');
+        setProgressPercent(5);
         try {
             const documentIds = links
                 .filter(l => l.target_id === thing.id && l.source_id !== thing.id)
                 .map(l => l.source_id);
 
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architectural_scenario/simulate-stream`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({
+                    canvas_id: thing.canvas_id,
+                    thing_id: thing.id,
+                    action: action,
+                    target_technology: targetTech,
+                    target_entity_ids: targetEntityIds,
+                    custom_prompt: customPrompt,
+                    document_ids: documentIds,
+                    baseline: baseline
+                })
+            });
+
+            if (!response.ok) throw new Error("Simulation failed");
+            if (!response.body) throw new Error("No readable stream");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            if (data.type === 'progress') {
+                                const nodeProgress: Record<string, { label: string, percent: number }> = {
+                                    'parse_scenario': { label: 'Parsing architectural intent...', percent: 15 },
+                                    'traverse_topology': { label: 'Traversing dependency graph...', percent: 25 },
+                                    'evaluate_cross_layer_impact': { label: 'Evaluating cross-layer impacts...', percent: 40 },
+                                    'synthesize_tobe_graph': { label: 'Synthesizing To-Be Architecture...', percent: 55 },
+                                    'analyze_remediation_gaps': { label: 'Analyzing remediation gaps...', percent: 70 },
+                                    'determine_impacted_phases': { label: 'Routing to impacted TOGAF phases...', percent: 80 },
+                                    'aggregate_json_spec': { label: 'Generating final report...', percent: 95 }
+                                };
+                                if (data.node.startsWith('analyze_phase_')) {
+                                    setProgressMessage(`Analyzing Phase ${data.node.split('_').pop()}...`);
+                                    setProgressPercent(85);
+                                } else {
+                                    const info = nodeProgress[data.node];
+                                    if (info) {
+                                        setProgressMessage(info.label);
+                                        setProgressPercent(info.percent);
+                                    } else {
+                                        setProgressMessage(`Running ${data.node}...`);
+                                        setProgressPercent(prev => Math.min(prev + 5, 90));
+                                    }
+                                }
+                            } else if (data.type === 'complete') {
+                                setResult(data.result);
+                                setProgressPercent(100);
+                                updateThing(thing.id, {
+                                    content: {
+                                        ...thing.content,
+                                        action,
+                                        target_technology: targetTech,
+                                        custom_prompt: customPrompt,
+                                        result: data.result
+                                    }
+                                });
+                                setStatus('complete');
+                                setViewMode('tobe');
+                            } else if (data.type === 'error') {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing stream chunk", e, line);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(error);
+            setStatus('error');
+            setProgressMessage('');
+        }
+    };
+
+    const generateReactFlowSvg = (graphData: any, isBaseline: boolean = false) => {
+        if (!graphData || !graphData.nodes) return '';
+        
+        const layers = ['Business', 'Information', 'Application', 'Technology'];
+        
+        // Calculate pre-requisites for layout
+        const preCalculateCounts = { business: 0, information: 0, application: 0, technology: 0 };
+        graphData.nodes.forEach((n: any) => {
+            const layerKey = n.layer.toLowerCase();
+            if (preCalculateCounts[layerKey as keyof typeof preCalculateCounts] !== undefined) {
+                preCalculateCounts[layerKey as keyof typeof preCalculateCounts]++;
+            }
+        });
+        const maxNodesInLayer = Math.max(...Object.values(preCalculateCounts));
+        const swimlaneWidth = Math.max(2500, 100 + (maxNodesInLayer * 220) + 500);
+        const swimlaneHeight = 250;
+        const totalHeight = swimlaneHeight * 4;
+        
+        let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${swimlaneWidth} ${totalHeight}" width="${swimlaneWidth}" height="${totalHeight}">
+            <rect width="100%" height="100%" fill="#ffffff" />
+        `;
+
+        // 1. Draw Swimlanes
+        const colors = [
+            'rgba(59, 130, 246, 0.05)',
+            'rgba(99, 102, 241, 0.05)',
+            'rgba(16, 185, 129, 0.05)',
+            'rgba(100, 116, 139, 0.05)'
+        ];
+
+        layers.forEach((layer, i) => {
+            const y = i * swimlaneHeight;
+            svg += `
+                <rect x="0" y="${y}" width="${swimlaneWidth}" height="${swimlaneHeight}" fill="${colors[i]}" stroke="#e2e8f0" stroke-width="1" />
+                <text x="10" y="${y + 20}" font-family="Calibri" font-size="16" font-weight="bold" fill="#64748b" text-transform="uppercase">${layer} Layer</text>
+            `;
+        });
+
+        // Calculate exact positions for edges later
+        const layerCounts = { business: 0, information: 0, application: 0, technology: 0 };
+        const nodePositions: Record<string, {x: number, y: number, w: number, h: number}> = {};
+
+        // 2. Draw Nodes
+        graphData.nodes.forEach((n: any) => {
+            const layerKey = n.layer.toLowerCase();
+            const count = layerCounts[layerKey as keyof typeof layerCounts] || 0;
+            const layerIndex = layers.findIndex(l => l.toLowerCase() === layerKey);
+            
+            const w = 150;
+            const h = 50;
+            const x = 100 + (count * 220);
+            const y = (layerIndex * swimlaneHeight) + 80;
+
+            if (layerCounts[layerKey as keyof typeof layerCounts] !== undefined) {
+                layerCounts[layerKey as keyof typeof layerCounts]++;
+            }
+
+            nodePositions[n.id] = { x, y, w, h };
+
+            let bg = '#ffffff';
+            let border = '#cbd5e1';
+            let strokeWidth = 1;
+
+            if (!isBaseline) {
+                if (n.status === 'removed') { bg = '#fef2f2'; border = '#ef4444'; strokeWidth = 2; }
+                if (n.status === 'new') { bg = '#f3e8ff'; border = '#a855f7'; strokeWidth = 2; }
+                if (n.status === 'modified' || n.status === 'at_risk') { bg = '#fef3c7'; border = '#f59e0b'; strokeWidth = 2; }
+            }
+
+            const safeLabel = (n.label || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            
+            // To handle basic word wrap, we split by space and take first 2 lines
+            const words = safeLabel.split(' ');
+            let line1 = words.slice(0, Math.ceil(words.length / 2)).join(' ');
+            let line2 = words.slice(Math.ceil(words.length / 2)).join(' ');
+            if (words.length <= 2) {
+                line1 = safeLabel;
+                line2 = '';
+            }
+
+            // Manually adjusting Y coordinates so we don't rely on alignment-baseline which Word ignores
+            svg += `
+                <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8" fill="${bg}" stroke="${border}" stroke-width="${strokeWidth}" />
+                <text x="${x + (w/2)}" y="${y + (h/2) - (line2 ? 4 : -5)}" font-family="Calibri" font-size="14" fill="#0f172a" text-anchor="middle">${line1}</text>
+                ${line2 ? `<text x="${x + (w/2)}" y="${y + (h/2) + 12}" font-family="Calibri" font-size="14" fill="#0f172a" text-anchor="middle">${line2}</text>` : ''}
+            `;
+        });
+
+        // 3. Draw Edges
+        graphData.edges.forEach((e: any) => {
+            const src = nodePositions[e.source];
+            const tgt = nodePositions[e.target];
+            if (!src || !tgt) return;
+
+            let stroke = '#94a3b8';
+            let strokeWidth = 1;
+            let dash = 'none';
+
+            if (!isBaseline) {
+                if (e.status === 'removed') { stroke = '#ef4444'; strokeWidth = 2; dash = '5,5'; }
+                if (e.status === 'new') { stroke = '#a855f7'; strokeWidth = 2; }
+            }
+
+            let startX = src.x + src.w / 2;
+            let startY = src.y + src.h;
+            let endX = tgt.x + tgt.w / 2;
+            let endY = tgt.y;
+
+            // Calculate bezier control points to create a smooth curve
+            // For bottom-to-top routing, ctrl1 is always below start, ctrl2 is always above end
+            const offset = Math.max(60, Math.abs(endY - startY) / 2);
+            
+            const ctrlX1 = startX;
+            const ctrlY1 = startY + offset;
+            const ctrlX2 = endX;
+            const ctrlY2 = endY - offset;
+
+            // Since ctrlY2 is always above endY, the curve always enters pointing straight DOWN
+            const arrowAngle = 90; 
+            const arrowLength = 10;
+            const endXLine = endX;
+            const endYLine = endY - arrowLength;
+
+            svg += `<path d="M ${startX} ${startY} C ${ctrlX1} ${ctrlY1}, ${ctrlX2} ${ctrlY2}, ${endXLine} ${endYLine}" fill="none" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dash !== 'none' ? dash : ''}" />`;
+            
+            svg += `<polygon points="0,0 -10,-5 -10,5" fill="${stroke}" transform="translate(${endX}, ${endY}) rotate(${arrowAngle})" />`;
+        });
+
+        svg += `</svg>`;
+        return svg;
+    };
+
+    const exportToWord = async () => {
+        if (!result || !baseline) return;
+        
+        setStatus('simulating');
+        try {
+            const baselineSvg = generateReactFlowSvg(baseline, true);
+            const tobeSvg = generateReactFlowSvg(result, false);
+
+            const phases = [
+                { id: 'A', name: 'Architecture Vision' },
+                { id: 'B', name: 'Business Architecture' },
+                { id: 'C', name: 'Information Systems Architecture' },
+                { id: 'D', name: 'Technology Architecture' },
+                { id: 'E', name: 'Opportunities & Solutions' },
+                { id: 'F', name: 'Migration Planning' },
+                { id: 'G', name: 'Implementation Governance' },
+                { id: 'H', name: 'Architecture Change Management' },
+                { id: 'R', name: 'Requirements Management' }
+            ];
+
+            const activePhases = phases.filter(p => 
+                result.adm_impacts?.some((i: any) => i.phase.startsWith(p.id))
+            ).map(p => {
+                const impact = result.adm_impacts.find((i: any) => i.phase.startsWith(p.id));
+                return {
+                    phase: p.id,
+                    name: p.name,
+                    impact: impact.risk_level,
+                    desc: impact.description
+                };
+            });
+
             const payload = {
-                canvas_id: thing.canvas_id,
-                thing_id: thing.id,
                 action: action,
-                target_technology: targetTech,
-                target_entity_ids: targetEntityIds,
-                custom_prompt: customPrompt,
-                document_ids: documentIds,
-                baseline: thing.content?.baseline
+                targetTech: targetTech,
+                customPrompt: customPrompt,
+                risk_score: result.structural_risk_score,
+                risk_rationale: result.structural_risk_rationale,
+                baseline_svg: baselineSvg,
+                tobe_svg: tobeSvg,
+                phases: activePhases
             };
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architectural_scenario/simulate`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architectural_scenario/export-docx`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -122,90 +380,23 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                 body: JSON.stringify(payload)
             });
 
-            if (!res.ok) throw new Error('Simulation failed');
-            
-            const data = await res.json();
-            
-            updateThing(thing.id, {
-                content: {
-                    ...thing.content,
-                    action,
-                    target_technology: targetTech,
-                    custom_prompt: customPrompt,
-                    result: data.result
-                }
-            });
-            
-            setViewMode('tobe');
+            if (!response.ok) throw new Error("Failed to generate docx");
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Architectural_Scenario_Impact.docx`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
         } catch (error) {
-            console.error(error);
-            alert("Simulation failed. See console.");
+            console.error("Export failed:", error);
+            alert("Export failed.");
         } finally {
             setStatus('complete');
         }
-    };
-
-    const exportToWord = () => {
-        if (!result) return;
-        
-        let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-        <head><meta charset='utf-8'><title>Architectural Scenario Impact Analysis</title></head><body>`;
-        
-        html += `<h1 style="font-family: Arial, sans-serif; color: #4c1d95;">Architectural Scenario Impact Analysis</h1>`;
-        
-        html += `<h2 style="font-family: Arial, sans-serif; color: #334155;">1. Scenario Configuration</h2>`;
-        html += `<ul style="font-family: Arial, sans-serif; color: #475569;">`;
-        html += `<li><strong>Action:</strong> ${action}</li>`;
-        html += `<li><strong>Target Technology:</strong> ${targetTech || 'N/A'}</li>`;
-        html += `<li><strong>Custom Prompt:</strong> ${customPrompt || 'N/A'}</li>`;
-        html += `</ul>`;
-        
-        html += `<h2 style="font-family: Arial, sans-serif; color: #334155;">2. Structural Risk Assessment</h2>`;
-        html += `<p style="font-family: Arial, sans-serif; color: #475569;"><strong>Risk Score:</strong> ${result.structural_risk_score} / 100</p>`;
-        html += `<p style="font-family: Arial, sans-serif; color: #475569;"><strong>Rationale:</strong> ${result.structural_risk_rationale}</p>`;
-        
-        html += `<h2 style="font-family: Arial, sans-serif; color: #334155; margin-top: 20px;">3. TOGAF ADM Phase Impacts</h2>`;
-        
-        const phases = [
-            { id: 'A', name: 'Architecture Vision' },
-            { id: 'B', name: 'Business Architecture' },
-            { id: 'C', name: 'Information Systems Architecture' },
-            { id: 'D', name: 'Technology Architecture' },
-            { id: 'E', name: 'Opportunities & Solutions' },
-            { id: 'F', name: 'Migration Planning' },
-            { id: 'G', name: 'Implementation Governance' },
-            { id: 'H', name: 'Architecture Change Management' },
-            { id: 'R', name: 'Requirements Management' }
-        ];
-        
-        phases.forEach(p => {
-            const impact = result.adm_impacts?.find((i: any) => i.phase.startsWith(p.id));
-            if (impact) {
-                html += `<h3 style="font-family: Arial, sans-serif; color: #6d28d9; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-top: 20px;">Phase ${p.id}: ${p.name}</h3>`;
-                html += `<p style="font-family: Arial, sans-serif; color: #475569;"><strong>Risk Level:</strong> ${impact.risk_level}</p>`;
-                
-                // Convert basic Markdown to HTML
-                let formattedDesc = impact.description
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                    .replace(/\n\n/g, '</p><p style="font-family: Arial, sans-serif; color: #475569; line-height: 1.5;">')
-                    .replace(/\n/g, '<br/>');
-                
-                html += `<p style="font-family: Arial, sans-serif; color: #475569; line-height: 1.5;">${formattedDesc}</p>`;
-            }
-        });
-        
-        html += `</body></html>`;
-        
-        const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `ArchVantage_Analysis_${new Date().toISOString().split('T')[0]}.doc`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
     };
 
     // Mapping backend result to ReactFlow Nodes
@@ -575,6 +766,29 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                                 <span className="flex items-center gap-2"><Layers className="w-5 h-5" /> Extract from Linked Documents</span>
                             )}
                         </Button>
+                    </div>
+                )}
+
+                {/* SIMULATION OVERLAY */}
+                {status === 'simulating' && (
+                    <div className="absolute inset-0 bg-white/90 dark:bg-slate-950/90 z-50 flex flex-col items-center justify-center p-8 text-center backdrop-blur-sm">
+                        <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mb-6 shadow-sm">
+                            <Workflow className="w-8 h-8 animate-pulse" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Simulating Architectural Impact</h2>
+                        <p className="text-slate-500 mb-8 max-w-md">Running distributed AI analysis across architectural layers...</p>
+                        
+                        {progressMessage && (
+                            <div className="w-full max-w-md flex flex-col items-center">
+                                <div className="text-sm font-semibold text-purple-600 dark:text-purple-400 mb-3 animate-pulse">{progressMessage}</div>
+                                <div className="w-full bg-purple-100 dark:bg-purple-900/30 rounded-full h-2 overflow-hidden relative">
+                                    <div 
+                                        className="bg-purple-600 h-full rounded-full transition-all duration-500 ease-out absolute top-0 left-0" 
+                                        style={{ width: `${progressPercent}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
                 

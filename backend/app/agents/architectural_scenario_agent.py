@@ -62,6 +62,8 @@ class ScenarioGraphState(TypedDict):
     tobe_graph: Optional[str]
     remediation_plan: Optional[str]
     
+    impacted_phases: Optional[List[str]]
+    
     adm_impacts: Annotated[List[AdmPhaseImpact], operator.add]
     
     baseline: Optional[ArchitecturalBaseline]
@@ -196,6 +198,46 @@ CRITICAL RULE: DO NOT invent "middleware", "adapters", or "API gateways" unless 
     res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content="Output gap analysis and remediation plan.")])
     return {"remediation_plan": res.content}
 
+class ImpactedPhases(BaseModel):
+    phases: List[str] = Field(description="List of impacted phase letters, e.g. ['A', 'B', 'D']")
+
+async def determine_impacted_phases(state: ScenarioGraphState) -> ScenarioGraphState:
+    """Step E.5: Impact Router Node"""
+    service = LLMService()
+    llm, _ = service._get_model("default")
+    parser = PydanticOutputParser(pydantic_object=ImpactedPhases)
+    
+    system_prompt = f"""You are an Enterprise Architect deciding which TOGAF phases are impacted by an architectural mutation.
+Mutation: {state['mutation_spec']}
+Impacts: {state['impact_assessment']}
+
+Review the mutation and impacts. Decide which of the following TOGAF phases require detailed analysis:
+A: Architecture Vision
+B: Business Architecture
+C: Information Systems Architecture
+D: Technology Architecture
+E: Opportunities & Solutions
+F: Migration Planning
+G: Implementation Governance
+H: Architecture Change Management
+R: Requirements Management
+
+Return ONLY the letters of the phases that are meaningfully impacted. Do not return all phases unless absolutely necessary.
+Format instructions:
+{parser.get_format_instructions()}
+"""
+    res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content="Determine impacted phases.")])
+    try:
+        parsed = parser.invoke(res)
+        valid_phases = ["A", "B", "C", "D", "E", "F", "G", "H", "R"]
+        impacted = [p for p in parsed.phases if p in valid_phases]
+        if not impacted:
+            impacted = ["A"] # fallback
+        return {"impacted_phases": impacted}
+    except Exception as e:
+        logger.error(f"Failed to parse impacted phases: {e}")
+        return {"impacted_phases": ["A", "B", "C", "D"]} # fallback
+
 async def analyze_adm_phase(state: ScenarioGraphState, phase_name: str, phase_desc: str) -> dict:
     service = LLMService()
     llm, _ = service._get_model("default")
@@ -295,6 +337,7 @@ def build_architectural_scenario_graph() -> StateGraph:
     workflow.add_node("evaluate_cross_layer_impact", evaluate_cross_layer_impact)
     workflow.add_node("synthesize_tobe_graph", synthesize_tobe_graph)
     workflow.add_node("analyze_remediation_gaps", analyze_remediation_gaps)
+    workflow.add_node("determine_impacted_phases", determine_impacted_phases)
     
     # Phase specific nodes
     phases = ["A", "B", "C", "D", "E", "F", "G", "H", "R"]
@@ -316,10 +359,24 @@ def build_architectural_scenario_graph() -> StateGraph:
     workflow.add_edge("traverse_topology", "evaluate_cross_layer_impact")
     workflow.add_edge("evaluate_cross_layer_impact", "synthesize_tobe_graph")
     workflow.add_edge("synthesize_tobe_graph", "analyze_remediation_gaps")
+    workflow.add_edge("analyze_remediation_gaps", "determine_impacted_phases")
     
-    # Fan out
-    for phase in phases:
-        workflow.add_edge("analyze_remediation_gaps", f"analyze_phase_{phase}")
+    def route_to_phases(state: ScenarioGraphState) -> List[str]:
+        impacted = state.get('impacted_phases', [])
+        if not impacted:
+            return ["aggregate_json_spec"]
+        return [f"analyze_phase_{p}" for p in impacted]
+
+    # Map possible routing destinations
+    path_map = {f"analyze_phase_{p}": f"analyze_phase_{p}" for p in phases}
+    path_map["aggregate_json_spec"] = "aggregate_json_spec"
+
+    # Dynamic Conditional Fan-out
+    workflow.add_conditional_edges(
+        "determine_impacted_phases",
+        route_to_phases,
+        path_map
+    )
         
     # Fan in
     for phase in phases:

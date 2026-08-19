@@ -26,9 +26,7 @@ class ExecutiveSummaryState(TypedDict):
     errors: List[str]
 
 class Concept(BaseModel):
-    capabilities: List[str] = Field(default_factory=list, description="Key architectural capabilities identified")
-    drivers: List[str] = Field(default_factory=list, description="Business drivers or motivations identified")
-    nodes: List[str] = Field(default_factory=list, description="Core architectural nodes or systems mentioned")
+    categories: Dict[str, List[str]] = Field(default_factory=dict, description="Dynamically extracted concept categories. Keys should be the category name (e.g. 'Business Drivers', 'Capabilities', 'Architecture Nodes', 'Success Factors', 'Roadmap Items', 'Regulatory Mandates'), and values should be a list of strings representing the key bullet points for that category.")
     figures: List[str] = Field(default_factory=list, description="List of URLs or paths for extracted figures")
 
 class DiagramNode(BaseModel):
@@ -100,7 +98,7 @@ def concept_miner_agent(state: ExecutiveSummaryState):
     llm = get_llm(state)
     docs = state.get("source_docs", [])
     if not docs:
-        return {"concepts": {"capabilities": [], "drivers": [], "nodes": [], "figures": []}}
+        return {"concepts": {"categories": {}, "figures": []}}
         
     docs_text = "\n\n".join(docs)
     
@@ -211,7 +209,7 @@ Documents:
         return {"concepts": res.model_dump()}
     except Exception as e:
         logger.error(f"Concept Mining failed: {e}")
-        return {"concepts": {"capabilities": [], "drivers": [], "nodes": [], "figures": []}}
+        return {"concepts": {"categories": {}, "figures": []}}
 
 def synthesizer_and_storyboarder_agent(state: ExecutiveSummaryState):
     """Phase 2b & 2c: C-Level Synthesizer and Storyboarder"""
