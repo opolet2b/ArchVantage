@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { 
     Workflow, Play, Save, Settings, Layers, AlertTriangle, 
     ArrowRight, Activity, GitBranch, Zap, RefreshCw
@@ -441,9 +442,9 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                                                                     {impact.risk_level === 'Medium' && <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Medium Risk</span>}
                                                                     {impact.risk_level === 'Low' && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Low Risk</span>}
                                                                 </div>
-                                                                <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
-                                                                    {impact.description}
-                                                                </p>
+                                                                <div className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+                                                                    <ReactMarkdown>{impact.description}</ReactMarkdown>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             <div className="text-sm text-slate-500 italic py-8 text-center">

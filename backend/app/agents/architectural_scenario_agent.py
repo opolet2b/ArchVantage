@@ -1,5 +1,6 @@
 import logging
-from typing import TypedDict, List, Dict, Any, Optional
+import operator
+from typing import TypedDict, List, Dict, Any, Optional, Annotated
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import PydanticOutputParser
@@ -28,7 +29,7 @@ class ScenarioEdge(BaseModel):
 
 class AdmPhaseImpact(BaseModel):
     phase: str = Field(description="One of: A (Architecture Vision), B (Business Architecture), C (Information Systems Architecture), D (Technology Architecture), E (Opportunities & Solutions), F (Migration Planning), G (Implementation Governance), H (Architecture Change Management), R (Requirements Management)")
-    description: str = Field(description="Detailed strategic analysis and impact for this TOGAF ADM phase")
+    description: str = Field(description="Highly specific, concrete strategic analysis. MUST explicitly reference the user's custom prompt and the exact components involved. NEVER use generic boilerplate or invent unrelated architectural concepts (e.g. do not mention 'event-driven' unless explicitly in the prompt).")
     risk_level: str = Field(description="Low, Medium, High")
 
 class ArchitecturalBaseline(BaseModel):
@@ -40,7 +41,7 @@ class ArchitecturalScenarioResult(BaseModel):
     edges: List[ScenarioEdge]
     adm_impacts: List[AdmPhaseImpact]
     structural_risk_score: int = Field(description="0 to 100")
-    structural_risk_rationale: str = Field(description="A detailed explanation justifying the structural risk score based on cross-domain vulnerabilities and dependencies.")
+    structural_risk_rationale: str = Field(description="A highly specific, concrete explanation justifying the risk score. You MUST explicitly name the components involved (e.g. 'Replacing Alfresco with Confluence') and cite exact scenario details. Do not use generic boilerplate text.")
     financial_impact_estimate: str = Field(description="Brief text like '+ $150k'")
     timeline_impact_estimate: str = Field(description="Brief text like '+ 3 Months'")
 
@@ -61,6 +62,8 @@ class ScenarioGraphState(TypedDict):
     tobe_graph: Optional[str]
     remediation_plan: Optional[str]
     
+    adm_impacts: Annotated[List[AdmPhaseImpact], operator.add]
+    
     baseline: Optional[ArchitecturalBaseline]
     result: Optional[ArchitecturalScenarioResult]
 
@@ -79,7 +82,8 @@ async def extract_baseline(state: BaselineGraphState) -> BaselineGraphState:
     
     system_prompt = f"""You are an Enterprise Architect. Extract the baseline architectural topology from the provided context.
 Identify the key components across Business, Information, Application, and Technology layers.
-Assign a unique short ID to each.
+Assign a unique short ID to each (e.g., A1, B2).
+CRITICAL: When setting the 'label' for each node, you MUST prepend the ID to the name (e.g., "[A4] Content Server"). This ensures the ID is visible in the UI.
 Define edges representing dependencies. All status fields must be 'baseline'.
 
 Document Context:
@@ -91,7 +95,15 @@ Format instructions:
     
     res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content="Extract the baseline architecture.")])
     try:
-        return {"baseline": parser.invoke(res)}
+        parsed = parser.invoke(res)
+        updated_nodes = []
+        for node in parsed.nodes:
+            if not node.label.startswith(f"[{node.id}]"):
+                updated_nodes.append(node.model_copy(update={'label': f"[{node.id}] {node.label}"}))
+            else:
+                updated_nodes.append(node)
+        parsed.nodes = updated_nodes
+        return {"baseline": parsed}
     except Exception as e:
         logger.error(f"Failed to parse baseline: {e}")
         return {"baseline": ArchitecturalBaseline(nodes=[], edges=[])}
@@ -116,8 +128,10 @@ Action: {state['action']}
 Target Entity IDs: {state.get('target_entity_ids')}
 Target Tech: {state['target_technology']}
 Custom Prompt: {state['custom_prompt']}
+Baseline: {state.get('baseline')}
 
-Output a normalized mutation specification detailing exactly what components are added, removed, or changed."""
+Output a normalized mutation specification detailing exactly what components are added, removed, or changed. You MUST use the Baseline graph to identify the names and properties of the components referenced by the Target Entity IDs. 
+If the user requests to replace a component, explicitly state which baseline component is removed and what new component is added. Do not ignore the user's request."""
     
     res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content="Parse the intent.")])
     return {"mutation_spec": res.content}
@@ -148,7 +162,8 @@ Active Subgraph:
 Mutation:
 {state['mutation_spec']}
 
-Identify protocol mismatches, broken data schemas, and lost capabilities. Output risk scores and broken interfaces."""
+Identify the true architectural impacts. 
+CRITICAL RULE: Base your analysis STRICTLY on the actual components being transformed (e.g. if the user swaps CMS tools like Alfresco and Confluence, focus on document management, content workflows, and user training). DO NOT hallucinate "REST calls", "eventual consistency", "event-driven architectures", "APIs", or "data schemas" unless they were explicitly part of the baseline or requested by the user. Do not invent technical complexity where none exists. Output realistic, scenario-grounded risk scores and impacts."""
     
     res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content="Evaluate impacts.")])
     return {"impact_assessment": res.content}
@@ -162,7 +177,8 @@ Baseline: {state.get('baseline')}
 Impacts: {state['impact_assessment']}
 Subgraph: {state['active_subgraph']}
 
-Construct the To-Be graph in plain text. CRITICAL: You must preserve ALL existing nodes and edges from the Baseline that are unaffected. Only modify, remove, or add nodes as specified by the impacts. Do not drop unrelated components! Mark components as New, Removed, Modified, or Unchanged."""
+Construct the To-Be graph in plain text. CRITICAL: You must preserve ALL existing nodes and edges from the Baseline that are unaffected. 
+You MUST apply the changes from the Impacts and Subgraph. If a component is replaced, mark the old one as 'removed' and create the new one as 'new'. Do not ignore the replacement request!"""
     
     res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content="Synthesize To-Be Graph.")])
     return {"tobe_graph": res.content}
@@ -171,12 +187,51 @@ async def analyze_remediation_gaps(state: ScenarioGraphState) -> ScenarioGraphSt
     """Step E: Architectural Remediation & Gap Analysis Node"""
     service = LLMService()
     llm, _ = service._get_model("default")
-    system_prompt = f"""Identify missing architectural middleware or adapters needed to fix broken dependencies.
+    system_prompt = f"""Identify what needs to be done to successfully transition to the To-Be graph.
 To-Be Graph: {state['tobe_graph']}
-Impacts: {state['impact_assessment']}"""
+Impacts: {state['impact_assessment']}
+
+CRITICAL RULE: DO NOT invent "middleware", "adapters", or "API gateways" unless they make sense for the specific components. If this is a business or software platform swap (like a CMS), focus on realistic remediation like user training, data migration, and capability mapping. Do not hallucinate irrelevant technical paradigms."""
     
     res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content="Output gap analysis and remediation plan.")])
     return {"remediation_plan": res.content}
+
+async def analyze_adm_phase(state: ScenarioGraphState, phase_name: str, phase_desc: str) -> dict:
+    service = LLMService()
+    llm, _ = service._get_model("default")
+    parser = PydanticOutputParser(pydantic_object=AdmPhaseImpact)
+    
+    system_prompt = f"""You are an Expert Enterprise Architect analyzing the strategic impact of an architectural transformation.
+Focus EXCLUSIVELY on TOGAF {phase_name}: {phase_desc}.
+
+Mutation: {state['mutation_spec']}
+To-Be Graph: {state['tobe_graph']}
+Remediation Plan: {state['remediation_plan']}
+
+Provide a deeply detailed, comprehensive analysis of how the target scenario impacts this specific phase. Provide concrete examples based on the mutation. Do not summarize—provide professional depth. Explicitly name the components being added or removed.
+
+Format instructions:
+{parser.get_format_instructions()}
+"""
+    res = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=f"Analyze {phase_name}.")])
+    try:
+        impact = parser.invoke(res)
+        # Force the phase field to be correct just in case the LLM messes it up
+        impact.phase = f"{phase_name[-1]} ({phase_desc})"
+        return {"adm_impacts": [impact]}
+    except Exception as e:
+        logger.error(f"Failed to parse ADM impact for {phase_name}: {e}")
+        return {"adm_impacts": []}
+
+async def analyze_phase_A(state): return await analyze_adm_phase(state, "Phase A", "Architecture Vision")
+async def analyze_phase_B(state): return await analyze_adm_phase(state, "Phase B", "Business Architecture")
+async def analyze_phase_C(state): return await analyze_adm_phase(state, "Phase C", "Information Systems Architecture")
+async def analyze_phase_D(state): return await analyze_adm_phase(state, "Phase D", "Technology Architecture")
+async def analyze_phase_E(state): return await analyze_adm_phase(state, "Phase E", "Opportunities & Solutions")
+async def analyze_phase_F(state): return await analyze_adm_phase(state, "Phase F", "Migration Planning")
+async def analyze_phase_G(state): return await analyze_adm_phase(state, "Phase G", "Implementation Governance")
+async def analyze_phase_H(state): return await analyze_adm_phase(state, "Phase H", "Architecture Change Management")
+async def analyze_phase_R(state): return await analyze_adm_phase(state, "Phase R", "Requirements Management")
 
 async def aggregate_json_spec(state: ScenarioGraphState) -> ScenarioGraphState:
     """Step F: JSON Spec Aggregator Node"""
@@ -195,11 +250,10 @@ CRITICAL RULE: Your final JSON output MUST include ALL nodes and edges from the 
 - For nodes/edges unaffected by the scenario, copy them exactly as they are with status 'baseline'. 
 - For nodes/edges that are changed, update their status to 'modified', 'removed', or add 'new' ones.
 DO NOT drop any layers or components from the baseline just because they weren't impacted!
+Ensure you successfully apply the requested transformations from the To-Be Graph. If the To-Be Graph says a component is replaced, you MUST output the new component in the JSON.
 
 STRATEGIC ANALYSIS RULE:
 1. ALWAYS use human-readable component labels (e.g. "Alfresco", "Service Orchestrator") in your descriptions. NEVER use internal IDs like "A4" or "D1".
-2. You MUST provide a comprehensive, strategic "Enterprise Architect" level impact analysis organized by TOGAF ADM Phases (A, B, C, D, E, F, G, H, and R for Requirements Management). 
-3. You MUST output an impact block for EVERY SINGLE PHASE (A, B, C, D, E, F, G, H, R). Never output "No comment". You must analyze and explain the strategic usability, project migration, and technical workflow impacts for all ADM phases even if components weren't directly touched.
 
 Format instructions:
 {parser.get_format_instructions()}
@@ -209,6 +263,14 @@ Format instructions:
     
     try:
         parsed_result = parser.invoke(res)
+        updated_nodes = []
+        for node in parsed_result.nodes:
+            if not node.label.startswith(f"[{node.id}]"):
+                updated_nodes.append(node.model_copy(update={'label': f"[{node.id}] {node.label}"}))
+            else:
+                updated_nodes.append(node)
+        parsed_result.nodes = updated_nodes
+        parsed_result.adm_impacts = state.get('adm_impacts', [])
         return {"result": parsed_result}
     except Exception as e:
         logger.error(f"Failed to parse LLM response: {e}")
@@ -233,6 +295,19 @@ def build_architectural_scenario_graph() -> StateGraph:
     workflow.add_node("evaluate_cross_layer_impact", evaluate_cross_layer_impact)
     workflow.add_node("synthesize_tobe_graph", synthesize_tobe_graph)
     workflow.add_node("analyze_remediation_gaps", analyze_remediation_gaps)
+    
+    # Phase specific nodes
+    phases = ["A", "B", "C", "D", "E", "F", "G", "H", "R"]
+    workflow.add_node("analyze_phase_A", analyze_phase_A)
+    workflow.add_node("analyze_phase_B", analyze_phase_B)
+    workflow.add_node("analyze_phase_C", analyze_phase_C)
+    workflow.add_node("analyze_phase_D", analyze_phase_D)
+    workflow.add_node("analyze_phase_E", analyze_phase_E)
+    workflow.add_node("analyze_phase_F", analyze_phase_F)
+    workflow.add_node("analyze_phase_G", analyze_phase_G)
+    workflow.add_node("analyze_phase_H", analyze_phase_H)
+    workflow.add_node("analyze_phase_R", analyze_phase_R)
+    
     workflow.add_node("aggregate_json_spec", aggregate_json_spec)
     
     workflow.set_entry_point("parse_scenario")
@@ -241,7 +316,15 @@ def build_architectural_scenario_graph() -> StateGraph:
     workflow.add_edge("traverse_topology", "evaluate_cross_layer_impact")
     workflow.add_edge("evaluate_cross_layer_impact", "synthesize_tobe_graph")
     workflow.add_edge("synthesize_tobe_graph", "analyze_remediation_gaps")
-    workflow.add_edge("analyze_remediation_gaps", "aggregate_json_spec")
+    
+    # Fan out
+    for phase in phases:
+        workflow.add_edge("analyze_remediation_gaps", f"analyze_phase_{phase}")
+        
+    # Fan in
+    for phase in phases:
+        workflow.add_edge(f"analyze_phase_{phase}", "aggregate_json_spec")
+        
     workflow.add_edge("aggregate_json_spec", END)
     
     return workflow.compile()
