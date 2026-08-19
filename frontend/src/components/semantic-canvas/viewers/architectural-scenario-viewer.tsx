@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { 
     Workflow, Play, Save, Settings, Layers, AlertTriangle, 
-    ArrowRight, Activity, GitBranch, Zap, RefreshCw
+    ArrowRight, Activity, GitBranch, Zap, RefreshCw, Download
 } from 'lucide-react';
 import { CanvasThing, CanvasLink } from '../canvas-store';
 import { Button } from '@/components/ui/button';
@@ -143,6 +143,69 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
         } finally {
             setStatus('complete');
         }
+    };
+
+    const exportToWord = () => {
+        if (!result) return;
+        
+        let html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head><meta charset='utf-8'><title>Architectural Scenario Impact Analysis</title></head><body>`;
+        
+        html += `<h1 style="font-family: Arial, sans-serif; color: #4c1d95;">Architectural Scenario Impact Analysis</h1>`;
+        
+        html += `<h2 style="font-family: Arial, sans-serif; color: #334155;">1. Scenario Configuration</h2>`;
+        html += `<ul style="font-family: Arial, sans-serif; color: #475569;">`;
+        html += `<li><strong>Action:</strong> ${action}</li>`;
+        html += `<li><strong>Target Technology:</strong> ${targetTech || 'N/A'}</li>`;
+        html += `<li><strong>Custom Prompt:</strong> ${customPrompt || 'N/A'}</li>`;
+        html += `</ul>`;
+        
+        html += `<h2 style="font-family: Arial, sans-serif; color: #334155;">2. Structural Risk Assessment</h2>`;
+        html += `<p style="font-family: Arial, sans-serif; color: #475569;"><strong>Risk Score:</strong> ${result.structural_risk_score} / 100</p>`;
+        html += `<p style="font-family: Arial, sans-serif; color: #475569;"><strong>Rationale:</strong> ${result.structural_risk_rationale}</p>`;
+        
+        html += `<h2 style="font-family: Arial, sans-serif; color: #334155; margin-top: 20px;">3. TOGAF ADM Phase Impacts</h2>`;
+        
+        const phases = [
+            { id: 'A', name: 'Architecture Vision' },
+            { id: 'B', name: 'Business Architecture' },
+            { id: 'C', name: 'Information Systems Architecture' },
+            { id: 'D', name: 'Technology Architecture' },
+            { id: 'E', name: 'Opportunities & Solutions' },
+            { id: 'F', name: 'Migration Planning' },
+            { id: 'G', name: 'Implementation Governance' },
+            { id: 'H', name: 'Architecture Change Management' },
+            { id: 'R', name: 'Requirements Management' }
+        ];
+        
+        phases.forEach(p => {
+            const impact = result.adm_impacts?.find((i: any) => i.phase.startsWith(p.id));
+            if (impact) {
+                html += `<h3 style="font-family: Arial, sans-serif; color: #6d28d9; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; margin-top: 20px;">Phase ${p.id}: ${p.name}</h3>`;
+                html += `<p style="font-family: Arial, sans-serif; color: #475569;"><strong>Risk Level:</strong> ${impact.risk_level}</p>`;
+                
+                // Convert basic Markdown to HTML
+                let formattedDesc = impact.description
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/\n\n/g, '</p><p style="font-family: Arial, sans-serif; color: #475569; line-height: 1.5;">')
+                    .replace(/\n/g, '<br/>');
+                
+                html += `<p style="font-family: Arial, sans-serif; color: #475569; line-height: 1.5;">${formattedDesc}</p>`;
+            }
+        });
+        
+        html += `</body></html>`;
+        
+        const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `ArchVantage_Analysis_${new Date().toISOString().split('T')[0]}.doc`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     };
 
     // Mapping backend result to ReactFlow Nodes
@@ -310,6 +373,13 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                         <Play className="w-4 h-4" />
                         {status === 'simulating' ? 'Simulating...' : 'Run Simulation'}
                     </Button>
+                    
+                    {result && (
+                        <Button variant="outline" onClick={exportToWord} className="gap-2 text-slate-700 bg-white hover:bg-slate-50 border-slate-200 shadow-sm ml-2">
+                            <Download className="w-4 h-4 text-purple-600" />
+                            Export to Word
+                        </Button>
+                    )}
 
                     <Sheet>
                         <SheetTrigger asChild>
