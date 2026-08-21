@@ -74,9 +74,9 @@ async def run_simulation(request: SimulateRequest):
         with SessionLocal() as db:
             thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
             if thing:
-                if thing.content is None:
-                    thing.content = {}
-                thing.content["simState"] = {"step": "SIMULATING"}
+                content = dict(thing.content) if thing.content else {}
+                content["simState"] = {"step": "SIMULATING"}
+                thing.content = content
                 flag_modified(thing, "content")
                 db.commit()
     except Exception as db_err:

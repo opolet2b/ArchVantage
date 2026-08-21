@@ -33,9 +33,9 @@ async def run_governance_audit_stream(request: GovernanceAuditRequest):
         with SessionLocal() as db:
             thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
             if thing:
-                if thing.content is None:
-                    thing.content = {}
-                thing.content["auditState"] = {"step": "ANALYZING"}
+                content = dict(thing.content) if thing.content else {}
+                content["auditState"] = {"step": "ANALYZING"}
+                thing.content = content
                 flag_modified(thing, "content")
                 db.commit()
     except Exception as e:

@@ -85,9 +85,9 @@ async def ingest_scenario_stream(request: IngestRequest):
         with SessionLocal() as db:
             thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
             if thing:
-                if thing.content is None:
-                    thing.content = {}
-                thing.content["archState"] = {"step": "EXTRACTING"}
+                content = dict(thing.content) if thing.content else {}
+                content["archState"] = {"step": "EXTRACTING"}
+                thing.content = content
                 flag_modified(thing, "content")
                 db.commit()
             
@@ -257,9 +257,9 @@ async def simulate_scenario_stream(request: ScenarioRequest):
         with SessionLocal() as db:
             thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
             if thing:
-                if thing.content is None:
-                    thing.content = {}
-                thing.content["archState"] = {"step": "SIMULATING"}
+                content = dict(thing.content) if thing.content else {}
+                content["archState"] = {"step": "SIMULATING"}
+                thing.content = content
                 flag_modified(thing, "content")
                 db.commit()
             

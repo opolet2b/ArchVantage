@@ -38,9 +38,10 @@ async def generate_time_matrix(request: TimeMatrixRequest):
         with SessionLocal() as db:
             thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
             if thing:
-                if thing.content is None:
-                    thing.content = {}
-                thing.content["timeState"] = {"step": "EXTRACTING"}
+                # Properly re-assign the JSON column for SQLAlchemy detection
+                content = dict(thing.content) if thing.content else {}
+                content["timeState"] = {"step": "EXTRACTING"}
+                thing.content = content
                 flag_modified(thing, "content")
                 db.commit()
             else:
