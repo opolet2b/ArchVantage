@@ -61,7 +61,9 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                     updateThing(thing.id, { content: { ...thing.content, status: 'idle' } });
                 } else {
                     // Still generating
-                    setProgressMessage('Backend process is still running...');
+                    if (!abortControllerRef.current) {
+                        setProgressMessage('Backend process is still running...');
+                    }
                     setSyncState('running');
                 }
             } else {

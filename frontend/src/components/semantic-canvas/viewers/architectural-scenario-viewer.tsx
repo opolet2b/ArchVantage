@@ -57,39 +57,89 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
     const baseline = thing.content?.baseline || null;
     const [result, setResult] = useState(thing.content?.result || null);
 
+    const [syncState, setSyncState] = useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
+    const [elapsedTime, setElapsedTime] = useState<number | null>(null);
+    const abortControllerRef = React.useRef<AbortController | null>(null);
+
+    React.useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (status === 'extracting' || status === 'simulating') {
+            setElapsedTime(0);
+            timer = setInterval(() => setElapsedTime(prev => (prev || 0) + 1), 1000);
+        } else {
+            setElapsedTime(null);
+        }
+        return () => clearInterval(timer);
+    }, [status]);
+
     const checkStatus = React.useCallback(async () => {
+        setSyncState('checking');
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architectural_scenario/status/${thing.id}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.step === 'EXTRACTING' && status !== 'extracting') {
-                    setStatus('extracting');
-                } else if (data.step === 'SIMULATING' && status !== 'simulating') {
-                    setStatus('simulating');
-                } else if (data.step === 'DONE' && (status === 'extracting' || status === 'simulating')) {
-                    // Usually handled by stream end, but if user closed window:
-                    setStatus('idle');
+                if (data.step === 'EXTRACTING') {
+                    if (status !== 'extracting') setStatus('extracting');
+                    if (!abortControllerRef.current) {
+                        setProgressMessage('Background extraction is still running...');
+                    }
+                    setSyncState('running');
+                } else if (data.step === 'SIMULATING') {
+                    if (status !== 'simulating') setStatus('simulating');
+                    if (!abortControllerRef.current) {
+                        setProgressMessage('Background simulation is still running...');
+                    }
+                    setSyncState('running');
+                } else if (data.step === 'DONE') {
+                    if (status === 'extracting' || status === 'simulating') setStatus('idle');
+                    setSyncState('completed');
+                } else {
+                    setSyncState('idle');
                 }
+            } else {
+                setSyncState('error');
             }
         } catch (err) {
             console.error("Failed to check arch status", err);
+            setSyncState('error');
         }
+        setTimeout(() => setSyncState('idle'), 3000);
     }, [thing.id, status]);
 
     React.useEffect(() => {
         let interval: NodeJS.Timeout;
         if (status === 'extracting' || status === 'simulating') {
             interval = setInterval(() => {
-                checkStatus();
+                if (syncState !== 'checking') {
+                    checkStatus();
+                }
             }, 15000);
         }
         return () => clearInterval(interval);
-    }, [status, checkStatus]);
+    }, [status, checkStatus, syncState]);
+
+    const cancelGeneration = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        } else {
+            setStatus('idle');
+            setProgressMessage('Cancelled');
+            setElapsedTime(null);
+            setProgressPercent(0);
+        }
+    };
 
     const handleIngest = async () => {
         setStatus('extracting');
         setProgressMessage('Connecting to server...');
         setProgressPercent(0);
+        
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
         try {
             const documentIds = links
                 .filter(l => l.target_id === thing.id && l.source_id !== thing.id)
@@ -107,7 +157,8 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${localStorage.getItem("token")}`
                 },
-                body: JSON.stringify({ document_ids: documentIds, thing_id: thing.id })
+                body: JSON.stringify({ document_ids: documentIds, thing_id: thing.id }),
+                signal: abortController.signal
             });
 
             if (!response.ok) throw new Error("Ingestion failed");
@@ -154,10 +205,16 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                     }
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            alert("Extraction failed. See console.");
-            setStatus('error');
+            if (error.name === 'AbortError') {
+                console.log("Extraction aborted.");
+            } else {
+                alert("Extraction failed. See console.");
+                setStatus('error');
+            }
+        } finally {
+            abortControllerRef.current = null;
         }
     };
 
@@ -167,6 +224,13 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
         setResult(null);
         setProgressMessage('Initializing simulation...');
         setProgressPercent(5);
+
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
         try {
             const documentIds = links
                 .filter(l => l.target_id === thing.id && l.source_id !== thing.id)
@@ -187,7 +251,8 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                     custom_prompt: customPrompt,
                     document_ids: documentIds,
                     baseline: baseline
-                })
+                }),
+                signal: abortController.signal
             });
 
             if (!response.ok) throw new Error("Simulation failed");
@@ -586,6 +651,64 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
         return edges;
     }, [result, baseline, viewMode]);
 
+    if (status === 'extracting' || status === 'simulating') {
+        return (
+            <div className="flex flex-col w-full h-full bg-slate-100 dark:bg-slate-950 overflow-hidden relative justify-center border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm">
+                <div className="absolute top-0 left-0 right-0 h-14 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between px-4 shrink-0 pointer-events-none">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-purple-100 text-purple-700 rounded-lg">
+                            <Workflow className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">Architectural Scenario Builder</h2>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-8 max-w-3xl mx-auto flex flex-col items-center gap-6 pb-20">
+                    <div className="mt-20 text-center flex flex-col items-center">
+                        <div className="w-16 h-16 border-4 border-slate-200 border-t-purple-500 rounded-full animate-spin mb-6" />
+                        <h3 className="text-xl font-medium text-slate-700 dark:text-slate-200 mb-2">
+                            {status === 'extracting' ? 'Extracting Architecture Baseline' : 'Simulating Architectural Scenario'}
+                        </h3>
+                        
+                        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-md mb-6 max-w-md text-sm">
+                            ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
+                        </div>
+
+                        <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
+                            {elapsedTime === null 
+                                ? 'Background process is running. Click Refresh Status to check.' 
+                                : (progressMessage || 'Processing...')}
+                        </p>
+                        
+                        {elapsedTime !== null ? (
+                            <div className="w-64 mb-8">
+                                <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden w-full">
+                                    <div className="bg-purple-500 h-2 rounded-full transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+                                </div>
+                                <div className="text-xs text-slate-400 dark:text-slate-500 text-right">
+                                    {elapsedTime}s elapsed
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="mb-8" />
+                        )}
+                        
+                        <div className="flex gap-4">
+                            <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20 pointer-events-auto" onClick={cancelGeneration}>
+                                Cancel Generation
+                            </Button>
+                            <Button variant="outline" className="border-purple-200 text-purple-600 hover:bg-purple-50 hover:text-purple-700 dark:border-purple-900/50 dark:hover:bg-purple-900/20 pointer-events-auto" onClick={checkStatus}>
+                                Refresh Status
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex flex-col h-full bg-white dark:bg-slate-950 overflow-hidden">
             {/* HEADER BAR */}
@@ -615,6 +738,28 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                             To-Be (Simulation)
                         </button>
                     </div>
+                    
+                    <Button 
+                        size="sm" 
+                        variant="ghost"
+                        className={`text-slate-600 dark:text-slate-300 transition-colors ${
+                            syncState === 'idle' ? "hover:bg-slate-100 dark:hover:bg-slate-800" :
+                            syncState === 'completed' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                            syncState === 'running' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                            syncState === 'error' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                            "bg-slate-100 dark:bg-slate-800"
+                        }`}
+                        onClick={checkStatus}
+                        title="Sync Status from Server"
+                        disabled={syncState === 'checking'}
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 mr-2 ${syncState === 'checking' ? "animate-spin" : ""}`} />
+                        {syncState === 'idle' && "Sync Status"}
+                        {syncState === 'checking' && "Checking..."}
+                        {syncState === 'completed' && "Finished!"}
+                        {syncState === 'running' && "Still running..."}
+                        {syncState === 'error' && "Failed to sync"}
+                    </Button>
 
                     <Button 
                         variant="outline" 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
-import { ShieldCheck, FileText, CheckCircle, XCircle, Play, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShieldCheck, FileText, CheckCircle, XCircle, Play, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -41,37 +41,86 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
     const [auditStatus, setAuditStatus] = useState(thing.content?.auditState?.step === 'ANALYZING' ? 'running' : (thing.content?.status || 'idle'));
     const [progressMessage, setProgressMessage] = useState<string>('');
 
+    const [syncState, setSyncState] = useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
+    const [elapsedTime, setElapsedTime] = useState<number | null>(null);
+    const abortControllerRef = React.useRef<AbortController | null>(null);
+    const [progressPercent, setProgressPercent] = useState<number>(0);
+
+    React.useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (auditStatus === 'running') {
+            setElapsedTime(0);
+            timer = setInterval(() => setElapsedTime(prev => (prev || 0) + 1), 1000);
+        } else {
+            setElapsedTime(null);
+        }
+        return () => clearInterval(timer);
+    }, [auditStatus]);
+
     const checkStatus = React.useCallback(async () => {
+        setSyncState('checking');
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/governance_audit/status/${thing.id}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.step === 'ANALYZING' && auditStatus !== 'running') {
-                    setAuditStatus('running');
-                } else if (data.step === 'DONE' && auditStatus === 'running') {
-                    setAuditStatus('completed');
-                } else if (data.step === 'WAITING' && auditStatus === 'running') {
-                    setAuditStatus('idle');
+                if (data.step === 'ANALYZING') {
+                    if (auditStatus !== 'running') setAuditStatus('running');
+                    if (!abortControllerRef.current) {
+                        setProgressMessage('Background analysis is still running...');
+                    }
+                    setSyncState('running');
+                } else if (data.step === 'DONE') {
+                    if (auditStatus === 'running') setAuditStatus('completed');
+                    setSyncState('completed');
+                } else if (data.step === 'WAITING') {
+                    if (auditStatus === 'running') setAuditStatus('idle');
+                    setSyncState('idle');
+                } else {
+                    setSyncState('idle');
                 }
+            } else {
+                setSyncState('error');
             }
         } catch (err) {
             console.error("Failed to check audit status", err);
+            setSyncState('error');
         }
+        setTimeout(() => setSyncState('idle'), 3000);
     }, [thing.id, auditStatus]);
 
     React.useEffect(() => {
         let interval: NodeJS.Timeout;
         if (auditStatus === 'running') {
             interval = setInterval(() => {
-                checkStatus();
+                if (syncState !== 'checking') {
+                    checkStatus();
+                }
             }, 15000);
         }
         return () => clearInterval(interval);
-    }, [auditStatus, checkStatus]);
+    }, [auditStatus, checkStatus, syncState]);
+
+    const cancelGeneration = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        } else {
+            setAuditStatus('idle');
+            setProgressMessage('Cancelled');
+            setElapsedTime(null);
+            setProgressPercent(0);
+        }
+    };
 
     const runAudit = async () => {
         setAuditStatus('running');
         setProgressMessage('Connecting to server...');
+        setProgressPercent(0);
+        
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
         
         // Extract text content and title from the linked document nodes
         const extractDoc = (doc: any) => {
@@ -105,7 +154,8 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                     guardrail_docs: guardrailDocs,
                     architecture_docs: architectureDocs,
                     llm_preset: 'default' // This uses the system default LLM
-                })
+                }),
+                signal: abortController.signal
             });
             
             if (!response.ok) {
@@ -134,7 +184,9 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                             const data = JSON.parse(line.substring(6));
                             if (data.type === 'progress') {
                                 setProgressMessage(data.message);
+                                if (data.percent) setProgressPercent(data.percent);
                             } else if (data.type === 'complete') {
+                                setProgressPercent(100);
                                 updateThing(thing.id, {
                                     content: {
                                         ...thing.content,
@@ -153,10 +205,15 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                     }
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Audit failed or interrupted:', error);
+            if (error.name === 'AbortError') {
+                console.log('Audit aborted.');
+            }
             // If the error is an abort/network error from page refresh, we DO NOT want to update the DB to WAITING.
             // For now, we will NOT call updateThing to avoid overwriting the DB state if it's still analyzing.
+        } finally {
+            abortControllerRef.current = null;
         }
     };
 
@@ -175,15 +232,38 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                     <ShieldCheck className="w-5 h-5 text-blue-500" />
                     <h2 className="font-semibold text-sm">Governance & Compliance Audit</h2>
                 </div>
-                <Button 
-                    size="sm" 
-                    onClick={runAudit}
-                    disabled={auditStatus === 'running' || connectedThings.length === 0}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                    <Play className="w-4 h-4 mr-2" />
-                    Run Audit
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button 
+                        size="sm" 
+                        variant="ghost"
+                        className={`text-slate-600 dark:text-slate-300 transition-colors ${
+                            syncState === 'idle' ? "hover:bg-slate-100 dark:hover:bg-slate-800" :
+                            syncState === 'completed' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                            syncState === 'running' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                            syncState === 'error' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                            "bg-slate-100 dark:bg-slate-800"
+                        }`}
+                        onClick={checkStatus}
+                        title="Sync Status from Server"
+                        disabled={syncState === 'checking'}
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 mr-2 ${syncState === 'checking' ? "animate-spin" : ""}`} />
+                        {syncState === 'idle' && "Sync Status"}
+                        {syncState === 'checking' && "Checking..."}
+                        {syncState === 'completed' && "Finished!"}
+                        {syncState === 'running' && "Still running..."}
+                        {syncState === 'error' && "Failed to sync"}
+                    </Button>
+                    <Button 
+                        size="sm" 
+                        onClick={runAudit}
+                        disabled={auditStatus === 'running' || connectedThings.length === 0}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                        <Play className="w-4 h-4 mr-2" />
+                        Run Audit
+                    </Button>
+                </div>
             </div>
 
             <div className="flex flex-1 min-h-0">
@@ -246,8 +326,33 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
 
                             {auditStatus === 'running' && (
                                 <div className="flex flex-col items-center justify-center py-20">
-                                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
-                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{progressMessage || 'Analyzing architecture against guardrails...'}</span>
+                                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-6"></div>
+                                    <h3 className="text-xl font-medium text-slate-700 dark:text-slate-200 mb-2">Analyzing Architecture</h3>
+                                    
+                                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-md mb-6 max-w-md text-sm text-center">
+                                        ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
+                                    </div>
+                                    
+                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-4">{progressMessage || 'Analyzing architecture against guardrails...'}</span>
+                                    
+                                    {elapsedTime !== null ? (
+                                        <div className="w-64 mb-8">
+                                            <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden w-full">
+                                                <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+                                            </div>
+                                            <div className="text-xs text-slate-400 dark:text-slate-500 text-right">
+                                                {elapsedTime}s elapsed
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="mb-8" />
+                                    )}
+                                    
+                                    <div className="flex gap-4">
+                                        <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20" onClick={cancelGeneration}>
+                                            Cancel Audit
+                                        </Button>
+                                    </div>
                                 </div>
                             )}
 

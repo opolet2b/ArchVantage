@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { 
     FileText, Play, Settings, Activity, MessageSquare, Send, Save, BarChart2, 
     GitBranch, Workflow, Calendar, Users, DollarSign, Layers, Plus, 
-    AlertTriangle, ArrowRight, CheckCircle2, Zap, Edit2, Download, Wand2, HelpCircle
+    AlertTriangle, ArrowRight, CheckCircle2, Zap, Edit2, Download, Wand2, HelpCircle, RefreshCw
 } from 'lucide-react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
 import { Button } from '@/components/ui/button';
@@ -351,37 +351,87 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
         setNodes(generateNodes(topologyReport.components, targetComponents, migrationPattern));
         setEdges(generateEdges(topologyReport.dependencies, topologyReport.components));
     }, [targetComponents, migrationPattern, topologyReport.components, topologyReport.dependencies, setNodes, setEdges]);
+    const [syncState, setSyncState] = useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
+    const [elapsedTime, setElapsedTime] = useState<number | null>(null);
+    const [progressMessage, setProgressMessage] = useState<string>(
+        status === 'simulating' ? 'Running safely in the background...' : ''
+    );
+    const [simProgressPercent, setSimProgressPercent] = useState(0);
+    const abortControllerRef = React.useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (status === 'simulating') {
+            setElapsedTime(0);
+            timer = setInterval(() => setElapsedTime(prev => (prev || 0) + 1), 1000);
+        } else {
+            setElapsedTime(null);
+        }
+        return () => clearInterval(timer);
+    }, [status]);
 
     const checkStatus = useCallback(async () => {
+        setSyncState('checking');
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/project_impact_simulator/status/${thing.id}`);
             if (res.ok) {
                 const data = await res.json();
-                if (data.step === 'SIMULATING' && status !== 'simulating') {
-                    setStatus('simulating');
-                } else if ((data.step === 'DONE' || data.step === 'WAITING') && status === 'simulating') {
-                    setStatus('completed');
+                if (data.step === 'SIMULATING') {
+                    if (status !== 'simulating') setStatus('simulating');
+                    if (!abortControllerRef.current) {
+                        setProgressMessage('Backend process is still running...');
+                    }
+                    setSyncState('running');
+                } else if (data.step === 'DONE' || data.step === 'WAITING') {
+                    if (status === 'simulating') setStatus('completed');
+                    setSyncState(data.step === 'DONE' ? 'completed' : 'idle');
                 }
+            } else {
+                setSyncState('error');
             }
         } catch (err) {
             console.error("Failed to check sim status", err);
+            setSyncState('error');
         }
+        setTimeout(() => setSyncState('idle'), 3000);
     }, [thing.id, status]);
 
     useEffect(() => {
         let interval: NodeJS.Timeout;
         if (status === 'simulating') {
             interval = setInterval(() => {
-                checkStatus();
+                if (syncState !== 'checking') {
+                    checkStatus();
+                }
             }, 15000);
         }
         return () => {
             if (interval) clearInterval(interval);
         };
-    }, [status, checkStatus]);
+    }, [status, checkStatus, syncState]);
+
+    const cancelGeneration = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        } else {
+            setStatus('idle');
+            setProgressMessage('Cancelled');
+            setElapsedTime(null);
+            setSimProgressPercent(0);
+        }
+    };
 
     const handleAutoSolve = async () => {
         setStatus('simulating');
+        setSimProgressPercent(5);
+        setProgressMessage('Initiating Auto-Solve...');
+
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/project_impact_simulator/auto_solve`, {
                 method: 'POST',
@@ -393,7 +443,8 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                     max_timeline_weeks: Number(maxTimeline) || 52,
                     max_staff: Number(maxStaff) || 20,
                     llm_preset: selectedModel || 'default'
-                })
+                }),
+                signal: abortController.signal
             });
             if (!res.ok) throw new Error("AutoSolve failed");
             if (!res.body) throw new Error("No response body");
@@ -422,9 +473,13 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                             const data = JSON.parse(part.slice(6));
                             
                             if (data.type === "step") {
-                                // You could add a toast or progress update here
+                                setSimProgressPercent(prev => Math.min(prev + 5, 95));
+                                if (data.node === 'evaluate') setProgressMessage("Evaluating constraints...");
+                                if (data.node === 'simulate') setProgressMessage("Running impact simulations...");
+                                if (data.node === 'optimize') setProgressMessage("Finding optimal path...");
                                 console.log(data.node);
                             } else if (data.type === "completed") {
+                                setSimProgressPercent(100);
                                 const optimalConstraints = data.result.optimal_constraints;
                                 const optimalSim = data.result.optimal_simulation;
                                 
@@ -479,15 +534,23 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                     }
                 }
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("AutoSolve Failed:", error);
-            setStatus('idle');
-            alert("AutoSolve failed. Ensure backend is running and LLM is configured.");
+            if (error.name === 'AbortError') {
+                console.log("AutoSolve aborted.");
+            } else {
+                setStatus('idle');
+                alert("AutoSolve failed. Ensure backend is running and LLM is configured.");
+            }
+        } finally {
+            abortControllerRef.current = null;
         }
     };
 
     const handleRunSimulation = async () => {
         setStatus('simulating');
+        setSimProgressPercent(5);
+        setProgressMessage('Reading architecture context and constraint logic...');
 
         const currentConstraints = {
             max_budget: Number(maxBudget) || 1000000,
@@ -506,6 +569,12 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
 
         const mockTopology = editedTopology;
 
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/project_impact_simulator/simulate`, {
                 method: 'POST',
@@ -515,7 +584,8 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                     topology: mockTopology,
                     constraints: currentConstraints,
                     llm_preset: selectedModel || 'default'
-                })
+                }),
+                signal: abortController.signal
             });
             if (!res.ok) throw new Error("Simulation Request Failed");
             if (!res.body) throw new Error("No response body");
@@ -544,8 +614,13 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                             const data = JSON.parse(part.slice(6));
                             
                             if (data.type === "step") {
+                                setSimProgressPercent(prev => Math.min(prev + 5, 95));
+                                if (data.node === 'evaluate') setProgressMessage("Evaluating constraints...");
+                                if (data.node === 'simulate') setProgressMessage("Running impact simulations...");
+                                if (data.node === 'optimize') setProgressMessage("Finding optimal path...");
                                 console.log(data.node);
                             } else if (data.type === "completed") {
+                                setSimProgressPercent(100);
                                 const newSimDelta = {
                                     weeks: data.result.total_weeks,
                                     min_weeks: data.result.min_weeks_confidence,
@@ -605,21 +680,16 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                     }
                 }
             }
-        } catch (error) {
-            console.error("Simulation Failed:", error);
-            setStatus('idle');
-            // Fallback for visual testing if backend is down
-            setSimDelta({
-                weeks: topologyReport.estimated_effort_weeks,
-                cost: 0,
-                risk: '0.25 (Low)',
-                bottleneck: 'Simulation Failed',
-                bottleneck_citation: 'Backend error occurred.',
-                justification_of_metrics: 'Backend error occurred.',
-                assumptions: [],
-                schedule: [],
-                isolated_impacts: {}
-            });
+        } catch (error: any) {
+            console.error("Simulation Request Failed:", error);
+            if (error.name === 'AbortError') {
+                console.log("Simulation aborted.");
+            } else {
+                setStatus('idle');
+                alert("Simulation failed.");
+            }
+        } finally {
+            abortControllerRef.current = null;
         }
     };
 
@@ -639,64 +709,49 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
         simDelta
     });
 
-    const handleScenarioChange = (newId: string) => {
-        // Save current changes before switching
-        let updatedScenarios = [...scenarios];
-        const activeIndex = updatedScenarios.findIndex(s => s.id === activeScenarioId);
-        if (activeIndex >= 0) {
-            updatedScenarios[activeIndex] = {
-                ...updatedScenarios[activeIndex],
-                ...getCurrentScenarioState()
-            };
-        }
-
-        const newScenario = updatedScenarios.find(s => s.id === newId);
-        if (!newScenario) return;
-        
-        setActiveScenarioId(newId);
-        setScenarios(updatedScenarios);
-        
-        // Push scenario config into UI states
-        setTargetComponents(newScenario.targetComponents || []);
-        setMigrationPattern(newScenario.migrationPattern || 'strangler_fig');
-        setInterfaceProtocols(newScenario.interfaceProtocols || {});
-        setTeamAssignee(newScenario.teamAssignee || 'platform_squad');
-        setDualRun(newScenario.dualRun ?? true);
-        setZeroDowntime(newScenario.zeroDowntime ?? false);
-        setCanaryRollout(newScenario.canaryRollout ?? false);
-        setDataBackfill(newScenario.dataBackfill ?? false);
-        setMaxBudget(newScenario.maxBudget || "1000000");
-        setMaxTimeline(newScenario.maxTimeline || "52");
-        setMaxStaff(newScenario.maxStaff || "20");
-        setSimDelta(newScenario.simDelta || defaultSimDelta);
-
-        if (!isReadOnly) {
-            updateThing(thing.id, {
-                content: {
-                    ...thing.content,
-                    activeScenarioId: newId,
-                    scenarios: updatedScenarios
-                }
-            });
+    const handleScenarioChange = (id: string) => {
+        setActiveScenarioId(id);
+        const scenario = scenarios.find(s => s.id === id);
+        if (scenario) {
+            setTargetComponents(scenario.targetComponents || []);
+            setMigrationPattern(scenario.migrationPattern || 'strangler_fig');
+            setInterfaceProtocols(scenario.interfaceProtocols || {});
+            setTeamAssignee(scenario.teamAssignee || 'platform_squad');
+            setDualRun(scenario.dualRun ?? true);
+            setZeroDowntime(scenario.zeroDowntime ?? false);
+            setCanaryRollout(scenario.canaryRollout ?? false);
+            setDataBackfill(scenario.dataBackfill ?? false);
+            setMaxBudget(scenario.maxBudget || "1000000");
+            setMaxTimeline(scenario.maxTimeline || "52");
+            setMaxStaff(scenario.maxStaff || "20");
+            setSimDelta(scenario.simDelta || defaultSimDelta);
+            if (!isReadOnly) {
+                updateThing(thing.id, {
+                    content: {
+                        ...thing.content,
+                        activeScenarioId: id
+                    }
+                });
+            }
         }
     };
 
     const handleBranchScenario = () => {
-        const name = window.prompt("Name your new scenario:", `Scenario ${scenarios.length + 1}`);
-        if (!name) return; // User cancelled
+        const currentScenario = scenarios.find(s => s.id === activeScenarioId);
+        if (!currentScenario) return;
         
         const newId = `s${Date.now()}`;
-        const newScenario = {
+        const branchedScenario = {
+            ...currentScenario,
             id: newId,
-            name: name,
-            baseline: false,
-            ...getCurrentScenarioState()
+            name: `${currentScenario.name} (Copy)`,
+            baseline: false
         };
         
-        const updatedScenarios = [...scenarios, newScenario];
+        const updatedScenarios = [...scenarios, branchedScenario];
         setScenarios(updatedScenarios);
         setActiveScenarioId(newId);
-
+        
         if (!isReadOnly) {
             updateThing(thing.id, {
                 content: {
@@ -768,6 +823,60 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
             setIsExtracting(false);
         }
     };
+
+    if (status === 'simulating') {
+        return (
+            <div className="flex flex-col w-full h-full bg-slate-100 dark:bg-slate-950 overflow-hidden relative justify-center border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm">
+                <div className="absolute top-0 left-0 right-0 h-14 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between px-4 shrink-0 pointer-events-none">
+                    <div className="flex items-center gap-4">
+                        <div className="font-bold text-sm bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md flex items-center gap-2 border border-slate-200 dark:border-slate-700">
+                            <Layers className="w-4 h-4 text-indigo-500" />
+                            Project: {thing.content?.name || 'Architecture Modernization'}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-8 max-w-3xl mx-auto flex flex-col items-center gap-6 pb-20">
+                    <div className="mt-20 text-center flex flex-col items-center">
+                        <div className="w-16 h-16 border-4 border-slate-200 border-t-indigo-500 rounded-full animate-spin mb-6" />
+                        <h3 className="text-xl font-medium text-slate-700 dark:text-slate-200 mb-2">Simulating Project Impact</h3>
+                        
+                        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-md mb-6 max-w-md text-sm">
+                            ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
+                        </div>
+
+                        <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
+                            {elapsedTime === null 
+                                ? 'Background process is running. Click Refresh Status to check.' 
+                                : (progressMessage || 'Running LangGraph simulator...')}
+                        </p>
+                        
+                        {elapsedTime !== null ? (
+                            <div className="w-64 mb-8">
+                                <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden w-full">
+                                    <div className="bg-indigo-500 h-2 rounded-full transition-all duration-300" style={{ width: `${simProgressPercent}%` }} />
+                                </div>
+                                <div className="text-xs text-slate-400 dark:text-slate-500 text-right">
+                                    {elapsedTime}s elapsed
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="mb-8" />
+                        )}
+                        
+                        <div className="flex gap-4">
+                            <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20 pointer-events-auto" onClick={cancelGeneration}>
+                                Cancel Generation
+                            </Button>
+                            <Button variant="outline" className="border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 dark:border-indigo-900/50 dark:hover:bg-indigo-900/20 pointer-events-auto" onClick={checkStatus}>
+                                Refresh Status
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col w-full h-full bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
@@ -851,6 +960,27 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                 
                 <div className="flex items-center gap-2">
                     <Button 
+                        size="sm" 
+                        variant="ghost"
+                        className={`text-slate-600 dark:text-slate-300 transition-colors ${
+                            syncState === 'idle' ? "hover:bg-slate-100 dark:hover:bg-slate-800" :
+                            syncState === 'completed' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                            syncState === 'running' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                            syncState === 'error' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                            "bg-slate-100 dark:bg-slate-800"
+                        }`}
+                        onClick={checkStatus}
+                        title="Sync Status from Server"
+                        disabled={syncState === 'checking'}
+                    >
+                        <RefreshCw className={`w-3.5 h-3.5 mr-2 ${syncState === 'checking' ? "animate-spin" : ""}`} />
+                        {syncState === 'idle' && "Sync Status"}
+                        {syncState === 'checking' && "Checking..."}
+                        {syncState === 'completed' && "Finished!"}
+                        {syncState === 'running' && "Still running..."}
+                        {syncState === 'error' && "Failed to sync"}
+                    </Button>
+                    <Button 
                         variant="outline" 
                         size="sm" 
                         className="h-8 text-xs font-semibold text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100" 
@@ -904,7 +1034,7 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                         disabled={isExtracting}
                     >
                         {isExtracting ? <Activity className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
-                        {isExtracting ? 'Analyzing Documents...' : 'Sync with Documents'}
+                        {isExtracting ? 'Analyzing...' : 'Sync with Docs'}
                     </Button>
                 </div>
             </div>

@@ -56,7 +56,9 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
                     setSyncState('idle');
                     updateThing(thing.id, { content: { ...thing.content, status: 'idle' } });
                 } else {
-                    setProgressMessage('Backend process is still running...');
+                    if (!abortControllerRef.current) {
+                        setProgressMessage('Backend process is still running...');
+                    }
                     setSyncState('running');
                 }
             } else {

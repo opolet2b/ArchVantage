@@ -104,7 +104,9 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
                     setSyncState('idle');
                     updateMatrixState({ step: "WAITING" });
                 } else {
-                    setProgressMessage('Backend process is still running...');
+                    if (!abortControllerRef.current) {
+                        setProgressMessage('Backend process is still running...');
+                    }
                     setSyncState('running');
                 }
             } else {
