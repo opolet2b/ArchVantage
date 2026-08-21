@@ -10,35 +10,165 @@ router = APIRouter(
 )
 
 class ExecutiveSummaryRequest(BaseModel):
+    thing_id: str = None
     source_docs: List[str]
     source_asset_ids: List[str] = []
     llm_preset: str = "default"
     vlm_preset: str = "default"
 
+import threading
+import queue
+import json
+import asyncio
+from app.core.database import SessionLocal
+from app.models.canvas_models import CanvasThing
+from sqlalchemy.orm.attributes import flag_modified
+
+import logging
+
+logger = logging.getLogger("executive_summary")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    ch = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
 @router.post("/generate")
 async def run_executive_summary(request: ExecutiveSummaryRequest):
+    logger.info(f"=== Incoming POST /generate request for thing_id: {request.thing_id} ===")
+    
+    if request.thing_id:
+        try:
+            with SessionLocal() as db:
+                thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                if thing:
+                    if thing.content is None:
+                        thing.content = {}
+                    thing.content["status"] = "generating"
+                    flag_modified(thing, "content")
+                    db.commit()
+                    logger.info(f"Successfully locked DB status to 'generating' for thing {request.thing_id}")
+                else:
+                    logger.warning(f"Could not find CanvasThing with id {request.thing_id} to lock status!")
+        except Exception as db_err:
+            logger.error(f"Failed to set generating state to DB: {db_err}")
+
+    q = queue.Queue()
+    
+    def progress_callback(completed, total):
+        q.put({"type": "chunk_progress", "completed": completed, "total": total})
+        
+    def worker():
+        logger.info(f"Background worker thread started for thing_id: {request.thing_id}")
+        try:
+            graph = build_executive_summary_graph()
+            
+            final_slides = []
+            final_concepts = {}
+            
+            # Start streaming events from the graph
+            for event in graph.stream({
+                "source_docs": request.source_docs,
+                "source_asset_ids": request.source_asset_ids,
+                "llm_preset": request.llm_preset,
+                "vlm_preset": request.vlm_preset,
+                "concepts": {},
+                "slides": [],
+                "errors": [],
+                "progress_callback": progress_callback
+            }):
+                # Emit step progress based on the node name
+                node_name = list(event.keys())[0] if event else "unknown"
+                q.put({"type": "step", "node": node_name})
+                logger.info(f"Graph reached node: {node_name} for thing_id: {request.thing_id}")
+                
+                # If we've hit the final step, grab the slides
+                if "storyboarder" in event:
+                    logger.info(f"Storyboarder finished for thing_id: {request.thing_id}. Slides generated.")
+                    final_slides = event["storyboarder"].get("slides", [])
+                    final_concepts = event["storyboarder"].get("concepts", {})
+                    q.put({"type": "completed", "slides": final_slides, "concepts": final_concepts})
+            
+            q.put({"type": "done"})
+            logger.info(f"Graph completely finished for thing_id: {request.thing_id}")
+            
+            # Save results to the database if a thing_id was provided
+            if request.thing_id:
+                try:
+                    with SessionLocal() as db:
+                        thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                        if thing:
+                            if thing.content is None:
+                                thing.content = {}
+                            thing.content["status"] = "completed"
+                            thing.content["slides"] = final_slides
+                            thing.content["concepts"] = final_concepts
+                            flag_modified(thing, "content")
+                            db.commit()
+                            logger.info(f"Successfully saved final slides and 'completed' status to DB for thing {request.thing_id}")
+                        else:
+                            logger.error(f"Failed to find CanvasThing {request.thing_id} to save final results!")
+                except Exception as db_err:
+                    logger.error(f"Failed to save Executive Summary to DB: {db_err}")
+                    
+        except Exception as e:
+            import traceback
+            logger.error(f"Background worker CRASHED for thing_id: {request.thing_id}. Exception: {e}")
+            logger.error(traceback.format_exc())
+            
+            q.put({"type": "error", "message": str(e)})
+            
+            if request.thing_id:
+                try:
+                    with SessionLocal() as db:
+                        thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                        if thing:
+                            if thing.content is None:
+                                thing.content = {}
+                            thing.content["status"] = "idle"
+                            flag_modified(thing, "content")
+                            db.commit()
+                            logger.info(f"Successfully reset DB status to 'idle' after crash for thing {request.thing_id}")
+                except Exception as db_err:
+                    logger.error(f"Failed to save error state 'idle' to DB: {db_err}")
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        while True:
+            try:
+                # Use asyncio.to_thread so we don't block the event loop while waiting for queue
+                msg = await asyncio.to_thread(q.get, timeout=0.1)
+                yield f"data: {json.dumps(msg)}\n\n"
+                if msg["type"] in ["done", "error", "completed"]:
+                    break
+            except queue.Empty:
+                # Keep alive
+                yield ": keep-alive\n\n"
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@router.get("/status/{thing_id}")
+async def get_executive_summary_status(thing_id: str):
     try:
-        graph = build_executive_summary_graph()
-        
-        # Invoke the graph
-        result = graph.invoke({
-            "source_docs": request.source_docs,
-            "source_asset_ids": request.source_asset_ids,
-            "llm_preset": request.llm_preset,
-            "vlm_preset": request.vlm_preset,
-            "concepts": {},
-            "slides": [],
-            "errors": []
-        })
-        
-        return {
-            "status": "success",
-            "concepts": result.get("concepts", {}),
-            "slides": result.get("slides", [])
-        }
+        with SessionLocal() as db:
+            thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+            if not thing:
+                logger.warning(f"Status check failed: Thing {thing_id} not found")
+                raise HTTPException(status_code=404, detail="Thing not found")
+                
+            status_val = thing.content.get("status", "idle") if thing.content else "idle"
+            logger.info(f"Status check for thing {thing_id}: returning status '{status_val}'")
+            
+            return {
+                "status": status_val,
+                "slides": thing.content.get("slides", []) if thing.content else [],
+                "concepts": thing.content.get("concepts", {}) if thing.content else {}
+            }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Status check error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 from fastapi.responses import StreamingResponse

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
-import { Presentation, FileText, Image as ImageIcon, ChevronRight, Play, Server, ListTree, Download, Edit2, Layout, ZoomIn, X } from 'lucide-react';
+import { Presentation, FileText, Image as ImageIcon, ChevronRight, Play, Server, ListTree, Download, Edit2, Layout, ZoomIn, X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,96 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     const [slides, setSlides] = useState<any[]>(thing.content?.slides || []);
     const [zoomedImage, setZoomedImage] = useState<string | null>(null);
     const [allSlideConcepts, setAllSlideConcepts] = useState<string[]>([]);
+    
+    // Add progress state for the generation progress bar
+    const [progressPercent, setProgressPercent] = useState<number>(thing.content?.status === 'generating' ? 50 : 0);
+    const [progressMessage, setProgressMessage] = useState<string>(
+        thing.content?.status === 'generating' ? 'Running safely in the background...' : ''
+    );
+    const [elapsedTime, setElapsedTime] = useState<number | null>(null);
+    const [syncState, setSyncState] = useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
+
+    // Cancellation controller
+    const abortControllerRef = React.useRef<AbortController | null>(null);
+
+    const checkStatus = async () => {
+        setSyncState('checking');
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/executive_summary/status/${thing.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.status === 'completed') {
+                    setSlides(data.slides);
+                    setStatus('completed');
+                    setSyncState('completed');
+                    updateThing(thing.id, {
+                        content: {
+                            ...thing.content,
+                            status: 'completed',
+                            concepts: data.concepts,
+                            slides: data.slides
+                        }
+                    });
+                } else if (data.status === 'idle') {
+                    setStatus('idle');
+                    setSyncState('idle');
+                    updateThing(thing.id, { content: { ...thing.content, status: 'idle' } });
+                } else {
+                    // Still generating
+                    setProgressMessage('Backend process is still running...');
+                    setSyncState('running');
+                }
+            } else {
+                setSyncState('error');
+            }
+        } catch (err) {
+            console.error("Failed to check status", err);
+            setSyncState('error');
+        }
+        
+        // Reset button text after 3 seconds
+        setTimeout(() => setSyncState('idle'), 3000);
+    };
+
+    const cancelGeneration = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        } else {
+            // Force reset if we are stuck in 'generating' state from a previous session load
+            setStatus('idle');
+            setProgressMessage('Cancelled');
+            setElapsedTime(null);
+            updateThing(thing.id, { content: { ...thing.content, status: 'idle' } });
+        }
+    };
+
+    useEffect(() => {
+        // If we load the component and the DB thinks we are 'generating' or 'completed', sync it locally
+        if (thing.content?.status === 'completed' && status !== 'completed') {
+            setStatus('completed');
+            setSlides(thing.content.slides || []);
+        } else if (thing.content?.status === 'generating' && status !== 'generating') {
+            setStatus('generating');
+        } else if (thing.content?.status === 'idle' && status !== 'idle') {
+            setStatus('idle');
+        }
+    }, [thing.content?.status, thing.content?.slides]);
+
+    // Auto-poll status every 15 seconds while generating
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (status === 'generating') {
+            interval = setInterval(() => {
+                // Don't poll if we already manually checked recently
+                if (syncState !== 'checking') {
+                    checkStatus();
+                }
+            }, 15000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [status, syncState]);
 
     useEffect(() => {
         const currentSlideConcepts = slides.flatMap(s => s.concepts || []);
@@ -43,9 +133,16 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     const updateThing = useCanvasStore(state => state.updateThing);
     const things = useCanvasStore(state => state.things);
 
-    // Helper for fuzzy matching to handle LLM paraphrasing
-    const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const isConceptUsed = (concept: string, usedList: string[]) => {
+    const normalize = (text: any) => {
+        if (!text) return '';
+        if (typeof text === 'object') {
+            text = text.point || text.concept || text.name || JSON.stringify(text);
+        }
+        if (typeof text !== 'string') text = String(text);
+        return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+    };
+    
+    const isConceptUsed = (concept: any, usedList: any[]) => {
         const normC = normalize(concept);
         if (!normC) return false;
         
@@ -57,8 +154,9 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
             if (normC.includes(normU) || normU.includes(normC)) return true;
             
             // Or Jaccard similarity of words
-            const wordsC = new Set(concept.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-            const wordsU = new Set(used.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+            const getStr = (v: any) => typeof v === 'string' ? v : (v?.point || v?.concept || v?.name || String(v));
+            const wordsC = new Set(getStr(concept).toLowerCase().split(/\s+/).filter((w: string) => w.length > 3));
+            const wordsU = new Set(getStr(used).toLowerCase().split(/\s+/).filter((w: string) => w.length > 3));
             if (wordsC.size === 0 || wordsU.size === 0) return false;
             
             const intersection = new Set([...wordsC].filter(x => wordsU.has(x)));
@@ -141,11 +239,20 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
             .map(t => t.content?.asset_id || t.content?.file_asset_id)
             .filter(Boolean);
 
+        // Initialize AbortController
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const abortController = new AbortController();
+        abortControllerRef.current = abortController;
+
         try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/executive_summary/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: abortController.signal,
                 body: JSON.stringify({
+                    thing_id: thing.id,
                     source_docs: sourceDocs,
                     source_asset_ids: sourceAssetIds,
                     llm_preset: selectedModel || 'default',
@@ -154,26 +261,93 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
             });
 
             if (!res.ok) throw new Error("API Request Failed");
-            
-            const data = await res.json();
-            
-            setSlides(data.slides);
-            setStatus('completed');
-            
-            updateThing(thing.id, {
-                content: {
-                    ...thing.content,
-                    status: 'completed',
-                    concepts: data.concepts,
-                    slides: data.slides
-                }
-            });
+            if (!res.body) throw new Error("No response body");
 
-        } catch (error) {
-            console.error("Generation Failed:", error);
-            setStatus('idle');
-            updateThing(thing.id, { content: { ...thing.content, status: 'idle' } });
-            alert("Generation failed. See console for details.");
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let done = false;
+
+            // Start timer
+            const startTime = Date.now();
+            const timerInterval = setInterval(() => {
+                setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+            }, 1000);
+
+            let accumulatedData = "";
+
+            while (!done) {
+                const { value, done: readerDone } = await reader.read();
+                if (readerDone) {
+                    done = true;
+                    break;
+                }
+                
+                const chunk = decoder.decode(value, { stream: true });
+                accumulatedData += chunk;
+                
+                const parts = accumulatedData.split("\n\n");
+                accumulatedData = parts.pop() || "";
+                
+                for (const part of parts) {
+                    if (part.startsWith("data: ")) {
+                        try {
+                            const data = JSON.parse(part.slice(6));
+                            
+                            if (data.type === "step") {
+                                if (data.node === "extract_concepts") {
+                                    setProgressMessage("Map-Reduce Analysis (Chunk 0)...");
+                                    setProgressPercent(10);
+                                } else if (data.node === "storyboarder") {
+                                    setProgressMessage("Drafting Storyboard Narrative...");
+                                    setProgressPercent(80);
+                                } else {
+                                    setProgressMessage(`Running step: ${data.node}...`);
+                                    setProgressPercent((prev: number) => prev < 90 ? prev + 10 : prev);
+                                }
+                            } else if (data.type === "chunk_progress") {
+                                const fraction = data.completed / Math.max(1, data.total);
+                                setProgressMessage(`Map-Reduce Analysis (Chunk ${data.completed} of ${data.total})...`);
+                                setProgressPercent(10 + fraction * 60); // Scales from 10% to 70%
+                            } else if (data.type === "completed") {
+                                setProgressPercent(100);
+                                setProgressMessage("Complete!");
+                                
+                                setSlides(data.slides);
+                                setStatus('completed');
+                                
+                                updateThing(thing.id, {
+                                    content: {
+                                        ...thing.content,
+                                        status: 'completed',
+                                        concepts: data.concepts,
+                                        slides: data.slides
+                                    }
+                                });
+                            } else if (data.type === "error") {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse SSE event:", e);
+                        }
+                    }
+                }
+            }
+            
+            clearInterval(timerInterval);
+
+        } catch (error: any) {
+            if (error.name === 'AbortError') {
+                console.log('Generation aborted by user');
+            } else {
+                console.error("Error generating executive summary:", error);
+                setProgressMessage(`Network connection dropped or error: ${error.message}`);
+                setStatus('idle');
+                // CRITICAL FIX: We do NOT send an updateThing here! 
+                // The backend thread is likely still running safely. 
+                // If the backend actually crashed, it will reset the DB to 'idle' itself.
+            }
+        } finally {
+            abortControllerRef.current = null;
         }
     };
 
@@ -311,6 +485,28 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                 <div className="flex gap-2">
                     <Button 
                         size="sm" 
+                        variant="ghost"
+                        className={cn(
+                            "text-slate-600 dark:text-slate-300 transition-colors",
+                            syncState === 'idle' ? "hover:bg-slate-100 dark:hover:bg-slate-800" :
+                            syncState === 'completed' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                            syncState === 'running' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                            syncState === 'error' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                            "bg-slate-100 dark:bg-slate-800"
+                        )}
+                        onClick={checkStatus}
+                        title="Sync Status from Server"
+                        disabled={syncState === 'checking'}
+                    >
+                        <RefreshCw className={cn("w-3.5 h-3.5 mr-2", syncState === 'checking' && "animate-spin")} />
+                        {syncState === 'idle' && "Sync Status"}
+                        {syncState === 'checking' && "Checking..."}
+                        {syncState === 'completed' && "Finished!"}
+                        {syncState === 'running' && "Still running..."}
+                        {syncState === 'error' && "Failed to sync"}
+                    </Button>
+                    <Button 
+                        size="sm" 
                         variant="outline"
                         className="text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 shadow-sm"
                         disabled={slides.length === 0 || isExporting}
@@ -376,16 +572,19 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                                         <h4 className="text-[11px] font-semibold text-slate-400 mb-1.5">{cat.name}</h4>
                                         <div className="space-y-1">
                                             {cat.availableItems.length === 0 && <div className="text-[10px] text-slate-400 italic">All items used</div>}
-                                            {cat.availableItems.map((item: string, i: number) => (
-                                                <div 
-                                                    key={i} 
-                                                    draggable={!isReadOnly}
-                                                    onDragStart={(e) => e.dataTransfer.setData("text/plain", item)}
-                                                    className="text-xs px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-sm text-slate-600 dark:text-slate-300 cursor-grab active:cursor-grabbing hover:border-blue-400 transition-colors"
-                                                >
-                                                    {item}
-                                                </div>
-                                            ))}
+                                            {cat.availableItems.map((item: any, i: number) => {
+                                                const itemStr = typeof item === 'string' ? item : (item?.point || item?.concept || item?.name || JSON.stringify(item));
+                                                return (
+                                                    <div 
+                                                        key={i} 
+                                                        draggable={!isReadOnly}
+                                                        onDragStart={(e) => e.dataTransfer.setData("text/plain", itemStr)}
+                                                        className="text-xs px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-sm text-slate-600 dark:text-slate-300 cursor-grab active:cursor-grabbing hover:border-blue-400 transition-colors"
+                                                    >
+                                                        {itemStr}
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 ))}
@@ -439,7 +638,44 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                     <div className="flex-1 overflow-y-auto">
                         <div className="p-8 max-w-3xl mx-auto flex flex-col items-center gap-6 pb-20">
                             
-                            {slides.length === 0 ? (
+                            {status === 'generating' ? (
+                                <div className="mt-20 text-center flex flex-col items-center">
+                                    <div className="w-16 h-16 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin mb-6" />
+                                    <h3 className="text-xl font-medium text-slate-700 dark:text-slate-200 mb-2">Generating Executive Summary</h3>
+                                    
+                                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-md mb-6 max-w-md text-sm">
+                                        ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
+                                    </div>
+
+                                    <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
+                                        {elapsedTime === null 
+                                            ? 'Background process is running. Click Refresh Status to check.' 
+                                            : (progressMessage || 'Synthesizing architecture models, scanning capabilities, and drafting the narrative...')}
+                                    </p>
+                                    
+                                    {elapsedTime !== null ? (
+                                        <div className="w-64 mb-8">
+                                            <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden w-full">
+                                                <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+                                            </div>
+                                            <div className="text-xs text-slate-400 dark:text-slate-500 text-right">
+                                                {elapsedTime}s elapsed
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="mb-8" />
+                                    )}
+                                    
+                                    <div className="flex gap-4">
+                                        <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20" onClick={cancelGeneration}>
+                                            Cancel Generation
+                                        </Button>
+                                        <Button variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20" onClick={checkStatus}>
+                                            Refresh Status
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : slides.length === 0 ? (
                                 <div className="mt-20 text-center">
                                     <Presentation className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
                                     <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">Storyboard Canvas</h3>
@@ -563,35 +799,38 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                                             <div className="flex-1 flex gap-6">
                                                 <div className="flex-1">
                                                     <ul className="list-disc pl-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                                                        {(slide.concepts || []).map((c: string, i: number) => (
-                                                            <li key={i}>
-                                                                {isReadOnly ? c : (
-                                                                    <div className="flex gap-2 group/concept">
-                                                                        <input 
-                                                                            className="flex-1 bg-transparent outline-none focus:border-b focus:border-blue-300"
-                                                                            value={c}
-                                                                            onChange={(e) => {
-                                                                                const newSlides = [...slides];
-                                                                                newSlides[index].concepts[i] = e.target.value;
-                                                                                setSlides(newSlides);
-                                                                                updateThing(thing.id, { content: { ...thing.content, slides: newSlides } });
-                                                                            }}
-                                                                        />
-                                                                        <button 
-                                                                            className="text-red-400 opacity-0 group-hover/concept:opacity-100 hover:bg-red-50 p-0.5 rounded"
-                                                                            onClick={() => {
-                                                                                const newSlides = [...slides];
-                                                                                newSlides[index].concepts.splice(i, 1);
-                                                                                setSlides(newSlides);
-                                                                                updateThing(thing.id, { content: { ...thing.content, slides: newSlides } });
-                                                                            }}
-                                                                        >
-                                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                                                                        </button>
-                                                                    </div>
-                                                                )}
-                                                            </li>
-                                                        ))}
+                                                        {(slide.concepts || []).map((c: any, i: number) => {
+                                                            const cStr = typeof c === 'string' ? c : (c?.point || c?.concept || c?.name || JSON.stringify(c));
+                                                            return (
+                                                                <li key={i}>
+                                                                    {isReadOnly ? cStr : (
+                                                                        <div className="flex gap-2 group/concept">
+                                                                            <input 
+                                                                                className="flex-1 bg-transparent outline-none focus:border-b focus:border-blue-300"
+                                                                                value={cStr}
+                                                                                onChange={(e) => {
+                                                                                    const newSlides = [...slides];
+                                                                                    newSlides[index].concepts[i] = e.target.value;
+                                                                                    setSlides(newSlides);
+                                                                                    updateThing(thing.id, { content: { ...thing.content, slides: newSlides } });
+                                                                                }}
+                                                                            />
+                                                                            <button 
+                                                                                className="opacity-0 group-hover/concept:opacity-100 text-red-400 hover:text-red-500 transition-opacity"
+                                                                                onClick={() => {
+                                                                                    const newSlides = [...slides];
+                                                                                    newSlides[index].concepts.splice(i, 1);
+                                                                                    setSlides(newSlides);
+                                                                                    updateThing(thing.id, { content: { ...thing.content, slides: newSlides } });
+                                                                                }}
+                                                                            >
+                                                                                <X className="w-4 h-4" />
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </li>
+                                                            );
+                                                        })}
                                                     </ul>
                                                     {!isReadOnly && (
                                                         <button 

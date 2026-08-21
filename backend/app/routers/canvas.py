@@ -858,6 +858,21 @@ def import_canvas(
 # Things CRUD
 # =============================================================================
 
+@router.get("/canvases/things/{thing_id}", response_model=ThingResponse)
+def get_thing(
+    thing_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get a single thing by its ID."""
+    thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+    if not thing:
+        raise HTTPException(status_code=404, detail="Thing not found")
+        
+    # Optional: check if user has access to the parent canvas
+    _get_canvas_with_access(thing.canvas_id, db, current_user, require_write=False)
+    
+    return thing
 
 @router.post("/canvases/{canvas_id}/things/{thing_id}/vectorize", response_model=Dict[str, Any])
 def trigger_vectorization(
@@ -1149,7 +1164,7 @@ def update_thing(
         
         thing.content = new_content
         flag_modified(thing, "content") # Explicitly flag JSON as modified
-        print(f"[CanvasRouter] Content updated and flagged modified. Keys: {new_content.keys()}")
+        print(f"[CanvasRouter] Content updated and flagged modified. Keys: {new_content.keys()}. STATUS IS: {new_content.get('status')}")
     if request.position is not None:
         thing.position_x = request.position.x
         thing.position_y = request.position.y
@@ -2200,13 +2215,15 @@ async def analyze_selection(
                      # Standard Top-K Flow
                      print(f"[Analyze RAG] Frontend provided short text (Length: {len(selected_content)} chars). Engaging LlamaIndex RAG to retrieve full context from vector database...")
                      
+                     fetch_k = 40 if has_entire_instruction else 5
+                     
                      import asyncio
-                     print("[Analyze RAG] Starting background thread for rag_service.search...")
+                     print(f"[Analyze RAG] Starting background thread for rag_service.search... (k={fetch_k})")
                      start_time = asyncio.get_event_loop().time()
                      results = await asyncio.to_thread(
                          rag_service.search,
                          query=query_text, 
-                         k=5, 
+                         k=fetch_k, 
                          filters=search_filters, 
                          model_name=active_model
                      )
@@ -3290,3 +3307,52 @@ async def bulk_delete_items(
         print(f"Bulk delete error: {e}")
         raise HTTPException(status_code=500, detail=f"Bulk delete failed: {str(e)}")
 
+class ExportDocxRequest(BaseModel):
+    markdown: str
+
+@router.post("/{canvas_id}/export-docx")
+async def export_docx_endpoint(
+    canvas_id: str,
+    request: ExportDocxRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    try:
+        from app.utils.docx_exporter import generate_memo_docx
+        from fastapi.responses import FileResponse
+        
+        docx_path = generate_memo_docx(request.markdown)
+        
+        return FileResponse(
+            docx_path,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename="Architecture_Memo.docx"
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class TimeMatrixExportRequest(BaseModel):
+    apps: list
+
+@router.post("/canvases/{canvas_id}/export-time-matrix")
+async def export_time_matrix_docx_endpoint(
+    canvas_id: str,
+    request: TimeMatrixExportRequest,
+    current_user: User = Depends(get_current_active_user)
+):
+    try:
+        from app.utils.docx_exporter import generate_time_matrix_docx
+        from fastapi.responses import FileResponse
+        
+        docx_path = generate_time_matrix_docx(request.model_dump())
+        
+        return FileResponse(
+            docx_path,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            filename="TIME_Matrix_Export.docx"
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
