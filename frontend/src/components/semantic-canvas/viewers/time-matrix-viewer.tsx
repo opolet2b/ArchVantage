@@ -59,19 +59,9 @@ export function TimeMatrixViewer({ thing }: TimeMatrixViewerProps) {
     }, [linkedDocs]);
 
     React.useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (thing.content?.timeState?.step === "EXTRACTING") {
-            setExtractProgress(0);
-            interval = setInterval(() => {
-                setExtractProgress((prev) => {
-                    if (prev >= 90) return 90;
-                    return prev + Math.max(1, (90 - prev) * 0.1);
-                });
-            }, 500);
-        } else {
+        if (thing.content?.timeState?.step !== "EXTRACTING") {
             setExtractProgress((prev) => prev !== 0 ? 0 : prev);
         }
-        return () => clearInterval(interval);
     }, [thing.content?.timeState?.step]);
 
     const stateContent: any = thing.content?.timeState || {};
@@ -87,6 +77,34 @@ export function TimeMatrixViewer({ thing }: TimeMatrixViewerProps) {
         });
     };
 
+    const checkStatus = React.useCallback(async () => {
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/time_matrix/status/${thing.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.step === 'READY' && step !== 'READY') {
+                    updateTimeState({ step: "READY", apps: data.apps });
+                } else if (data.step === 'WAITING' && step !== 'WAITING') {
+                    updateTimeState({ step: "WAITING", apps: [] });
+                } else if (data.step === 'EXTRACTING' && step !== 'EXTRACTING') {
+                    updateTimeState({ step: "EXTRACTING" });
+                }
+            }
+        } catch (err) {
+            console.error("Failed to check status", err);
+        }
+    }, [thing.id, step]);
+
+    React.useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (step === "EXTRACTING") {
+            interval = setInterval(() => {
+                checkStatus();
+            }, 15000);
+        }
+        return () => clearInterval(interval);
+    }, [step, checkStatus]);
+
     const handleExtract = async () => {
         const activeLinks = linkedThings.filter(link => {
             const linkedThingId = link.source_id === thing.id ? link.target_id : link.source_id;
@@ -99,90 +117,68 @@ export function TimeMatrixViewer({ thing }: TimeMatrixViewerProps) {
         }
 
         updateTimeState({ step: "EXTRACTING" });
+        setExtractProgress(5);
 
         try {
-            const prompt = `You are an Enterprise Architect AI. Your task is to extract Application Portfolio data from the entire document to build a TIME Matrix (Tolerate, Invest, Migrate, Eliminate).
-CRITICAL RULES:
-1. Identify all software applications mentioned.
-2. Extract or estimate 'Technical Health' (0 to 10) based on code quality, modern stack, etc.
-3. Extract or estimate 'Business Value' (0 to 10) based on alignment, criticality, usage.
-4. Extract 'runCost' as a numeric value if available (e.g., license fees).
-5. Extract 'riskProfile' (e.g., SLA breaches, compliance issues).
-6. Determine 'quadrant' strictly by these rules:
-   - High Tech (>=5) + High Value (>=5) = Invest
-   - Low Tech (<5) + High Value (>=5) = Migrate
-   - High Tech (>=5) + Low Value (<5) = Tolerate
-   - Low Tech (<5) + Low Value (<5) = Eliminate
-7. Include 'citations' (exact snippets from text justifying the scores).
-
-Return a JSON array of objects. Each object MUST have: id (string), name (string), technicalHealth (number), businessValue (number), runCost (number), riskProfile (string), quadrant (string), citations (array of strings). Only return the JSON array.`;
-
-            const extractionPromises = activeLinks.map(async (link) => {
-                const linkedThingId = link.source_id === thing.id ? link.target_id : link.source_id;
-                const linkedThing = things.find(t => t.id === linkedThingId);
-                const contentText = linkedThing?.content?.text || linkedThing?.title || "";
-                
-                return await analyze({ 
-                    canvasId: canvasId || "",
-                    thingId: linkedThingId,
-                    fragment: { type: "text", content: typeof contentText === "string" ? contentText : JSON.stringify(contentText) } as any,
-                    action: "ask",
-                    customPrompt: prompt
-                });
+            const selectedDocIds = activeLinks.map(link => link.source_id === thing.id ? link.target_id : link.source_id);
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/time_matrix/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    thing_id: thing.id,
+                    selected_link_ids: selectedDocIds,
+                    canvas_id: canvasId
+                })
             });
+            if (!res.ok) throw new Error("Time Matrix extraction failed");
+            if (!res.body) throw new Error("No response body");
 
-            const results = await Promise.all(extractionPromises);
-            let allApps: TimeApp[] = [];
-            
-            results.forEach((response) => {
-                if (!response || !response.result) return;
-                try {
-                    let responseText = response.result;
-                    if (responseText.includes('```json')) {
-                        responseText = responseText.split('```json')[1].split('```')[0].trim();
-                    } else if (responseText.includes('```')) {
-                        responseText = responseText.split('```')[1].split('```')[0].trim();
-                    }
-                    const match = responseText.match(/\[[\s\S]*\]/);
-                    let jsonStr = match ? match[0] : responseText;
-                    
-                    const extracted = JSON.parse(jsonStr);
-                    if (Array.isArray(extracted)) {
-                        allApps = [...allApps, ...extracted];
-                    }
-                } catch (e) {
-                    console.error("Failed to parse JSON", e);
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let done = false;
+            let accumulatedData = "";
+
+            while (!done) {
+                const { value, done: readerDone } = await reader.read();
+                if (readerDone) {
+                    done = true;
+                    break;
                 }
-            });
-
-            if (allApps.length === 0) {
-                alert("No applications could be extracted from these documents.");
-                updateTimeState({ step: "WAITING", apps: [] });
-            } else {
-                // Deduplicate extracted apps by name to prevent React key collisions and consolidate data
-                const uniqueAppsMap = new Map<string, TimeApp>();
-                allApps.forEach(app => {
-                    const normalizedName = (app.name || "").toLowerCase().trim();
-                    const dedupeKey = normalizedName || app.id;
-                    
-                    if (!uniqueAppsMap.has(dedupeKey)) {
-                        // Give it a guaranteed unique ID for React mapping
-                        app.id = `${app.id}-${Math.random().toString(36).substr(2, 9)}`;
-                        uniqueAppsMap.set(dedupeKey, app);
-                    } else {
-                        // If same app is found in multiple docs, combine their citations
-                        const existing = uniqueAppsMap.get(dedupeKey)!;
-                        if (app.citations && app.citations.length > 0) {
-                            existing.citations = Array.from(new Set([...(existing.citations || []), ...app.citations]));
+                
+                const chunk = decoder.decode(value, { stream: true });
+                accumulatedData += chunk;
+                
+                const parts = accumulatedData.split("\n\n");
+                accumulatedData = parts.pop() || "";
+                
+                for (const part of parts) {
+                    if (part.startsWith("data: ")) {
+                        try {
+                            const data = JSON.parse(part.slice(6));
+                            
+                            if (data.type === "chunk_progress") {
+                                const fraction = data.completed / Math.max(1, data.total);
+                                setExtractProgress(10 + fraction * 80);
+                            } else if (data.type === "completed") {
+                                setExtractProgress(100);
+                                const allApps = data.apps || [];
+                                if (allApps.length === 0) {
+                                    alert("No applications could be extracted from these documents.");
+                                    updateTimeState({ step: "WAITING", apps: [] });
+                                } else {
+                                    updateTimeState({ step: "READY", apps: allApps });
+                                }
+                            } else if (data.type === "error") {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse SSE event:", e);
                         }
                     }
-                });
-                
-                updateTimeState({ step: "READY", apps: Array.from(uniqueAppsMap.values()) });
+                }
             }
         } catch (error: any) {
             console.error("Extraction failed:", error);
-            alert(`Extraction failed: ${error.message}`);
             updateTimeState({ step: "WAITING" });
         }
     };

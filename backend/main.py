@@ -26,7 +26,7 @@ from app.routers import (
     chat, workflow, rag, knowledge, research, config, conversation,
     agents, auth, users, roles, oauth, tools, mcp_servers,
     agent_blueprints, agent_execution, templates, canvas, assets, prompts, debug,
-    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology, stt, tts, ocr, wopi, gap_analysis, project_impact_simulator, architectural_scenario, executive_summary, governance_audit
+    smart_template, maintenance, spaces, layout_router, scenarios, ai, ontology, stt, tts, ocr, wopi, gap_analysis, project_impact_simulator, architectural_scenario, executive_summary, governance_audit, architecture_memo, trade_off_matrix, time_matrix
 )
 from app.services.debug_service import debug_service
 from app.services.watcher_service import watcher_service
@@ -115,6 +115,9 @@ app.include_router(project_impact_simulator.router, prefix="/api/v1", tags=["pro
 app.include_router(architectural_scenario.router, prefix="/api/v1", tags=["architectural_scenario"])
 app.include_router(executive_summary.router, prefix="/api/v1", tags=["executive_summary"])
 app.include_router(governance_audit.router, prefix="/api/v1", tags=["governance_audit"])
+app.include_router(architecture_memo.router, prefix="/api/v1", tags=["architecture_memo"])
+app.include_router(trade_off_matrix.router, prefix="/api/v1", tags=["trade_off_matrix"])
+app.include_router(time_matrix.router, prefix="/api/v1", tags=["time_matrix"])
 
 # Optional Features
 if is_enabled("ENABLE_WORKFLOWS"):

@@ -22,12 +22,15 @@ class GapAnalysisState(TypedDict):
     diff_results: Dict[str, Any]
     final_report: Optional[GapAnalysisReport]
     errors: List[str]
+    progress_callback: Optional[Any]
 
 # =============================================================================
 # Nodes
 # =============================================================================
 from pydantic import BaseModel
 from app.services.llm_service import LLMService
+import concurrent.futures
+import threading
 
 class ExtractedElement(BaseModel):
     id: str
@@ -55,7 +58,6 @@ def invoke_with_fallback(llm, schema_class, messages):
     parser = PydanticOutputParser(pydantic_object=schema_class)
     format_instructions = parser.get_format_instructions()
     
-    # Inject format instructions into the last message
     last_msg = messages[-1]
     last_msg.content = f"{last_msg.content}\n\n{format_instructions}"
     
@@ -68,47 +70,75 @@ def invoke_with_fallback(llm, schema_class, messages):
         fix_response = llm.invoke([HumanMessage(content=fix_prompt)])
         return parser.parse(fix_response.content)
 
+def chunk_text(text: str, max_chars: int = 30000) -> List[str]:
+    return [text[i:i+max_chars] for i in range(0, len(text), max_chars)]
+
+def extract_elements(llm, docs: List[str], prompt_template: str, progress_callback=None) -> List[Dict[str, Any]]:
+    docs_text = "\n".join(docs)
+    if not docs_text.strip():
+        return []
+
+    chunks = chunk_text(docs_text)
+    total_chunks = len(chunks)
+    completed_chunks = 0
+    lock = threading.Lock()
+    all_elements = []
+    
+    def process_chunk(chunk: str):
+        nonlocal completed_chunks
+        prompt = prompt_template.format(docs_text=chunk)
+        try:
+            res = invoke_with_fallback(llm, ExtractionResult, [HumanMessage(content=prompt)])
+            with lock:
+                all_elements.extend([e.model_dump() for e in res.elements])
+        except Exception as e:
+            logger.error(f"Chunk extraction failed: {e}")
+        finally:
+            with lock:
+                completed_chunks += 1
+                if progress_callback:
+                    progress_callback(completed_chunks, total_chunks)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        executor.map(process_chunk, chunks)
+        
+    return all_elements
+
 def extract_baseline_node(state: GapAnalysisState) -> GapAnalysisState:
     logger.info("Running extract_baseline_node...")
     llm = get_llm(state)
-    docs_text = "\n".join(state.get("baseline_docs", []))
     
-    if not docs_text.strip():
-        return {"baseline_facts": [{"id": "b1", "name": "Legacy ERP", "type": "ApplicationComponent"}]}
-        
-    prompt = f"""Analyze the provided document and extract ONLY the AS-IS (Current State / Baseline) architectural elements.
+    prompt_template = """Analyze the provided document and extract ONLY the AS-IS (Current State / Baseline) architectural elements.
 Carefully ignore any proposed future changes, migrations, or "To-Be" architectures described in the text.
 IMPORTANT: You MUST assign a valid standard ArchiMate element type to each element (e.g. BusinessActor, BusinessProcess, ApplicationComponent, ApplicationService, TechnologyNode, TechnologyService, DataObject, Requirement, Goal, etc.). Do not use generic types like 'System' or 'Database'.
 
 Document text:
 {docs_text}"""
-    try:
-        res = invoke_with_fallback(llm, ExtractionResult, [HumanMessage(content=prompt)])
-        return {"baseline_facts": [e.model_dump() for e in res.elements]}
-    except Exception as e:
-        logger.error(f"Extraction failed: {e}")
-        return {"baseline_facts": []}
+
+    elements = extract_elements(llm, state.get("baseline_docs", []), prompt_template, state.get("progress_callback"))
+    
+    if not elements:
+        elements = [{"id": "b1", "name": "Legacy ERP", "type": "ApplicationComponent"}]
+        
+    return {"baseline_facts": elements}
 
 def extract_target_node(state: GapAnalysisState) -> GapAnalysisState:
     logger.info("Running extract_target_node...")
     llm = get_llm(state)
-    docs_text = "\n".join(state.get("target_docs", []))
     
-    if not docs_text.strip():
-        return {"target_facts": [{"id": "t1", "name": "Cloud ERP", "type": "ApplicationComponent"}]}
-        
-    prompt = f"""Analyze the provided document and extract ONLY the TO-BE (Future State / Target) architectural elements.
+    prompt_template = """Analyze the provided document and extract ONLY the TO-BE (Future State / Target) architectural elements.
 Carefully ignore the legacy, deprecated, or "As-Is" current state architectures described in the text. 
 IMPORTANT: You MUST assign a valid standard ArchiMate element type to each element (e.g. BusinessActor, BusinessProcess, ApplicationComponent, ApplicationService, TechnologyNode, TechnologyService, DataObject, Requirement, Goal, etc.). Do not use generic types like 'System' or 'Database'.
 
 Document text:
 {docs_text}"""
-    try:
-        res = invoke_with_fallback(llm, ExtractionResult, [HumanMessage(content=prompt)])
-        return {"target_facts": [e.model_dump() for e in res.elements]}
-    except Exception as e:
-        logger.error(f"Extraction failed: {e}")
-        return {"target_facts": []}
+
+    elements = extract_elements(llm, state.get("target_docs", []), prompt_template, state.get("progress_callback"))
+    
+    if not elements:
+        elements = [{"id": "t1", "name": "Cloud ERP", "type": "ApplicationComponent"}]
+        
+    return {"target_facts": elements}
 
 def mapping_reconciliation_node(state: GapAnalysisState) -> GapAnalysisState:
     logger.info("Running mapping_reconciliation_node...")

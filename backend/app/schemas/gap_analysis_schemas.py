@@ -3,17 +3,17 @@ from typing import List, Optional
 
 class GapMigrationStep(BaseModel):
     """Represents a single actionable step to migrate from Baseline to Target."""
-    order: int = Field(..., description="The sequence number of the migration step (e.g., 1, 2, 3).")
-    title: str = Field(..., description="A short, descriptive title for the step.")
-    description: str = Field(..., description="Detailed explanation of what needs to be done.")
-    layer_impact: str = Field(..., description="The primary architecture layer impacted (e.g., 'Business Layer', 'Application Layer').")
+    order: int = Field(0, description="The sequence number of the migration step (e.g., 1, 2, 3).")
+    title: str = Field("", description="A short, descriptive title for the step.")
+    description: str = Field("", description="Detailed explanation of what needs to be done.")
+    layer_impact: str = Field("", description="The primary architecture layer impacted (e.g., 'Business Layer', 'Application Layer').")
 
 class GapDiffElement(BaseModel):
     """Represents a single architectural element and its evolution state."""
-    element_id: str = Field(..., description="Unique identifier of the element if available.")
-    name: str = Field(..., description="Name of the component or element.")
-    type: str = Field(..., description="The Archimate element type (e.g., 'BusinessActor', 'ApplicationComponent').")
-    status: str = Field(..., description="The gap status: 'added', 'removed', 'modified', or 'unchanged'.")
+    element_id: str = Field("", description="Unique identifier of the element if available.")
+    name: str = Field("", description="Name of the component or element.")
+    type: str = Field("", description="The Archimate element type (e.g., 'BusinessActor', 'ApplicationComponent').")
+    status: str = Field("", description="The gap status: 'added', 'removed', 'modified', or 'unchanged'.")
     details: Optional[str] = Field(None, description="Explanation of the modification or reason for addition/removal.")
 
 class GapAnalysisReport(BaseModel):

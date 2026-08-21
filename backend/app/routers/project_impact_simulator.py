@@ -58,87 +58,162 @@ async def run_ingestion(request: IngestRequest):
         db.close()
 
 class SimulateRequest(BaseModel):
+    thing_id: str
     topology: ExtractedTopology
     constraints: VariableConstraints
     llm_preset: str = "default"
 
 @router.post("/simulate")
 async def run_simulation(request: SimulateRequest):
-    import asyncio
+    import threading
+    import queue
+    import json
+    from sqlalchemy.orm.attributes import flag_modified
+    
     try:
-        graph = build_constraint_solver_graph()
-        
-        # Run 3 Monte Carlo simulations concurrently
-        tasks = [
-            graph.ainvoke({
-                "topology": request.topology,
-                "constraints": request.constraints,
-                "llm_preset": request.llm_preset,
-                "simulation_result": None,
-                "errors": []
-            })
-            for _ in range(3)
-        ]
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        valid_results = [r.get("simulation_result") for r in results if isinstance(r, dict) and r.get("simulation_result")]
-        
-        if not valid_results:
-            raise Exception("All Monte Carlo simulation runs failed.")
+        with SessionLocal() as db:
+            thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+            if thing:
+                if thing.content is None:
+                    thing.content = {}
+                thing.content["simState"] = {"step": "SIMULATING"}
+                flag_modified(thing, "content")
+                db.commit()
+    except Exception as db_err:
+        raise HTTPException(status_code=500, detail="Database lock failed")
+
+    q = queue.Queue()
+    
+    def worker():
+        async def process_simulation():
+            import asyncio
+            graph = build_constraint_solver_graph()
             
-        # We use the first successful run as the core schedule and justification
-        core_result = valid_results[0].model_dump()
-        
-        all_weeks = []
-        all_costs = []
-        
-        WEEKLY_RATE_PER_STAFF = 3500  # Deterministic rate
-        
-        for r in valid_results:
-            if r.schedule:
-                # 1. Deterministic Python Math overrides LLM hallucinations
-                start_w = min((c.start_week for c in r.schedule), default=0)
-                end_w = max((c.end_week for c in r.schedule), default=0)
-                calculated_weeks = max(end_w - start_w, 1)
+            tasks = [
+                graph.ainvoke({
+                    "topology": request.topology,
+                    "constraints": request.constraints,
+                    "llm_preset": request.llm_preset,
+                    "simulation_result": None,
+                    "errors": []
+                })
+                for _ in range(3)
+            ]
+            
+            # Since we run 3, we can emit progress for each completion
+            q.put({"type": "step", "node": "Monte Carlo Simulation (3 runs)..."})
+            
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            valid_results = [r.get("simulation_result") for r in results if isinstance(r, dict) and r.get("simulation_result")]
+            
+            if not valid_results:
+                raise Exception("All Monte Carlo simulation runs failed.")
                 
-                # Each staff member costs $3500 per week of duration
-                calculated_cost = sum((c.end_week - c.start_week) * c.assigned_staff for c in r.schedule) * WEEKLY_RATE_PER_STAFF
+            core_result = valid_results[0].model_dump()
+            all_weeks = []
+            all_costs = []
+            WEEKLY_RATE_PER_STAFF = 3500
+            
+            for r in valid_results:
+                if r.schedule:
+                    start_w = min((c.start_week for c in r.schedule), default=0)
+                    end_w = max((c.end_week for c in r.schedule), default=0)
+                    calculated_weeks = max(end_w - start_w, 1)
+                    calculated_cost = sum((c.end_week - c.start_week) * c.assigned_staff for c in r.schedule) * WEEKLY_RATE_PER_STAFF
+                    r.total_weeks = calculated_weeks
+                    r.total_cost = calculated_cost
                 
-                # Overwrite the hallucinated LLM numbers
-                r.total_weeks = calculated_weeks
-                r.total_cost = calculated_cost
+                all_weeks.append(r.total_weeks)
+                all_costs.append(r.total_cost)
+                
+            core_result["total_weeks"] = valid_results[0].total_weeks
+            core_result["total_cost"] = valid_results[0].total_cost
             
-            all_weeks.append(r.total_weeks)
-            all_costs.append(r.total_cost)
+            min_w = min(all_weeks)
+            max_w = max(all_weeks)
+            if min_w == max_w:
+                min_w = int(min_w * 0.85)
+                max_w = int(max_w * 1.15)
+                
+            min_c = min(all_costs)
+            max_c = max(all_costs)
+            if min_c == max_c:
+                min_c = min_c * 0.85
+                max_c = max_c * 1.15
             
-        # Update the core_result with our deterministic math
-        core_result["total_weeks"] = valid_results[0].total_weeks
-        core_result["total_cost"] = valid_results[0].total_cost
-        
-        # We artificially expand the range slightly in case the LLM (at temp 0) returns the exact same number 3 times
-        # to ensure the UI shows a realistic 85% confidence interval range.
-        min_w = min(all_weeks)
-        max_w = max(all_weeks)
-        if min_w == max_w:
-            min_w = int(min_w * 0.85)
-            max_w = int(max_w * 1.15)
+            core_result["min_weeks_confidence"] = min_w
+            core_result["max_weeks_confidence"] = max_w
+            core_result["min_cost_confidence"] = min_c
+            core_result["max_cost_confidence"] = max_c
             
-        min_c = min(all_costs)
-        max_c = max(all_costs)
-        if min_c == max_c:
-            min_c = min_c * 0.85
-            max_c = max_c * 1.15
-        
-        core_result["min_weeks_confidence"] = min_w
-        core_result["max_weeks_confidence"] = max_w
-        core_result["min_cost_confidence"] = min_c
-        core_result["max_cost_confidence"] = max_c
-        
-        return {"status": "success", "result": core_result}
+            return core_result
+
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            sim_result = loop.run_until_complete(process_simulation())
+            
+            q.put({"type": "completed", "result": sim_result})
+            
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["simState"] = {"step": "DONE"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
+        except Exception as e:
+            q.put({"type": "error", "message": str(e)})
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["simState"] = {"step": "WAITING"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
+        q.put({"type": "done"})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        import asyncio
+        while True:
+            try:
+                msg = await asyncio.to_thread(q.get, timeout=0.1)
+                yield f"data: {json.dumps(msg)}\n\n"
+                if msg["type"] in ["done", "error", "completed"]:
+                    break
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@router.get("/status/{thing_id}")
+async def get_sim_status(thing_id: str):
+    try:
+        with SessionLocal() as db:
+            thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+            if not thing:
+                raise HTTPException(status_code=404, detail="Thing not found")
+            
+            content = thing.content or {}
+            simState = content.get("simState", {})
+            step = simState.get("step", "WAITING")
+            
+            return {"step": step}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 class CopilotRequest(BaseModel):
@@ -188,45 +263,115 @@ class AutoSolveRequest(BaseModel):
 
 @router.post("/auto_solve")
 async def auto_solve_scenario(request: AutoSolveRequest):
+    import threading
+    import queue
+    import json
+    from sqlalchemy.orm.attributes import flag_modified
+    
     try:
-        db = SessionLocal()
-        thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
-        db.close()
-        
-        if not thing or not thing.content or not thing.content.get("report"):
-            raise HTTPException(status_code=404, detail="Topology not found in CanvasThing.")
+        with SessionLocal() as db:
+            thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+            if not thing:
+                raise HTTPException(status_code=404, detail="Thing not found")
+                
+            if thing.content is None:
+                thing.content = {}
+            thing.content["simState"] = {"step": "SIMULATING"}
+            flag_modified(thing, "content")
+            db.commit()
             
-        from app.agents.project_impact_agent import ExtractedTopology, build_auto_solve_graph, AutoSolveState
-        topology_data = thing.content["report"]
-        topology = ExtractedTopology(**topology_data)
-        
-        graph = build_auto_solve_graph()
-        initial_state: AutoSolveState = {
-            "topology": topology,
-            "target_components": request.target_components,
-            "max_budget": request.max_budget,
-            "max_timeline_weeks": request.max_timeline_weeks,
-            "max_staff": request.max_staff,
-            "llm_preset": request.llm_preset,
-            "auto_solve_response": None,
-            "errors": []
-        }
-        
-        result = graph.invoke(initial_state)
-        
-        if result.get("errors"):
-            raise HTTPException(status_code=500, detail=" ".join(result["errors"]))
+            if not thing.content.get("report"):
+                raise HTTPException(status_code=404, detail="Topology not found in CanvasThing.")
+                
+            topology_data = thing.content["report"]
+    except Exception as db_err:
+        raise HTTPException(status_code=500, detail="Database lock failed")
+
+    q = queue.Queue()
+    
+    def worker():
+        async def process_auto_solve():
+            import asyncio
+            from app.agents.project_impact_agent import ExtractedTopology, build_auto_solve_graph, AutoSolveState
             
-        auto_response = result.get("auto_solve_response")
-        if not auto_response:
-            raise HTTPException(status_code=500, detail="Failed to generate optimal solution.")
+            q.put({"type": "step", "node": "Initializing topology..."})
+            topology = ExtractedTopology(**topology_data)
             
-        return auto_response.model_dump()
-        
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+            graph = build_auto_solve_graph()
+            initial_state: AutoSolveState = {
+                "topology": topology,
+                "target_components": request.target_components,
+                "max_budget": request.max_budget,
+                "max_timeline_weeks": request.max_timeline_weeks,
+                "max_staff": request.max_staff,
+                "llm_preset": request.llm_preset,
+                "auto_solve_response": None,
+                "errors": []
+            }
+            
+            q.put({"type": "step", "node": "Solving optimization constraints (this may take up to 30s)..."})
+            
+            result = await asyncio.to_thread(graph.invoke, initial_state)
+            
+            if result.get("errors"):
+                raise Exception(" ".join(result["errors"]))
+                
+            auto_response = result.get("auto_solve_response")
+            if not auto_response:
+                raise Exception("Failed to generate optimal solution.")
+                
+            return auto_response.model_dump()
+
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            solve_result = loop.run_until_complete(process_auto_solve())
+            
+            q.put({"type": "completed", "result": solve_result})
+            
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["simState"] = {"step": "DONE"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
+        except Exception as e:
+            q.put({"type": "error", "message": str(e)})
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["simState"] = {"step": "WAITING"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
+        q.put({"type": "done"})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        import asyncio
+        while True:
+            try:
+                msg = await asyncio.to_thread(q.get, timeout=0.1)
+                yield f"data: {json.dumps(msg)}\n\n"
+                if msg["type"] in ["done", "error", "completed"]:
+                    break
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @router.post("/export/pptx")
 async def export_pptx(request: PptxExportRequest):

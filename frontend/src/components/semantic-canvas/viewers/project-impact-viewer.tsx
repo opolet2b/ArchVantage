@@ -352,6 +352,34 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
         setEdges(generateEdges(topologyReport.dependencies, topologyReport.components));
     }, [targetComponents, migrationPattern, topologyReport.components, topologyReport.dependencies, setNodes, setEdges]);
 
+    const checkStatus = useCallback(async () => {
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/project_impact_simulator/status/${thing.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.step === 'SIMULATING' && status !== 'simulating') {
+                    setStatus('simulating');
+                } else if ((data.step === 'DONE' || data.step === 'WAITING') && status === 'simulating') {
+                    setStatus('completed');
+                }
+            }
+        } catch (err) {
+            console.error("Failed to check sim status", err);
+        }
+    }, [thing.id, status]);
+
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (status === 'simulating') {
+            interval = setInterval(() => {
+                checkStatus();
+            }, 15000);
+        }
+        return () => {
+            if (interval) clearInterval(interval);
+        };
+    }, [status, checkStatus]);
+
     const handleAutoSolve = async () => {
         setStatus('simulating');
         try {
@@ -368,56 +396,89 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                 })
             });
             if (!res.ok) throw new Error("AutoSolve failed");
-            
-            const data = await res.json();
-            const optimalConstraints = data.optimal_constraints;
-            const optimalSim = data.optimal_simulation;
-            
-            // Update UI state with AI recommendations
-            setMigrationPattern(optimalConstraints.migration_pattern);
-            setTeamAssignee(optimalConstraints.team_assignee);
-            setDualRun(optimalConstraints.dual_run);
-            setZeroDowntime(optimalConstraints.zero_downtime);
-            setCanaryRollout(optimalConstraints.canary_rollout);
-            setDataBackfill(optimalConstraints.data_backfill);
-            
-            // Update the chart Delta
-            const newSimDelta = {
-                weeks: optimalSim.total_weeks,
-                cost: optimalSim.total_cost,
-                risk: `${optimalSim.monthly_risk_indices?.[0]?.toFixed(2) || '0.00'} (Avg)`,
-                bottleneck: optimalSim.bottleneck_analysis?.substring(0, 50) + '...',
-                bottleneck_citation: optimalSim.bottleneck_citation,
-                justification_of_metrics: optimalSim.justification_of_metrics,
-                assumptions: optimalSim.assumptions || [],
-                schedule: optimalSim.schedule || [],
-                isolated_impacts: optimalSim.isolated_impacts || {}
-            };
-            setSimDelta(newSimDelta);
-            
-            // Save to active scenario
-            let updatedScenarios = [...scenarios];
-            const activeIndex = updatedScenarios.findIndex(s => s.id === activeScenarioId);
-            if (activeIndex >= 0) {
-                updatedScenarios[activeIndex] = {
-                    ...updatedScenarios[activeIndex],
-                    migrationPattern: optimalConstraints.migration_pattern,
-                    teamAssignee: optimalConstraints.team_assignee,
-                    dualRun: optimalConstraints.dual_run,
-                    zeroDowntime: optimalConstraints.zero_downtime,
-                    canaryRollout: optimalConstraints.canary_rollout,
-                    dataBackfill: optimalConstraints.data_backfill,
-                    simDelta: newSimDelta
-                };
-                setScenarios(updatedScenarios);
-                updateThing(thing.id, {
-                    content: {
-                        ...thing.content,
-                        scenarios: updatedScenarios
+            if (!res.body) throw new Error("No response body");
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let done = false;
+            let accumulatedData = "";
+
+            while (!done) {
+                const { value, done: readerDone } = await reader.read();
+                if (readerDone) {
+                    done = true;
+                    break;
+                }
+                
+                const chunk = decoder.decode(value, { stream: true });
+                accumulatedData += chunk;
+                
+                const parts = accumulatedData.split("\n\n");
+                accumulatedData = parts.pop() || "";
+                
+                for (const part of parts) {
+                    if (part.startsWith("data: ")) {
+                        try {
+                            const data = JSON.parse(part.slice(6));
+                            
+                            if (data.type === "step") {
+                                // You could add a toast or progress update here
+                                console.log(data.node);
+                            } else if (data.type === "completed") {
+                                const optimalConstraints = data.result.optimal_constraints;
+                                const optimalSim = data.result.optimal_simulation;
+                                
+                                setMigrationPattern(optimalConstraints.migration_pattern);
+                                setTeamAssignee(optimalConstraints.team_assignee);
+                                setDualRun(optimalConstraints.dual_run);
+                                setZeroDowntime(optimalConstraints.zero_downtime);
+                                setCanaryRollout(optimalConstraints.canary_rollout);
+                                setDataBackfill(optimalConstraints.data_backfill);
+                                
+                                const newSimDelta = {
+                                    weeks: optimalSim.total_weeks,
+                                    cost: optimalSim.total_cost,
+                                    risk: `${optimalSim.monthly_risk_indices?.[0]?.toFixed(2) || '0.00'} (Avg)`,
+                                    bottleneck: optimalSim.bottleneck_analysis?.substring(0, 50) + '...',
+                                    bottleneck_citation: optimalSim.bottleneck_citation,
+                                    justification_of_metrics: optimalSim.justification_of_metrics,
+                                    assumptions: optimalSim.assumptions || [],
+                                    schedule: optimalSim.schedule || [],
+                                    isolated_impacts: optimalSim.isolated_impacts || {}
+                                };
+                                setSimDelta(newSimDelta);
+                                
+                                let updatedScenarios = [...scenarios];
+                                const activeIndex = updatedScenarios.findIndex(s => s.id === activeScenarioId);
+                                if (activeIndex >= 0) {
+                                    updatedScenarios[activeIndex] = {
+                                        ...updatedScenarios[activeIndex],
+                                        migrationPattern: optimalConstraints.migration_pattern,
+                                        teamAssignee: optimalConstraints.team_assignee,
+                                        dualRun: optimalConstraints.dual_run,
+                                        zeroDowntime: optimalConstraints.zero_downtime,
+                                        canaryRollout: optimalConstraints.canary_rollout,
+                                        dataBackfill: optimalConstraints.data_backfill,
+                                        simDelta: newSimDelta
+                                    };
+                                    setScenarios(updatedScenarios);
+                                    updateThing(thing.id, {
+                                        content: {
+                                            ...thing.content,
+                                            scenarios: updatedScenarios
+                                        }
+                                    });
+                                }
+                                setStatus('completed');
+                            } else if (data.type === "error") {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse SSE event:", e);
+                        }
                     }
-                });
+                }
             }
-            setStatus('completed');
         } catch (error) {
             console.error("AutoSolve Failed:", error);
             setStatus('idle');
@@ -450,67 +511,100 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    thing_id: thing.id,
                     topology: mockTopology,
                     constraints: currentConstraints,
                     llm_preset: selectedModel || 'default'
                 })
             });
             if (!res.ok) throw new Error("Simulation Request Failed");
-            const data = await res.json();
-            
-            if (data.result) {
-                const newSimDelta = {
-                    weeks: data.result.total_weeks,
-                    min_weeks: data.result.min_weeks_confidence,
-                    max_weeks: data.result.max_weeks_confidence,
-                    cost: data.result.total_cost,
-                    min_cost: data.result.min_cost_confidence,
-                    max_cost: data.result.max_cost_confidence,
-                    risk: `${(data.result.monthly_risk_indices?.[0] || 0.5).toFixed(2)} (${data.result.is_viable ? 'Viable' : 'Risk'})`,
-                    bottleneck: data.result.bottleneck_analysis,
-                    bottleneck_citation: data.result.bottleneck_citation || '',
-                    justification_of_metrics: data.result.justification_of_metrics || '',
-                    assumptions: data.result.assumptions || [],
-                    schedule: data.result.schedule || [],
-                    isolated_impacts: data.result.isolated_impacts || {}
-                };
+            if (!res.body) throw new Error("No response body");
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let done = false;
+            let accumulatedData = "";
+
+            while (!done) {
+                const { value, done: readerDone } = await reader.read();
+                if (readerDone) {
+                    done = true;
+                    break;
+                }
                 
-                setSimDelta(newSimDelta);
+                const chunk = decoder.decode(value, { stream: true });
+                accumulatedData += chunk;
                 
-                // Save current scenario config and new simulation delta
-                if (!isReadOnly) {
-                    const updatedScenarios = scenarios.map(s => {
-                        if (s.id === activeScenarioId) {
-                            return {
-                                ...s,
-                                simDelta: newSimDelta,
-                                targetComponents,
-                                migrationPattern,
-                                interfaceProtocols,
-                                teamAssignee,
-                                dualRun,
-                                zeroDowntime,
-                                canaryRollout,
-                                dataBackfill,
-                                maxBudget,
-                                maxTimeline,
-                                maxStaff
-                            };
+                const parts = accumulatedData.split("\n\n");
+                accumulatedData = parts.pop() || "";
+                
+                for (const part of parts) {
+                    if (part.startsWith("data: ")) {
+                        try {
+                            const data = JSON.parse(part.slice(6));
+                            
+                            if (data.type === "step") {
+                                console.log(data.node);
+                            } else if (data.type === "completed") {
+                                const newSimDelta = {
+                                    weeks: data.result.total_weeks,
+                                    min_weeks: data.result.min_weeks_confidence,
+                                    max_weeks: data.result.max_weeks_confidence,
+                                    cost: data.result.total_cost,
+                                    min_cost: data.result.min_cost_confidence,
+                                    max_cost: data.result.max_cost_confidence,
+                                    risk: `${(data.result.monthly_risk_indices?.[0] || 0.5).toFixed(2)} (${data.result.is_viable ? 'Viable' : 'Risk'})`,
+                                    bottleneck: data.result.bottleneck_analysis,
+                                    bottleneck_citation: data.result.bottleneck_citation || '',
+                                    justification_of_metrics: data.result.justification_of_metrics || '',
+                                    assumptions: data.result.assumptions || [],
+                                    schedule: data.result.schedule || [],
+                                    isolated_impacts: data.result.isolated_impacts || {}
+                                };
+                                
+                                setSimDelta(newSimDelta);
+                                
+                                if (!isReadOnly) {
+                                    const updatedScenarios = scenarios.map(s => {
+                                        if (s.id === activeScenarioId) {
+                                            return {
+                                                ...s,
+                                                simDelta: newSimDelta,
+                                                targetComponents,
+                                                migrationPattern,
+                                                interfaceProtocols,
+                                                teamAssignee,
+                                                dualRun,
+                                                zeroDowntime,
+                                                canaryRollout,
+                                                dataBackfill,
+                                                maxBudget,
+                                                maxTimeline,
+                                                maxStaff
+                                            };
+                                        }
+                                        return s;
+                                    });
+                                    
+                                    setScenarios(updatedScenarios);
+                                    updateThing(thing.id, {
+                                        content: {
+                                            ...thing.content,
+                                            activeScenarioId,
+                                            scenarios: updatedScenarios
+                                        }
+                                    });
+                                }
+                                setStatus('completed');
+                            } else if (data.type === "error") {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Failed to parse SSE event:", e);
                         }
-                        return s;
-                    });
-                    
-                    setScenarios(updatedScenarios);
-                    updateThing(thing.id, {
-                        content: {
-                            ...thing.content,
-                            activeScenarioId,
-                            scenarios: updatedScenarios
-                        }
-                    });
+                    }
                 }
             }
-            setStatus('completed');
         } catch (error) {
             console.error("Simulation Failed:", error);
             setStatus('idle');
