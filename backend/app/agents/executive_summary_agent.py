@@ -24,26 +24,32 @@ class ExecutiveSummaryState(TypedDict):
     concepts: Dict[str, Any]
     slides: List[Dict[str, Any]]
     errors: List[str]
+    progress_callback: Any
+
+class ConceptItem(BaseModel):
+    point: str = Field(default="", description="The key bullet point or extracted concept.")
+    explanation: str = Field(default="", description="A brief explanation of WHY this is important or what it means.")
+    source_reference: str = Field(default="", description="The EXACT verbatim Name, Title, or text extract of the source element for searchability. DO NOT use raw GUIDs or paraphrase.")
 
 class Concept(BaseModel):
-    categories: Dict[str, List[str]] = Field(default_factory=dict, description="Dynamically extracted concept categories. Keys should be the category name (e.g. 'Business Drivers', 'Capabilities', 'Architecture Nodes', 'Success Factors', 'Roadmap Items', 'Regulatory Mandates'), and values should be a list of strings representing the key bullet points for that category.")
+    categories: Dict[str, List[ConceptItem]] = Field(default_factory=dict, description="Dynamically extracted concept categories. Keys should be the category name, and values should be a list of ConceptItems.")
     figures: List[str] = Field(default_factory=list, description="List of URLs or paths for extracted figures")
 
 class DiagramNode(BaseModel):
-    id: str = Field(description="Unique ID for the node (e.g. node1)")
-    type: str = Field(description="Valid ArchiMate type (e.g. BusinessActor, ApplicationComponent, DataObject, Node)")
-    name: str = Field(description="Display name of the node")
+    id: str = Field(default="", description="Unique ID for the node (e.g. node1)")
+    type: str = Field(default="Node", description="Valid ArchiMate type (e.g. BusinessActor, ApplicationComponent, DataObject, Node)")
+    name: str = Field(default="", description="Display name of the node")
 
 class DiagramEdge(BaseModel):
-    id: str = Field(description="Unique ID for the edge (e.g. edge1)")
-    source: str = Field(description="Source node ID")
-    target: str = Field(description="Target node ID")
+    id: str = Field(default="", description="Unique ID for the edge (e.g. edge1)")
+    source: str = Field(default="", description="Source node ID")
+    target: str = Field(default="", description="Target node ID")
     type: str = Field(default="Association", description="ArchiMate relationship type (e.g. Association, Flow, Serving)")
 
 class Slide(BaseModel):
-    title: str = Field(description="Title of the slide")
-    takeaway: str = Field(description="1-2 sentence executive takeaway")
-    concepts: List[str] = Field(description="Key bullet points to display")
+    title: str = Field(default="Untitled Slide", description="Title of the slide")
+    takeaway: str = Field(default="", description="1-2 sentence executive takeaway")
+    concepts: List[str] = Field(default_factory=list, description="Key bullet points to display")
     has_diagram: bool = Field(default=False, description="Whether this slide should suggest a diagram")
     diagram_nodes: List[DiagramNode] = Field(default_factory=list, description="List of nodes if has_diagram is true")
     diagram_edges: List[DiagramEdge] = Field(default_factory=list, description="List of edges connecting the nodes")
@@ -71,27 +77,66 @@ def invoke_with_fallback(llm, schema_class, messages):
     parser = PydanticOutputParser(pydantic_object=schema_class)
     format_instructions = parser.get_format_instructions()
     
-    # Inject format instructions into the last message
+    # Inject format instructions and strict JSON rules into the last message
     last_msg = messages[-1].content
     if isinstance(last_msg, str):
-        messages[-1].content = f"{last_msg}\n\n{format_instructions}"
+        strict_rules = "CRITICAL: You MUST respond with ONLY valid, raw JSON matching the schema. DO NOT wrap the JSON in markdown blocks (```json ... ```). DO NOT include any conversational text, greetings, or explanations."
+        messages[-1].content = f"{last_msg}\n\n{format_instructions}\n\n{strict_rules}"
     
+    import re
+    
+    def extract_json_str(text: str) -> str:
+        if not text or text.strip().lower() == "null":
+            return '{"categories": {}, "figures": []}'
+            
+        # Strip markdown json blocks if the model ignored the instructions
+        match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
+        if match:
+            text = match.group(1)
+            
+        if text.strip().lower() == "null":
+            return '{"categories": {}, "figures": []}'
+            
+        # Or try to find the first { and last }
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            text = text[start:end+1]
+            
+        # Fix trailing commas (common LLM hallucination) which break json.loads
+        text = re.sub(r',\s*([\]}])', r'\1', text)
+        return text
+
     try:
         response = None
         response = llm.invoke(messages)
-        return parser.parse(response.content)
+        clean_json = extract_json_str(response.content)
+        return parser.parse(clean_json)
     except Exception as e:
-        logger.warning(f"Failed to parse or invoke LLM: {e}. Trying to fix...")
+        err_str = str(e).lower()
+        if "completion null" in err_str or "input_value=none" in err_str:
+            if schema_class.__name__ == "StoryboarderResult":
+                return schema_class(slides=[])
+            return schema_class(categories={}, figures=[])
+            
+        logger.warning(f"[Map-Reduce] LLM hallucinated JSON structure for a chunk. Attempting self-correction...")
         if response is None:
             raise Exception(f"LLM Invocation failed: {e}")
             
-        fix_prompt = f"The following text was supposed to be a JSON object but failed to parse with error: {e}.\n\nText:\n{response.content}\n\nPlease output ONLY the corrected JSON object matching the required schema."
-        response = llm.invoke([HumanMessage(content=fix_prompt)])
-        return parser.parse(response.content)
+        try:
+            fix_prompt = f"The following text was supposed to be a JSON object but failed to parse with error: {e}.\n\nText:\n{response.content}\n\nPlease output ONLY the corrected JSON object. DO NOT include conversational text."
+            response = llm.invoke([HumanMessage(content=fix_prompt)])
+            clean_json = extract_json_str(response.content)
+            return parser.parse(clean_json)
+        except Exception as fallback_e:
+            logger.warning(f"[Map-Reduce] Self-correction failed. Returning empty schema to prevent crash.")
+            if schema_class.__name__ == "StoryboarderResult":
+                return schema_class(slides=[])
+            return schema_class(categories={}, figures=[])
 
 def parser_agent(state: ExecutiveSummaryState):
     """Phase 1: Ingestion & Extraction (Mocked as Pass-through for now)"""
-    return {"errors": []}
+    return state
 
 def concept_miner_agent(state: ExecutiveSummaryState):
     """Phase 1: Concept Extraction"""
@@ -102,9 +147,46 @@ def concept_miner_agent(state: ExecutiveSummaryState):
         
     docs_text = "\n\n".join(docs)
     
-    prompt = f"""
+    # Dynamically determine chunk size based on context window setting
+    from app.services.llm_service import LLMService
+    service = LLMService()
+    preset = service._resolve_preset(state.get("llm_preset") or "default")
+    
+    # Fetch context window limit from preset, default to 32000 if not found
+    context_limit = preset.get("context_window") if preset else None
+    if not context_limit:
+        context_limit = 32000
+    
+    # We allocate roughly half the context window for the chunk to leave room for the system prompt and generated JSON
+    # A standard token is ~4 characters, so (context_limit / 2) tokens * 4 = target characters
+    chunk_size = int((int(context_limit) / 2) * 4)
+    
+    # Safety bounds
+    if chunk_size < 10000:
+        chunk_size = 10000
+    
+    print(f"[Concept Miner] Dynamic chunk size set to {chunk_size} characters (based on context limit: {context_limit} tokens)")
+    
+    chunks = [docs_text[i:i + chunk_size] for i in range(0, len(docs_text), chunk_size)]
+    
+    all_categories = {}
+    import concurrent.futures
+    import threading
+
+    total_chunks = len(chunks)
+    completed_chunks = 0
+    progress_lock = threading.Lock()
+    progress_cb = state.get("progress_callback")
+    
+    # Fire initial 0 progress
+    if progress_cb:
+        progress_cb(0, total_chunks)
+
+    def process_chunk(chunk):
+        nonlocal completed_chunks
+        prompt = f"""
 You are an Expert Enterprise Architect (TOGAF certified) and a Tier-1 Strategy Consultant (e.g., McKinsey/BCG).
-Your objective is to analyze the provided architecture documents and extract the absolute core concepts required to present a 'Target Operating Model' and 'Strategic Transformation' to C-Level executives (CIO, CTO, CEO).
+Your objective is to analyze the provided architecture document excerpt and extract the absolute core concepts required to present a 'Target Operating Model' and 'Strategic Transformation' to C-Level executives (CIO, CTO, CEO).
 
 Focus on:
 1. The "Burning Platform" (Why change is needed, Business Challenges, Regulatory mandates).
@@ -112,13 +194,46 @@ Focus on:
 3. The Target Architecture & Interoperability (Key systems, integration layers like ESB/API Gateways, and data flow).
 4. The Implementation Roadmap (Phasing, migration, success factors).
 
+IMPORTANT RULE FOR SOURCE REFERENCES:
+When extracting the `source_reference`, you MUST extract the EXACT verbatim Name, Title, or text extract of the source element so the user can search for it in the original document.
+DO NOT use raw GUIDs or IDs (e.g. "id-1c4240bcd2d24bc9") and DO NOT paraphrase the name.
+
 Extract these strictly into the requested JSON schema. Be highly analytical, concise, and use professional Enterprise Architecture terminology.
 
-Documents:
-{docs_text[:10000]}
+Excerpt:
+{chunk}
 """
-    try:
         res = invoke_with_fallback(llm, Concept, [HumanMessage(content=prompt)])
+        
+        with progress_lock:
+            completed_chunks += 1
+            if progress_cb:
+                progress_cb(completed_chunks, total_chunks)
+                
+        return res
+
+    try:
+        # Process chunks in parallel (max 5 at a time)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            results = list(executor.map(process_chunk, chunks))
+            
+        for res in results:
+            for cat, items in res.categories.items():
+                if cat not in all_categories:
+                    all_categories[cat] = []
+                all_categories[cat].extend(items)
+        
+        # Deduplicate to keep the concepts clean based on the exact point text
+        for cat in all_categories:
+            seen_points = set()
+            unique_items = []
+            for item in all_categories[cat]:
+                if item.point not in seen_points:
+                    seen_points.add(item.point)
+                    unique_items.append(item)
+            all_categories[cat] = unique_items
+            
+        final_concept = Concept(categories=all_categories, figures=[])
         
         # ACTIVE IMAGE EXTRACTION FROM PDFs
         extracted_figures = []
@@ -204,12 +319,12 @@ Documents:
             except Exception as e:
                 logger.error(f"Image extraction failed: {e}")
         
-        res.figures = extracted_figures
         
-        return {"concepts": res.model_dump()}
+        final_concept.figures = extracted_figures
+        return {"concepts": final_concept.model_dump()}
     except Exception as e:
         logger.error(f"Concept Mining failed: {e}")
-        return {"concepts": {"categories": {}, "figures": []}}
+        raise e
 
 def synthesizer_and_storyboarder_agent(state: ExecutiveSummaryState):
     """Phase 2b & 2c: C-Level Synthesizer and Storyboarder"""
@@ -238,8 +353,7 @@ Slide 5: Implementation Timeline & Critical Success Factors
 For each slide, provide a powerful 'takeaway' sentence that summarizes the slide's main message.
 If a slide explains a process or structure (like Slide 3), set has_diagram=true and provide diagram_nodes (using valid ArchiMate types) and diagram_edges to visualize the architecture. Keep the diagrams focused on the highest-level components (e.g., ESB, Gateways, Core Systems).
 
-Source Context:
-{docs_text[:5000]}
+Note: The source document was processed extensively via Map-Reduce. The Extracted Concepts below represent the complete, deep analysis of the entire document.
 
 Extracted Concepts:
 {concepts_for_prompt}
@@ -301,12 +415,10 @@ Extracted Concepts:
                         "edges": diagram_edges
                     }]
                 }
-        
         return {"slides": slides_data}
     except Exception as e:
         logger.error(f"Storyboarding failed: {e}")
-        return {"slides": []}
-
+        raise e
 def build_executive_summary_graph():
     workflow = StateGraph(ExecutiveSummaryState)
     

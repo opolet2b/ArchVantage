@@ -59,6 +59,8 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
 
     const handleIngest = async () => {
         setStatus('extracting');
+        setProgressMessage('Connecting to server...');
+        setProgressPercent(0);
         try {
             const documentIds = links
                 .filter(l => l.target_id === thing.id && l.source_id !== thing.id)
@@ -70,7 +72,7 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                 return;
             }
 
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architectural_scenario/ingest`, {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architectural_scenario/ingest-stream`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -79,21 +81,54 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                 body: JSON.stringify({ document_ids: documentIds })
             });
 
-            if (!res.ok) throw new Error('Ingestion failed');
-            const data = await res.json();
-            
-            updateThing(thing.id, {
-                content: {
-                    ...thing.content,
-                    baseline: data.baseline
+            if (!response.ok) throw new Error("Ingestion failed");
+            if (!response.body) throw new Error("No readable stream");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                
+                // Keep the last incomplete line in the buffer
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.trim() === '') continue;
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            if (data.type === 'progress') {
+                                setProgressMessage(data.message);
+                                setProgressPercent(data.percent);
+                            } else if (data.type === 'complete') {
+                                setProgressPercent(100);
+                                updateThing(thing.id, {
+                                    content: {
+                                        ...thing.content,
+                                        baseline: data.result
+                                    }
+                                });
+                                setViewMode('baseline');
+                                setStatus('idle');
+                            } else if (data.type === 'error') {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing stream chunk", e, line);
+                        }
+                    }
                 }
-            });
-            setViewMode('baseline');
+            }
         } catch (error) {
             console.error(error);
             alert("Extraction failed. See console.");
-        } finally {
-            setStatus('idle');
+            setStatus('error');
         }
     };
 
@@ -131,15 +166,18 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder('utf-8');
+            let buffer = '';
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
                 
                 for (const line of lines) {
+                    if (line.trim() === '') continue;
                     if (line.startsWith('data: ')) {
                         try {
                             const data = JSON.parse(line.substring(6));
@@ -766,6 +804,18 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                                 <span className="flex items-center gap-2"><Layers className="w-5 h-5" /> Extract from Linked Documents</span>
                             )}
                         </Button>
+                        
+                        {status === 'extracting' && progressMessage && (
+                            <div className="w-full max-w-md flex flex-col items-center mt-6">
+                                <div className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-3 animate-pulse">{progressMessage}</div>
+                                <div className="w-full bg-blue-100 dark:bg-blue-900/30 rounded-full h-2 overflow-hidden relative">
+                                    <div 
+                                        className="bg-blue-600 h-full rounded-full transition-all duration-500 ease-out absolute top-0 left-0" 
+                                        style={{ width: `${progressPercent}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

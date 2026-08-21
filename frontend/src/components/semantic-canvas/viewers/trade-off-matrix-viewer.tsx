@@ -4,7 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Table, CheckCircle2, Loader2, Play, Plus, RefreshCw, FileText } from "lucide-react";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Table, CheckCircle2, Loader2, Play, Plus, RefreshCw, FileText, Download } from "lucide-react";
+import { Document, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun, WidthType, BorderStyle, HeadingLevel } from "docx";
 import { useAnalyze } from "./use-analyze";
 import { SpreadsheetToolViewer } from "./spreadsheet-tool-viewer";
 
@@ -29,6 +32,7 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
     const things = useCanvasStore((state) => state.things);
     const { analyze } = useAnalyze();
     const [extractProgress, setExtractProgress] = React.useState(0);
+    const [methodology, setMethodology] = React.useState("LLM Generated");
 
     React.useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -61,13 +65,32 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
         });
     };
     const linkedThings = links.filter((l) => l.target_id === thing.id || l.source_id === thing.id);
+    const linkedDocs = React.useMemo(() => {
+        return linkedThings.map(link => {
+            const linkedThingId = link.source_id === thing.id ? link.target_id : link.source_id;
+            return things.find(t => t.id === linkedThingId);
+        }).filter((t): t is CanvasThing => t !== undefined);
+    }, [linkedThings, things, thing.id]);
+
+    const [selectedDocIds, setSelectedDocIds] = React.useState<string[]>([]);
+    
+    // Auto-select newly linked documents
+    React.useEffect(() => {
+        setSelectedDocIds(prev => {
+            const newIds = linkedDocs.map(d => d.id).filter(id => !prev.includes(id));
+            if (newIds.length > 0) return [...prev, ...newIds];
+            return prev;
+        });
+    }, [linkedDocs]);
+
     const handleExtract = async () => {
+        const selectedDocs = linkedDocs.filter(d => selectedDocIds.includes(d.id));
         console.log("[Trade-off Matrix] Starting extraction process...");
-        console.log(`[Trade-off Matrix] Found ${linkedThings.length} linked documents.`);
+        console.log(`[Trade-off Matrix] Found ${selectedDocs.length} selected documents out of ${linkedDocs.length} linked.`);
         
-        if (linkedThings.length === 0) {
-            console.warn("[Trade-off Matrix] Extraction aborted: No documents linked.");
-            alert("Please link at least one document to extract options from.");
+        if (selectedDocs.length === 0) {
+            console.warn("[Trade-off Matrix] Extraction aborted: No documents selected.");
+            alert("Please select at least one document to extract options from.");
             return;
         }
 
@@ -75,6 +98,7 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
 
         try {
             const prompt = `You are an expert Enterprise Architect analyzing a document. Your task is to identify and extract the different architectural scenarios, strategic decisions, or alternative options described in the text. 
+METHODOLOGY: ${methodology}
 CRITICAL RULES:
 1. An "option" MUST be a distinct choice that can be selected INSTEAD of another option in a Trade-off Matrix (e.g., Option A vs. Option B).
 2. DO NOT extract general principles, goals, best practices, normative frameworks, value chains, or scoring scales (e.g., "Digital-First", "Once-Only Principle", "0-3 points").
@@ -85,9 +109,8 @@ Return a JSON array where each object has a 'name' (string), 'description' (stri
             
             // Query each document individually. This correctly routes through the backend's LlamaIndex RAG pipeline
             // for documents/slideshows that are too large to fit in the context window.
-            const extractionPromises = linkedThings.map(async (link) => {
-                const linkedThingId = link.source_id === thing.id ? link.target_id : link.source_id;
-                const linkedThing = things.find(t => t.id === linkedThingId);
+            const extractionPromises = selectedDocs.map(async (linkedThing) => {
+                const linkedThingId = linkedThing.id;
                 const contentText = linkedThing?.content?.text || linkedThing?.title || "";
                 const docName = linkedThing?.title || linkedThingId;
                 
@@ -183,6 +206,111 @@ Return a JSON array where each object has a 'name' (string), 'description' (stri
 
 
 
+    const exportToWord = async () => {
+        try {
+            if (!thing.content?.data || !Array.isArray(thing.content.data)) {
+                alert("No data to export");
+                return;
+            }
+            
+            const matrixData: any[][] = thing.content.data;
+            const rows = matrixData.map((row) => {
+                const isDomainRow = String(row[0]).startsWith("Domain:");
+                const isEmptyRow = row.every(c => !c);
+                const isHeaderRow = String(row[0]) === "Alternative";
+
+                if (isEmptyRow) {
+                    return new TableRow({
+                        children: [
+                            new TableCell({
+                                children: [new Paragraph({ text: "" })],
+                                columnSpan: row.length || 1,
+                                borders: {
+                                    top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                                    bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                                    left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                                    right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+                                }
+                            })
+                        ]
+                    });
+                }
+
+                if (isDomainRow) {
+                    return new TableRow({
+                        children: [
+                            new TableCell({
+                                children: [new Paragraph({ children: [new TextRun({ text: String(row[0]), bold: true, size: 24 })] })],
+                                columnSpan: row.length || 1,
+                                shading: { fill: "F0F0F0" },
+                                borders: {
+                                    top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                                    bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                                    left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                                    right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                                }
+                            })
+                        ]
+                    });
+                }
+
+                return new TableRow({
+                    children: row.map((cellText) => {
+                        return new TableCell({
+                            children: [new Paragraph({ children: [new TextRun({ text: String(cellText), bold: isHeaderRow })] })],
+                            width: { size: 100 / (row.length || 1), type: WidthType.PERCENTAGE },
+                            shading: isHeaderRow ? { fill: "E0E0E0" } : undefined,
+                            borders: {
+                                top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                                bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                                left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                                right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
+                            },
+                        });
+                    }),
+                });
+            });
+
+            const table = new DocxTable({
+                rows: rows,
+                width: { size: 100, type: WidthType.PERCENTAGE },
+            });
+
+            const doc = new Document({
+                sections: [
+                    {
+                        properties: {},
+                        children: [
+                            new Paragraph({
+                                text: thing.title || "Trade-off Matrix",
+                                heading: HeadingLevel.HEADING_1,
+                            }),
+                            new Paragraph({
+                                text: "Extracted architectural scenarios and alternatives.",
+                                spacing: { after: 200 }
+                            }),
+                            table,
+                        ],
+                    },
+                ],
+            });
+
+            const { Packer } = await import("docx");
+            const blob = await Packer.toBlob(doc);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${thing.title || "trade-off-matrix"}.docx`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error("Export failed", error);
+            alert("Failed to export to Word");
+        }
+    };
+
     if (step === "EDITING") {
         return (
             <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden relative group/spreadsheet w-full" style={{ height: '100%', width: '100%' }}>
@@ -190,9 +318,14 @@ Return a JSON array where each object has a 'name' (string), 'description' (stri
                     <span className="text-xs font-semibold flex items-center gap-2">
                         <Table className="h-4 w-4" /> Trade-off Matrix
                     </span>
-                    <Button variant="ghost" size="sm" onClick={() => updateMatrixState({ step: "WAITING" })} className="h-6 px-2 text-xs">
-                        <RefreshCw className="h-3 w-3 mr-1" /> Re-extract
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={exportToWord} className="h-6 px-2 text-xs">
+                            <Download className="h-3 w-3 mr-1" /> Export to Word
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => updateMatrixState({ step: "WAITING" })} className="h-6 px-2 text-xs">
+                            <RefreshCw className="h-3 w-3 mr-1" /> Re-extract
+                        </Button>
+                    </div>
                 </div>
                 {/* We re-use SpreadsheetToolViewer for the powerful grid capabilities */}
                 <div className="flex-1 relative min-h-0 min-w-0" style={{ height: '100%', width: '100%' }}>
@@ -213,14 +346,56 @@ Return a JSON array where each object has a 'name' (string), 'description' (stri
 
             {step === "WAITING" && (
                 <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4">
-                    <div className="text-center">
-                        <p className="text-sm mb-2">1. Link documents containing alternatives</p>
-                        <p className="text-xs text-muted-foreground">The AI will read them to extract your options.</p>
+                    <div className="text-center max-w-md">
+                        <p className="text-sm mb-2 text-foreground font-medium">About this tool</p>
+                        <p className="text-xs text-muted-foreground mb-4">
+                            The format comparing alternatives by Pros, Cons, and Recommended Fit aligns with standard practices like the Architecture Tradeoff Analysis Method (ATAM) by SEI or Architecture Decision Records (ADRs).
+                        </p>
+                        <p className="text-sm mb-2 font-medium text-foreground">1. Select extraction methodology</p>
+                        <div className="mb-4 w-full nodrag nopan" onPointerDown={(e) => e.stopPropagation()}>
+                            <select 
+                                value={methodology} 
+                                onChange={(e) => setMethodology(e.target.value)}
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                <option value="LLM Generated">LLM Generated (Dynamic)</option>
+                                <option value="TOGAF">TOGAF</option>
+                                <option value="Zachman Framework">Zachman Framework</option>
+                                <option value="DODAF">DODAF</option>
+                            </select>
+                        </div>
+                        <p className="text-sm mb-2 font-medium text-foreground">2. Select context documents</p>
+                        <p className="text-xs text-muted-foreground mb-4">The AI will read them to extract your options.</p>
+                        
+                        <div className="flex flex-col gap-2 w-full text-left mb-4 max-h-32 overflow-y-auto px-2 py-1 nodrag nopan" onPointerDown={(e) => e.stopPropagation()}>
+                            {linkedDocs.length === 0 ? (
+                                <div className="text-xs italic text-muted-foreground text-center flex flex-col items-center gap-2">
+                                    <FileText className="h-4 w-4" />
+                                    No linked documents found. Please link a document.
+                                </div>
+                            ) : (
+                                linkedDocs.map(doc => (
+                                    <div key={doc.id} className="flex items-center space-x-2 bg-muted/30 p-2 rounded-md">
+                                        <Checkbox 
+                                            id={`doc-${doc.id}`} 
+                                            checked={selectedDocIds.includes(doc.id)} 
+                                            onCheckedChange={(checked) => {
+                                                if (checked) {
+                                                    setSelectedDocIds([...selectedDocIds, doc.id]);
+                                                } else {
+                                                    setSelectedDocIds(selectedDocIds.filter(id => id !== doc.id));
+                                                }
+                                            }}
+                                        />
+                                        <label htmlFor={`doc-${doc.id}`} className="text-sm font-medium leading-none cursor-pointer flex-1 truncate">
+                                            {doc.title || "Untitled Document"}
+                                        </label>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs font-medium">
-                        <FileText className="h-4 w-4" /> {linkedThings.length} Links Found
-                    </div>
-                    <Button onClick={handleExtract} disabled={linkedThings.length === 0}>
+                    <Button onClick={handleExtract} disabled={selectedDocIds.length === 0}>
                         <Play className="h-4 w-4 mr-2" /> Extract Options
                     </Button>
                 </div>

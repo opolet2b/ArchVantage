@@ -5,10 +5,65 @@ from typing import List, Optional, Dict, Any
 import os
 import json
 
+import asyncio
+from llama_index.core.node_parser import SentenceSplitter
+from langchain_core.messages import SystemMessage
+from app.services.llm_service import LLMService
+
 from app.agents.architectural_scenario_agent import build_architectural_scenario_graph, build_baseline_extractor_graph, ArchitecturalScenarioResult, ArchitecturalBaseline
 from app.core.database import SessionLocal
 from app.models.canvas_models import CanvasThing
 from app.utils.docx_exporter import generate_scenario_docx
+
+async def condense_architectural_context(raw_text: str, queue: asyncio.Queue = None) -> str:
+    # If text is small enough, no need to condense
+    if len(raw_text) < 80000:
+        if queue:
+            await queue.put({'type': 'progress', 'node': 'condense', 'message': 'Document is small, skipping Map-Reduce...', 'percent': 40})
+        return raw_text
+        
+    service = LLMService()
+    llm, _ = service._get_model("default")
+    
+    text_splitter = SentenceSplitter(
+        chunk_size=12000,
+        chunk_overlap=1000
+    )
+    chunks = text_splitter.split_text(raw_text)
+    
+    map_prompt = """You are an Enterprise Architect. Extract all architectural components, systems, actors, dependencies, and rules from the following document text. Be concise, list the entities and relations according to TOGAF layers (Business, Information, Application, Technology). Ignore irrelevant narrative.
+    
+Document Text:
+{text}
+"""
+    
+    async def process_chunk(chunk):
+        try:
+            res = await llm.ainvoke([SystemMessage(content=map_prompt.replace("{text}", chunk))])
+            return res.content
+        except Exception as e:
+            return f"Error extracting: {e}"
+
+    batch_size = 5
+    map_results = []
+    total = len(chunks)
+    for i in range(0, total, batch_size):
+        batch = chunks[i:i+batch_size]
+        
+        for task in asyncio.as_completed([process_chunk(c) for c in batch]):
+            result = await task
+            map_results.append(result)
+            if queue:
+                total_completed = len(map_results)
+                pct = 5 + int((total_completed / total) * 55)
+                await queue.put({
+                    'type': 'progress', 
+                    'node': 'condense', 
+                    'message': f'Extracted {total_completed} / {total} architecture chunks...', 
+                    'percent': pct
+                })
+        
+    return "\n\n--- Architectural Extraction ---\n\n".join(map_results)
 
 router = APIRouter(
     prefix="/architectural_scenario",
@@ -36,7 +91,8 @@ async def ingest_scenario(request: IngestRequest):
         if not documents_content:
             return {"status": "error", "message": "No valid documents found."}
 
-        document_context = "\n\n---\n\n".join(documents_content)
+        raw_document_context = "\n\n---\n\n".join(documents_content)
+        document_context = await condense_architectural_context(raw_document_context)
 
         graph = build_baseline_extractor_graph()
         
@@ -56,6 +112,69 @@ async def ingest_scenario(request: IngestRequest):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+@router.post("/ingest-stream")
+async def ingest_scenario_stream(request: IngestRequest):
+    db = SessionLocal()
+    
+    documents_content = []
+    for doc_id in request.document_ids:
+        thing = db.query(CanvasThing).filter(CanvasThing.id == doc_id).first()
+        if thing:
+            content_dict = thing.content or {}
+            if isinstance(content_dict, str):
+                text = content_dict
+            else:
+                text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
+            documents_content.append(text)
+            
+    db.close()
+
+    if not documents_content:
+        async def err(): yield f"data: {json.dumps({'type': 'error', 'message': 'No valid documents found'})}\n\n"
+        return StreamingResponse(err(), media_type="text/event-stream")
+
+    async def event_generator():
+        q = asyncio.Queue()
+        
+        async def run_pipeline():
+            try:
+                await q.put({'type': 'progress', 'node': 'init', 'message': 'Reading documents...', 'percent': 5})
+                raw_document_context = "\n\n---\n\n".join(documents_content)
+                document_context = await condense_architectural_context(raw_document_context, queue=q)
+                
+                await q.put({'type': 'progress', 'node': 'baseline', 'message': 'Synthesizing unified baseline architecture...', 'percent': 60})
+                
+                graph = build_baseline_extractor_graph()
+                result = await graph.ainvoke({
+                    "document_context": document_context,
+                    "baseline": None
+                })
+                
+                baseline: ArchitecturalBaseline = result.get("baseline")
+                if not baseline:
+                    raise Exception("LLM failed to extract baseline architecture")
+                    
+                await q.put({'type': 'complete', 'result': baseline.model_dump()})
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                await q.put({'type': 'error', 'message': str(e)})
+                
+        asyncio.create_task(run_pipeline())
+        
+        while True:
+            event = await q.get()
+            if event['type'] == 'complete':
+                yield f"data: {json.dumps({'type': 'complete', 'result': event['result']})}\n\n"
+                break
+            elif event['type'] == 'error':
+                yield f"data: {json.dumps({'type': 'error', 'message': event['message']})}\n\n"
+                break
+            else:
+                yield f"data: {json.dumps(event)}\n\n"
+                
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 class ScenarioRequest(BaseModel):
     canvas_id: str
@@ -83,7 +202,8 @@ async def simulate_scenario(request: ScenarioRequest):
                     text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
                 documents_content.append(text)
 
-        document_context = "\n\n---\n\n".join(documents_content) if documents_content else "No explicit document context provided."
+        raw_document_context = "\n\n---\n\n".join(documents_content) if documents_content else "No explicit document context provided."
+        document_context = await condense_architectural_context(raw_document_context) if documents_content else raw_document_context
 
         graph = build_architectural_scenario_graph()
         
@@ -125,7 +245,8 @@ async def simulate_scenario_stream(request: ScenarioRequest):
                 text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
             documents_content.append(text)
 
-    document_context = "\n\n---\n\n".join(documents_content) if documents_content else "No explicit document context provided."
+    raw_document_context = "\n\n---\n\n".join(documents_content) if documents_content else "No explicit document context provided."
+    document_context = await condense_architectural_context(raw_document_context) if documents_content else raw_document_context
     db.close()
 
     async def event_generator():

@@ -49,26 +49,39 @@ async def extract_trade_off_matrix_options(
     
     # 1. Run RAG Search asynchronously in a background thread to prevent blocking the FastAPI event loop
     print(f"[TradeOffMatrix Plugin] Extracting structured domains and alternatives via RAG...")
-    broad_prompt = """Analyze the document for architectural decisions or trade-offs. Return a strictly valid JSON array of Decision Domains. 
+    
+    import re
+    methodology = "LLM Generated"
+    if request.custom_prompt:
+        match = re.search(r"METHODOLOGY:\s*(.*)", request.custom_prompt)
+        if match:
+            methodology = match.group(1).strip()
+            
+    methodology_instruction = "Generate the domains dynamically based on the document content."
+    if methodology != "LLM Generated":
+        methodology_instruction = f"Group the decisions into domains according to the {methodology} methodology."
+
+    broad_prompt = f"""Analyze the document for architectural decisions or trade-offs. Return a strictly valid JSON array of Decision Domains. 
+{methodology_instruction}
 For each domain, list the competing mutually exclusive alternatives. 
 For each alternative, extract its Pros, Cons, and the Recommended Fit (or any other appropriate criteria columns discussed).
 Format exactly like this JSON structure (Do not use Markdown outside of the JSON):
 [
-  {
+  {{
     "domain": "Storage Infrastructure",
     "criteria_columns": ["Pros", "Cons", "Recommended Fit"],
     "alternatives": [
-      {
+      {{
         "name": "Direct Attached Storage (DASD)",
         "description": "Simple initial deployment...",
-        "evaluations": {
+        "evaluations": {{
           "Pros": "Simple initial deployment for isolated servers. No dedicated storage network required.",
           "Cons": "Low storage utilization efficiency. Complex backup operations.",
           "Recommended Fit": "Legacy / Edge Use Only"
-        }
-      }
+        }}
+      }}
     ]
-  }
+  }}
 ]
 """
     

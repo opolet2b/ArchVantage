@@ -42,6 +42,15 @@ async def generate_architecture_memo(
         linked_ids.add(l.target_id)
     linked_ids.discard(thing.id)
     
+    selected_ids_str = request.fragment.content if request.fragment and request.fragment.content else ""
+    try:
+        if selected_ids_str:
+            selected_ids = json.loads(selected_ids_str)
+            if isinstance(selected_ids, list):
+                linked_ids = linked_ids.intersection(set(selected_ids))
+    except json.JSONDecodeError:
+        pass
+    
     documents_content = []
     if linked_ids:
         linked_things = db.query(CanvasThing).filter(CanvasThing.id.in_(linked_ids)).all()
@@ -62,25 +71,53 @@ async def generate_architecture_memo(
             created_thing_id=None
         )
 
-    # 2. Define LangGraph nodes
     async def extract_aspects(state: MemoState) -> MemoState:
-        docs = "\n\n".join(state["documents"])
-        prompt = f"Analyze the following architectural documents and extract the core aspects, trade-offs, and key decisions. Focus on strategic and technical implications.\n\n{docs}"
-        result = await llm_service.generate_title(prompt, type="custom") # using generate_title as a generic completion if complete is not available, or we can use chat
-        # Actually, let's use a standard chat completion.
-        from app.models.chat import Message
-        messages = [Message(role="user", content=prompt)]
         active_model = _resolve_active_model(db, thing.canvas_id, None)
-        extracted = await llm_service.chat(messages=messages, model_name=active_model)
-        return {"extracted_aspects": extracted}
+        
+        full_text = "\n\n".join(state["documents"])
+        
+        # Map-Reduce chunking for full, in-depth coverage
+        chunk_size = 15000
+        chunks = [full_text[i:i + chunk_size] for i in range(0, len(full_text), chunk_size)]
+        
+        from app.models.chat import Message
+        
+        async def process_chunk(chunk: str) -> str:
+            prompt = f"Analyze the following architectural document excerpt and extract the core aspects, trade-offs, and key decisions. Focus on strategic and technical implications. Be highly specific and concise.\n\nExcerpt:\n{chunk}"
+            messages = [Message(role="user", content=prompt)]
+            try:
+                res = await llm_service.chat(messages=messages, model_name=active_model)
+                if res.startswith("Error:"):
+                    return ""
+                return res
+            except Exception as e:
+                print(f"Failed to process chunk: {e}")
+                return ""
+        
+        # Process in batches of 5 to respect concurrency limits
+        batch_size = 5
+        all_aspects = []
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            results = await asyncio.gather(*(process_chunk(c) for c in batch))
+            all_aspects.extend([r for r in results if r.strip()])
+            
+        if not all_aspects:
+            raise Exception("Failed to extract aspects from the documents.")
+            
+        # Combine all extracted aspects
+        final_extracted = "\n\n--- Analysis from Excerpt ---\n\n".join(all_aspects)
+        return {"extracted_aspects": final_extracted}
 
     async def write_memo(state: MemoState) -> MemoState:
         aspects = state["extracted_aspects"]
-        prompt = f"You are an Enterprise Architect. Based on the following extracted aspects, write a 1-page C-Level architecture memo. It should include an executive summary, analysis of current state, core recommendations, and links to sources (referencing the documents). Make it highly professional and compelling.\n\nExtracted Aspects:\n{aspects}"
+        prompt = f"You are an Enterprise Architect. Based on the following extracted aspects, write a 1-page C-Level architecture memo. It should include an executive summary, analysis of current state, core recommendations, and links to sources (referencing the documents). Make it highly professional and compelling.\n\nCRITICAL INSTRUCTION: Do NOT include a 'To / From / Date / Subject' header at the beginning of the memo. Start directly with the Executive Summary.\n\nExtracted Aspects:\n{aspects}"
         from app.models.chat import Message
         messages = [Message(role="user", content=prompt)]
         active_model = _resolve_active_model(db, thing.canvas_id, None)
         memo = await llm_service.chat(messages=messages, model_name=active_model)
+        if memo.startswith("Error:"):
+            raise Exception(f"Failed to write memo: {memo}")
         return {"memo": memo}
 
     # 3. Build Graph

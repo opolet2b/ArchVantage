@@ -1,12 +1,13 @@
 import React, { useRef, useMemo, useEffect } from 'react';
-import { UploadCloud, Link as LinkIcon } from 'lucide-react';
+import { UploadCloud, Link as LinkIcon, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useCanvasStore, CanvasThing } from '../canvas-store';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { parseArchimateXml, ParsedArchimate, ArchimateNodeData } from '../services/archimate-parser';
 import { cn } from '@/lib/utils';
-import ReactFlow, { Background, Controls, MiniMap, Node as RFNode, Edge as RFEdge, ReactFlowProvider, MarkerType, Handle, Position, useUpdateNodeInternals, Panel } from 'reactflow';
+import ReactFlow, { Background, Controls, MiniMap, Node as RFNode, Edge as RFEdge, ReactFlowProvider, MarkerType, Handle, Position, useUpdateNodeInternals, Panel, useReactFlow } from 'reactflow';
 import 'reactflow/dist/style.css';
 
 import {
@@ -32,6 +33,23 @@ interface ArchiMateToolViewerProps {
     links?: any[];
     onSelect?: (fragment: any, position: { x: number; y: number }) => void;
 }
+
+const HighlightedText = ({ text, highlight }: { text?: string; highlight?: string }) => {
+    if (!text) return null;
+    if (!highlight || !highlight.trim()) return <>{text}</>;
+    const parts = text.split(new RegExp(`(${highlight})`, 'gi'));
+    return (
+        <>
+            {parts.map((part, i) =>
+                part.toLowerCase() === highlight.toLowerCase() ? (
+                    <mark key={i} className="bg-yellow-200 text-slate-900 rounded-sm px-0.5">{part}</mark>
+                ) : (
+                    <span key={i}>{part}</span>
+                )
+            )}
+        </>
+    );
+};
 
 // Helper to assign Archimate standard colors and icons based on element type
 function getArchimateStyle(type: string): { bg: string, border: string, icon: React.ReactNode } {
@@ -86,20 +104,24 @@ function getArchimateStyle(type: string): { bg: string, border: string, icon: Re
 }
 
 // Custom Node for rendering ArchiMate elements in the nested ReactFlow
-const ArchimateFlowElement = ({ data }: { data: { node: ArchimateNodeData, isContainer: boolean, isLinked: boolean } }) => {
+const ArchimateFlowElement = ({ data }: { data: { node: ArchimateNodeData, isContainer: boolean, isLinked: boolean, isSearchHighlighted?: boolean, isCurrentSearchResult?: boolean, searchQuery?: string } }) => {
     const n = data.node;
     const style = getArchimateStyle(n.type);
     const isGroup = n.type === 'Group';
     const isContainer = data.isContainer;
     const isLinked = data.isLinked;
+    const isCurrentSearchResult = data.isCurrentSearchResult;
+    const isSearchHighlighted = data.isSearchHighlighted;
 
     return (
         <div 
             className={cn(
-                "flex p-2 text-xs rounded-sm shadow-sm hover:shadow-md transition-shadow w-full h-full cursor-default relative pointer-events-auto",
+                "flex p-2 text-xs rounded-sm shadow-sm transition-all w-full h-full cursor-default relative pointer-events-auto",
                 isGroup ? "items-start justify-start border-dashed bg-opacity-30 border-2" : 
                 isContainer ? "items-start justify-start border-solid border pl-2 pt-1" :
-                "items-center justify-center border-solid border text-center"
+                "items-center justify-center border-solid border text-center",
+                isCurrentSearchResult ? "ring-2 ring-blue-500 ring-offset-2 z-50 shadow-md" : "hover:shadow-md",
+                isSearchHighlighted && !isCurrentSearchResult ? "ring-1 ring-blue-300 ring-offset-1" : ""
             )}
             style={{
                 backgroundColor: isGroup ? 'transparent' : style.bg,
@@ -116,7 +138,7 @@ const ArchimateFlowElement = ({ data }: { data: { node: ArchimateNodeData, isCon
             <Handle type="source" position={Position.Bottom} className="opacity-0 w-full h-full absolute inset-0 !transform-none !border-0 !bg-transparent" />
 
             <div className={cn("w-full break-words relative z-10", isGroup ? "font-semibold text-slate-500 ml-5" : isContainer ? "font-medium" : "line-clamp-3 px-3")}>
-                {n.name}
+                <HighlightedText text={n.name} highlight={data.searchQuery} />
             </div>
             <div className="absolute top-1 right-1 pointer-events-none z-10 flex gap-1">
                 {isLinked && (
@@ -134,6 +156,106 @@ const nodeTypes = {
     archimate: ArchimateFlowElement
 };
 
+function SearchPanel({
+    searchQuery, setSearchQuery, searchResults, currentSearchIndex, setCurrentSearchIndex, setSelectedNodeId, activeDiagramId, setActiveDiagramId
+}: {
+    searchQuery: string, setSearchQuery: (q: string) => void, searchResults: {diagramId: string, nodeId: string}[], currentSearchIndex: number, setCurrentSearchIndex: (i: number) => void, setSelectedNodeId: (id: string | null) => void, activeDiagramId: string | null, setActiveDiagramId: (id: string | null) => void
+}) {
+    const reactFlow = useReactFlow();
+    const [pendingFocusNodeId, setPendingFocusNodeId] = React.useState<string | null>(null);
+
+    const handleNext = () => {
+        if (searchResults.length === 0) return;
+        const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+        setCurrentSearchIndex(nextIndex);
+        focusResult(searchResults[nextIndex]);
+    };
+
+    const handlePrev = () => {
+        if (searchResults.length === 0) return;
+        const prevIndex = (currentSearchIndex - 1 + searchResults.length) % searchResults.length;
+        setCurrentSearchIndex(prevIndex);
+        focusResult(searchResults[prevIndex]);
+    };
+
+    const focusResult = (result: {diagramId: string, nodeId: string}) => {
+        if (result.diagramId !== activeDiagramId) {
+            setActiveDiagramId(result.diagramId);
+            setPendingFocusNodeId(result.nodeId);
+        } else {
+            focusNode(result.nodeId);
+        }
+    };
+
+    const focusNode = (nodeId: string) => {
+        setSelectedNodeId(nodeId);
+        const node = reactFlow.getNode(nodeId);
+        if (node) {
+            reactFlow.setCenter(node.position.x + (node.style?.width as number || 120) / 2, node.position.y + (node.style?.height as number || 55) / 2, { zoom: 1.5, duration: 800 });
+            setPendingFocusNodeId(null);
+        }
+    };
+
+    React.useEffect(() => {
+        if (pendingFocusNodeId) {
+            setTimeout(() => {
+                focusNode(pendingFocusNodeId);
+            }, 100);
+        }
+    }, [reactFlow.getNodes(), pendingFocusNodeId]);
+
+    // Auto-focus when searching first time
+    React.useEffect(() => {
+        if (searchResults.length > 0 && searchQuery && currentSearchIndex === 0 && !pendingFocusNodeId) {
+            focusResult(searchResults[0]);
+        }
+    }, [searchResults, searchQuery]);
+
+    return (
+        <Panel position="top-center" className="m-2 bg-white/95 dark:bg-slate-900/95 p-1.5 rounded-md shadow-md border border-slate-200 dark:border-slate-800 flex items-center gap-1 backdrop-blur-sm z-50">
+            <Search className="w-4 h-4 text-slate-500 ml-1" />
+            <Input 
+                value={searchQuery}
+                onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                        if (e.shiftKey) {
+                            handlePrev();
+                        } else {
+                            handleNext();
+                        }
+                    }
+                }}
+                placeholder="Search nodes..." 
+                className="h-7 text-xs border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-48 bg-transparent"
+            />
+            {searchResults.length > 0 && (
+                <span className="text-xs text-slate-500 whitespace-nowrap mr-1">
+                    {currentSearchIndex + 1} / {searchResults.length}
+                </span>
+            )}
+            {searchQuery && (
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                    setSearchQuery('');
+                    setSelectedNodeId(null);
+                }}>
+                    <X className="w-3 h-3" />
+                </Button>
+            )}
+            <div className="flex flex-col ml-1">
+                <Button variant="ghost" size="icon" className="h-4 w-5 rounded-none rounded-t-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800" onClick={handlePrev} disabled={searchResults.length === 0}>
+                    <ChevronUp className="w-3 h-3" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-4 w-5 rounded-none rounded-b-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800" onClick={handleNext} disabled={searchResults.length === 0}>
+                    <ChevronDown className="w-3 h-3" />
+                </Button>
+            </div>
+        </Panel>
+    );
+}
+
 export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolViewerProps) {
     const updateThing = useCanvasStore(state => state.updateThing);
     const accessLevel = useCanvasStore(state => state.accessLevel);
@@ -143,6 +265,10 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
 
     const [activeDiagramId, setActiveDiagramId] = React.useState<string | null>(null);
     const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
+
+    const [searchQuery, setSearchQuery] = React.useState('');
+    const [searchResults, setSearchResults] = React.useState<{diagramId: string, nodeId: string}[]>([]);
+    const [currentSearchIndex, setCurrentSearchIndex] = React.useState(0);
 
     const [impactModeEnabled, setImpactModeEnabled] = React.useState(false);
     const [impactAnalysis, setImpactAnalysis] = React.useState<{
@@ -171,10 +297,10 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
         return frags;
     }, [links, thing.id]);
 
-    // Update outer node internals when links or viewport change so React Flow finds the dynamic handles
+    // Update outer node internals when links change so React Flow finds any new dynamic handles
     React.useEffect(() => {
         updateNodeInternals(thing.id);
-    }, [links, innerViewport, thing.id, updateNodeInternals]);
+    }, [links, thing.id, updateNodeInternals]);
 
     // Default to the first diagram when data loads
     React.useEffect(() => {
@@ -184,6 +310,34 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
             }
         }
     }, [parsedData, activeDiagramId]);
+
+    const activeDiagram = useMemo(() => {
+        return parsedData?.diagrams?.find(d => d.id === activeDiagramId) || parsedData?.diagrams?.[0];
+    }, [parsedData, activeDiagramId]);
+
+    // Search effect
+    React.useEffect(() => {
+        if (!searchQuery.trim() || !parsedData?.diagrams) {
+            setSearchResults([]);
+            setCurrentSearchIndex(0);
+            return;
+        }
+        const q = searchQuery.toLowerCase();
+        const results: {diagramId: string, nodeId: string}[] = [];
+        
+        parsedData.diagrams.forEach(d => {
+            d.nodes.forEach(n => {
+                if (n.name?.toLowerCase().includes(q) || 
+                    n.documentation?.toLowerCase().includes(q) ||
+                    n.properties?.some(p => p.key?.toLowerCase().includes(q) || p.value?.toLowerCase().includes(q))) {
+                    results.push({ diagramId: d.id, nodeId: n.id });
+                }
+            });
+        });
+        
+        setSearchResults(results);
+        setCurrentSearchIndex(0);
+    }, [searchQuery, parsedData]);
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -201,6 +355,7 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                 });
                 setActiveDiagramId(null);
                 setSelectedNodeId(null);
+                setSearchQuery('');
             } catch (err) {
                 console.error("Failed to parse Archimate XML:", err);
                 alert("Failed to parse the file. Please ensure it is a valid Archi export.");
@@ -208,10 +363,6 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
         };
         reader.readAsText(file);
     };
-
-    const activeDiagram = useMemo(() => {
-        return parsedData?.diagrams?.find(d => d.id === activeDiagramId) || parsedData?.diagrams?.[0];
-    }, [parsedData, activeDiagramId]);
 
     const calculateImpact = React.useCallback((startNodeId: string) => {
         if (!activeDiagram) return;
@@ -263,7 +414,17 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                 child.bounds.y + child.bounds.height <= n.bounds.y + n.bounds.height
             );
 
-            const isHighlighted = impactAnalysis.active ? impactAnalysis.nodeIds.has(n.id) : true;
+            const isImpactHighlighted = impactAnalysis.active ? impactAnalysis.nodeIds.has(n.id) : true;
+            const isSearchHighlighted = searchQuery.trim() !== '' ? searchResults.some(r => r.nodeId === n.id && r.diagramId === activeDiagramId) : false;
+            
+            let opacity = 1;
+            if (impactAnalysis.active && searchQuery.trim() !== '') {
+                opacity = (isImpactHighlighted && isSearchHighlighted) ? 1 : 0.2;
+            } else if (impactAnalysis.active) {
+                opacity = isImpactHighlighted ? 1 : 0.2;
+            } else if (searchQuery.trim() !== '') {
+                opacity = isSearchHighlighted ? 1 : 0.2;
+            }
 
             return {
                 id: n.id,
@@ -272,13 +433,16 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                 style: { 
                     width: n.bounds?.width || 120, 
                     height: n.bounds?.height || 55,
-                    opacity: impactAnalysis.active ? (isHighlighted ? 1 : 0.2) : 1,
+                    opacity: opacity,
                     transition: 'opacity 0.3s ease'
                 },
                 data: { 
                     node: n, 
                     isContainer: hasChildren || n.type === 'Group',
-                    isLinked: linkedFragments.some(f => f.nodeId === n.id)
+                    isLinked: linkedFragments.some(f => f.nodeId === n.id),
+                    isSearchHighlighted,
+                    isCurrentSearchResult: searchResults[currentSearchIndex]?.nodeId === n.id && searchResults[currentSearchIndex]?.diagramId === activeDiagramId,
+                    searchQuery
                 },
                 draggable: false, // Prevent dragging inside the canvas to keep standard layout
                 selectable: true
@@ -286,7 +450,20 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
         });
 
         const flowEdges: RFEdge[] = activeDiagram.edges.map(e => {
-            const isHighlighted = impactAnalysis.active ? impactAnalysis.edgeIds.has(e.id) : true;
+            const isImpactHighlighted = impactAnalysis.active ? impactAnalysis.edgeIds.has(e.id) : true;
+            
+            // For edges, we primarily care about impact highlighting, search doesn't highlight edges
+            // but if search is active and impact is active, we just follow impact.
+            // If only search is active, we just dim edges to make nodes pop, or leave them as is. Let's leave them or dim them.
+            const isHighlighted = isImpactHighlighted;
+            
+            let opacity = 1;
+            if (impactAnalysis.active) {
+                opacity = isHighlighted ? 1 : 0.3;
+            } else if (searchQuery.trim() !== '') {
+                opacity = 0.4;
+            }
+
             return {
                 id: e.id,
                 source: e.source,
@@ -303,13 +480,13 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                     stroke: impactAnalysis.active ? (isHighlighted ? '#3b82f6' : '#cbd5e1') : '#64748b', 
                     strokeWidth: impactAnalysis.active && isHighlighted ? 2.5 : 1.5,
                     transition: 'stroke 0.3s, stroke-width 0.3s, opacity 0.3s',
-                    opacity: impactAnalysis.active && !isHighlighted ? 0.3 : 1
+                    opacity: opacity
                 }
             };
         });
 
         return { nodes: flowNodes, edges: flowEdges };
-    }, [activeDiagram, linkedFragments, impactAnalysis]);
+    }, [activeDiagram, linkedFragments, impactAnalysis, searchQuery, searchResults, currentSearchIndex]);
 
     const selectedNodeData = useMemo(() => {
         if (!selectedNodeId || !activeDiagram) return null;
@@ -399,7 +576,14 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                                 setImpactAnalysis({ active: false, nodeIds: new Set(), edgeIds: new Set() });
                                             }
                                         }}
-                                        onMove={(event, viewport) => setInnerViewport(viewport)}
+                                        onMove={(event, viewport) => {
+                                            setInnerViewport(prev => {
+                                                if (prev.x === viewport.x && prev.y === viewport.y && prev.zoom === viewport.zoom) {
+                                                    return prev;
+                                                }
+                                                return viewport;
+                                            });
+                                        }}
                                     >
                                         <Background color="#ccc" gap={16} />
                                         <Controls position="bottom-right" />
@@ -434,6 +618,16 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                                 className="scale-75"
                                             />
                                         </Panel>
+                                        <SearchPanel 
+                                            searchQuery={searchQuery}
+                                            setSearchQuery={setSearchQuery}
+                                            searchResults={searchResults}
+                                            currentSearchIndex={currentSearchIndex}
+                                            setCurrentSearchIndex={setCurrentSearchIndex}
+                                            setSelectedNodeId={setSelectedNodeId}
+                                            activeDiagramId={activeDiagramId}
+                                            setActiveDiagramId={setActiveDiagramId}
+                                        />
                                     </ReactFlow>
                                 </ReactFlowProvider>
                             </div>
@@ -467,7 +661,7 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 flex justify-between items-start gap-2">
                                     <div className="flex-1">
                                         <h3 className="font-bold text-slate-900 dark:text-slate-100 text-lg leading-tight mb-1">
-                                            {selectedNodeData.name || 'Unnamed Element'}
+                                            <HighlightedText text={selectedNodeData.name || 'Unnamed Element'} highlight={searchQuery} />
                                         </h3>
                                         <div className="flex items-center gap-2 text-xs font-medium text-slate-500 uppercase tracking-wider">
                                             {getArchimateStyle(selectedNodeData.type).icon}
@@ -499,7 +693,7 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                         <div className="mb-6">
                                             <h4 className="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wide">Documentation</h4>
                                             <div className="whitespace-pre-wrap bg-slate-50 dark:bg-slate-800/50 p-3 rounded text-slate-700 dark:text-slate-300">
-                                                {selectedNodeData.documentation}
+                                                <HighlightedText text={selectedNodeData.documentation} highlight={searchQuery} />
                                             </div>
                                         </div>
                                     ) : (
@@ -512,8 +706,12 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                             <div className="flex flex-col gap-2">
                                                 {selectedNodeData.properties.map((p, i) => (
                                                     <div key={i} className="flex flex-col bg-slate-50 dark:bg-slate-800/50 p-2 rounded">
-                                                        <span className="text-xs font-medium text-slate-500">{p.key}</span>
-                                                        <span className="font-medium text-slate-900 dark:text-slate-100">{p.value}</span>
+                                                        <span className="text-xs font-medium text-slate-500">
+                                                            <HighlightedText text={p.key} highlight={searchQuery} />
+                                                        </span>
+                                                        <span className="font-medium text-slate-900 dark:text-slate-100">
+                                                            <HighlightedText text={p.value} highlight={searchQuery} />
+                                                        </span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -524,8 +722,23 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                         )}
                     </>
                 ) : (
-                    <div className="absolute inset-0 flex items-center justify-center text-slate-400">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-slate-400">
                         <p className="text-sm">No diagrams found in this file.</p>
+                        <input
+                            type="file"
+                            accept=".xml,.archimate"
+                            className="hidden"
+                            ref={fileInputRef}
+                            onChange={handleFileUpload}
+                        />
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isReadOnly}
+                        >
+                            Select Another File
+                        </Button>
                     </div>
                 )}
             </div>

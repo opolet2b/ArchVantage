@@ -32,6 +32,32 @@ export function TimeMatrixViewer({ thing }: TimeMatrixViewerProps) {
     const [extractProgress, setExtractProgress] = React.useState(0);
     const [selectedApp, setSelectedApp] = React.useState<TimeApp | null>(null);
 
+    const linkedThings = links.filter((l) => l.target_id === thing.id || l.source_id === thing.id);
+
+    const linkedDocs = React.useMemo(() => {
+        return linkedThings.map(link => {
+            const linkedThingId = link.source_id === thing.id ? link.target_id : link.source_id;
+            const linkedThing = things.find(t => t.id === linkedThingId);
+            return { linkId: link.id, linkedThingId, title: linkedThing?.title || 'Unknown Document' };
+        });
+    }, [linkedThings, things, thing.id]);
+
+    const [selectedDocs, setSelectedDocs] = React.useState<Record<string, boolean>>({});
+
+    React.useEffect(() => {
+        setSelectedDocs(prev => {
+            const next = { ...prev };
+            let changed = false;
+            linkedDocs.forEach(doc => {
+                if (next[doc.linkedThingId] === undefined) {
+                    next[doc.linkedThingId] = true;
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [linkedDocs]);
+
     React.useEffect(() => {
         let interval: NodeJS.Timeout;
         if (thing.content?.timeState?.step === "EXTRACTING") {
@@ -61,18 +87,21 @@ export function TimeMatrixViewer({ thing }: TimeMatrixViewerProps) {
         });
     };
 
-    const linkedThings = links.filter((l) => l.target_id === thing.id || l.source_id === thing.id);
-
     const handleExtract = async () => {
-        if (linkedThings.length === 0) {
-            alert("Please link at least one document to extract application data.");
+        const activeLinks = linkedThings.filter(link => {
+            const linkedThingId = link.source_id === thing.id ? link.target_id : link.source_id;
+            return selectedDocs[linkedThingId] !== false;
+        });
+
+        if (activeLinks.length === 0) {
+            alert("Please select at least one document to extract application data.");
             return;
         }
 
         updateTimeState({ step: "EXTRACTING" });
 
         try {
-            const prompt = `You are an Enterprise Architect AI. Your task is to extract Application Portfolio data from the provided document to build a TIME Matrix (Tolerate, Invest, Migrate, Eliminate).
+            const prompt = `You are an Enterprise Architect AI. Your task is to extract Application Portfolio data from the entire document to build a TIME Matrix (Tolerate, Invest, Migrate, Eliminate).
 CRITICAL RULES:
 1. Identify all software applications mentioned.
 2. Extract or estimate 'Technical Health' (0 to 10) based on code quality, modern stack, etc.
@@ -88,7 +117,7 @@ CRITICAL RULES:
 
 Return a JSON array of objects. Each object MUST have: id (string), name (string), technicalHealth (number), businessValue (number), runCost (number), riskProfile (string), quadrant (string), citations (array of strings). Only return the JSON array.`;
 
-            const extractionPromises = linkedThings.map(async (link) => {
+            const extractionPromises = activeLinks.map(async (link) => {
                 const linkedThingId = link.source_id === thing.id ? link.target_id : link.source_id;
                 const linkedThing = things.find(t => t.id === linkedThingId);
                 const contentText = linkedThing?.content?.text || linkedThing?.title || "";
@@ -130,7 +159,26 @@ Return a JSON array of objects. Each object MUST have: id (string), name (string
                 alert("No applications could be extracted from these documents.");
                 updateTimeState({ step: "WAITING", apps: [] });
             } else {
-                updateTimeState({ step: "READY", apps: allApps });
+                // Deduplicate extracted apps by name to prevent React key collisions and consolidate data
+                const uniqueAppsMap = new Map<string, TimeApp>();
+                allApps.forEach(app => {
+                    const normalizedName = (app.name || "").toLowerCase().trim();
+                    const dedupeKey = normalizedName || app.id;
+                    
+                    if (!uniqueAppsMap.has(dedupeKey)) {
+                        // Give it a guaranteed unique ID for React mapping
+                        app.id = `${app.id}-${Math.random().toString(36).substr(2, 9)}`;
+                        uniqueAppsMap.set(dedupeKey, app);
+                    } else {
+                        // If same app is found in multiple docs, combine their citations
+                        const existing = uniqueAppsMap.get(dedupeKey)!;
+                        if (app.citations && app.citations.length > 0) {
+                            existing.citations = Array.from(new Set([...(existing.citations || []), ...app.citations]));
+                        }
+                    }
+                });
+                
+                updateTimeState({ step: "READY", apps: Array.from(uniqueAppsMap.values()) });
             }
         } catch (error: any) {
             console.error("Extraction failed:", error);
@@ -138,6 +186,42 @@ Return a JSON array of objects. Each object MUST have: id (string), name (string
             updateTimeState({ step: "WAITING" });
         }
     };
+
+    const [isExporting, setIsExporting] = React.useState(false);
+
+    const handleExportWord = async () => {
+        setIsExporting(true);
+        try {
+            const response = await fetch(`/api/v1/canvases/${canvasId}/export-time-matrix`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${localStorage.getItem("token")}`
+                },
+                body: JSON.stringify({ apps })
+            });
+
+            if (!response.ok) {
+                throw new Error("Failed to export Word document");
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "TIME_Matrix_Export.docx";
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error: any) {
+            console.error("Export error:", error);
+            alert(`Failed to export: ${error.message}`);
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
 
     if (step === "READY") {
         return (
@@ -168,9 +252,15 @@ Return a JSON array of objects. Each object MUST have: id (string), name (string
                 <div className="flex-1 flex flex-col p-4 relative bg-slate-50/50 dark:bg-slate-900/50">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="font-semibold text-lg">TIME Matrix Analysis</h3>
-                        <Button variant="outline" size="sm" onClick={handleExtract}>
-                            <RefreshCw className="h-4 w-4 mr-2" /> Re-analyze
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={handleExtract}>
+                                <RefreshCw className="h-4 w-4 mr-2" /> Re-analyze
+                            </Button>
+                            <Button variant="default" size="sm" onClick={handleExportWord} disabled={isExporting}>
+                                {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileText className="h-4 w-4 mr-2" />}
+                                Export to Word
+                            </Button>
+                        </div>
                     </div>
                     
                     {/* Matrix Plot Area */}
@@ -306,15 +396,68 @@ Return a JSON array of objects. Each object MUST have: id (string), name (string
             </div>
 
             {step === "WAITING" && (
-                <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4">
-                    <div className="text-center max-w-sm">
-                        <p className="text-sm mb-2 font-semibold text-foreground">1. Link your Architectural Documents</p>
+                <div className="flex flex-col items-center justify-center flex-1 text-slate-500 gap-4 max-w-2xl mx-auto w-full px-4">
+                    <div className="bg-muted/30 border rounded-lg p-6 w-full shadow-sm">
+                        <h4 className="text-lg font-bold text-foreground mb-2 flex items-center gap-2">
+                            <Info className="h-5 w-5 text-primary" /> What is the TIME Matrix?
+                        </h4>
+                        <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
+                            The <strong>TIME Matrix</strong> (Tolerate, Invest, Migrate, Eliminate) is a strategic portfolio management framework used to evaluate existing software applications. It scores applications across two main dimensions:
+                        </p>
+                        <ul className="text-sm text-muted-foreground space-y-2 list-disc pl-5 mb-4">
+                            <li><strong>Technical Health:</strong> Assesses code quality, architecture modernization, and technical debt.</li>
+                            <li><strong>Business Value:</strong> Measures how critical the application is to business operations and strategic goals.</li>
+                        </ul>
+                        <p className="text-sm text-muted-foreground">
+                            Based on these scores, applications are categorized into quadrants, guiding strategic decisions on whether to <em>invest</em> in them, <em>migrate</em> them, <em>tolerate</em> them, or <em>eliminate</em> them entirely.
+                        </p>
+                    </div>
+
+                    <div className="text-center mt-4">
+                        <p className="text-sm font-semibold text-foreground mb-2">1. Select Documents for Extraction</p>
                         <p className="text-xs">The LangGraph Engine will extract applications and score their Technical Health and Business Value.</p>
                     </div>
-                    <div className="flex items-center gap-2 text-xs font-medium">
-                        <FileText className="h-4 w-4" /> {linkedThings.length} Links Found
+                    
+                    <div className="w-full max-w-md bg-background border rounded-lg overflow-hidden mt-2 shadow-sm">
+                        <div className="bg-muted/50 p-3 border-b flex justify-between items-center">
+                            <span className="text-xs font-semibold flex items-center gap-2">
+                                <FileText className="h-4 w-4" /> Available Documents ({linkedDocs.length})
+                            </span>
+                        </div>
+                        <div className="max-h-[200px] overflow-y-auto p-2">
+                            {linkedDocs.length === 0 ? (
+                                <div className="text-center text-xs text-muted-foreground py-8">
+                                    No documents linked yet.<br/>Connect a document node to this matrix.
+                                </div>
+                            ) : (
+                                <div className="space-y-1">
+                                    {linkedDocs.map(doc => (
+                                        <label key={doc.linkedThingId} className="flex items-center gap-3 p-2 hover:bg-muted/30 rounded cursor-pointer transition-colors">
+                                            <input 
+                                                type="checkbox" 
+                                                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                                                checked={selectedDocs[doc.linkedThingId] !== false}
+                                                onChange={(e) => {
+                                                    setSelectedDocs(prev => ({
+                                                        ...prev,
+                                                        [doc.linkedThingId]: e.target.checked
+                                                    }));
+                                                }}
+                                            />
+                                            <span className="text-sm font-medium text-foreground truncate" title={doc.title}>{doc.title}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <Button onClick={handleExtract} disabled={linkedThings.length === 0} className="mt-2">
+
+                    <Button 
+                        onClick={handleExtract} 
+                        disabled={linkedDocs.length === 0 || !Object.values(selectedDocs).some(v => v !== false)} 
+                        className="mt-4"
+                        size="lg"
+                    >
                         <Play className="h-4 w-4 mr-2" /> Start Extraction Engine
                     </Button>
                 </div>
