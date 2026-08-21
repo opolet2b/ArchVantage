@@ -72,78 +72,56 @@ router = APIRouter(
 
 class IngestRequest(BaseModel):
     document_ids: List[str]
-
-@router.post("/ingest")
-async def ingest_scenario(request: IngestRequest):
-    db = SessionLocal()
-    try:
-        documents_content = []
-        for doc_id in request.document_ids:
-            thing = db.query(CanvasThing).filter(CanvasThing.id == doc_id).first()
-            if thing:
-                content_dict = thing.content or {}
-                if isinstance(content_dict, str):
-                    text = content_dict
-                else:
-                    text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
-                documents_content.append(text)
-        
-        if not documents_content:
-            return {"status": "error", "message": "No valid documents found."}
-
-        raw_document_context = "\n\n---\n\n".join(documents_content)
-        document_context = await condense_architectural_context(raw_document_context)
-
-        graph = build_baseline_extractor_graph()
-        
-        result = await graph.ainvoke({
-            "document_context": document_context,
-            "baseline": None
-        })
-        
-        baseline: ArchitecturalBaseline = result.get("baseline")
-        if not baseline:
-            raise Exception("LLM failed to extract baseline architecture")
-            
-        return {"status": "success", "baseline": baseline.model_dump()}
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
+    thing_id: str
 
 @router.post("/ingest-stream")
 async def ingest_scenario_stream(request: IngestRequest):
-    db = SessionLocal()
+    import threading
+    import queue
+    import json
+    from sqlalchemy.orm.attributes import flag_modified
     
-    documents_content = []
-    for doc_id in request.document_ids:
-        thing = db.query(CanvasThing).filter(CanvasThing.id == doc_id).first()
-        if thing:
-            content_dict = thing.content or {}
-            if isinstance(content_dict, str):
-                text = content_dict
-            else:
-                text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
-            documents_content.append(text)
+    try:
+        with SessionLocal() as db:
+            thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+            if thing:
+                if thing.content is None:
+                    thing.content = {}
+                thing.content["archState"] = {"step": "EXTRACTING"}
+                flag_modified(thing, "content")
+                db.commit()
             
-    db.close()
-
+            documents_content = []
+            for doc_id in request.document_ids:
+                doc_thing = db.query(CanvasThing).filter(CanvasThing.id == doc_id).first()
+                if doc_thing:
+                    content_dict = doc_thing.content or {}
+                    if isinstance(content_dict, str):
+                        text = content_dict
+                    else:
+                        text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
+                    documents_content.append(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Database lock failed")
+        
     if not documents_content:
         async def err(): yield f"data: {json.dumps({'type': 'error', 'message': 'No valid documents found'})}\n\n"
         return StreamingResponse(err(), media_type="text/event-stream")
 
-    async def event_generator():
-        q = asyncio.Queue()
-        
+    q = queue.Queue()
+    
+    def worker():
         async def run_pipeline():
+            class AsyncQueueAdapter:
+                async def put(self, item):
+                    q.put(item)
+                    
             try:
-                await q.put({'type': 'progress', 'node': 'init', 'message': 'Reading documents...', 'percent': 5})
+                q.put({'type': 'progress', 'node': 'init', 'message': 'Reading documents...', 'percent': 5})
                 raw_document_context = "\n\n---\n\n".join(documents_content)
-                document_context = await condense_architectural_context(raw_document_context, queue=q)
+                document_context = await condense_architectural_context(raw_document_context, queue=AsyncQueueAdapter())
                 
-                await q.put({'type': 'progress', 'node': 'baseline', 'message': 'Synthesizing unified baseline architecture...', 'percent': 60})
+                q.put({'type': 'progress', 'node': 'baseline', 'message': 'Synthesizing unified baseline architecture...', 'percent': 60})
                 
                 graph = build_baseline_extractor_graph()
                 result = await graph.ainvoke({
@@ -155,26 +133,64 @@ async def ingest_scenario_stream(request: IngestRequest):
                 if not baseline:
                     raise Exception("LLM failed to extract baseline architecture")
                     
-                await q.put({'type': 'complete', 'result': baseline.model_dump()})
+                return baseline.model_dump()
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                await q.put({'type': 'error', 'message': str(e)})
+                raise e
                 
-        asyncio.create_task(run_pipeline())
-        
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            baseline_result = loop.run_until_complete(run_pipeline())
+            
+            q.put({'type': 'complete', 'result': baseline_result})
+            
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["archState"] = {"step": "DONE"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
+        except Exception as e:
+            q.put({'type': 'error', 'message': str(e)})
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["archState"] = {"step": "WAITING"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
+        q.put({"type": "done"})
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        import asyncio
         while True:
-            event = await q.get()
-            if event['type'] == 'complete':
-                yield f"data: {json.dumps({'type': 'complete', 'result': event['result']})}\n\n"
-                break
-            elif event['type'] == 'error':
-                yield f"data: {json.dumps({'type': 'error', 'message': event['message']})}\n\n"
-                break
-            else:
-                yield f"data: {json.dumps(event)}\n\n"
-                
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+            try:
+                msg = await asyncio.to_thread(q.get, timeout=0.1)
+                if msg["type"] == "done":
+                    break
+                yield f"data: {json.dumps(msg)}\n\n"
+                if msg["type"] in ["error", "complete"]:
+                    break
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 class ScenarioRequest(BaseModel):
     canvas_id: str
@@ -232,53 +248,139 @@ async def simulate_scenario(request: ScenarioRequest):
 
 @router.post("/simulate-stream")
 async def simulate_scenario_stream(request: ScenarioRequest):
-    db = SessionLocal()
-    
-    documents_content = []
-    for doc_id in request.document_ids:
-        thing = db.query(CanvasThing).filter(CanvasThing.id == doc_id).first()
-        if thing:
-            content_dict = thing.content or {}
-            if isinstance(content_dict, str):
-                text = content_dict
-            else:
-                text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
-            documents_content.append(text)
+    import threading
+    import queue
+    import json
+    from sqlalchemy.orm.attributes import flag_modified
+
+    try:
+        with SessionLocal() as db:
+            thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+            if thing:
+                if thing.content is None:
+                    thing.content = {}
+                thing.content["archState"] = {"step": "SIMULATING"}
+                flag_modified(thing, "content")
+                db.commit()
+            
+            documents_content = []
+            for doc_id in request.document_ids:
+                doc_thing = db.query(CanvasThing).filter(CanvasThing.id == doc_id).first()
+                if doc_thing:
+                    content_dict = doc_thing.content or {}
+                    if isinstance(content_dict, str):
+                        text = content_dict
+                    else:
+                        text = content_dict.get('text') or content_dict.get('content') or str(content_dict)
+                    documents_content.append(text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Database lock failed")
 
     raw_document_context = "\n\n---\n\n".join(documents_content) if documents_content else "No explicit document context provided."
-    document_context = await condense_architectural_context(raw_document_context) if documents_content else raw_document_context
-    db.close()
 
-    async def event_generator():
-        graph = build_architectural_scenario_graph()
-        initial_state = {
-            "action": request.action,
-            "target_technology": request.target_technology,
-            "target_entity_ids": request.target_entity_ids,
-            "custom_prompt": request.custom_prompt,
-            "document_context": document_context,
-            "baseline": request.baseline,
-            "result": None
-        }
-        
-        try:
+    q = queue.Queue()
+
+    def worker():
+        async def run_simulation():
+            class AsyncQueueAdapter:
+                async def put(self, item):
+                    q.put(item)
+                    
+            document_context = await condense_architectural_context(raw_document_context, queue=AsyncQueueAdapter()) if documents_content else raw_document_context
+            
+            graph = build_architectural_scenario_graph()
+            initial_state = {
+                "action": request.action,
+                "target_technology": request.target_technology,
+                "target_entity_ids": request.target_entity_ids,
+                "custom_prompt": request.custom_prompt,
+                "document_context": document_context,
+                "baseline": request.baseline,
+                "result": None
+            }
+            
             final_state = None
             async for event in graph.astream(initial_state):
                 for node_name, node_state in event.items():
-                    yield f"data: {json.dumps({'type': 'progress', 'node': node_name})}\n\n"
+                    q.put({'type': 'progress', 'node': node_name})
                     final_state = node_state
             
             if final_state and "result" in final_state:
                 sim_result = final_state["result"]
-                yield f"data: {json.dumps({'type': 'complete', 'result': sim_result.model_dump()})}\n\n"
+                return sim_result.model_dump()
             else:
-                yield f"data: {json.dumps({'type': 'error', 'message': 'Graph failed to produce a final result'})}\n\n"
+                raise Exception("Graph failed to produce a final result")
+
+        try:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            sim_result = loop.run_until_complete(run_simulation())
+            
+            q.put({'type': 'complete', 'result': sim_result})
+            
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["archState"] = {"step": "DONE"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
         except Exception as e:
             import traceback
             traceback.print_exc()
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            q.put({'type': 'error', 'message': str(e)})
+            try:
+                with SessionLocal() as db:
+                    thing = db.query(CanvasThing).filter(CanvasThing.id == request.thing_id).first()
+                    if thing:
+                        if thing.content is None:
+                            thing.content = {}
+                        thing.content["archState"] = {"step": "WAITING"}
+                        flag_modified(thing, "content")
+                        db.commit()
+            except Exception as db_err:
+                pass
+                
+        q.put({"type": "done"})
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        import asyncio
+        while True:
+            try:
+                msg = await asyncio.to_thread(q.get, timeout=0.1)
+                if msg["type"] == "done":
+                    break
+                yield f"data: {json.dumps(msg)}\n\n"
+                if msg["type"] in ["error", "complete"]:
+                    break
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+@router.get("/status/{thing_id}")
+async def get_arch_status(thing_id: str):
+    try:
+        with SessionLocal() as db:
+            thing = db.query(CanvasThing).filter(CanvasThing.id == thing_id).first()
+            if not thing:
+                raise HTTPException(status_code=404, detail="Thing not found")
+            
+            content = thing.content or {}
+            archState = content.get("archState", {})
+            step = archState.get("step", "WAITING")
+            
+            return {"step": step}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class DocxExportRequest(BaseModel):
     action: str

@@ -57,6 +57,35 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
     const baseline = thing.content?.baseline || null;
     const [result, setResult] = useState(thing.content?.result || null);
 
+    const checkStatus = React.useCallback(async () => {
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architectural_scenario/status/${thing.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.step === 'EXTRACTING' && status !== 'extracting') {
+                    setStatus('extracting');
+                } else if (data.step === 'SIMULATING' && status !== 'simulating') {
+                    setStatus('simulating');
+                } else if (data.step === 'DONE' && (status === 'extracting' || status === 'simulating')) {
+                    // Usually handled by stream end, but if user closed window:
+                    setStatus('idle');
+                }
+            }
+        } catch (err) {
+            console.error("Failed to check arch status", err);
+        }
+    }, [thing.id, status]);
+
+    React.useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (status === 'extracting' || status === 'simulating') {
+            interval = setInterval(() => {
+                checkStatus();
+            }, 15000);
+        }
+        return () => clearInterval(interval);
+    }, [status, checkStatus]);
+
     const handleIngest = async () => {
         setStatus('extracting');
         setProgressMessage('Connecting to server...');
@@ -78,7 +107,7 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${localStorage.getItem("token")}`
                 },
-                body: JSON.stringify({ document_ids: documentIds })
+                body: JSON.stringify({ document_ids: documentIds, thing_id: thing.id })
             });
 
             if (!response.ok) throw new Error("Ingestion failed");

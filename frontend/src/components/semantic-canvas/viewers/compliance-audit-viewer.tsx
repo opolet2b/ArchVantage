@@ -38,13 +38,40 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
         });
     };
 
-    const runAudit = async () => {
-        updateThing(thing.id, {
-            content: {
-                ...thing.content,
-                status: 'running'
+    const [auditStatus, setAuditStatus] = useState(thing.content?.auditState?.step === 'ANALYZING' ? 'running' : (thing.content?.status || 'idle'));
+    const [progressMessage, setProgressMessage] = useState<string>('');
+
+    const checkStatus = React.useCallback(async () => {
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/governance_audit/status/${thing.id}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.step === 'ANALYZING' && auditStatus !== 'running') {
+                    setAuditStatus('running');
+                } else if (data.step === 'DONE' && auditStatus === 'running') {
+                    setAuditStatus('completed');
+                } else if (data.step === 'WAITING' && auditStatus === 'running') {
+                    setAuditStatus('idle');
+                }
             }
-        });
+        } catch (err) {
+            console.error("Failed to check audit status", err);
+        }
+    }, [thing.id, auditStatus]);
+
+    React.useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (auditStatus === 'running') {
+            interval = setInterval(() => {
+                checkStatus();
+            }, 15000);
+        }
+        return () => clearInterval(interval);
+    }, [auditStatus, checkStatus]);
+
+    const runAudit = async () => {
+        setAuditStatus('running');
+        setProgressMessage('Connecting to server...');
         
         // Extract text content and title from the linked document nodes
         const extractDoc = (doc: any) => {
@@ -70,10 +97,11 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
             .map(extractDoc);
 
         try {
-            const response = await fetch('http://localhost:8000/api/v1/governance_audit/run', {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/governance_audit/run-stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    thing_id: thing.id,
                     guardrail_docs: guardrailDocs,
                     architecture_docs: architectureDocs,
                     llm_preset: 'default' // This uses the system default LLM
@@ -84,23 +112,57 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                 throw new Error(`API error: ${response.statusText}`);
             }
             
-            const results = await response.json();
-            
-            updateThing(thing.id, {
-                content: {
-                    ...thing.content,
-                    status: 'completed',
-                    results: results
+            if (!response.body) throw new Error("No readable stream");
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.trim() === '') continue;
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            if (data.type === 'progress') {
+                                setProgressMessage(data.message);
+                            } else if (data.type === 'complete') {
+                                updateThing(thing.id, {
+                                    content: {
+                                        ...thing.content,
+                                        status: 'completed',
+                                        results: data.result,
+                                        auditState: { step: 'DONE' }
+                                    }
+                                });
+                                setAuditStatus('completed');
+                            } else if (data.type === 'error') {
+                                throw new Error(data.message);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing stream chunk", e, line);
+                        }
+                    }
                 }
-            });
+            }
         } catch (error) {
             console.error('Audit failed:', error);
+            setAuditStatus('idle');
             // Revert status on error, or you could add an error display state
             updateThing(thing.id, {
                 content: {
                     ...thing.content,
                     status: 'idle',
-                    results: null
+                    results: null,
+                    auditState: { step: 'WAITING' }
                 }
             });
             alert('Failed to run audit. Please check the backend logs.');
@@ -125,7 +187,7 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                 <Button 
                     size="sm" 
                     onClick={runAudit}
-                    disabled={thing.content?.status === 'running' || connectedThings.length === 0}
+                    disabled={auditStatus === 'running' || connectedThings.length === 0}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                 >
                     <Play className="w-4 h-4 mr-2" />
@@ -184,21 +246,21 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                 <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-900/50">
                     <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                         <div className="max-w-4xl mx-auto space-y-6">
-                            {(!thing.content?.status || thing.content?.status === 'idle') && (
+                            {(!auditStatus || auditStatus === 'idle') && (
                                 <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                                     <ShieldCheck className="w-16 h-16 mb-4 opacity-20" />
                                     <p className="text-sm">Configure documents on the left and click "Run Audit"</p>
                                 </div>
                             )}
 
-                            {thing.content?.status === 'running' && (
+                            {auditStatus === 'running' && (
                                 <div className="flex flex-col items-center justify-center py-20">
                                     <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
-                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Analyzing architecture against guardrails...</span>
+                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400">{progressMessage || 'Analyzing architecture against guardrails...'}</span>
                                 </div>
                             )}
 
-                            {thing.content?.status === 'completed' && thing.content.results && (
+                            {auditStatus === 'completed' && thing.content?.results && (
                                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                                     <div className="p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm flex items-center justify-between">
                                         <div>
