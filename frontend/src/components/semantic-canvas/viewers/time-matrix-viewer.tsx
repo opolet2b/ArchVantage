@@ -178,8 +178,11 @@ export function TimeMatrixViewer({ thing }: TimeMatrixViewerProps) {
                 }
             }
         } catch (error: any) {
-            console.error("Extraction failed:", error);
-            updateTimeState({ step: "WAITING" });
+            console.error("Extraction failed or interrupted:", error);
+            // If the error is an abort/network error from page refresh, we DO NOT want to update the DB to WAITING.
+            // The backend is still running the map-reduce. We only set local state if we want to show an error,
+            // but honestly it's safer to just let the polling handle it or do a local-only state update.
+            // For now, we will NOT call updateTimeState to avoid overwriting the DB.
         }
     };
 

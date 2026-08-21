@@ -154,18 +154,9 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                 }
             }
         } catch (error) {
-            console.error('Audit failed:', error);
-            setAuditStatus('idle');
-            // Revert status on error, or you could add an error display state
-            updateThing(thing.id, {
-                content: {
-                    ...thing.content,
-                    status: 'idle',
-                    results: null,
-                    auditState: { step: 'WAITING' }
-                }
-            });
-            alert('Failed to run audit. Please check the backend logs.');
+            console.error('Audit failed or interrupted:', error);
+            // If the error is an abort/network error from page refresh, we DO NOT want to update the DB to WAITING.
+            // For now, we will NOT call updateThing to avoid overwriting the DB state if it's still analyzing.
         }
     };
 
