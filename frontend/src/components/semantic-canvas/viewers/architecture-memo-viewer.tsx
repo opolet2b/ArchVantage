@@ -275,23 +275,35 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
                     <span className="text-sm font-bold flex items-center gap-2 text-slate-700 dark:text-slate-300">
                         <FileText className="h-4 w-4 text-blue-500" /> 1-Page Architecture Memo
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="flex gap-2">
                         <Button 
-                            variant="ghost" 
                             size="sm" 
-                            className="text-xs h-8 gap-1 border border-slate-200 dark:border-slate-800 hover:bg-slate-100"
+                            variant="ghost"
+                            className={cn(
+                                "text-slate-600 dark:text-slate-300 transition-colors",
+                                syncState === 'idle' ? "hover:bg-slate-100 dark:hover:bg-slate-800" :
+                                syncState === 'completed' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                                syncState === 'running' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                                syncState === 'error' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                                "bg-slate-100 dark:bg-slate-800"
+                            )}
                             onClick={checkStatus}
+                            title="Sync Status from Server"
                             disabled={syncState === 'checking'}
                         >
-                            <RefreshCw className={cn("w-3.5 h-3.5", syncState === 'checking' && "animate-spin")} />
-                            {syncState === 'checking' ? "Checking..." : "Sync Status"}
+                            <RefreshCw className={cn("w-3.5 h-3.5 mr-2", syncState === 'checking' && "animate-spin")} />
+                            {syncState === 'idle' && "Sync Status"}
+                            {syncState === 'checking' && "Checking..."}
+                            {syncState === 'completed' && "Finished!"}
+                            {syncState === 'running' && "Still running..."}
+                            {syncState === 'error' && "Failed to sync"}
                         </Button>
-                        <Button variant="outline" size="sm" onClick={handleExportDocx} disabled={isExporting} className="h-8 px-3 text-xs bg-white dark:bg-slate-800">
-                            {isExporting ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Download className="h-3.5 w-3.5 mr-2" />} 
+                        <Button variant="outline" size="sm" onClick={handleExportDocx} disabled={isExporting}>
+                            {isExporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />} 
                             Export .docx
                         </Button>
-                        <Button variant="default" size="sm" onClick={() => setStep("WAITING")} className="h-8 px-3 text-xs bg-slate-800 hover:bg-slate-700">
-                            <RefreshCw className="h-3.5 w-3.5 mr-2" /> Start Over
+                        <Button variant="default" size="sm" onClick={() => setStep("WAITING")}>
+                            <RefreshCw className="h-4 w-4 mr-2" /> Start Over
                         </Button>
                     </div>
                 </div>
@@ -310,22 +322,30 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
                 <span className="text-sm font-bold flex items-center gap-2 text-slate-700 dark:text-slate-300">
                     <FileText className="h-4 w-4 text-blue-500" /> Architecture Memo Generator
                 </span>
-                {step === 'GENERATING' && (
+                <div className="flex gap-2">
                     <Button 
-                        variant="ghost" 
                         size="sm" 
-                        className="text-xs h-7 gap-1"
+                        variant="ghost"
+                        className={cn(
+                            "text-slate-600 dark:text-slate-300 transition-colors",
+                            syncState === 'idle' ? "hover:bg-slate-100 dark:hover:bg-slate-800" :
+                            syncState === 'completed' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                            syncState === 'running' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                            syncState === 'error' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                            "bg-slate-100 dark:bg-slate-800"
+                        )}
                         onClick={checkStatus}
+                        title="Sync Status from Server"
                         disabled={syncState === 'checking'}
                     >
-                        <RefreshCw className={cn("w-3 h-3", syncState === 'checking' && "animate-spin")} />
-                        {syncState === 'checking' && "Checking..."}
+                        <RefreshCw className={cn("w-3.5 h-3.5 mr-2", syncState === 'checking' && "animate-spin")} />
                         {syncState === 'idle' && "Sync Status"}
+                        {syncState === 'checking' && "Checking..."}
                         {syncState === 'completed' && "Finished!"}
-                        {syncState === 'error' && "Sync Failed"}
                         {syncState === 'running' && "Still running..."}
+                        {syncState === 'error' && "Failed to sync"}
                     </Button>
-                )}
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
@@ -409,47 +429,45 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
                     )}
 
                     {step === "GENERATING" && (
-                        <div className="p-12">
-                            <div className="text-center w-full">
-                                <div className="mb-8 flex justify-center">
-                                    <div className="relative">
-                                        <div className="absolute inset-0 bg-blue-500 blur-xl opacity-20 rounded-full animate-pulse"></div>
-                                        <div className="animate-spin rounded-full h-20 w-20 border-t-4 border-b-4 border-blue-500 border-l-4 border-l-transparent border-r-4 border-r-transparent relative z-10"></div>
+                        <div className="flex-1 bg-slate-100/50 dark:bg-slate-950 flex flex-col overflow-hidden relative justify-center">
+                            <div className="p-8 max-w-3xl mx-auto flex flex-col items-center gap-6 pb-20">
+                                <div className="mt-20 text-center flex flex-col items-center">
+                                    <div className="w-16 h-16 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin mb-6" />
+                                    <h3 className="text-xl font-medium text-slate-700 dark:text-slate-200 mb-2">Writing Memo...</h3>
+                                    
+                                    <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-md mb-6 max-w-md text-sm">
+                                        ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                                     </div>
-                                </div>
-                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-2">
-                                    Writing Memo...
-                                </h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400 mb-8 h-5">
-                                    {progressMessage}
-                                </p>
-                                
-                                <div className="w-full h-3 bg-slate-100 dark:bg-slate-800/50 rounded-full overflow-hidden mb-4 shadow-inner border border-slate-200 dark:border-slate-700/50">
-                                    <div 
-                                        className="h-full bg-blue-500 transition-all duration-300 ease-out relative"
-                                        style={{ width: `${Math.max(5, progressPercent)}%` }}
-                                    >
-                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/25 to-transparent animate-[shimmer_2s_infinite]"></div>
-                                    </div>
-                                </div>
-                                
-                                <div className="flex justify-between items-center text-xs font-semibold text-slate-400 mb-8">
-                                    <span>{Math.round(progressPercent)}%</span>
-                                    {elapsedTime !== null && (
-                                        <span className="flex items-center gap-1.5 text-blue-500 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-md">
-                                            <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-                                            {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
-                                        </span>
+
+                                    <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md h-5">
+                                        {elapsedTime === null 
+                                            ? 'Background process is running. Click Refresh Status to check.' 
+                                            : (progressMessage || 'Initiating analysis...')}
+                                    </p>
+                                    
+                                    {elapsedTime !== null ? (
+                                        <div className="w-64 mb-8">
+                                            <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden w-full">
+                                                <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${progressPercent}%` }} />
+                                            </div>
+                                            <div className="text-xs text-slate-400 dark:text-slate-500 text-right flex justify-between">
+                                                <span>{Math.round(progressPercent)}%</span>
+                                                <span>{elapsedTime}s elapsed</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="mb-8" />
                                     )}
+                                    
+                                    <div className="flex gap-4">
+                                        <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20" onClick={cancelGeneration}>
+                                            Cancel Generation
+                                        </Button>
+                                        <Button variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20" onClick={checkStatus}>
+                                            Refresh Status
+                                        </Button>
+                                    </div>
                                 </div>
-                                
-                                <Button 
-                                    variant="outline"
-                                    className="w-full border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-900/20"
-                                    onClick={cancelGeneration}
-                                >
-                                    <X className="w-4 h-4 mr-2" /> Cancel Generation
-                                </Button>
                             </div>
                         </div>
                     )}
