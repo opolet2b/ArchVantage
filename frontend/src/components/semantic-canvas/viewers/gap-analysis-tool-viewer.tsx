@@ -335,25 +335,16 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
                 </div>
 
                 <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex gap-2">
-                    {status === 'generating' ? (
-                        <Button 
-                            className="flex-1 bg-red-500 hover:bg-red-600 text-white gap-2"
-                            onClick={cancelGeneration}
-                        >
-                            <X className="w-4 h-4" /> Cancel
-                        </Button>
-                    ) : (
-                        <Button 
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                            disabled={isReadOnly || status === 'generating'}
-                            onClick={runAnalysis}
-                        >
-                            <span className="flex items-center gap-2">
-                                <Play className="w-4 h-4" />
-                                Run Analysis
-                            </span>
-                        </Button>
-                    )}
+                    <Button 
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                        disabled={isReadOnly || status === 'generating'}
+                        onClick={runAnalysis}
+                    >
+                        <span className="flex items-center gap-2">
+                            <Play className="w-4 h-4" />
+                            Run Analysis
+                        </span>
+                    </Button>
                 </div>
             </div>
 
@@ -370,37 +361,54 @@ export function GapAnalysisToolViewer({ thing, links = [] }: GapAnalysisToolView
                 )}
                 
                 {status === 'generating' && (
-                    <div className="m-auto text-center w-full max-w-md">
-                        <div className="mb-6 flex justify-center">
-                            <div className="relative">
-                                <div className="absolute inset-0 bg-blue-500 blur-xl opacity-20 rounded-full animate-pulse"></div>
-                                <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 border-l-4 border-l-transparent border-r-4 border-r-transparent relative z-10"></div>
+                    <div className="flex-1 bg-slate-100/50 dark:bg-slate-950 flex flex-col overflow-hidden relative justify-center min-h-[500px]">
+                        <div className="p-8 max-w-3xl mx-auto flex flex-col items-center gap-6 pb-20">
+                            <div className="mt-10 text-center flex flex-col items-center">
+                                <div className="w-16 h-16 border-4 border-slate-200 border-t-blue-500 rounded-full animate-spin mb-6" />
+                                <h3 className="text-xl font-medium text-slate-700 dark:text-slate-200 mb-2">Analyzing gaps...</h3>
+                                
+                                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-md mb-6 max-w-md text-sm text-center">
+                                    ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
+                                </div>
+
+                                {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...') ? (
+                                    <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2 text-center">
+                                        <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                            Background process is still running.
+                                        </p>
+                                        <p className="text-sm">
+                                            We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md h-5">
+                                        {progressMessage || 'Analyzing gaps between baseline and target architectures...'}
+                                    </p>
+                                )}
+                                
+                                {elapsedTime !== null ? (
+                                    <div className="w-64 mb-8">
+                                        <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden w-full">
+                                            <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${Math.max(5, progressPercent)}%` }} />
+                                        </div>
+                                        <div className="text-xs text-slate-400 dark:text-slate-500 text-right flex justify-between">
+                                            <span>{Math.round(progressPercent)}%</span>
+                                            <span>{elapsedTime}s elapsed</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="mb-8" />
+                                )}
+                                
+                                <div className="flex gap-4">
+                                    <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/50 dark:hover:bg-red-900/20" onClick={cancelGeneration}>
+                                        Cancel Generation
+                                    </Button>
+                                    <Button variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 dark:border-blue-900/50 dark:hover:bg-blue-900/20" onClick={checkStatus}>
+                                        Refresh Status
+                                    </Button>
+                                </div>
                             </div>
-                        </div>
-                        <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-2">
-                            Analyzing gaps...
-                        </h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 h-5">
-                            {progressMessage}
-                        </p>
-                        
-                        <div className="w-full h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden mb-3 shadow-inner">
-                            <div 
-                                className="h-full bg-blue-500 transition-all duration-300 ease-out relative"
-                                style={{ width: `${Math.max(5, progressPercent)}%` }}
-                            >
-                                <div className="absolute top-0 right-0 bottom-0 left-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_2s_infinite]"></div>
-                            </div>
-                        </div>
-                        
-                        <div className="flex justify-between items-center text-xs font-medium text-slate-400">
-                            <span>{Math.round(progressPercent)}%</span>
-                            {elapsedTime !== null && (
-                                <span className="flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                                    {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, '0')}
-                                </span>
-                            )}
                         </div>
                     </div>
                 )}

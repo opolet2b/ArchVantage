@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
 import { Presentation, FileText, Image as ImageIcon, ChevronRight, Play, Server, ListTree, Download, Edit2, Layout, ZoomIn, X, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { LinkedDocumentSelector } from './linked-document-selector';
 import { cn } from '@/lib/utils';
 import { ArchiMateToolViewer } from './archimate-tool-viewer';
 
@@ -17,6 +18,7 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     const selectedModel = useCanvasStore(state => state.selectedModel);
     const visionModel = useCanvasStore(state => state.visionModel);
     const activePreset = useCanvasStore(state => state.activePreset);
+    const things = useCanvasStore(state => state.things);
     
     // Status states
     const [status, setStatus] = useState<'idle' | 'generating' | 'completed'>(thing.content?.status || 'idle');
@@ -33,6 +35,31 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     );
     const [elapsedTime, setElapsedTime] = useState<number | null>(null);
     const [syncState, setSyncState] = useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
+    const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set());
+    const seenDocsRef = useRef<Set<string>>(new Set());
+
+    const nodeLinks = links.filter(link => link.source_id === thing.id || link.target_id === thing.id);
+    const allLinkedThings = nodeLinks
+        .map(link => {
+            const linkedId = link.source_id === thing.id ? link.target_id : link.source_id;
+            return things.find(t => t.id === linkedId);
+        })
+        .filter((t): t is CanvasThing => t !== undefined);
+
+    useEffect(() => {
+        setSelectedLinkIds(prev => {
+            const next = new Set(prev);
+            let changed = false;
+            allLinkedThings.forEach(doc => {
+                if (!seenDocsRef.current.has(doc.id)) {
+                    next.add(doc.id);
+                    seenDocsRef.current.add(doc.id);
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [allLinkedThings]);
 
     // Cancellation controller
     const abortControllerRef = React.useRef<AbortController | null>(null);
@@ -133,7 +160,6 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
     const concepts = thing.content?.concepts || null;
 
     const updateThing = useCanvasStore(state => state.updateThing);
-    const things = useCanvasStore(state => state.things);
 
     const normalize = (text: any) => {
         if (!text) return '';
@@ -193,18 +219,8 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
         };
     });
 
-    // Filter links to only include those connected to this specific tool
-    const nodeLinks = links.filter(link => link.source_id === thing.id || link.target_id === thing.id);
-    
     // Extract real images from connected Things
-    const linkedThings = nodeLinks
-        .map(link => {
-            const linkedId = link.source_id === thing.id ? link.target_id : link.source_id;
-            return things.find(t => t.id === linkedId);
-        })
-        .filter((t): t is CanvasThing => t !== undefined);
-
-    const realImages = linkedThings
+    const realImages = allLinkedThings
         .filter(t => t.type === 'image' || t.content?.image_asset_id || t.content?.url || (t.type === 'document' && t.content?.figures?.length > 0))
         .map(t => {
             if (t.content?.url) return t.content.url;
@@ -223,12 +239,7 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
         updateThing(thing.id, { content: { ...thing.content, status: 'generating' } });
 
         // Gather linked document contents using the filtered nodeLinks
-        const linkedThings = nodeLinks
-            .map(link => {
-                const linkedId = link.source_id === thing.id ? link.target_id : link.source_id;
-                return things.find(t => t.id === linkedId);
-            })
-            .filter((t): t is CanvasThing => t !== undefined);
+        const linkedThings = allLinkedThings.filter(t => selectedLinkIds.has(t.id));
 
         const sourceDocs = linkedThings.map(t => {
             const textContent = typeof t.content?.text === 'string' ? t.content.text : 
@@ -529,7 +540,7 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                     <Button 
                         size="sm" 
                         className={cn("text-white shadow-sm", nodeLinks.length > 0 ? "bg-blue-600 hover:bg-blue-700" : "bg-slate-300 dark:bg-slate-700")}
-                        disabled={isReadOnly || status === 'generating' || nodeLinks.length === 0}
+                        disabled={isReadOnly || status === 'generating' || nodeLinks.length === 0 || selectedLinkIds.size === 0}
                         onClick={handleGenerate}
                     >
                         {status === 'generating' ? (
@@ -648,12 +659,20 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                                     <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 px-4 py-2 rounded-md mb-6 max-w-md text-sm">
                                         ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                                     </div>
-
-                                    <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
-                                        {elapsedTime === null 
-                                            ? 'Background process is running. Click Refresh Status to check.' 
-                                            : (progressMessage || 'Synthesizing architecture models, scanning capabilities, and drafting the narrative...')}
-                                    </p>
+                                    {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...') ? (
+                                        <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2">
+                                            <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                                Background process is still running.
+                                            </p>
+                                            <p className="text-sm">
+                                                We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
+                                            {progressMessage || 'Synthesizing architecture models, scanning capabilities, and drafting the narrative...'}
+                                        </p>
+                                    )}
                                     
                                     {elapsedTime !== null ? (
                                         <div className="w-64 mb-8">
@@ -678,21 +697,28 @@ export function ExecutiveSummaryViewer({ thing, links = [] }: ExecutiveSummaryVi
                                     </div>
                                 </div>
                             ) : slides.length === 0 ? (
-                                <div className="mt-20 text-center">
+                                <div className="mt-20 text-center flex flex-col items-center w-full max-w-md mx-auto">
                                     <Presentation className="w-16 h-16 text-slate-300 dark:text-slate-700 mx-auto mb-4" />
-                                    <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-2">Storyboard Canvas</h3>
+                                    <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-6">Storyboard Canvas</h3>
+                                    
+                                    <LinkedDocumentSelector 
+                                        linkedThings={allLinkedThings}
+                                        selectedIds={selectedLinkIds}
+                                        onSelectionChange={setSelectedLinkIds}
+                                    />
+                                    
                                     {nodeLinks.length === 0 ? (
-                                        <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg max-w-md mx-auto mt-4 text-amber-700 dark:text-amber-400">
+                                        <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg w-full text-amber-700 dark:text-amber-400">
                                             <p className="font-semibold text-sm mb-1">Missing Source Documents</p>
                                             <p className="text-xs">
                                                 You must link existing architecture models or documents to this tool to start the analysis. Use the connector tool on the canvas.
                                             </p>
                                         </div>
                                     ) : (
-                                        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg max-w-md mx-auto mt-4 text-blue-700 dark:text-blue-400">
+                                        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg w-full text-blue-700 dark:text-blue-400">
                                             <p className="font-semibold text-sm mb-1">Ready for Analysis</p>
                                             <p className="text-xs">
-                                                {nodeLinks.length} source document(s) linked. Click "Generate Slide Deck" to synthesize the C-Level narrative thread.
+                                                {selectedLinkIds.size} source document(s) selected. Click "Generate Slide Deck" to synthesize the C-Level narrative thread.
                                             </p>
                                         </div>
                                     )}

@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Table, CheckCircle2, Loader2, Play, Plus, RefreshCw, FileText, Download, X } from "lucide-react";
 import { Document, Paragraph, Table as DocxTable, TableRow, TableCell, TextRun, WidthType, BorderStyle, HeadingLevel } from "docx";
 import { SpreadsheetToolViewer } from "./spreadsheet-tool-viewer";
+import { LinkedDocumentSelector } from "./linked-document-selector";
 import { cn } from "@/lib/utils";
 
 interface TradeOffMatrixViewerProps {
@@ -78,20 +79,22 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
         }).filter((t): t is CanvasThing => t !== undefined);
     }, [linkedThings, things, thing.id]);
 
-    const [selectedDocIds, setSelectedDocIds] = React.useState<Record<string, boolean>>({});
+    const [selectedLinkIds, setSelectedLinkIds] = React.useState<Set<string>>(new Set());
+    const seenDocsRef = React.useRef<Set<string>>(new Set());
     
     // Auto-select newly linked documents
     React.useEffect(() => {
-        setSelectedDocIds(prev => {
-            const newPrev = { ...prev };
+        setSelectedLinkIds(prev => {
+            const next = new Set(prev);
             let changed = false;
             linkedDocs.forEach(doc => {
-                if (newPrev[doc.id] === undefined) {
-                    newPrev[doc.id] = true;
+                if (!seenDocsRef.current.has(doc.id)) {
+                    next.add(doc.id);
+                    seenDocsRef.current.add(doc.id);
                     changed = true;
                 }
             });
-            return changed ? newPrev : prev;
+            return changed ? next : prev;
         });
     }, [linkedDocs]);
 
@@ -141,6 +144,18 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
         };
     }, [step, syncState]);
 
+    // Ensure elapsed time starts if we refresh while extracting
+    React.useEffect(() => {
+        let timer: NodeJS.Timeout;
+        if (step === 'EXTRACTING') {
+            setElapsedTime(0);
+            timer = setInterval(() => setElapsedTime(prev => (prev || 0) + 1), 1000);
+        } else {
+            setElapsedTime(null);
+        }
+        return () => clearInterval(timer);
+    }, [step]);
+
     const cancelGeneration = () => {
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -153,7 +168,7 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
     };
 
     const handleExtract = async () => {
-        const selectedDocs = linkedDocs.filter(d => selectedDocIds[d.id] !== false);
+        const selectedDocs = linkedDocs.filter(d => selectedLinkIds.has(d.id));
         
         if (selectedDocs.length === 0) {
             alert("Please select at least one document to extract options from.");
@@ -467,46 +482,18 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
                                 </div>
                                 
                                 <div>
-                                    <div className="w-full bg-background border rounded-lg overflow-hidden mt-2 shadow-sm nodrag nopan" onPointerDown={(e) => e.stopPropagation()}>
-                                        <div className="bg-muted/50 p-3 border-b flex justify-between items-center">
-                                            <span className="text-xs font-semibold flex items-center gap-2">
-                                                <FileText className="h-4 w-4" /> Available Documents ({linkedDocs.length})
-                                            </span>
-                                        </div>
-                                        <div className="max-h-[200px] overflow-y-auto p-2">
-                                            {linkedDocs.length === 0 ? (
-                                                <div className="text-center text-xs text-muted-foreground py-8">
-                                                    No documents linked yet.<br/>Connect a document node to this matrix.
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-1">
-                                                    {linkedDocs.map(doc => (
-                                                        <label key={doc.id} className="flex items-center gap-3 p-2 hover:bg-muted/30 rounded cursor-pointer transition-colors">
-                                                            <input 
-                                                                type="checkbox" 
-                                                                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-                                                                checked={selectedDocIds[doc.id] !== false}
-                                                                onChange={(e) => {
-                                                                    setSelectedDocIds(prev => ({
-                                                                        ...prev,
-                                                                        [doc.id]: e.target.checked
-                                                                    }));
-                                                                }}
-                                                            />
-                                                            <span className="text-sm font-medium text-foreground truncate" title={doc.title || doc.id}>{doc.title || doc.id}</span>
-                                                        </label>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
+                                    <LinkedDocumentSelector 
+                                        linkedThings={linkedDocs} 
+                                        selectedIds={selectedLinkIds}
+                                        onSelectionChange={setSelectedLinkIds}
+                                    />
                                 </div>
                             </div>
                             
                             <Button 
                                 onClick={handleExtract} 
                                 className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 text-base font-medium"
-                                disabled={linkedDocs.length === 0 || !Object.values(selectedDocIds).some(v => v !== false)}
+                                disabled={linkedDocs.length === 0 || selectedLinkIds.size === 0}
                             >
                                 <Play className="w-4 h-4 mr-2" /> Extract Options
                             </Button>
@@ -524,11 +511,20 @@ export function TradeOffMatrixViewer({ thing }: TradeOffMatrixViewerProps) {
                                         ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                                     </div>
 
-                                    <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md h-5">
-                                        {elapsedTime === null 
-                                            ? 'Background process is running. Click Refresh Status to check.' 
-                                            : (progressMessage || 'Initiating extraction...')}
-                                    </p>
+                                    {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...') ? (
+                                        <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2">
+                                            <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                                Background process is still running.
+                                            </p>
+                                            <p className="text-sm">
+                                                We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md h-5">
+                                            {progressMessage || 'Initiating extraction...'}
+                                        </p>
+                                    )}
                                     
                                     {elapsedTime !== null ? (
                                         <div className="w-64 mb-8">

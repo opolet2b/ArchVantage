@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { 
-    Workflow, Play, Save, Settings, Layers, AlertTriangle, 
-    ArrowRight, Activity, GitBranch, Zap, RefreshCw, Download
-} from 'lucide-react';
+import { Play, RotateCcw, AlertTriangle, Lightbulb, Zap, Plus, X, List, Share2, FileText, BarChart2, Layers, Download, CheckCircle2, Workflow, ZoomIn, ZoomOut, Check, ChevronDown, MessageSquare, RefreshCw, Activity } from 'lucide-react';
+import { MarkdownViewer } from './markdown-viewer';
+import { LinkedDocumentSelector } from './linked-document-selector';
+import { cn } from '@/lib/utils';
 import { CanvasThing, CanvasLink } from '../canvas-store';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -42,9 +42,36 @@ const nodeTypes = { swimlane: SwimlaneNode };
 export function ArchitecturalScenarioViewer({ thing, links = [] }: ArchitecturalScenarioViewerProps) {
     const updateThing = useCanvasStore(state => state.updateThing);
     const [viewMode, setViewMode] = useState<'baseline' | 'tobe'>('tobe');
-    const [status, setStatus] = useState<'idle' | 'extracting' | 'simulating' | 'complete' | 'error'>('idle');
-    const [progressMessage, setProgressMessage] = useState<string>('');
-    const [progressPercent, setProgressPercent] = useState<number>(0);
+    
+    const stateContent: Record<string, unknown> = (thing.content?.archState as Record<string, unknown>) || {};
+    const dbStep = stateContent.step as string;
+    const initialStatus = dbStep === 'EXTRACTING' ? 'extracting' : dbStep === 'SIMULATING' ? 'simulating' : dbStep === 'DONE' ? 'complete' : 'idle';
+    
+    const [status, setStatus] = useState<'idle' | 'extracting' | 'simulating' | 'complete' | 'error'>(initialStatus);
+    const [progressMessage, setProgressMessage] = useState<string>(
+        (status === 'extracting' || status === 'simulating') ? 'Background process is running...' : ''
+    );
+    const [progressPercent, setProgressPercent] = useState<number>(
+        (status === 'extracting' || status === 'simulating') ? 50 : 0
+    );
+
+    const updateArchState = (updates: Record<string, unknown>, extra?: Record<string, unknown>) => {
+        updateThing(thing.id, {
+            content: {
+                ...thing.content,
+                archState: { ...(thing.content?.archState as Record<string, unknown> || {}), ...updates },
+                ...extra
+            }
+        });
+    };
+
+    React.useEffect(() => {
+        const step = (thing.content?.archState as Record<string, unknown>)?.step;
+        if (step === "EXTRACTING" && status !== "extracting") setStatus("extracting");
+        else if (step === "SIMULATING" && status !== "simulating") setStatus("simulating");
+        else if (step === "DONE" && (status === "extracting" || status === "simulating")) setStatus("idle");
+        else if (step === "WAITING" && (status === "extracting" || status === "simulating")) setStatus("idle");
+    }, [(thing.content?.archState as Record<string, unknown>)?.step]);
 
     // Form states
     const [action, setAction] = useState(thing.content?.action || 'replace');
@@ -56,6 +83,33 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
     // Result states
     const baseline = thing.content?.baseline || null;
     const [result, setResult] = useState(thing.content?.result || null);
+
+    const things = useCanvasStore(state => state.things);
+    const linkedDocs = React.useMemo(() => {
+        return links.filter(l => l.target_id === thing.id && l.source_id !== thing.id)
+            .map(l => {
+                const docThing = things.find(t => t.id === l.source_id);
+                return { id: l.source_id, title: docThing?.title || l.source_id };
+            });
+    }, [links, thing.id, things]);
+
+    const [selectedLinkIds, setSelectedLinkIds] = React.useState<Set<string>>(new Set());
+    const seenDocsRef = React.useRef<Set<string>>(new Set());
+    
+    React.useEffect(() => {
+        setSelectedLinkIds(prev => {
+            const next = new Set(prev);
+            let changed = false;
+            linkedDocs.forEach(doc => {
+                if (!seenDocsRef.current.has(doc.id)) {
+                    next.add(doc.id);
+                    seenDocsRef.current.add(doc.id);
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [linkedDocs]);
 
     const [syncState, setSyncState] = useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
     const [elapsedTime, setElapsedTime] = useState<number | null>(null);
@@ -126,6 +180,7 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
             setProgressMessage('Cancelled');
             setElapsedTime(null);
             setProgressPercent(0);
+            updateArchState({ step: "WAITING" });
         }
     };
 
@@ -133,6 +188,7 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
         setStatus('extracting');
         setProgressMessage('Connecting to server...');
         setProgressPercent(0);
+        updateArchState({ step: "EXTRACTING" });
         
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -141,12 +197,10 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
         abortControllerRef.current = abortController;
 
         try {
-            const documentIds = links
-                .filter(l => l.target_id === thing.id && l.source_id !== thing.id)
-                .map(l => l.source_id);
+            const documentIds = linkedDocs.filter(d => selectedLinkIds.has(d.id)).map(d => d.id);
 
             if (documentIds.length === 0) {
-                alert("Please link at least one document to this tool before extracting the baseline.");
+                alert("Please select at least one document to extract the baseline.");
                 setStatus('idle');
                 return;
             }
@@ -224,6 +278,7 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
         setResult(null);
         setProgressMessage('Initializing simulation...');
         setProgressPercent(5);
+        updateArchState({ step: "SIMULATING" });
 
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -654,14 +709,38 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
     if (status === 'extracting' || status === 'simulating') {
         return (
             <div className="flex flex-col w-full h-full bg-slate-100 dark:bg-slate-950 overflow-hidden relative justify-center border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm">
-                <div className="absolute top-0 left-0 right-0 h-14 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between px-4 shrink-0 pointer-events-none">
-                    <div className="flex items-center gap-3">
+                <div className="absolute top-0 left-0 right-0 h-14 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between px-4 shrink-0 pointer-events-auto">
+                    <div className="flex items-center gap-3 pointer-events-none">
                         <div className="p-2 bg-purple-100 text-purple-700 rounded-lg">
                             <Workflow className="w-5 h-5" />
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-slate-900 dark:text-white leading-tight">Architectural Scenario Builder</h2>
                         </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button 
+                            size="sm" 
+                            variant="ghost"
+                            className={cn(
+                                "text-slate-600 dark:text-slate-300 transition-colors",
+                                syncState === 'idle' ? "hover:bg-slate-100 dark:hover:bg-slate-800" :
+                                syncState === 'completed' ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" :
+                                syncState === 'running' ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                                syncState === 'error' ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                                "bg-slate-100 dark:bg-slate-800"
+                            )}
+                            onClick={checkStatus}
+                            title="Sync Status from Server"
+                            disabled={syncState === 'checking'}
+                        >
+                            <RefreshCw className={cn("w-3.5 h-3.5 mr-2", syncState === 'checking' && "animate-spin")} />
+                            {syncState === 'idle' && "Sync Status"}
+                            {syncState === 'checking' && "Checking..."}
+                            {syncState === 'completed' && "Finished!"}
+                            {syncState === 'running' && "Still running..."}
+                            {syncState === 'error' && "Failed to sync"}
+                        </Button>
                     </div>
                 </div>
 
@@ -676,11 +755,20 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                             ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                         </div>
 
-                        <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
-                            {elapsedTime === null 
-                                ? 'Background process is running. Click Refresh Status to check.' 
-                                : (progressMessage || 'Processing...')}
-                        </p>
+                        {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...' || progressMessage === 'Background process is running...') ? (
+                            <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2">
+                                <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                    Background process is still running.
+                                </p>
+                                <p className="text-sm">
+                                    We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                </p>
+                            </div>
+                        ) : (
+                            <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
+                                {progressMessage || 'Processing...'}
+                            </p>
+                        )}
                         
                         {elapsedTime !== null ? (
                             <div className="w-64 mb-8">
@@ -763,7 +851,11 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
 
                     <Button 
                         variant="outline" 
-                        onClick={handleIngest} 
+                        onClick={() => {
+                            updateThing(thing.id, { content: { ...thing.content, baseline: null, result: null } });
+                            setResult(null);
+                            setStatus('idle');
+                        }} 
                         disabled={status === 'extracting' || status === 'simulating'}
                         className="gap-2 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
                         title="Re-extract baseline from documents"
@@ -964,18 +1056,27 @@ export function ArchitecturalScenarioViewer({ thing, links = [] }: Architectural
                             <Layers className="w-8 h-8" />
                         </div>
                         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-3">Extract Baseline Architecture</h2>
-                        <p className="text-slate-500 max-w-md mb-8 leading-relaxed">
+                        <p className="text-slate-500 max-w-md mb-6 leading-relaxed">
                             Before running a simulation, we need to extract the existing "As-Is" architecture topology from the documents linked to this tool.
                         </p>
+                        
+                        <div className="w-full max-w-md mb-6 text-left">
+                            <LinkedDocumentSelector 
+                                linkedThings={linkedDocs} 
+                                selectedIds={selectedLinkIds}
+                                onSelectionChange={setSelectedLinkIds}
+                            />
+                        </div>
+
                         <Button 
                             onClick={handleIngest} 
-                            disabled={status === 'extracting'} 
+                            disabled={status === 'extracting' || linkedDocs.length === 0 || selectedLinkIds.size === 0}  
                             className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-6 rounded-xl shadow-lg transition-all hover:scale-105"
                         >
                             {status === 'extracting' ? (
                                 <span className="flex items-center gap-2"><Workflow className="w-5 h-5 animate-spin" /> Extracting Baseline...</span>
                             ) : (
-                                <span className="flex items-center gap-2"><Layers className="w-5 h-5" /> Extract from Linked Documents</span>
+                                <span className="flex items-center gap-2"><Layers className="w-5 h-5" /> Extract from Selected Documents</span>
                             )}
                         </Button>
                         

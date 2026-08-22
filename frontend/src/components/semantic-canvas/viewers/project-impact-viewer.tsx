@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { 
     FileText, Play, Settings, Activity, MessageSquare, Send, Save, BarChart2, 
     GitBranch, Workflow, Calendar, Users, DollarSign, Layers, Plus, 
     AlertTriangle, ArrowRight, CheckCircle2, Zap, Edit2, Download, Wand2, HelpCircle, RefreshCw
 } from 'lucide-react';
+import { LinkedDocumentSelector } from './linked-document-selector';
 import { useCanvasStore, CanvasThing, CanvasLink } from '../canvas-store';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -783,16 +784,40 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
         }
     };
 
+    const allLinkedThings = links.filter(l => l.target_id === thing.id || l.source_id === thing.id)
+        .map(l => {
+            const docId = l.target_id === thing.id ? l.source_id : l.target_id;
+            return things.find(t => t.id === docId);
+        })
+        .filter((t): t is CanvasThing => t !== undefined);
+
+    const [selectedLinkIds, setSelectedLinkIds] = useState<Set<string>>(new Set());
+    const seenDocsRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        setSelectedLinkIds(prev => {
+            const next = new Set(prev);
+            let changed = false;
+            allLinkedThings.forEach(doc => {
+                if (!seenDocsRef.current.has(doc.id)) {
+                    next.add(doc.id);
+                    seenDocsRef.current.add(doc.id);
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [allLinkedThings]);
+
     const [isExtracting, setIsExtracting] = useState(false);
     
     const handleExtractFromDocs = async () => {
         setIsExtracting(true);
         try {
-            const connectedIds = links.filter(l => l.target_id === thing.id || l.source_id === thing.id)
-                .map(l => l.target_id === thing.id ? l.source_id : l.target_id);
+            const connectedIds = Array.from(selectedLinkIds);
             
             if (connectedIds.length === 0) {
-                alert("No documents linked to this project. Please link a document on the canvas first to sync context.");
+                alert("Please select at least one document to sync context.");
                 setIsExtracting(false);
                 return;
             }
@@ -824,6 +849,39 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
         }
     };
 
+    if (!thing.content?.report && status !== 'simulating') {
+        return (
+            <div className="flex flex-col w-full h-full bg-slate-100 dark:bg-slate-950 overflow-hidden relative justify-center border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm">
+                <div className="text-center flex flex-col items-center w-full max-w-md mx-auto">
+                    <Activity className="w-16 h-16 text-indigo-300 dark:text-indigo-700 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-slate-700 dark:text-slate-300 mb-6">Project Impact Simulator</h3>
+                    
+                    <LinkedDocumentSelector 
+                        linkedThings={allLinkedThings}
+                        selectedIds={selectedLinkIds}
+                        onSelectionChange={setSelectedLinkIds}
+                    />
+                    
+                    <Button 
+                        onClick={handleExtractFromDocs} 
+                        disabled={isExtracting || allLinkedThings.length === 0 || selectedLinkIds.size === 0}
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white mt-6 h-12 text-base font-medium transition-transform hover:scale-105 shadow-md"
+                    >
+                        {isExtracting ? (
+                            <span className="flex items-center gap-2">
+                                <Activity className="w-5 h-5 animate-spin" /> Extracting Components...
+                            </span>
+                        ) : (
+                            <span className="flex items-center gap-2">
+                                <Layers className="w-5 h-5" /> Initialize Configuration
+                            </span>
+                        )}
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
     if (status === 'simulating') {
         return (
             <div className="flex flex-col w-full h-full bg-slate-100 dark:bg-slate-950 overflow-hidden relative justify-center border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm">
@@ -845,11 +903,20 @@ export function ProjectImpactSimulatorViewer({ thing, links = [] }: ProjectImpac
                             ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                         </div>
 
-                        <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
-                            {elapsedTime === null 
-                                ? 'Background process is running. Click Refresh Status to check.' 
-                                : (progressMessage || 'Running LangGraph simulator...')}
-                        </p>
+                        {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...') ? (
+                            <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2">
+                                <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                    Background process is still running.
+                                </p>
+                                <p className="text-sm">
+                                    We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                </p>
+                            </div>
+                        ) : (
+                            <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
+                                {progressMessage || 'Running LangGraph simulator...'}
+                            </p>
+                        )}
                         
                         {elapsedTime !== null ? (
                             <div className="w-64 mb-8">

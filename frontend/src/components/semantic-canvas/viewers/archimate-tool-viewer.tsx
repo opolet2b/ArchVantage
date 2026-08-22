@@ -1,9 +1,10 @@
 import React, { useRef, useMemo, useEffect } from 'react';
-import { UploadCloud, Link as LinkIcon, Search, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { UploadCloud, Link as LinkIcon, Search, ChevronUp, ChevronDown, X, HelpCircle } from 'lucide-react';
 import { useCanvasStore, CanvasThing } from '../canvas-store';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { parseArchimateXml, ParsedArchimate, ArchimateNodeData } from '../services/archimate-parser';
 import { cn } from '@/lib/utils';
@@ -156,10 +157,14 @@ const nodeTypes = {
     archimate: ArchimateFlowElement
 };
 
-function SearchPanel({
-    searchQuery, setSearchQuery, searchResults, currentSearchIndex, setCurrentSearchIndex, setSelectedNodeId, activeDiagramId, setActiveDiagramId
+function TopToolbar({
+    searchQuery, setSearchQuery, searchResults, currentSearchIndex, setCurrentSearchIndex, setSelectedNodeId, activeDiagramId, setActiveDiagramId,
+    parsedData, activeDiagram, isReadOnly, fileInputRef,
+    impactModeEnabled, setImpactModeEnabled, setImpactAnalysis, calculateImpact, selectedNodeId
 }: {
-    searchQuery: string, setSearchQuery: (q: string) => void, searchResults: {diagramId: string, nodeId: string}[], currentSearchIndex: number, setCurrentSearchIndex: (i: number) => void, setSelectedNodeId: (id: string | null) => void, activeDiagramId: string | null, setActiveDiagramId: (id: string | null) => void
+    searchQuery: string, setSearchQuery: (q: string) => void, searchResults: {diagramId: string, nodeId: string}[], currentSearchIndex: number, setCurrentSearchIndex: (i: number) => void, setSelectedNodeId: (id: string | null) => void, activeDiagramId: string | null, setActiveDiagramId: (id: string | null) => void,
+    parsedData: ParsedArchimate, activeDiagram: any, isReadOnly: boolean, fileInputRef: React.RefObject<HTMLInputElement>,
+    impactModeEnabled: boolean, setImpactModeEnabled: (b: boolean) => void, setImpactAnalysis: any, calculateImpact: (id: string) => void, selectedNodeId: string | null
 }) {
     const reactFlow = useReactFlow();
     const [pendingFocusNodeId, setPendingFocusNodeId] = React.useState<string | null>(null);
@@ -204,7 +209,6 @@ function SearchPanel({
         }
     }, [reactFlow.getNodes(), pendingFocusNodeId]);
 
-    // Auto-focus when searching first time
     React.useEffect(() => {
         if (searchResults.length > 0 && searchQuery && currentSearchIndex === 0 && !pendingFocusNodeId) {
             focusResult(searchResults[0]);
@@ -212,45 +216,111 @@ function SearchPanel({
     }, [searchResults, searchQuery]);
 
     return (
-        <Panel position="top-center" className="m-2 bg-white/95 dark:bg-slate-900/95 p-1.5 rounded-md shadow-md border border-slate-200 dark:border-slate-800 flex items-center gap-1 backdrop-blur-sm z-50">
-            <Search className="w-4 h-4 text-slate-500 ml-1" />
-            <Input 
-                value={searchQuery}
-                onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                        if (e.shiftKey) {
-                            handlePrev();
-                        } else {
-                            handleNext();
+        <Panel position="top-center" className="nodrag m-2 bg-white/95 dark:bg-slate-900/95 p-1 rounded-md shadow-md border border-slate-200 dark:border-slate-800 flex items-center backdrop-blur-sm z-50 pointer-events-auto divide-x divide-slate-200 dark:divide-slate-700">
+            {/* Diagram Switcher and Re-import */}
+            <div className="flex items-center gap-2 px-3 py-1">
+                {parsedData.diagrams && parsedData.diagrams.length > 1 && (
+                    <select 
+                        className="text-sm font-semibold text-slate-600 bg-transparent px-2 py-1 outline-none hover:bg-slate-50 transition-colors cursor-pointer"
+                        value={activeDiagramId || ''}
+                        onChange={(e) => {
+                            setActiveDiagramId(e.target.value);
+                            setSelectedNodeId(null);
+                        }}
+                    >
+                        {parsedData.diagrams.map(d => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                    </select>
+                )}
+                {parsedData.diagrams && parsedData.diagrams.length === 1 && (
+                    <div className="text-sm font-semibold text-slate-600 bg-transparent px-2 py-1 pointer-events-none">
+                        {activeDiagram?.name}
+                    </div>
+                )}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isReadOnly}
+                    className="h-7 px-2"
+                    title="Re-import file"
+                >
+                    <UploadCloud className="w-4 h-4 mr-1.5" />
+                    Re-import
+                </Button>
+            </div>
+
+            {/* Search */}
+            <div className="flex items-center gap-1 px-3 py-1">
+                <Search className="w-4 h-4 text-slate-500" />
+                <Input 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            if (e.shiftKey) handlePrev();
+                            else handleNext();
                         }
-                    }
-                }}
-                placeholder="Search nodes..." 
-                className="h-7 text-xs border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-48 bg-transparent"
-            />
-            {searchResults.length > 0 && (
-                <span className="text-xs text-slate-500 whitespace-nowrap mr-1">
-                    {currentSearchIndex + 1} / {searchResults.length}
-                </span>
-            )}
-            {searchQuery && (
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
-                    setSearchQuery('');
-                    setSelectedNodeId(null);
-                }}>
-                    <X className="w-3 h-3" />
-                </Button>
-            )}
-            <div className="flex flex-col ml-1">
-                <Button variant="ghost" size="icon" className="h-4 w-5 rounded-none rounded-t-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800" onClick={handlePrev} disabled={searchResults.length === 0}>
-                    <ChevronUp className="w-3 h-3" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-4 w-5 rounded-none rounded-b-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800" onClick={handleNext} disabled={searchResults.length === 0}>
-                    <ChevronDown className="w-3 h-3" />
-                </Button>
+                    }}
+                    placeholder="Search nodes..." 
+                    className="h-7 text-xs border-0 focus-visible:ring-0 focus-visible:ring-offset-0 w-48 bg-transparent"
+                />
+                {searchResults.length > 0 && (
+                    <span className="text-xs text-slate-500 whitespace-nowrap mr-1">
+                        {currentSearchIndex + 1} / {searchResults.length}
+                    </span>
+                )}
+                {searchQuery && (
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                        setSearchQuery('');
+                        setSelectedNodeId(null);
+                    }}>
+                        <X className="w-3 h-3" />
+                    </Button>
+                )}
+                <div className="flex flex-col ml-1">
+                    <Button variant="ghost" size="icon" className="h-4 w-5 rounded-none rounded-t-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800" onClick={handlePrev} disabled={searchResults.length === 0}>
+                        <ChevronUp className="w-3 h-3" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-4 w-5 rounded-none rounded-b-sm bg-slate-100 hover:bg-slate-200 dark:bg-slate-800" onClick={handleNext} disabled={searchResults.length === 0}>
+                        <ChevronDown className="w-3 h-3" />
+                    </Button>
+                </div>
+            </div>
+
+            {/* Impact Analysis */}
+            <div className="flex items-center gap-3 px-3 py-1">
+                <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5">
+                        <Label htmlFor="archimate-impact-mode" className="text-xs font-bold cursor-pointer text-blue-600 dark:text-blue-400">
+                            Impact Analysis
+                        </Label>
+                        <TooltipProvider>
+                            <Tooltip delayDuration={100}>
+                                <TooltipTrigger asChild>
+                                    <span className="inline-flex cursor-help">
+                                        <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs text-xs z-[9999]" side="bottom" sideOffset={5}>
+                                    <p>When enabled, clicking a node will recursively trace and highlight all connected nodes and edges, helping visualize downstream and upstream dependencies.</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    </div>
+                    <span className="text-[9px] text-muted-foreground mt-0.5">Click to trace dependencies</span>
+                </div>
+                <Switch 
+                    id="archimate-impact-mode"
+                    checked={impactModeEnabled}
+                    onCheckedChange={(c) => {
+                        setImpactModeEnabled(c);
+                        if (!c) setImpactAnalysis({ active: false, nodeIds: new Set(), edgeIds: new Set() });
+                        else if (selectedNodeId) calculateImpact(selectedNodeId);
+                    }}
+                    className="scale-75"
+                />
             </div>
         </Panel>
     );
@@ -525,6 +595,13 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
             )}
             
             {/* Using nowheel to stop the outer canvas from zooming, but custom noWheelClassName on inner so it still zooms! */}
+            <input
+                type="file"
+                accept=".xml,.archimate"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+            />
             <div className="flex-1 relative nodrag nowheel overflow-hidden flex">
                     {!hasData ? (
                         <div className="flex flex-col items-center justify-center w-full h-full gap-4 text-slate-500 p-4">
@@ -533,13 +610,6 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                 <p className="text-sm font-medium text-slate-700 dark:text-slate-300">No Diagram Loaded</p>
                                 <p className="text-xs text-slate-500 mt-1">Upload an .xml or .archimate file</p>
                             </div>
-                            <input
-                                type="file"
-                                accept=".xml,.archimate"
-                                className="hidden"
-                                ref={fileInputRef}
-                                onChange={handleFileUpload}
-                            />
                             <Button 
                                 variant="outline" 
                                 size="sm" 
@@ -597,28 +667,7 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                             }} 
                                             maskColor="rgba(0,0,0, 0.1)" 
                                         />
-                                        <Panel position="top-right" className="m-2 bg-white/95 dark:bg-slate-900/95 p-2.5 rounded-md shadow-md border border-slate-200 dark:border-slate-800 flex items-center gap-3 backdrop-blur-sm z-50">
-                                            <div className="flex flex-col">
-                                                <Label htmlFor="archimate-impact-mode" className="text-xs font-bold cursor-pointer text-blue-600 dark:text-blue-400">
-                                                    Impact Analysis
-                                                </Label>
-                                                <span className="text-[9px] text-muted-foreground">Click to trace dependencies</span>
-                                            </div>
-                                            <Switch 
-                                                id="archimate-impact-mode"
-                                                checked={impactModeEnabled}
-                                                onCheckedChange={(c) => {
-                                                    setImpactModeEnabled(c);
-                                                    if (!c) {
-                                                        setImpactAnalysis({ active: false, nodeIds: new Set(), edgeIds: new Set() });
-                                                    } else if (selectedNodeId) {
-                                                        calculateImpact(selectedNodeId);
-                                                    }
-                                                }}
-                                                className="scale-75"
-                                            />
-                                        </Panel>
-                                        <SearchPanel 
+                                        <TopToolbar 
                                             searchQuery={searchQuery}
                                             setSearchQuery={setSearchQuery}
                                             searchResults={searchResults}
@@ -627,33 +676,20 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                                             setSelectedNodeId={setSelectedNodeId}
                                             activeDiagramId={activeDiagramId}
                                             setActiveDiagramId={setActiveDiagramId}
+                                            parsedData={parsedData}
+                                            activeDiagram={activeDiagram}
+                                            isReadOnly={isReadOnly}
+                                            fileInputRef={fileInputRef}
+                                            impactModeEnabled={impactModeEnabled}
+                                            setImpactModeEnabled={setImpactModeEnabled}
+                                            setImpactAnalysis={setImpactAnalysis}
+                                            calculateImpact={calculateImpact}
+                                            selectedNodeId={selectedNodeId}
                                         />
                                     </ReactFlow>
                                 </ReactFlowProvider>
-                            </div>
 
-                        {/* Top Left Diagram Switcher */}
-                        {parsedData.diagrams && parsedData.diagrams.length > 1 && (
-                            <div className="absolute top-2 left-2 z-10 pointer-events-auto">
-                                <select 
-                                    className="text-sm font-semibold text-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 rounded shadow border border-slate-200 dark:border-slate-700 outline-none hover:bg-slate-50 transition-colors"
-                                    value={activeDiagramId || ''}
-                                    onChange={(e) => {
-                                        setActiveDiagramId(e.target.value);
-                                        setSelectedNodeId(null);
-                                    }}
-                                >
-                                    {parsedData.diagrams.map(d => (
-                                        <option key={d.id} value={d.id}>{d.name}</option>
-                                    ))}
-                                </select>
                             </div>
-                        )}
-                        {parsedData.diagrams && parsedData.diagrams.length === 1 && (
-                            <div className="absolute top-2 left-2 text-sm font-semibold text-slate-600 bg-white/80 dark:bg-slate-800/80 px-2 py-1 rounded shadow-sm z-10 backdrop-blur-sm pointer-events-none">
-                                {activeDiagram?.name}
-                            </div>
-                        )}
 
                         {/* Right Side Properties Panel */}
                         {selectedNodeData && (
@@ -724,13 +760,6 @@ export function ArchiMateToolViewer({ thing, links, onSelect }: ArchiMateToolVie
                 ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-slate-400">
                         <p className="text-sm">No diagrams found in this file.</p>
-                        <input
-                            type="file"
-                            accept=".xml,.archimate"
-                            className="hidden"
-                            ref={fileInputRef}
-                            onChange={handleFileUpload}
-                        />
                         <Button 
                             variant="outline" 
                             size="sm" 

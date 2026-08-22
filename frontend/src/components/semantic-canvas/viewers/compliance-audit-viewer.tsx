@@ -27,19 +27,51 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
     const classifiedDocuments = thing.content?.classifiedDocuments || {};
 
     const handleClassify = (docId: string, role: 'Guardrail' | 'Architecture') => {
+        const currentRoles = Array.isArray(classifiedDocuments[docId]) ? classifiedDocuments[docId] : 
+                             (typeof classifiedDocuments[docId] === 'string' ? [classifiedDocuments[docId]] : []);
+        
+        let newRoles;
+        if (currentRoles.includes(role)) {
+            newRoles = currentRoles.filter((r: string) => r !== role);
+        } else {
+            newRoles = [...currentRoles, role];
+        }
+
         updateThing(thing.id, {
             content: {
                 ...thing.content,
                 classifiedDocuments: {
                     ...classifiedDocuments,
-                    [docId]: role
+                    [docId]: newRoles
                 }
             }
         });
     };
 
-    const [auditStatus, setAuditStatus] = useState(thing.content?.auditState?.step === 'ANALYZING' ? 'running' : (thing.content?.status || 'idle'));
-    const [progressMessage, setProgressMessage] = useState<string>('');
+    const hasGuardrail = connectedThings.some(doc => {
+        const roles = Array.isArray(classifiedDocuments[doc.id]) ? classifiedDocuments[doc.id] : 
+                     (typeof classifiedDocuments[doc.id] === 'string' ? [classifiedDocuments[doc.id]] : []);
+        return roles.includes('Guardrail');
+    });
+
+    const hasArchitecture = connectedThings.some(doc => {
+        const roles = Array.isArray(classifiedDocuments[doc.id]) ? classifiedDocuments[doc.id] : 
+                     (typeof classifiedDocuments[doc.id] === 'string' ? [classifiedDocuments[doc.id]] : []);
+        return roles.includes('Architecture');
+    });
+
+    const hasBothOnSameDoc = connectedThings.some(doc => {
+        const roles = Array.isArray(classifiedDocuments[doc.id]) ? classifiedDocuments[doc.id] : 
+                     (typeof classifiedDocuments[doc.id] === 'string' ? [classifiedDocuments[doc.id]] : []);
+        return roles.includes('Guardrail') && roles.includes('Architecture');
+    });
+
+    const canRunAudit = hasGuardrail && hasArchitecture;
+
+    const initialAuditStatus = thing.content?.auditState?.step === 'ANALYZING' ? 'running' : (thing.content?.status || 'idle');
+    const [auditStatus, setAuditStatus] = useState(initialAuditStatus);
+    const [progressMessage, setProgressMessage] = useState<string>(initialAuditStatus === 'running' ? 'Background process is running...' : '');
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     const [syncState, setSyncState] = useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
     const [elapsedTime, setElapsedTime] = useState<number | null>(null);
@@ -113,8 +145,15 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
 
     const runAudit = async () => {
         setAuditStatus('running');
+        updateThing(thing.id, {
+            content: {
+                ...thing.content,
+                auditState: { step: 'ANALYZING' }
+            }
+        });
         setProgressMessage('Connecting to server...');
         setProgressPercent(0);
+        setErrorMessage(null);
         
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
@@ -138,11 +177,19 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
         };
 
         const guardrailDocs = connectedThings
-            .filter(doc => classifiedDocuments[doc.id] === 'Guardrail')
+            .filter(doc => {
+                const roles = Array.isArray(classifiedDocuments[doc.id]) ? classifiedDocuments[doc.id] : 
+                             (typeof classifiedDocuments[doc.id] === 'string' ? [classifiedDocuments[doc.id]] : []);
+                return roles.includes('Guardrail');
+            })
             .map(extractDoc);
             
         const architectureDocs = connectedThings
-            .filter(doc => classifiedDocuments[doc.id] === 'Architecture')
+            .filter(doc => {
+                const roles = Array.isArray(classifiedDocuments[doc.id]) ? classifiedDocuments[doc.id] : 
+                             (typeof classifiedDocuments[doc.id] === 'string' ? [classifiedDocuments[doc.id]] : []);
+                return roles.includes('Architecture');
+            })
             .map(extractDoc);
 
         try {
@@ -209,9 +256,12 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
             console.error('Audit failed or interrupted:', error);
             if (error.name === 'AbortError') {
                 console.log('Audit aborted.');
+            } else {
+                setAuditStatus('idle');
+                setErrorMessage(error.message || "An unknown error occurred");
+                setElapsedTime(null);
+                setProgressPercent(0);
             }
-            // If the error is an abort/network error from page refresh, we DO NOT want to update the DB to WAITING.
-            // For now, we will NOT call updateThing to avoid overwriting the DB state if it's still analyzing.
         } finally {
             abortControllerRef.current = null;
         }
@@ -257,7 +307,7 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                     <Button 
                         size="sm" 
                         onClick={runAudit}
-                        disabled={auditStatus === 'running' || connectedThings.length === 0}
+                        disabled={auditStatus === 'running' || !canRunAudit}
                         className="bg-blue-600 hover:bg-blue-700 text-white"
                     >
                         <Play className="w-4 h-4 mr-2" />
@@ -282,32 +332,36 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                {connectedThings.map(doc => (
-                                    <div key={doc.id} className="flex flex-col gap-3 p-3 bg-white dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 shadow-sm transition-shadow hover:shadow-md">
-                                        <div className="flex items-center gap-2 overflow-hidden pb-1">
-                                            <FileText className="w-4 h-4 flex-shrink-0 text-slate-400" />
-                                            <span className="text-sm font-medium truncate" title={doc.title}>{doc.title}</span>
+                                {connectedThings.map(doc => {
+                                    const roles = Array.isArray(classifiedDocuments[doc.id]) ? classifiedDocuments[doc.id] : 
+                                                 (typeof classifiedDocuments[doc.id] === 'string' ? [classifiedDocuments[doc.id]] : []);
+                                    return (
+                                        <div key={doc.id} className="flex flex-col gap-3 p-3 bg-white dark:bg-slate-800 rounded-md border border-slate-200 dark:border-slate-700 shadow-sm transition-shadow hover:shadow-md">
+                                            <div className="flex items-center gap-2 overflow-hidden pb-1">
+                                                <FileText className="w-4 h-4 flex-shrink-0 text-slate-400" />
+                                                <span className="text-sm font-medium truncate" title={doc.title}>{doc.title}</span>
+                                            </div>
+                                            <div className="flex flex-col gap-2 flex-shrink-0 w-full">
+                                                <Button 
+                                                    size="sm" 
+                                                    variant={roles.includes('Guardrail') ? 'default' : 'outline'}
+                                                    onClick={() => handleClassify(doc.id, 'Guardrail')}
+                                                    className={cn("h-7 text-xs w-full overflow-hidden text-ellipsis", roles.includes('Guardrail') && "bg-amber-600 hover:bg-amber-700")}
+                                                >
+                                                    Guardrail Policy
+                                                </Button>
+                                                <Button 
+                                                    size="sm" 
+                                                    variant={roles.includes('Architecture') ? 'default' : 'outline'}
+                                                    onClick={() => handleClassify(doc.id, 'Architecture')}
+                                                    className={cn("h-7 text-xs w-full overflow-hidden text-ellipsis", roles.includes('Architecture') && "bg-emerald-600 hover:bg-emerald-700")}
+                                                >
+                                                    Target Architecture
+                                                </Button>
+                                            </div>
                                         </div>
-                                        <div className="flex flex-col gap-2 flex-shrink-0 w-full">
-                                            <Button 
-                                                size="sm" 
-                                                variant={classifiedDocuments[doc.id] === 'Guardrail' ? 'default' : 'outline'}
-                                                onClick={() => handleClassify(doc.id, 'Guardrail')}
-                                                className={cn("h-7 text-xs w-full overflow-hidden text-ellipsis", classifiedDocuments[doc.id] === 'Guardrail' && "bg-amber-600 hover:bg-amber-700")}
-                                            >
-                                                Guardrail Policy
-                                            </Button>
-                                            <Button 
-                                                size="sm" 
-                                                variant={classifiedDocuments[doc.id] === 'Architecture' ? 'default' : 'outline'}
-                                                onClick={() => handleClassify(doc.id, 'Architecture')}
-                                                className={cn("h-7 text-xs w-full overflow-hidden text-ellipsis", classifiedDocuments[doc.id] === 'Architecture' && "bg-emerald-600 hover:bg-emerald-700")}
-                                            >
-                                                Target Architecture
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -320,7 +374,25 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                             {(!auditStatus || auditStatus === 'idle') && (
                                 <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                                     <ShieldCheck className="w-16 h-16 mb-4 opacity-20" />
-                                    <p className="text-sm">Configure documents on the left and click "Run Audit"</p>
+                                    <p className="text-sm mb-4 text-center max-w-md">
+                                        You must assign at least one <strong>Guardrail Policy</strong> and one <strong>Target Architecture</strong> to run the audit.
+                                    </p>
+                                    {hasBothOnSameDoc && (
+                                        <div className="bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-400 px-4 py-3 rounded-md max-w-md text-sm text-center">
+                                            ⚠️ <strong>Warning:</strong> You have assigned both 'Guardrail Policy' and 'Target Architecture' to the same document. This is permitted if the single document contains both elements, but make sure this is intentional!
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {errorMessage && (
+                                <div className="flex flex-col items-center justify-center py-4">
+                                    <div className="bg-red-50 border border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400 px-6 py-4 rounded-md max-w-2xl text-sm shadow-sm">
+                                        <h4 className="font-bold flex items-center gap-2 mb-2">
+                                            <XCircle className="w-5 h-5" /> Audit Failed
+                                        </h4>
+                                        <p>{errorMessage}</p>
+                                    </div>
                                 </div>
                             )}
 
@@ -333,8 +405,20 @@ export function ComplianceAuditViewer({ thing, links = [] }: ComplianceAuditView
                                         ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                                     </div>
                                     
-                                    <span className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-4">{progressMessage || 'Analyzing architecture against guardrails...'}</span>
-                                    
+                                    {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...' || progressMessage === 'Background process is running...' || progressMessage === 'Background analysis is still running...') ? (
+                                        <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2 text-center">
+                                            <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                                Background process is still running.
+                                            </p>
+                                            <p className="text-sm">
+                                                We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <span className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-4">
+                                            {progressMessage || 'Analyzing architecture against guardrails...'}
+                                        </span>
+                                    )}
                                     {elapsedTime !== null ? (
                                         <div className="w-64 mb-8">
                                             <div className="bg-slate-200 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden w-full">

@@ -67,27 +67,59 @@ def invoke_with_fallback(llm, schema_class, messages):
 
 def guardrail_parser_node(state: GovernanceAuditState):
     """Phase 1: Extracts discrete, testable logic rules from natural text guardrail documents."""
-    llm = get_llm(state)
+    from llama_index.core import Document, VectorStoreIndex, Settings
+    from app.services.llm_service import llm_service
+    import json
+    import re
+    
+    preset = state.get("llm_preset", "default")
+    llm = llm_service._get_llama_index_model(preset)
+    Settings.llm = llm
     
     docs = state.get("guardrail_docs", [])
-    guardrail_text = "\n\n".join([f"--- DOCUMENT: {doc.get('title', 'Unknown')} ---\n{doc.get('text', '')}" for doc in docs])
+    llama_docs = [Document(text=d.get("text", ""), metadata={"title": d.get("title", "Unknown")}) for d in docs]
     
-    if not guardrail_text.strip():
+    if not llama_docs:
         return {"parsed_rules": [], "errors": ["No guardrail documents provided."]}
         
+    index = VectorStoreIndex.from_documents(llama_docs)
+    query_engine = index.as_query_engine(response_mode="compact", similarity_top_k=20)
+    
     prompt = f"""
     You are an Enterprise Architecture Governance auditor.
     Analyze the following governance and compliance policy text.
-    Extract all distinct, enforceable rules or guardrails that a target architecture must follow.
+    Extract distinct, enforceable rules or guardrails that a target architecture must follow.
+    CRITICAL: Extract a MAXIMUM of 10 of the most important rules to ensure the output is not truncated.
     
-    Policy Text:
-    {guardrail_text}
+    Output strictly in JSON format matching this structure:
+    {{
+      "rules": [
+        {{
+          "id": "R1",
+          "name": "Rule Name",
+          "description": "Rule Description",
+          "domain": "Rule Domain"
+        }}
+      ]
+    }}
     """
     
-    messages = [HumanMessage(content=prompt)]
     try:
-        result = invoke_with_fallback(llm, GuardrailParsingResult, messages)
-        return {"parsed_rules": result.rules}
+        response = query_engine.query(prompt)
+        raw_text = str(response)
+        
+        if '```json' in raw_text:
+            json_str = raw_text.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw_text:
+            json_str = raw_text.split('```')[1].split('```')[0].strip()
+        else:
+            match = re.search(r'\{[\s\S]*\}', raw_text)
+            json_str = match.group(0) if match else "{}"
+            
+        data = json.loads(json_str)
+        rules_data = data.get("rules", [])
+        rules = [Rule(**r) for r in rules_data]
+        return {"parsed_rules": rules}
     except Exception as e:
         return {"errors": [f"Guardrail parsing failed: {str(e)}"]}
 
@@ -99,14 +131,24 @@ def arch_model_extractor_node(state: GovernanceAuditState):
 
 def compliance_verifier_node(state: GovernanceAuditState):
     """Phase 3: Evaluates the architecture against the parsed rules."""
-    llm = get_llm(state)
+    from llama_index.core import Document, VectorStoreIndex, Settings
+    from app.services.llm_service import llm_service
+    import json
+    import re
+    
+    preset = state.get("llm_preset", "default")
+    llm = llm_service._get_llama_index_model(preset)
+    Settings.llm = llm
+    
     rules = state.get("parsed_rules", [])
-    
     docs = state.get("architecture_docs", [])
-    arch_text = "\n\n".join([f"--- TARGET ARCHITECTURE DOCUMENT: {doc.get('title', 'Unknown')} ---\n{doc.get('text', '')}" for doc in docs])
+    llama_docs = [Document(text=d.get("text", ""), metadata={"title": d.get("title", "Unknown")}) for d in docs]
     
-    if not rules or not arch_text.strip():
-        return {"violations": [], "compliant_rule_ids": []}
+    if not rules or not llama_docs:
+        return {"evaluations": []}
+        
+    index = VectorStoreIndex.from_documents(llama_docs)
+    query_engine = index.as_query_engine(response_mode="compact", similarity_top_k=20)
         
     rules_json = "\n".join([f"- [{r.id}] {r.name}: {r.description}" for r in rules])
     
@@ -117,23 +159,44 @@ def compliance_verifier_node(state: GovernanceAuditState):
     Rules to verify:
     {rules_json}
     
-    Target Architecture Documents (Source of Truth):
-    {arch_text}
-    
     For EVERY rule, determine if it is compliant or violated.
     Provide a detailed explanation for BOTH compliant and non-compliant rules.
     CRITICAL INSTRUCTION FOR REFERENCES:
-    Your references MUST ONLY come from the Target Architecture Documents provided above. Do NOT quote the rule definition or the guardrail policy.
+    Your references MUST ONLY come from the context provided. Do NOT quote the rule definition or the guardrail policy.
     Extract specific citations or quotes from the Target Architecture Documents to justify your assessment. 
     Format each reference EXACTLY like this: "[Document Title, Page X] The exact quote from the document". If page is unknown, just use the document title.
+    
+    Output strictly in JSON format matching this structure:
+    {{
+      "evaluations": [
+        {{
+          "rule_id": "R1",
+          "compliant": true,
+          "score": 100,
+          "explanation": "Detailed explanation here...",
+          "remediation": "Remediation if any...",
+          "references": ["Reference quote 1"]
+        }}
+      ]
+    }}
     """
     
-    messages = [HumanMessage(content=prompt)]
     try:
-        result = invoke_with_fallback(llm, ComplianceVerificationResult, messages)
-        return {
-            "evaluations": result.evaluations
-        }
+        response = query_engine.query(prompt)
+        raw_text = str(response)
+        
+        if '```json' in raw_text:
+            json_str = raw_text.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw_text:
+            json_str = raw_text.split('```')[1].split('```')[0].strip()
+        else:
+            match = re.search(r'\{[\s\S]*\}', raw_text)
+            json_str = match.group(0) if match else "{}"
+            
+        data = json.loads(json_str)
+        evals_data = data.get("evaluations", [])
+        evals = [RuleEvaluation(**e) for e in evals_data]
+        return {"evaluations": evals}
     except Exception as e:
         return {"errors": [f"Compliance verification failed: {str(e)}"]}
 

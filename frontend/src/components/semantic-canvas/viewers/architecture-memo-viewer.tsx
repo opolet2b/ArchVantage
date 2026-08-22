@@ -1,9 +1,10 @@
 import * as React from "react";
 import { CanvasThing, useCanvasStore } from "@/components/semantic-canvas/canvas-store";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { FileText, Loader2, Play, RefreshCw, CheckCircle2, Download, X } from "lucide-react";
 import { MarkdownViewer } from "./markdown-viewer";
+import { useAgentTask } from "@/hooks/use-agent-task";
+import { LinkedDocumentSelector } from "./linked-document-selector";
 import { cn } from "@/lib/utils";
 
 interface ArchitectureMemoViewerProps {
@@ -19,45 +20,47 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
     const canvasId = useCanvasStore((state) => state.canvasId);
     const [selectedLinkIds, setSelectedLinkIds] = React.useState<Set<string>>(new Set());
     const [isExporting, setIsExporting] = React.useState(false);
-    
-    // Status and Progress State
-    const stateContent: Record<string, unknown> = (thing.content?.memoState as Record<string, unknown>) || {};
-    const [step, setStep] = React.useState<MemoStep>((stateContent.step as MemoStep) || "WAITING");
-    const [memoContent, setMemoContent] = React.useState<string>((thing.content?.memoContent as string) || "");
-    const [progressPercent, setProgressPercent] = React.useState<number>(step === "GENERATING" ? 50 : 0);
-    const [progressMessage, setProgressMessage] = React.useState<string>(
-        step === "GENERATING" ? 'Running safely in the background...' : ''
-    );
-    const [elapsedTime, setElapsedTime] = React.useState<number | null>(null);
-    const [syncState, setSyncState] = React.useState<'idle' | 'checking' | 'completed' | 'running' | 'error'>('idle');
 
-    const abortControllerRef = React.useRef<AbortController | null>(null);
+    const [memoContent, setMemoContent] = React.useState<string>((thing.content?.memoContent as string) || "");
+
+    const {
+        step,
+        setStep,
+        progressPercent,
+        progressMessage,
+        elapsedTime,
+        syncState,
+        checkStatus,
+        cancelGeneration,
+        handleGenerateStream,
+        updateState
+    } = useAgentTask({
+        thingId: thing.id,
+        endpointPath: 'architecture_memo',
+        stateKey: 'memoState',
+        onCompleted: (data) => {
+            setMemoContent(data.memoContent);
+            updateState({ step: "DONE" }, { memoContent: data.memoContent });
+        }
+    });
 
     React.useEffect(() => {
-        const dbStep = (thing.content?.memoState as Record<string, unknown>)?.step as MemoStep || "WAITING";
         const dbMemo = (thing.content?.memoContent as string) || "";
-        if (dbStep === "DONE" && step !== "DONE") {
-            setStep("DONE");
+        if (step === "DONE" && dbMemo) {
             setMemoContent(dbMemo);
-        } else if (dbStep === "GENERATING" && step !== "GENERATING") {
-            setStep("GENERATING");
-        } else if (dbStep === "WAITING" && step !== "WAITING") {
-            setStep("WAITING");
         }
-    }, [(thing.content?.memoState as Record<string, unknown>)?.step, thing.content?.memoContent]);
+    }, [step, thing.content?.memoContent]);
 
-    const updateMemoState = (updates: Record<string, unknown>, extra?: Record<string, unknown>) => {
-        updateThing(thing.id, {
-            content: {
-                ...thing.content,
-                memoState: { ...stateContent, ...updates },
-                ...extra
-            }
-        });
-    };
-
-    const linkedThings = links.filter((l) => l.target_id === thing.id || l.source_id === thing.id);
-    const linkedIds = linkedThings.map(l => l.target_id === thing.id ? l.source_id : l.target_id);
+    const stateContent: Record<string, unknown> = (thing.content?.memoState as Record<string, unknown>) || {};
+    const linkedThings = links
+        .filter((l) => l.target_id === thing.id || l.source_id === thing.id)
+        .map(link => {
+            const otherId = link.target_id === thing.id ? link.source_id : link.target_id;
+            return things.find(t => t.id === otherId);
+        })
+        .filter((t): t is CanvasThing => t !== undefined);
+        
+    const linkedIds = linkedThings.map(t => t.id);
     
     React.useEffect(() => {
         setSelectedLinkIds(prev => {
@@ -74,63 +77,7 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
         });
     }, [linkedIds.join(',')]);
 
-    const checkStatus = async () => {
-        setSyncState('checking');
-        try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architecture_memo/status/${thing.id}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.step === 'DONE') {
-                    setMemoContent(data.memoContent);
-                    setStep('DONE');
-                    setSyncState('completed');
-                    updateMemoState({ step: "DONE" }, { memoContent: data.memoContent });
-                } else if (data.step === 'WAITING') {
-                    setStep('WAITING');
-                    setSyncState('idle');
-                    updateMemoState({ step: "WAITING" });
-                } else {
-                    if (!abortControllerRef.current) {
-                        setProgressMessage('Backend process is still running...');
-                    }
-                    setSyncState('running');
-                }
-            } else {
-                setSyncState('error');
-            }
-        } catch (err) {
-            console.error("Failed to check status", err);
-            setSyncState('error');
-        }
-        
-        setTimeout(() => setSyncState('idle'), 3000);
-    };
 
-    // Auto-poll status every 15 seconds while generating
-    React.useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (step === 'GENERATING') {
-            interval = setInterval(() => {
-                if (syncState !== 'checking') {
-                    checkStatus();
-                }
-            }, 15000);
-        }
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [step, syncState]);
-
-    const cancelGeneration = () => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        } else {
-            setStep('WAITING');
-            setProgressMessage('Cancelled');
-            setElapsedTime(null);
-            updateMemoState({ step: "WAITING" });
-        }
-    };
 
     const handleExportDocx = async () => {
         if (!memoContent) return;
@@ -167,105 +114,17 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
         }
     };
 
-    const handleGenerate = async () => {
+    const handleGenerate = () => {
         if (selectedLinkIds.size === 0) {
             alert("Please select at least one document to extract context from.");
             return;
         }
 
-        setStep("GENERATING");
-        setProgressPercent(5);
-        setProgressMessage("Initiating analysis...");
-        updateMemoState({ step: "GENERATING" });
-
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-        const abortController = new AbortController();
-        abortControllerRef.current = abortController;
-
-        try {
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/architecture_memo/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: abortController.signal,
-                body: JSON.stringify({
-                    thing_id: thing.id,
-                    selected_link_ids: Array.from(selectedLinkIds),
-                    canvas_id: canvasId
-                })
-            });
-            
-            if (!res.ok) throw new Error("API Request Failed");
-            if (!res.body) throw new Error("No response body");
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let done = false;
-
-            const startTime = Date.now();
-            const timerInterval = setInterval(() => {
-                setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
-            }, 1000);
-
-            let accumulatedData = "";
-
-            while (!done) {
-                const { value, done: readerDone } = await reader.read();
-                if (readerDone) {
-                    done = true;
-                    break;
-                }
-                
-                const chunk = decoder.decode(value, { stream: true });
-                accumulatedData += chunk;
-                
-                const parts = accumulatedData.split("\n\n");
-                accumulatedData = parts.pop() || "";
-                
-                for (const part of parts) {
-                    if (part.startsWith("data: ")) {
-                        try {
-                            const data = JSON.parse(part.slice(6));
-                            
-                            if (data.type === "step") {
-                                setProgressMessage(`Running step: ${data.node}...`);
-                                setProgressPercent((prev: number) => prev < 90 ? prev + 10 : prev);
-                            } else if (data.type === "chunk_progress") {
-                                const fraction = data.completed / Math.max(1, data.total);
-                                setProgressMessage(`Extracting Architecture Concepts (Chunk ${data.completed} of ${data.total})...`);
-                                setProgressPercent(10 + fraction * 60);
-                            } else if (data.type === "completed") {
-                                setProgressPercent(100);
-                                setProgressMessage("Complete!");
-                                
-                                setMemoContent(data.memoContent);
-                                setStep("DONE");
-                                
-                                updateMemoState({ step: "DONE" }, { memoContent: data.memoContent });
-                            } else if (data.type === "error") {
-                                throw new Error(data.message);
-                            }
-                        } catch (e) {
-                            console.error("Failed to parse SSE event:", e);
-                        }
-                    }
-                }
-            }
-            
-            clearInterval(timerInterval);
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
-                console.log('Generation aborted by user');
-            } else {
-                console.error("Generation failed:", error);
-                setProgressMessage(`Network connection dropped or error: ${error.message}`);
-                setStep('WAITING');
-                // CRITICAL FIX: Do not overwrite DB on error
-            }
-        } finally {
-            abortControllerRef.current = null;
-        }
+        handleGenerateStream({
+            thing_id: thing.id,
+            selected_link_ids: Array.from(selectedLinkIds),
+            canvas_id: canvasId
+        });
     };
 
     if (step === "DONE") {
@@ -363,60 +222,11 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
                                 </p>
                             </div>
 
-                            <div className="bg-slate-50 dark:bg-slate-950/50 rounded-lg p-5 border border-slate-100 dark:border-slate-800 mb-8">
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
-                                    Linked Context Documents <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full text-[10px]">{linkedThings.length}</span>
-                                </h4>
-                                {linkedThings.length === 0 ? (
-                                    <div className="text-sm text-slate-400 italic text-center py-4 bg-white dark:bg-slate-900 rounded border border-dashed border-slate-200 dark:border-slate-700">
-                                        No documents linked. Drag a connection from a document node to this memo to add context.
-                                    </div>
-                                ) : (
-                                    <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-2">
-                                        {linkedThings.map(linkedThing => {
-                                            const otherId = linkedThing.target_id === thing.id ? linkedThing.source_id : linkedThing.target_id;
-                                            const actualThing = things.find(t => t.id === otherId);
-                                            const isSelected = selectedLinkIds.has(otherId);
-                                            const title = actualThing?.title || otherId;
-                                            const type = actualThing?.type || linkedThing.type;
-
-                                            return (
-                                                <div 
-                                                    key={linkedThing.id} 
-                                                    className={cn(
-                                                        "flex items-center gap-3 p-3 rounded-md border transition-colors cursor-pointer",
-                                                        isSelected 
-                                                            ? "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800/50 shadow-sm" 
-                                                            : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
-                                                    )}
-                                                    onClick={() => {
-                                                        const next = new Set(selectedLinkIds);
-                                                        if (next.has(otherId)) {
-                                                            next.delete(otherId);
-                                                        } else {
-                                                            next.add(otherId);
-                                                        }
-                                                        setSelectedLinkIds(next);
-                                                        const deselected = linkedIds.filter(id => !next.has(id));
-                                                        updateMemoState({ deselectedLinkIds: deselected });
-                                                    }}
-                                                >
-                                                    <div className={cn(
-                                                        "w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors",
-                                                        isSelected ? "bg-blue-500 border-blue-500 text-white" : "border-slate-300 dark:border-slate-600"
-                                                    )}>
-                                                        {isSelected && <CheckCircle2 className="w-3.5 h-3.5" />}
-                                                    </div>
-                                                    <div className="truncate flex-1">
-                                                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300 truncate">{title}</p>
-                                                        <p className="text-xs text-slate-400 truncate">{type}</p>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
+                            <LinkedDocumentSelector 
+                                linkedThings={linkedThings} 
+                                selectedIds={selectedLinkIds}
+                                onSelectionChange={setSelectedLinkIds}
+                            />
                             
                             <Button 
                                 onClick={handleGenerate} 
@@ -439,11 +249,20 @@ export function ArchitectureMemoViewer({ thing }: ArchitectureMemoViewerProps) {
                                         ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                                     </div>
 
-                                    <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md h-5">
-                                        {elapsedTime === null 
-                                            ? 'Background process is running. Click Refresh Status to check.' 
-                                            : (progressMessage || 'Initiating analysis...')}
-                                    </p>
+                                    {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...') ? (
+                                        <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2">
+                                            <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                                Background process is still running.
+                                            </p>
+                                            <p className="text-sm">
+                                                We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md h-5">
+                                            {progressMessage || 'Initiating analysis...'}
+                                        </p>
+                                    )}
                                     
                                     {elapsedTime !== null ? (
                                         <div className="w-64 mb-8">

@@ -49,25 +49,40 @@ async def run_governance_audit_stream(request: GovernanceAuditRequest):
             
             graph = build_governance_audit_graph()
             
-            # Since the graph might not be designed for streaming progress, we'll run it synchronously
-            # but provide regular heartbeat if possible, or just wait for the result.
-            q.put({'type': 'progress', 'message': 'Analyzing architecture against guardrails...'})
+            q.put({'type': 'progress', 'message': 'Starting analysis...', 'percent': 5})
             
-            result = graph.invoke({
+            initial_state = {
                 "guardrail_docs": [doc.dict() for doc in request.guardrail_docs],
                 "architecture_docs": [doc.dict() for doc in request.architecture_docs],
                 "llm_preset": request.llm_preset,
                 "parsed_rules": [],
-                "violations": [],
-                "compliant_rule_ids": [],
+                "evaluations": [],
                 "final_results": {},
                 "errors": []
-            })
+            }
             
-            if result.get("errors"):
-                raise Exception("; ".join(result["errors"]))
+            final_results = {}
+            for output in graph.stream(initial_state):
+                for node_name, node_state in output.items():
+                    if node_state and isinstance(node_state, dict) and "errors" in node_state and node_state["errors"]:
+                        raise Exception("; ".join(node_state["errors"]))
+                    
+                    if node_name == "guardrail_parser":
+                        rules_count = len(node_state.get("parsed_rules", []))
+                        q.put({'type': 'progress', 'message': f'Extracted {rules_count} guardrail rules. Moving to architecture extraction...', 'percent': 30})
+                    elif node_name == "arch_model_extractor":
+                        q.put({'type': 'progress', 'message': 'Architecture models extracted. Starting compliance verification...', 'percent': 50})
+                    elif node_name == "compliance_verifier":
+                        evals = len(node_state.get("evaluations", []))
+                        q.put({'type': 'progress', 'message': f'Verified compliance against {evals} rules. Synthesizing final report...', 'percent': 80})
+                    elif node_name == "report_synthesizer":
+                        q.put({'type': 'progress', 'message': 'Finalizing report...', 'percent': 95})
+                        if "final_results" in node_state:
+                            final_results = node_state["final_results"]
+                            
+            if not final_results:
+                raise Exception("Audit completed but no final results were synthesized.")
                 
-            final_results = result.get("final_results", {})
             q.put({'type': 'complete', 'result': final_results})
             
             try:

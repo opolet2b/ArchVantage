@@ -557,11 +557,20 @@ export function TimeMatrixViewer({ thing }: TimeMatrixViewerProps) {
                                 ⚠️ <strong>Do not refresh this page.</strong> If you do, the generation will continue in the background but this screen will lose connection and stop updating automatically.
                             </div>
 
-                            <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
-                                {elapsedTime === null 
-                                    ? 'Background process is running. Click Refresh Status to check.' 
-                                    : (progressMessage || 'Reading context & running multi-agent extraction...')}
-                            </p>
+                            {(progressMessage === 'Running safely in the background...' || progressMessage === 'Backend process is still running...') ? (
+                                <div className="text-slate-500 dark:text-slate-400 mb-4 max-w-md space-y-2">
+                                    <p className="font-semibold text-amber-600 dark:text-amber-500">
+                                        Background process is still running.
+                                    </p>
+                                    <p className="text-sm">
+                                        We cannot estimate the remaining time because the page was refreshed, but the AI is actively processing in the background. Please wait for completion or click "Refresh Status" to check.
+                                    </p>
+                                </div>
+                            ) : (
+                                <p className="text-slate-500 dark:text-slate-400 mb-4 max-w-md">
+                                    {progressMessage || 'Reading context & running multi-agent extraction...'}
+                                </p>
+                            )}
                             
                             {elapsedTime !== null ? (
                                 <div className="w-64 mb-8">
